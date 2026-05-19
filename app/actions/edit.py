@@ -3,7 +3,6 @@ import shutil
 import tempfile
 import uuid
 
-import fitz
 from PyQt6.QtCore import QObject, QEventLoop, pyqtSignal, pyqtSlot
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtWidgets import (
@@ -252,23 +251,6 @@ def _pick_pdf_area(window):
     return result or None
 
 
-def _save_changes_in_place_or_copy(window, doc: fitz.Document, source_path: str, suffix: str) -> str | None:
-    try:
-        if os.path.exists(source_path):
-            doc.saveIncr()
-            return source_path
-    except Exception:
-        pass
-
-    fallback = _default_output_path(source_path, suffix)
-    try:
-        doc.save(fallback)
-        return fallback
-    except Exception as e:
-        show_warning(window, "Không lưu được tệp", str(e))
-        return None
-
-
 def _reset_edit_state(window):
     state = getattr(window, "_pdf_edit_state", None)
     if not state:
@@ -352,40 +334,11 @@ def _render_edit_state(window, state, status_message: str):
     except Exception:
         pass
 
-    doc = fitz.open(base_snapshot)
     try:
-        for op in ops:
-            page_no = op.get("page_number", 1)
-            if page_no < 1 or page_no > doc.page_count:
-                continue
-
-            # box lưu theo hệ PDF (y từ dưới lên): (left, bottom, right, top)
-            # fitz.Rect cần hệ fitz (y từ trên xuống): (x0, y0, x1, y1)
-            # Công thức: fitz_y0 = page_h - pdf_top, fitz_y1 = page_h - pdf_bottom
-            pdf_left, pdf_bottom, pdf_right, pdf_top = op.get("box", (0, 0, 0, 0))
-            page = doc[page_no - 1]
-            page_h = page.rect.height
-            rect = fitz.Rect(pdf_left, page_h - pdf_top, pdf_right, page_h - pdf_bottom)
-            if op.get("type") == "text":
-                page.insert_textbox(
-                    rect,
-                    op.get("text", ""),
-                    fontsize=op.get("font_size", 12),
-                    fontname="helv",
-                    color=op.get("font_color", (0, 0, 0)),
-                    align=0,
-                )
-            elif op.get("type") == "image":
-                image_path = op.get("image_path")
-                if image_path and os.path.exists(image_path):
-                    page.insert_image(rect, filename=image_path, keep_proportion=True)
-
-        doc.save(working_file)
+        get_pdf_engine().rebuild_pdf_with_ops(base_snapshot, working_file, ops)
     except Exception as e:
         show_warning(window, "Không lưu được tệp", str(e))
         return None
-    finally:
-        doc.close()
 
     _reload_viewer(window, working_file, page=current_page)
 
@@ -463,12 +416,6 @@ def _pick_save_pdf_path(window, default_name: str) -> str | None:
     if not path.lower().endswith(".pdf"):
         path += ".pdf"
     return path
-
-
-def _default_output_path(source_path: str, suffix: str) -> str:
-    base, ext = os.path.splitext(source_path)
-    ext = ext if ext else ".pdf"
-    return f"{base}_{suffix}{ext}"
 
 
 class _ObjectPlacementDialog(QDialog):
@@ -559,8 +506,6 @@ def insert_text_to_pdf(window):
         right = left + 180
         top = bottom + 44
 
-    text_rect = fitz.Rect(left, bottom, right, top)
-
     state = _ensure_edit_state(window)
     if not state:
         return
@@ -569,7 +514,7 @@ def insert_text_to_pdf(window):
         "id": state["next_id"],
         "type": "text",
         "page_number": page_number,
-        "box": (text_rect.x0, text_rect.y0, text_rect.x1, text_rect.y1),
+        "box": (left, bottom, right, top),
         "text": text,
         "font_size": font_size,
     }

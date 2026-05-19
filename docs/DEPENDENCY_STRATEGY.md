@@ -29,7 +29,13 @@ Phase 0.2 migration status:
 - Done: thumbnail rendering.
 - Done: print rendering.
 - Done: blank PDF creation.
-- Remaining: edit operations in `app/actions/edit.py` still use `fitz` directly for text/image insertion and undo rebuilds. This is the next PDF migration target before any commercial release.
+- Done in Phase 0.3: edit operations and undo rebuilds now call `PdfEngine.rebuild_pdf_with_ops()`.
+
+Current state:
+
+- Direct `fitz` imports should only exist in `packages/pdf_engine/pymupdf_engine.py`.
+- PyMuPDF remains a commercial-release blocker unless a commercial license is purchased.
+- Replacing PyMuPDF should primarily require a new `PdfEngine` implementation.
 
 ## Signing
 

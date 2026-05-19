@@ -10,6 +10,7 @@ In scope:
 - Document license risks and asset provenance gaps.
 - Prepare platform adapters for OS-specific behavior.
 - Prepare placeholder modules for PDF engine, signing, license, update, and backend.
+- Isolate direct PyMuPDF usage behind `packages/pdf_engine`.
 
 Out of scope:
 

@@ -65,3 +65,36 @@ class PyMuPdfEngine:
             doc.save(output_path)
         finally:
             doc.close()
+
+    def rebuild_pdf_with_ops(self, base_path: str, output_path: str, ops: list[dict]) -> None:
+        import fitz
+
+        doc = fitz.open(base_path)
+        try:
+            for op in ops:
+                page_no = int(op.get("page_number", 1))
+                if page_no < 1 or page_no > doc.page_count:
+                    continue
+
+                page = doc[page_no - 1]
+                pdf_left, pdf_bottom, pdf_right, pdf_top = op.get("box", (0, 0, 0, 0))
+                page_h = page.rect.height
+                rect = fitz.Rect(pdf_left, page_h - pdf_top, pdf_right, page_h - pdf_bottom)
+
+                if op.get("type") == "text":
+                    page.insert_textbox(
+                        rect,
+                        op.get("text", ""),
+                        fontsize=op.get("font_size", 12),
+                        fontname="helv",
+                        color=op.get("font_color", (0, 0, 0)),
+                        align=0,
+                    )
+                elif op.get("type") == "image":
+                    image_path = op.get("image_path")
+                    if image_path:
+                        page.insert_image(rect, filename=image_path, keep_proportion=True)
+
+            doc.save(output_path)
+        finally:
+            doc.close()

@@ -43,3 +43,6 @@ class PdfEngine(Protocol):
 
     def create_blank_pdf(self, output_path: str, width_pt: float, height_pt: float) -> None:
         ...
+
+    def rebuild_pdf_with_ops(self, base_path: str, output_path: str, ops: list[dict]) -> None:
+        ...
