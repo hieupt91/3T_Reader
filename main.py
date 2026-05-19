@@ -1,4 +1,5 @@
 import sys
+import platform as _platform
 
 # ================================================================
 # BƯỚC 1: Xử lý subprocess của QtWebEngine TRƯỚC TIÊN
@@ -47,7 +48,8 @@ if __name__ == "__main__":
 
     app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
     app.setStyleSheet(app.styleSheet() + STYLESHEET)
-    app.setFont(QFont("Segoe UI", 10))
+    _ui_font = {"Darwin": "SF Pro Text", "Windows": "Segoe UI"}.get(_platform.system(), "")
+    app.setFont(QFont(_ui_font, 10))
     app.setApplicationName(APP_NAME)
 
     window = PDFReaderApp()

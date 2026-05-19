@@ -21,7 +21,6 @@ from packages.qt_compat.QtWidgets import (
 from packages.qt_compat.QtCore import QObject, QEventLoop, Qt, pyqtSignal, pyqtSlot
 from packages.qt_compat.QtWebChannel import QWebChannel
 
-from core.pkcs11 import get_last_pkcs11_error
 from packages.signing import get_signing_provider
 from app.actions._guard import require_document
 from app.dialogs import show_warning, show_info
@@ -724,7 +723,7 @@ def check_token(window):
             f"Đã tìm thấy USB ký số.\n\nTrình điều khiển: {os.path.basename(lib)}{signer_line}",
         )
     else:
-        details = get_last_pkcs11_error()
+        details = provider.get_last_error()
         detail_line = f"\n\nChi tiết: {details}" if details else ""
         show_warning(
             window,

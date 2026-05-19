@@ -12,6 +12,9 @@ class TokenInfo:
 
 
 class SigningProvider(Protocol):
+    def get_last_error(self) -> str:
+        ...
+
     def detect_driver(self) -> str | None:
         ...
 

@@ -1,26 +1,30 @@
 # PDF.js Source Record
 
-Phase 0.7 status: incomplete source provenance.
+## Current Bundle
 
-Current bundle:
+- **Location:** `third_party/pdfjs`
+- **PDF.js version:** 5.6.205
+- **Source URL:** https://github.com/mozilla/pdf.js/releases/tag/v5.6.205
+- **License:** Apache License 2.0
 
-- Location: `third_party/pdfjs`
-- Origin: copied from the previous packaged dependency directory `pdfjs_viewer/pdfjs`.
-- Reason: remove app dependency on the GPL `pdfjs-viewer-pyqt6` wrapper while keeping direct PDF.js integration possible.
+Origin: migrated from previous packaged dependency `pdfjs_viewer/pdfjs`.
+The GPL wrapper `pdfjs-viewer-pyqt6` is not used; app integrates PDF.js directly
+via `app/pdf_viewer.py` using `QWebEngineView`.
 
-Included license files:
+## Included License Files
 
-- `third_party/pdfjs/LICENSE`
+- `third_party/pdfjs/LICENSE` — Apache 2.0 (PDF.js main)
 - `third_party/pdfjs/web/cmaps/LICENSE`
 - `third_party/pdfjs/web/iccs/LICENSE`
 - `third_party/pdfjs/web/standard_fonts/LICENSE_FOXIT`
 - `third_party/pdfjs/web/standard_fonts/LICENSE_LIBERATION`
 - `third_party/pdfjs/web/wasm/LICENSE_*`
 
-Required before release:
+## Required Before Commercial Release
 
-- Download official PDF.js distribution from Mozilla.
-- Record release version and source URL.
-- Record source commit or release tag.
-- Replace the migration copy.
-- Verify all nested license files remain present.
+- [ ] Download official PDF.js 5.6.205 distribution from Mozilla and replace current bundle
+      to establish clean chain of custody.
+- [ ] Record source commit: `git clone https://github.com/mozilla/pdf.js` and verify
+      tag `v5.6.205` matches bundled build checksums.
+- [ ] Verify all nested license files remain present after replacement.
+- [ ] Add sha256 checksums of `build/pdf.mjs` and `web/viewer.mjs` to this file.
