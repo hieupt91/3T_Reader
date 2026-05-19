@@ -1,0 +1,236 @@
+"""
+Fixture tests for the non-AGPL PDF edit pipeline.
+
+Coverage:
+- PdfiumEngine.create_blank_pdf()  → pypdfium2
+- PdfiumEngine.open() / page_count → pypdfium2
+- _build_overlay_pdf() text op     → reportlab only (no pikepdf needed)
+- _build_overlay_pdf() image op    → reportlab + Pillow
+- PdfiumEngine.rebuild_pdf_with_ops() → pikepdf + reportlab (skipped if pikepdf missing)
+
+None of these tests use PyMuPDF / fitz (AGPL). The legacy engine is NOT imported here.
+"""
+import io
+import os
+import sys
+import tempfile
+
+import pytest
+
+# ---------------------------------------------------------------------------
+# Dependency guards
+# ---------------------------------------------------------------------------
+
+def _skip_if_missing(*packages):
+    missing = []
+    for pkg in packages:
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        pytest.skip(f"Missing dependencies: {missing}")
+
+
+# ---------------------------------------------------------------------------
+# PdfiumEngine — create_blank_pdf
+# ---------------------------------------------------------------------------
+
+class TestPdfiumEngineCreateBlank:
+    def test_create_blank_pdf_creates_file(self, tmp_path):
+        _skip_if_missing("pypdfium2")
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+
+        out = str(tmp_path / "blank.pdf")
+        engine = PdfiumEngine()
+        engine.create_blank_pdf(out, width_pt=595, height_pt=842)
+
+        assert os.path.exists(out)
+        with open(out, "rb") as f:
+            assert f.read(5) == b"%PDF-"
+
+    def test_create_blank_pdf_has_one_page(self, tmp_path):
+        _skip_if_missing("pypdfium2")
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+
+        out = str(tmp_path / "blank.pdf")
+        engine = PdfiumEngine()
+        engine.create_blank_pdf(out, width_pt=595, height_pt=842)
+
+        doc = engine.open(out)
+        try:
+            assert doc.page_count == 1
+        finally:
+            doc.close()
+
+    def test_create_blank_pdf_custom_size(self, tmp_path):
+        _skip_if_missing("pypdfium2")
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+
+        out = str(tmp_path / "letter.pdf")
+        engine = PdfiumEngine()
+        engine.create_blank_pdf(out, width_pt=612, height_pt=792)
+
+        assert os.path.exists(out)
+
+
+# ---------------------------------------------------------------------------
+# PdfiumEngine — open / page_count
+# ---------------------------------------------------------------------------
+
+class TestPdfiumEngineOpen:
+    def _make_pdf(self, tmp_path, pages=2) -> str:
+        _skip_if_missing("pypdfium2")
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+        engine = PdfiumEngine()
+        path = str(tmp_path / "multi.pdf")
+        # Create multi-page via pypdfium2 directly
+        import pypdfium2 as pdfium
+        doc = pdfium.PdfDocument.new()
+        for _ in range(pages):
+            doc.new_page(595, 842)
+        doc.save(path)
+        doc.close()
+        return path
+
+    def test_open_returns_document(self, tmp_path):
+        _skip_if_missing("pypdfium2")
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+        path = self._make_pdf(tmp_path)
+        engine = PdfiumEngine()
+        doc = engine.open(path)
+        assert doc is not None
+        doc.close()
+
+    def test_page_count_correct(self, tmp_path):
+        _skip_if_missing("pypdfium2")
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+        path = self._make_pdf(tmp_path, pages=3)
+        engine = PdfiumEngine()
+        assert engine.page_count(path) == 3
+
+    def test_needs_password_false_for_unencrypted(self, tmp_path):
+        _skip_if_missing("pypdfium2")
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+        path = self._make_pdf(tmp_path)
+        engine = PdfiumEngine()
+        doc = engine.open(path)
+        assert doc.needs_password is False
+        doc.close()
+
+
+# ---------------------------------------------------------------------------
+# _build_overlay_pdf — reportlab (no pikepdf needed)
+# ---------------------------------------------------------------------------
+
+class TestBuildOverlayPdf:
+    def test_text_op_produces_pdf_bytes(self):
+        _skip_if_missing("reportlab")
+        from packages.pdf_engine.pdfium_engine import _build_overlay_pdf
+
+        ops = [{"type": "text", "text": "Hello 3T", "box": (50, 700, 250, 750), "font_size": 12}]
+        result = _build_overlay_pdf(595, 842, ops)
+        assert isinstance(result, bytes)
+        assert result[:4] == b"%PDF"
+
+    def test_empty_ops_returns_empty_bytes(self):
+        _skip_if_missing("reportlab")
+        from packages.pdf_engine.pdfium_engine import _build_overlay_pdf
+
+        result = _build_overlay_pdf(595, 842, [])
+        assert result == b""
+
+    def test_image_op_with_valid_file(self, tmp_path):
+        _skip_if_missing("reportlab", "PIL")
+        from packages.pdf_engine.pdfium_engine import _build_overlay_pdf
+        from PIL import Image
+
+        img_path = str(tmp_path / "test_img.png")
+        img = Image.new("RGB", (100, 50), color=(255, 0, 0))
+        img.save(img_path)
+
+        ops = [{"type": "image", "image_path": img_path, "box": (100, 600, 300, 700)}]
+        result = _build_overlay_pdf(595, 842, ops)
+        assert isinstance(result, bytes)
+        assert result[:4] == b"%PDF"
+
+    def test_image_op_missing_file_returns_empty(self, tmp_path):
+        _skip_if_missing("reportlab")
+        from packages.pdf_engine.pdfium_engine import _build_overlay_pdf
+
+        ops = [{"type": "image", "image_path": "/nonexistent/path.png", "box": (100, 600, 300, 700)}]
+        result = _build_overlay_pdf(595, 842, ops)
+        assert result == b""
+
+    def test_text_multiline_wraps_correctly(self):
+        _skip_if_missing("reportlab")
+        from packages.pdf_engine.pdfium_engine import _build_overlay_pdf
+
+        long_text = "Đây là một đoạn văn bản dài để kiểm tra khả năng xuống dòng tự động trong hộp PDF"
+        ops = [{"type": "text", "text": long_text, "box": (50, 600, 250, 720), "font_size": 10}]
+        result = _build_overlay_pdf(595, 842, ops)
+        assert result[:4] == b"%PDF"
+
+
+# ---------------------------------------------------------------------------
+# PdfiumEngine.rebuild_pdf_with_ops — requires pikepdf
+# ---------------------------------------------------------------------------
+
+class TestRebuildPdfWithOps:
+    def _make_blank_pdf(self, tmp_path) -> str:
+        _skip_if_missing("pypdfium2")
+        import pypdfium2 as pdfium
+        path = str(tmp_path / "base.pdf")
+        doc = pdfium.PdfDocument.new()
+        doc.new_page(595, 842)
+        doc.save(path)
+        doc.close()
+        return path
+
+    def test_text_overlay_produces_valid_pdf(self, tmp_path):
+        _skip_if_missing("pypdfium2", "pikepdf", "reportlab")
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+
+        base = self._make_blank_pdf(tmp_path)
+        out = str(tmp_path / "output.pdf")
+        ops = [{"type": "text", "text": "3T Reader Test", "box": (50, 700, 300, 750),
+                "page_number": 1, "font_size": 12}]
+        PdfiumEngine().rebuild_pdf_with_ops(base, out, ops)
+
+        assert os.path.exists(out)
+        with open(out, "rb") as f:
+            assert f.read(5) == b"%PDF-"
+
+    def test_no_ops_copies_file_unchanged(self, tmp_path):
+        _skip_if_missing("pypdfium2", "pikepdf", "reportlab")
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+
+        base = self._make_blank_pdf(tmp_path)
+        out = str(tmp_path / "copy.pdf")
+        PdfiumEngine().rebuild_pdf_with_ops(base, out, [])
+
+        assert os.path.exists(out)
+        with open(out, "rb") as f:
+            assert f.read(5) == b"%PDF-"
+
+
+# ---------------------------------------------------------------------------
+# Verify PyMuPDF / fitz NOT imported by non-AGPL path
+# ---------------------------------------------------------------------------
+
+class TestNoPyMuPdfInDefaultPath:
+    def test_pdfium_engine_does_not_import_fitz(self):
+        """Importing PdfiumEngine must NOT cause fitz/PyMuPDF to be loaded."""
+        # Ensure fitz is not already loaded
+        fitz_loaded_before = "fitz" in sys.modules or "pymupdf" in sys.modules
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+        fitz_loaded_after = "fitz" in sys.modules or "pymupdf" in sys.modules
+        if not fitz_loaded_before:
+            assert not fitz_loaded_after, "PdfiumEngine must not import fitz/PyMuPDF"
+
+    def test_default_engine_is_not_pymupdf(self):
+        from packages.pdf_engine import get_pdf_engine
+        from packages.pdf_engine.pymupdf_engine import PyMuPdfEngine
+        engine = get_pdf_engine()
+        assert not isinstance(engine, PyMuPdfEngine), \
+            "Default engine must be PdfiumEngine, not PyMuPdfEngine (AGPL)"

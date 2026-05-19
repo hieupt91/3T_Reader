@@ -72,11 +72,12 @@ class PdfiumEngine:
             doc.close()
 
     def create_blank_pdf(self, output_path: str, width_pt: float, height_pt: float) -> None:
-        import pikepdf
+        import pypdfium2 as pdfium
 
-        pdf = pikepdf.Pdf.new()
-        pdf.add_blank_page(page_size=(width_pt, height_pt))
-        pdf.save(output_path)
+        doc = pdfium.PdfDocument.new()
+        doc.new_page(width_pt, height_pt)
+        doc.save(output_path)
+        doc.close()
 
     def rebuild_pdf_with_ops(self, base_path: str, output_path: str, ops: list[dict]) -> None:
         import pikepdf
