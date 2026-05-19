@@ -22,7 +22,9 @@ Phase 0.4 status:
 
 ## PDF Engine
 
-Current: PyMuPDF adapter in `packages/pdf_engine/pymupdf_engine.py`.
+Current prototype default: PyMuPDF adapter in `packages/pdf_engine/pymupdf_engine.py`.
+
+Commercial-safe migration target: `packages/pdf_engine/pdfium_engine.py` using `pypdfium2` for read/render and `pikepdf` for structural PDF operations.
 
 Commercial target:
 
@@ -44,6 +46,8 @@ Current state:
 - Direct `fitz` imports should only exist in `packages/pdf_engine/pymupdf_engine.py`.
 - PyMuPDF remains a commercial-release blocker unless a commercial license is purchased.
 - Replacing PyMuPDF should primarily require a new `PdfEngine` implementation.
+- Phase 0.5 adds `PdfiumEngine` and `THREET_READER_PDF_ENGINE=pdfium` selection for read/render trials.
+- `PdfiumEngine` does not yet support edit operations. PDF edit replacement remains required before dropping the PyMuPDF prototype engine.
 
 ## Signing
 

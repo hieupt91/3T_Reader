@@ -9,6 +9,8 @@ This is a Phase 0 technical register, not legal advice.
 | pdfjs-viewer-pyqt6 | Removed from app imports | GPL-3.0-or-later. High risk for closed-source app distribution. | Keep out of commercial builds. Internal viewer loads PDF.js directly. |
 | PDF.js | Internal viewer bundle | Apache-2.0 plus bundled notices/fonts/wasm licenses. | Replace migration copy with official pinned PDF.js release and keep notices. |
 | PyMuPDF/MuPDF | Thumbnail, print, PDF edit | AGPL/commercial. High risk for closed-source commercial app. | Phase 0.3 isolates direct usage in `packages/pdf_engine/pymupdf_engine.py`. Buy commercial license or replace before release. |
+| pypdfium2 / PDFium | Experimental read/render engine | License must be verified and notices retained. Generally a better commercial fit than AGPL, but still requires compliance review. | Phase 0.5 adds `PdfiumEngine` for read/render trials. |
+| pikepdf / qpdf | Experimental structural PDF operations | License/notice compliance required. | Used for blank PDF creation in the experimental engine; edit pipeline still pending. |
 | PyKCS11 | USB token detection | GPL risk. | Prefer `python-pkcs11` MIT or isolate signing plugin after legal review. |
 | Icon SVG assets | Toolbar icons | Source/license not documented. | Treat as unapproved until replaced or provenance is recorded. |
 | GitHub updater | Public release update channel | Not suitable for B2B enterprise update trust. | Disable direct GitHub path; prepare VPS update manifest. |

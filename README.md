@@ -16,4 +16,10 @@ Not yet in this phase:
 - Replacing GPL/AGPL dependencies.
 - Shipping commercial builds.
 
+PDF engine note:
+
+- Default prototype engine remains PyMuPDF for feature continuity.
+- Experimental read/render engine can be selected with `THREET_READER_PDF_ENGINE=pdfium`.
+- Commercial release must complete the non-AGPL PDF edit pipeline or buy a commercial PyMuPDF/MuPDF license.
+
 See [docs/PHASE0_SCOPE.md](docs/PHASE0_SCOPE.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

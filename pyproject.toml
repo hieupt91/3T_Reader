@@ -13,7 +13,8 @@ authors = [
 dependencies = [
   "PySide6==6.11.0",
   "pyqtdarktheme",
-  "PyMuPDF==1.27.2.2",
+  "pypdfium2==5.7.0",
+  "pikepdf==10.5.1",
   "pyHanko==0.34.1",
   "python-pkcs11",
   "PyKCS11==1.5.18",
@@ -23,9 +24,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-pdf-alternatives = [
-  "pikepdf==10.5.1",
-  "pypdfium2==5.7.0",
+legacy-pymupdf = [
+  "PyMuPDF==1.27.2.2",
 ]
 build = [
   "pyinstaller==6.20.0",
@@ -38,7 +38,7 @@ dev = [
 commercial_release_blockers = [
   "Complete PySide6/LGPL compliance notices and packaging review.",
   "Keep pdfjs-viewer-pyqt6 out of commercial builds.",
-  "Replace or commercially license PyMuPDF/MuPDF.",
+  "Complete pypdfium2/pikepdf replacement for edit operations before dropping PyMuPDF prototype engine.",
   "Remove PyKCS11 GPL dependency or isolate signing plugin after legal review.",
   "Complete asset provenance and notices.",
 ]
