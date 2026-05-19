@@ -1,7 +1,6 @@
 import asyncio
 import os
 from datetime import datetime
-import PyKCS11
 
 PKCS11_CANDIDATES = [
     "eps2003csp11.dll",
@@ -126,11 +125,11 @@ def detect_pkcs11_lib() -> str | None:
     errors = []
 
     for path in _candidate_paths():
-        pkcs11 = PyKCS11.PyKCS11Lib()
         try:
-            pkcs11.load(path)
-            slots = pkcs11.getSlotList(tokenPresent=True)
-            if slots:
+            import pkcs11 as p11
+
+            lib = p11.lib(path)
+            if any(True for _ in lib.get_tokens()):
                 return path
         except Exception as e:
             msg = str(e).lower()
@@ -138,6 +137,8 @@ def detect_pkcs11_lib() -> str | None:
                 errors.append(f"{os.path.basename(path)}: lỗi 126 (thiếu DLL phụ thuộc hoặc sai x86/x64)")
             elif "module could not be found" in msg:
                 errors.append(f"{os.path.basename(path)}: không tìm thấy module")
+            else:
+                errors.append(f"{os.path.basename(path)}: {str(e)[:120]}")
             continue
 
     _LAST_PKCS11_ERROR = (

@@ -10,6 +10,7 @@ Known high-priority items to resolve:
 - PySide6 / Qt for Python
 - PDF.js
 - PyMuPDF / MuPDF
-- PyKCS11
+- python-pkcs11
+- PyKCS11 only if optional legacy compatibility is enabled
 - Qt WebEngine / Chromium notices
 - Icon SVG assets

@@ -11,6 +11,7 @@ This is a Phase 0 technical register, not legal advice.
 | PyMuPDF/MuPDF | Thumbnail, print, PDF edit | AGPL/commercial. High risk for closed-source commercial app. | Phase 0.3 isolates direct usage in `packages/pdf_engine/pymupdf_engine.py`. Buy commercial license or replace before release. |
 | pypdfium2 / PDFium | Experimental read/render engine | License must be verified and notices retained. Generally a better commercial fit than AGPL, but still requires compliance review. | Phase 0.5 adds `PdfiumEngine` for read/render trials. |
 | pikepdf / qpdf | Experimental structural PDF operations | License/notice compliance required. | Used for blank PDF creation in the experimental engine; edit pipeline still pending. |
-| PyKCS11 | USB token detection | GPL risk. | Prefer `python-pkcs11` MIT or isolate signing plugin after legal review. |
+| PyKCS11 | Removed from primary signing path | GPL risk. | Keep out of commercial builds. Optional legacy only if legal review approves. |
+| python-pkcs11 | PKCS#11 token detection, cert lookup, signing session | MIT according to project docs; still requires notice/SBOM. | Primary signing library target. |
 | Icon SVG assets | Toolbar icons | Source/license not documented. | Treat as unapproved until replaced or provenance is recorded. |
 | GitHub updater | Public release update channel | Not suitable for B2B enterprise update trust. | Disable direct GitHub path; prepare VPS update manifest. |

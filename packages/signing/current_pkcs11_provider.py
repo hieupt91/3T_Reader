@@ -8,6 +8,7 @@ class CurrentPkcs11Provider:
 
     Phase 0 keeps the existing implementation available but creates a boundary
     so Windows and macOS providers can diverge later without changing UI code.
+    The primary path uses python-pkcs11, not PyKCS11.
     """
 
     def detect_driver(self) -> str | None:

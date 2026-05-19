@@ -39,7 +39,6 @@ from app.sidebar import ThumbnailSidebar
 from app.icon_utils import svg_icon
 from app.dialogs import show_warning, show_info
 from app.config import WINDOW_TITLE
-from core.pkcs11 import detect_pkcs11_lib
 from core.recent import load_recent, clear_recent
 from packages.pdf_engine import get_pdf_engine
 
@@ -895,8 +894,8 @@ class PDFReaderApp(QMainWindow):
                 [
                     sys.executable,   # ✅ Đúng exe đang chạy, không hardcode "python"
                     "-c",
-                    "from core.pkcs11 import detect_pkcs11_lib; "
-                    "print(detect_pkcs11_lib() is not None)",
+                    "from packages.signing import get_signing_provider; "
+                    "print(get_signing_provider().detect_driver() is not None)",
                 ],
                 cwd=os.path.dirname(os.path.abspath(sys.executable)),
                 capture_output=True,

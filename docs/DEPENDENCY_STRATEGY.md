@@ -59,6 +59,12 @@ Commercial target:
 - Keep Windows and macOS PKCS#11 probing behind provider classes.
 - Do not bundle vendor token DLL/dylib files.
 
+Phase 0.6 status:
+
+- `PyKCS11` has been removed from primary dependencies.
+- Token detection, certificate reading, and signing use `python-pkcs11`.
+- `PyKCS11` is only listed as an optional legacy dependency for emergency compatibility testing.
+
 ## License And Update
 
 Current: placeholders only.

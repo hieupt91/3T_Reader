@@ -17,7 +17,6 @@ dependencies = [
   "pikepdf==10.5.1",
   "pyHanko==0.34.1",
   "python-pkcs11",
-  "PyKCS11==1.5.18",
   "cryptography==46.0.7",
   "Pillow==12.2.0",
   "requests==2.33.1",
@@ -26,6 +25,9 @@ dependencies = [
 [project.optional-dependencies]
 legacy-pymupdf = [
   "PyMuPDF==1.27.2.2",
+]
+legacy-pykcs11 = [
+  "PyKCS11==1.5.18",
 ]
 build = [
   "pyinstaller==6.20.0",
@@ -39,6 +41,6 @@ commercial_release_blockers = [
   "Complete PySide6/LGPL compliance notices and packaging review.",
   "Keep pdfjs-viewer-pyqt6 out of commercial builds.",
   "Complete pypdfium2/pikepdf replacement for edit operations before dropping PyMuPDF prototype engine.",
-  "Remove PyKCS11 GPL dependency or isolate signing plugin after legal review.",
+  "Keep PyKCS11 out of primary dependencies and commercial builds.",
   "Complete asset provenance and notices.",
 ]
