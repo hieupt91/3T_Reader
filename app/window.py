@@ -41,6 +41,7 @@ from app.dialogs import show_warning, show_info
 from app.config import WINDOW_TITLE
 from core.pkcs11 import detect_pkcs11_lib
 from core.recent import load_recent, clear_recent
+from packages.pdf_engine import get_pdf_engine
 
 PDFJS_HIDE_TOOLBAR_CSS = """
 var style = document.createElement('style');
@@ -74,9 +75,7 @@ class _PrintWorker(QObject):
 
     def run(self):
         try:
-            import fitz  # PyMuPDF — pip install pymupdf
-
-            pdf    = fitz.open(self._pdf_path)
+            pdf = get_pdf_engine().open(self._pdf_path)
             painter = QPainter()
 
             if not painter.begin(self._printer):
@@ -89,7 +88,7 @@ class _PrintWorker(QObject):
 
             from_page = self._printer.fromPage()
             to_page   = self._printer.toPage()
-            total     = len(pdf)
+            total     = pdf.page_count
             pages     = range(total) if from_page == 0 else range(from_page - 1, to_page)
 
             for i, page_num in enumerate(pages):
@@ -98,15 +97,13 @@ class _PrintWorker(QObject):
 
                 self.progress.emit(f"Đang in trang {page_num + 1} / {total}...")
 
-                page = pdf[page_num]
-                mat  = fitz.Matrix(2.0, 2.0)
-                pix  = page.get_pixmap(matrix=mat, alpha=False)
+                rendered = pdf.render_page_rgb(page_num + 1, scale=2.0)
 
                 img = QImage(
-                    pix.samples,
-                    pix.width,
-                    pix.height,
-                    pix.stride,
+                    rendered.samples,
+                    rendered.width,
+                    rendered.height,
+                    rendered.stride,
                     QImage.Format.Format_RGB888,
                 )
 
@@ -125,8 +122,8 @@ class _PrintWorker(QObject):
 
         except ImportError:
             self.error.emit(
-                "Thiếu thư viện PyMuPDF.\n"
-                "Chạy lệnh:  pip install pymupdf\n"
+                "Thiếu thư viện PDF engine.\n"
+                "Vui lòng kiểm tra dependency trong requirements/pyproject\n"
                 "rồi build lại bộ cài."
             )
         except Exception as e:

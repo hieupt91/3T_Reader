@@ -1,1 +1,3 @@
-"""Phase 0 placeholder for VPS-backed signed update manifests."""
+from .manifest import UpdateManifest
+
+__all__ = ["UpdateManifest"]

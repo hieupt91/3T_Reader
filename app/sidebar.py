@@ -1,7 +1,8 @@
-import fitz
 from PyQt6.QtWidgets import QDockWidget, QListWidget, QListWidgetItem
 from PyQt6.QtGui import QPixmap, QImage, QIcon
 from PyQt6.QtCore import Qt, QSize, QThread, QTimer, pyqtSignal
+
+from packages.pdf_engine import get_pdf_engine
 
 
 class ThumbnailLoader(QThread):
@@ -15,7 +16,7 @@ class ThumbnailLoader(QThread):
 
     def run(self):
         try:
-            doc = fitz.open(self.pdf_path)
+            doc = get_pdf_engine().open(self.pdf_path)
         except Exception:
             self.finishedLoading.emit()
             return
@@ -24,13 +25,12 @@ class ThumbnailLoader(QThread):
             for page_number in self.page_numbers:
                 if self.isInterruptionRequested():
                     break
-                page = doc.load_page(page_number - 1)
-                pix = page.get_pixmap(matrix=fitz.Matrix(0.3, 0.3))
+                rendered = doc.render_page_rgb(page_number, scale=0.3)
                 image = QImage(
-                    pix.samples,
-                    pix.width,
-                    pix.height,
-                    pix.stride,
+                    rendered.samples,
+                    rendered.width,
+                    rendered.height,
+                    rendered.stride,
                     QImage.Format.Format_RGB888,
                 ).copy()
                 self.thumbnailReady.emit(page_number, image)
@@ -118,10 +118,7 @@ class ThumbnailSidebar(QDockWidget):
 
     def _read_page_count(self, pdf_path: str) -> int:
         try:
-            doc = fitz.open(pdf_path)
-            count = doc.page_count
-            doc.close()
-            return count
+            return get_pdf_engine().page_count(pdf_path)
         except Exception:
             return 0
 

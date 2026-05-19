@@ -1,1 +1,17 @@
-"""Phase 0 placeholder for a replaceable PDF engine interface."""
+from .base import PdfDocument, PdfEngine, RenderedPage
+from .pymupdf_engine import PyMuPdfEngine
+
+_default_engine = PyMuPdfEngine()
+
+
+def get_pdf_engine() -> PdfEngine:
+    return _default_engine
+
+
+__all__ = [
+    "PdfDocument",
+    "PdfEngine",
+    "PyMuPdfEngine",
+    "RenderedPage",
+    "get_pdf_engine",
+]

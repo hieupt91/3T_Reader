@@ -1,0 +1,47 @@
+[project]
+name = "3t-reader"
+version = "1.0.2"
+description = "3T Reader desktop foundation for Windows and macOS"
+requires-python = ">=3.11,<3.14"
+readme = "README.md"
+authors = [
+  { name = "3T Company" }
+]
+
+# Phase 0 keeps prototype dependencies explicit. The commercial release must
+# resolve GPL/AGPL items documented in docs/LICENSE_RISK_REGISTER.md.
+dependencies = [
+  "PyQt6==6.11.0",
+  "PyQt6-WebEngine==6.11.0",
+  "pyqtdarktheme",
+  "pdfjs-viewer-pyqt6==1.2.0",
+  "PyMuPDF==1.27.2.2",
+  "pyHanko==0.34.1",
+  "python-pkcs11",
+  "PyKCS11==1.5.18",
+  "cryptography==46.0.7",
+  "Pillow==12.2.0",
+  "requests==2.33.1",
+]
+
+[project.optional-dependencies]
+pdf-alternatives = [
+  "pikepdf==10.5.1",
+  "pypdfium2==5.7.0",
+]
+build = [
+  "pyinstaller==6.20.0",
+]
+dev = [
+  "pip-licenses",
+  "cyclonedx-bom",
+]
+
+[tool.3t-reader.phase0]
+commercial_release_blockers = [
+  "Replace or commercially license PyQt6.",
+  "Replace pdfjs-viewer-pyqt6 GPL wrapper.",
+  "Replace or commercially license PyMuPDF/MuPDF.",
+  "Remove PyKCS11 GPL dependency or isolate signing plugin after legal review.",
+  "Complete asset provenance and notices.",
+]

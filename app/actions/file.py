@@ -2,10 +2,10 @@ import os
 import tempfile
 import uuid
 
-import fitz
 from PyQt6.QtWidgets import QFileDialog, QMenu, QInputDialog, QLineEdit
 from core.recent import load_recent, save_recent, clear_recent
 from app.dialogs import show_warning
+from packages.pdf_engine import get_pdf_engine
 
 
 def _pick_pdf_file(window):
@@ -58,13 +58,13 @@ def open_file(window, path=None):
 
 def _prepare_pdf_source(window, path: str):
     try:
-        doc = fitz.open(path)
+        doc = get_pdf_engine().open(path)
     except Exception as e:
         show_warning(window, "Không mở được tệp", str(e))
         return None
 
     try:
-        if not doc.needs_pass:
+        if not doc.needs_password:
             return (path, path, None)
 
         for _ in range(3):
@@ -78,10 +78,10 @@ def _prepare_pdf_source(window, path: str):
                 return None
 
             if doc.authenticate(password):
-                temp_dir = os.path.join(tempfile.gettempdir(), "reader_pdf_decrypted")
+                temp_dir = os.path.join(tempfile.gettempdir(), "3t_reader_decrypted")
                 os.makedirs(temp_dir, exist_ok=True)
                 temp_path = os.path.join(temp_dir, f"{uuid.uuid4().hex}.pdf")
-                doc.save(temp_path, encryption=fitz.PDF_ENCRYPT_NONE)
+                doc.save_without_encryption(temp_path)
                 return (temp_path, path, temp_path)
 
             show_warning(window, "Mật khẩu không đúng", "Mật khẩu bạn nhập không đúng. Vui lòng thử lại.")

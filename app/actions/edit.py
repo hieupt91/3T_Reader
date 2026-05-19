@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 from app.actions.file import open_file
 from app.actions._guard import require_document
 from app.dialogs import show_warning
+from packages.pdf_engine import get_pdf_engine
 
 A4_WIDTH_PT = 595
 A4_HEIGHT_PT = 842
@@ -518,12 +519,7 @@ def create_new_pdf(window):
     if not output_path:
         return
 
-    doc = fitz.open()
-    try:
-        doc.new_page(width=A4_WIDTH_PT, height=A4_HEIGHT_PT)
-        doc.save(output_path)
-    finally:
-        doc.close()
+    get_pdf_engine().create_blank_pdf(output_path, A4_WIDTH_PT, A4_HEIGHT_PT)
 
     open_file(window, output_path)
     window.status.showMessage("Đã tạo PDF mới", 3000)

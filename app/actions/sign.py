@@ -21,12 +21,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QObject, QEventLoop, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWebChannel import QWebChannel
 
-from core.pkcs11 import (
-    detect_pkcs11_lib,
-    get_last_pkcs11_error,
-    get_token_signer_info,
-    sign_pdf,
-)
+from core.pkcs11 import get_last_pkcs11_error
+from packages.signing import get_signing_provider
 from app.actions._guard import require_document
 from app.dialogs import show_warning, show_info
 
@@ -716,10 +712,11 @@ def _pick_signature_placement(window):
 
 
 def check_token(window):
-    lib = detect_pkcs11_lib()
+    provider = get_signing_provider()
+    lib = provider.detect_driver()
     if lib:
-        signer_info = get_token_signer_info()
-        signer_name = signer_info.get("name") if signer_info else ""
+        signer_info = provider.get_token_info()
+        signer_name = signer_info.signer_name if signer_info else ""
         signer_line = f"\nNgười ký: {signer_name}" if signer_name else ""
         show_info(
             window,
@@ -831,8 +828,9 @@ def sign_document(window):
         _set_signature_preview(window, None)
         _teardown_webchannel(web_view)
 
-    signer_info = get_token_signer_info()
-    default_signer_name = signer_info.get("name") if signer_info else ""
+    signing_provider = get_signing_provider()
+    signer_info = signing_provider.get_token_info()
+    default_signer_name = signer_info.signer_name if signer_info else ""
 
     identity_dialog = SignatureIdentityDialog(
         window,
@@ -862,13 +860,13 @@ def sign_document(window):
         return
 
     if signer_name == "Khong ro":
-        signer_info_with_pin = get_token_signer_info(pin)
-        if signer_info_with_pin and signer_info_with_pin.get("name"):
-            signer_name = signer_info_with_pin["name"]
+        signer_info_with_pin = signing_provider.get_token_info(pin)
+        if signer_info_with_pin and signer_info_with_pin.signer_name:
+            signer_name = signer_info_with_pin.signer_name
 
     try:
         asyncio.run(
-            sign_pdf(
+            signing_provider.sign_pdf(
                 window.current_path,
                 output_path,
                 pin,
