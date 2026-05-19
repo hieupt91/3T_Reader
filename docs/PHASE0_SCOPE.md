@@ -11,6 +11,7 @@ In scope:
 - Prepare platform adapters for OS-specific behavior.
 - Prepare placeholder modules for PDF engine, signing, license, update, and backend.
 - Isolate direct PyMuPDF usage behind `packages/pdf_engine`.
+- Maintain compliance notes in `docs/compliance`.
 
 Out of scope:
 
@@ -21,3 +22,5 @@ Out of scope:
 - Commercial installer signing/notarization.
 
 Start splitting streams only after this scope is complete and reviewed.
+
+Current blocker list: `docs/compliance/PHASE0_BLOCKERS.md`.

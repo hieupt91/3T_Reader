@@ -20,3 +20,4 @@ PDF.js:
 - `third_party/pdfjs` is a Phase 0.4 migration copy from the previously packaged `pdfjs_viewer/pdfjs` directory.
 - It must be replaced with an official PDF.js distribution pinned by version/source commit before commercial release.
 - Keep `third_party/pdfjs/LICENSE` and all license files under `web/`.
+- Source tracking is documented in `docs/compliance/PDFJS_SOURCE.md`.

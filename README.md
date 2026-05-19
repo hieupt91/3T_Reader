@@ -23,3 +23,4 @@ PDF engine note:
 - Commercial release must complete the non-AGPL PDF edit pipeline or buy a commercial PyMuPDF/MuPDF license.
 
 See [docs/PHASE0_SCOPE.md](docs/PHASE0_SCOPE.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Compliance status is tracked in [docs/compliance/THIRD_PARTY_MANIFEST.md](docs/compliance/THIRD_PARTY_MANIFEST.md) and [docs/compliance/PHASE0_BLOCKERS.md](docs/compliance/PHASE0_BLOCKERS.md).

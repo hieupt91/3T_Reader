@@ -1,16 +1,29 @@
 # Third-Party Licenses
 
-Phase 0 placeholder.
+Phase 0.7 status: manual manifest exists, but exact license texts/SBOM are not complete.
 
-Before commercial release, generate an SBOM and store the exact license text for every dependency and bundled asset.
+See:
 
-Known high-priority items to resolve:
+- `docs/compliance/THIRD_PARTY_MANIFEST.md`
+- `docs/compliance/PDFJS_SOURCE.md`
+- `docs/LICENSE_RISK_REGISTER.md`
 
-- PyQt6
+Primary items requiring final license files/notices:
+
 - PySide6 / Qt for Python
-- PDF.js
-- PyMuPDF / MuPDF
-- python-pkcs11
-- PyKCS11 only if optional legacy compatibility is enabled
 - Qt WebEngine / Chromium notices
-- Icon SVG assets
+- PDF.js and nested fonts/wasm/cmaps notices
+- pypdfium2 / PDFium
+- pikepdf / qpdf
+- pyHanko
+- python-pkcs11
+- cryptography
+- Pillow
+- requests
+- pyqtdarktheme, or replacement local theme
+- Fluent UI icons, or replacement owned brand assets
+
+Optional legacy items not allowed in commercial builds without review:
+
+- PyMuPDF / MuPDF
+- PyKCS11
