@@ -10,6 +10,7 @@ Phase 0.7 manual manifest. This must be verified with `pip-licenses` and a Cyclo
 | pyqtdarktheme | Unpinned | Dark Qt stylesheet | Needs exact license/version verification | Keep temporarily; consider replacing with local stylesheet to reduce dependency risk. |
 | pypdfium2 | 5.7.0 | Experimental PDF read/render engine | Needs SBOM/license verification | Primary non-AGPL migration target. |
 | pikepdf | 10.5.1 | Experimental structural PDF operations | Needs SBOM/license verification | Primary PDF structure/edit migration target. |
+| reportlab | 4.4.5 | PDF overlay generation for text/image edits | Needs SBOM/license verification | Primary non-AGPL edit overlay dependency. |
 | pyHanko | 0.34.1 | PDF signing/stamp workflow | Needs SBOM/license verification | Keep if compatible after dependency audit. |
 | python-pkcs11 | Unpinned | PKCS#11 token/cert/signing session | Expected MIT; verify exact package metadata | Primary signing library. |
 | cryptography | 46.0.7 | X.509 parsing and crypto dependencies | Apache-2.0/BSD style; verify exact metadata | Keep with notices. |
@@ -20,7 +21,7 @@ Phase 0.7 manual manifest. This must be verified with `pip-licenses` and a Cyclo
 
 | Component | Version | Purpose | Risk | Decision |
 | --- | --- | --- | --- | --- |
-| PyMuPDF / MuPDF | 1.27.2.2 | Prototype PDF edit/render engine | AGPL/commercial | Optional legacy only. Do not ship commercially without Artifex commercial license or full replacement. |
+| PyMuPDF / MuPDF | 1.27.2.2 | Legacy prototype PDF engine | AGPL/commercial | Optional legacy only. Do not ship commercially. |
 | PyKCS11 | 1.5.18 | Legacy PKCS#11 compatibility | GPL risk | Optional legacy only after legal review. Not in primary dependencies. |
 | PyInstaller | 6.20.0 | Build packaging | GPL with bootloader exception; verify | Build dependency only. Keep notices. |
 

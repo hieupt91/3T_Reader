@@ -8,9 +8,10 @@ This is a Phase 0 technical register, not legal advice.
 | PySide6 / Qt for Python | Desktop UI and Qt WebEngine target | LGPL/GPL/commercial depending on distribution. LGPL requires compliance. | Use PySide6 with LGPL notices/packaging review, or Qt commercial if business later chooses. |
 | pdfjs-viewer-pyqt6 | Removed from app imports | GPL-3.0-or-later. High risk for closed-source app distribution. | Keep out of commercial builds. Internal viewer loads PDF.js directly. |
 | PDF.js | Internal viewer bundle | Apache-2.0 plus bundled notices/fonts/wasm licenses. | Replace migration copy with official pinned PDF.js release and keep notices. |
-| PyMuPDF/MuPDF | Thumbnail, print, PDF edit | AGPL/commercial. High risk for closed-source commercial app. | Phase 0.3 isolates direct usage in `packages/pdf_engine/pymupdf_engine.py`. Buy commercial license or replace before release. |
-| pypdfium2 / PDFium | Experimental read/render engine | License must be verified and notices retained. Generally a better commercial fit than AGPL, but still requires compliance review. | Phase 0.5 adds `PdfiumEngine` for read/render trials. |
-| pikepdf / qpdf | Experimental structural PDF operations | License/notice compliance required. | Used for blank PDF creation in the experimental engine; edit pipeline still pending. |
+| PyMuPDF/MuPDF | Optional legacy engine only | AGPL/commercial. High risk for closed-source commercial app. | Keep out of commercial builds. |
+| pypdfium2 / PDFium | Default read/render engine | License must be verified and notices retained. Generally a better commercial fit than AGPL, but still requires compliance review. | Phase 0.8 default engine. |
+| pikepdf / qpdf | PDF structure and overlay merge | License/notice compliance required. | Used by default engine for blank PDF and overlay merge. |
+| reportlab | Overlay generation for text/image edit | License/notice compliance required. | Used by default engine for edit overlays. |
 | PyKCS11 | Removed from primary signing path | GPL risk. | Keep out of commercial builds. Optional legacy only if legal review approves. |
 | python-pkcs11 | PKCS#11 token detection, cert lookup, signing session | MIT according to project docs; still requires notice/SBOM. | Primary signing library target. |
 | Icon SVG assets | Toolbar icons | Source/license not documented. | Treat as unapproved until replaced or provenance is recorded. |

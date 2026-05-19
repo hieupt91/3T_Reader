@@ -22,14 +22,14 @@ Phase 0.4 status:
 
 ## PDF Engine
 
-Current prototype default: PyMuPDF adapter in `packages/pdf_engine/pymupdf_engine.py`.
+Legacy fallback: PyMuPDF adapter in `packages/pdf_engine/pymupdf_engine.py`.
 
-Commercial-safe migration target: `packages/pdf_engine/pdfium_engine.py` using `pypdfium2` for read/render and `pikepdf` for structural PDF operations.
+Commercial-safe migration target: `packages/pdf_engine/pdfium_engine.py` using `pypdfium2` for read/render and `pikepdf/reportlab` for overlay-based edit operations.
 
 Commercial target:
 
-- Buy PyMuPDF/MuPDF commercial license, or
-- Replace with `pypdfium2/PDFium` for render and `pikepdf/qpdf` for structural operations.
+- Keep PyMuPDF/MuPDF out of commercial builds.
+- Use `pypdfium2/PDFium` for render and `pikepdf/reportlab` for edit overlays.
 
 All new code should call `packages.pdf_engine.get_pdf_engine()` instead of importing `fitz` directly.
 
@@ -46,8 +46,9 @@ Current state:
 - Direct `fitz` imports should only exist in `packages/pdf_engine/pymupdf_engine.py`.
 - PyMuPDF remains a commercial-release blocker unless a commercial license is purchased.
 - Replacing PyMuPDF should primarily require a new `PdfEngine` implementation.
-- Phase 0.5 adds `PdfiumEngine` and `THREET_READER_PDF_ENGINE=pdfium` selection for read/render trials.
-- `PdfiumEngine` does not yet support edit operations. PDF edit replacement remains required before dropping the PyMuPDF prototype engine.
+- Phase 0.8 makes `PdfiumEngine` the default engine.
+- `PyMuPdfEngine` is available only through `THREET_READER_PDF_ENGINE=pymupdf` for legacy prototype testing.
+- The pikepdf/reportlab edit path needs fixture tests before commercial release.
 
 ## Signing
 

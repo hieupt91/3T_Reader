@@ -15,6 +15,7 @@ dependencies = [
   "pyqtdarktheme",
   "pypdfium2==5.7.0",
   "pikepdf==10.5.1",
+  "reportlab==4.4.5",
   "pyHanko==0.34.1",
   "python-pkcs11",
   "cryptography==46.0.7",
@@ -40,7 +41,7 @@ dev = [
 commercial_release_blockers = [
   "Complete PySide6/LGPL compliance notices and packaging review.",
   "Keep pdfjs-viewer-pyqt6 out of commercial builds.",
-  "Complete pypdfium2/pikepdf replacement for edit operations before dropping PyMuPDF prototype engine.",
+  "Verify pypdfium2/pikepdf/reportlab PDF edit pipeline with fixture tests.",
   "Keep PyKCS11 out of primary dependencies and commercial builds.",
   "Complete asset provenance and notices.",
 ]

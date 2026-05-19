@@ -6,10 +6,10 @@ from .pymupdf_engine import PyMuPdfEngine
 
 
 def _build_default_engine() -> PdfEngine:
-    engine_name = os.environ.get("THREET_READER_PDF_ENGINE", "pymupdf").strip().lower()
-    if engine_name in {"pdfium", "pypdfium2"}:
-        return PdfiumEngine()
-    return PyMuPdfEngine()
+    engine_name = os.environ.get("THREET_READER_PDF_ENGINE", "pdfium").strip().lower()
+    if engine_name in {"pymupdf", "fitz", "legacy"}:
+        return PyMuPdfEngine()
+    return PdfiumEngine()
 
 
 _default_engine = _build_default_engine()

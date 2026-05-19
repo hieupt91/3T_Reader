@@ -4,8 +4,8 @@ The repository is cleaner, but Phase 0 is not complete until the following items
 
 ## Must Resolve Before Commercial Release
 
-- Replace PyMuPDF edit pipeline completely or buy Artifex/PyMuPDF commercial license.
-- Complete `PdfiumEngine` edit support or choose another compliant PDF edit SDK/library.
+- Verify non-AGPL PDF edit pipeline with fixture tests; do not ship legacy PyMuPDF engine.
+- Complete password decrypt/save support through a compliant non-AGPL library.
 - Replace migration PDF.js bundle with official pinned PDF.js release.
 - Pin Fluent UI icon source/license or replace all icons with owned brand assets.
 - Generate SBOM and license notices from the final build environment.
@@ -23,7 +23,7 @@ The repository is cleaner, but Phase 0 is not complete until the following items
 
 ## Recommended Next Technical Steps
 
-1. Implement non-AGPL PDF edit pipeline.
+1. Add fixture tests for non-AGPL PDF edit pipeline.
 2. Replace PDF.js migration copy with official release.
 3. Add basic smoke tests for app startup and PDF engine selection.
 4. Create final Phase 0 completion report.
