@@ -1,5 +1,5 @@
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
+from packages.qt_compat.QtCore import Qt
+from packages.qt_compat.QtWidgets import (
     QApplication,
     QDialog,
     QHBoxLayout,

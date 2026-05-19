@@ -3,9 +3,9 @@ import shutil
 import tempfile
 import uuid
 
-from PyQt6.QtCore import QObject, QEventLoop, pyqtSignal, pyqtSlot
-from PyQt6.QtWebChannel import QWebChannel
-from PyQt6.QtWidgets import (
+from packages.qt_compat.QtCore import QObject, QEventLoop, pyqtSignal, pyqtSlot
+from packages.qt_compat.QtWebChannel import QWebChannel
+from packages.qt_compat.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -422,7 +422,7 @@ class _ObjectPlacementDialog(QDialog):
     """Simple confirm dialog for object placement preview (image, text)."""
 
     def __init__(self, parent=None, *, title: str = "Chèn đối tượng", note: str = ""):
-        from PyQt6.QtCore import Qt
+        from packages.qt_compat.QtCore import Qt
 
         super().__init__(parent)
         self.setWindowTitle(title)

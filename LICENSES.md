@@ -7,9 +7,9 @@ Before commercial release, generate an SBOM and store the exact license text for
 Known high-priority items to resolve:
 
 - PyQt6
-- pdfjs-viewer-pyqt6
+- PySide6 / Qt for Python
+- PDF.js
 - PyMuPDF / MuPDF
 - PyKCS11
-- PDF.js
 - Qt WebEngine / Chromium notices
 - Icon SVG assets

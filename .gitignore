@@ -9,8 +9,8 @@ venv/
 env/
 
 # Build artifacts
-build/
-dist/
+/build/
+/dist/
 *.manifest
 *.pkg
 *.dmg

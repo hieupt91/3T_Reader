@@ -2,8 +2,8 @@ import os
 import sys
 import subprocess
 
-from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
-from PyQt6.QtWidgets import (
+from packages.qt_compat.QtPrintSupport import QPrinter, QPrintDialog
+from packages.qt_compat.QtWidgets import (
     QMainWindow,
     QToolBar,
     QLabel,
@@ -18,10 +18,10 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QMenu,
 )
-from PyQt6.QtGui import QAction, QKeySequence, QCloseEvent, QImage, QPainter
-from PyQt6.QtCore import Qt, QSize, QPoint, QTimer, QThread, QObject, pyqtSignal, QRect
-from PyQt6.QtWebEngineWidgets import QWebEngineView
-from pdfjs_viewer import PDFViewerWidget
+from packages.qt_compat.QtGui import QAction, QKeySequence, QCloseEvent, QImage, QPainter
+from packages.qt_compat.QtCore import Qt, QSize, QPoint, QTimer, QThread, QObject, pyqtSignal, QRect
+from packages.qt_compat.QtWebEngineWidgets import QWebEngineView
+from app.pdf_viewer import PDFViewerWidget
 
 from app.actions.file import open_file, show_recent_menu, _populate_recent_menu
 from app.actions.document import search_text, search_next, search_previous, show_file_info, execute_search
@@ -486,7 +486,7 @@ class PDFReaderApp(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def print_current_pdf(self):
-        """In PDF bằng QPrintDialog thuần PyQt6.
+        """In PDF bằng QPrintDialog thuần Qt.
         Không dùng ShellExecute / subprocess gọi exe ngoài
         → không bao giờ gây re-launch app sau khi đóng gói PyInstaller."""
         state = self._active_state()
@@ -499,7 +499,7 @@ class PDFReaderApp(QMainWindow):
             show_warning(self, "Lỗi", "Không tìm thấy tệp PDF.")
             return
 
-        # Hiện dialog chọn máy in — PyQt6 native, không qua ShellExecute
+        # Hiện dialog chọn máy in — Qt native, không qua ShellExecute
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         dialog  = QPrintDialog(printer, self)
         dialog.setWindowTitle("In tài liệu")

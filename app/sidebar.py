@@ -1,6 +1,6 @@
-from PyQt6.QtWidgets import QDockWidget, QListWidget, QListWidgetItem
-from PyQt6.QtGui import QPixmap, QImage, QIcon
-from PyQt6.QtCore import Qt, QSize, QThread, QTimer, pyqtSignal
+from packages.qt_compat.QtWidgets import QDockWidget, QListWidget, QListWidgetItem
+from packages.qt_compat.QtGui import QPixmap, QImage, QIcon
+from packages.qt_compat.QtCore import Qt, QSize, QThread, QTimer, pyqtSignal
 
 from packages.pdf_engine import get_pdf_engine
 

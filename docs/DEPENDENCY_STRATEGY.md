@@ -4,13 +4,21 @@ Phase 0 keeps the prototype running while making risky dependencies visible and 
 
 ## UI
 
-Current: `PyQt6`, `PyQt6-WebEngine`, `pdfjs-viewer-pyqt6`.
+Current target: `PySide6` through `packages.qt_compat`.
 
 Commercial target:
 
-- Prefer `PySide6` plus LGPL compliance, or buy commercial PyQt.
-- Remove `pdfjs-viewer-pyqt6` from commercial builds.
+- Use `PySide6` plus LGPL compliance.
+- Keep `pdfjs-viewer-pyqt6` out of app code and commercial builds.
 - Integrate PDF.js directly with a documented Apache-2.0 bundle or use a commercial SDK.
+
+Phase 0.4 status:
+
+- App imports now go through `packages.qt_compat`.
+- PyQt fallback has been removed from `packages.qt_compat`.
+- `app/window.py` uses the internal `app.pdf_viewer.PDFViewerWidget`.
+- `pdfjs-viewer-pyqt6` has been removed from the primary dependency list.
+- `third_party/pdfjs` contains the PDF.js bundle and license files copied from the previous packaged dependency for migration. Before release, replace it with a fresh official PDF.js distribution pinned by version/source commit.
 
 ## PDF Engine
 

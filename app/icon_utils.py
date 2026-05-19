@@ -1,9 +1,9 @@
 import os
 from functools import lru_cache
 
-from PyQt6.QtGui import QIcon, QPixmap, QPainter
-from PyQt6.QtSvg import QSvgRenderer
-from PyQt6.QtCore import QSize, Qt
+from packages.qt_compat.QtGui import QIcon, QPixmap, QPainter
+from packages.qt_compat.QtSvg import QSvgRenderer
+from packages.qt_compat.QtCore import QSize, Qt
 
 import sys
 

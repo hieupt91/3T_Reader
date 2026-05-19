@@ -67,8 +67,8 @@ def check_and_prompt_update(parent_window):
             return
 
         # Hiện dialog trên main thread
-        from PyQt6.QtCore import QMetaObject, Qt, Q_ARG
-        from PyQt6.QtWidgets import QMessageBox
+        from packages.qt_compat.QtCore import QMetaObject, Qt, Q_ARG
+        from packages.qt_compat.QtWidgets import QMessageBox
 
         def _show_dialog():
             reply = QMessageBox.question(
@@ -83,7 +83,7 @@ def check_and_prompt_update(parent_window):
                 _download_and_run(installer_url, installer_name, parent_window)
 
         # Gọi dialog từ main thread
-        from PyQt6.QtCore import QTimer
+        from packages.qt_compat.QtCore import QTimer
         QTimer.singleShot(0, _show_dialog)
 
     thread = threading.Thread(target=_worker, daemon=True)
@@ -92,8 +92,8 @@ def check_and_prompt_update(parent_window):
 
 def _download_and_run(url: str, filename: str, parent_window):
     """Tải installer về temp rồi chạy."""
-    from PyQt6.QtWidgets import QProgressDialog, QMessageBox
-    from PyQt6.QtCore import Qt
+    from packages.qt_compat.QtWidgets import QProgressDialog, QMessageBox
+    from packages.qt_compat.QtCore import Qt
 
     tmp_dir = tempfile.mkdtemp()
     save_path = os.path.join(tmp_dir, filename)

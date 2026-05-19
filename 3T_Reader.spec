@@ -3,12 +3,11 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = []
 binaries = []
-hiddenimports = ['fitz', 'pymupdf', 'PyQt6.QtPrintSupport']
+hiddenimports = ['fitz', 'pymupdf', 'PySide6.QtPrintSupport', 'PySide6.QtWebEngineWidgets']
 tmp_ret = collect_all('fitz')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('pdfjs_viewer')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 datas += [('assets', 'assets')]
+datas += [('third_party/pdfjs', 'third_party/pdfjs')]
 
 
 a = Analysis(

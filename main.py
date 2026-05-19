@@ -26,9 +26,9 @@ if not acquire_single_instance():
 # ================================================================
 # BƯỚC 3: Khởi tạo app bình thường
 # ================================================================
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont
-from PyQt6.QtCore import QLocale, QLibraryInfo, QTranslator, Qt
+from packages.qt_compat.QtWidgets import QApplication
+from packages.qt_compat.QtGui import QFont
+from packages.qt_compat.QtCore import QLocale, QLibraryInfo, QTranslator, Qt
 import qdarktheme
 
 from app.window import PDFReaderApp

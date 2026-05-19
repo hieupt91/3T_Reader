@@ -3,7 +3,7 @@ import json
 import os
 import traceback
 from datetime import datetime
-from PyQt6.QtWidgets import (
+from packages.qt_compat.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -18,8 +18,8 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QVBoxLayout,
 )
-from PyQt6.QtCore import QObject, QEventLoop, Qt, pyqtSignal, pyqtSlot
-from PyQt6.QtWebChannel import QWebChannel
+from packages.qt_compat.QtCore import QObject, QEventLoop, Qt, pyqtSignal, pyqtSlot
+from packages.qt_compat.QtWebChannel import QWebChannel
 
 from core.pkcs11 import get_last_pkcs11_error
 from packages.signing import get_signing_provider

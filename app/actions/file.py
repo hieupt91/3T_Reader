@@ -2,7 +2,7 @@ import os
 import tempfile
 import uuid
 
-from PyQt6.QtWidgets import QFileDialog, QMenu, QInputDialog, QLineEdit
+from packages.qt_compat.QtWidgets import QFileDialog, QMenu, QInputDialog, QLineEdit
 from core.recent import load_recent, save_recent, clear_recent
 from app.dialogs import show_warning
 from packages.pdf_engine import get_pdf_engine
