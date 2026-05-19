@@ -1,0 +1,17 @@
+# Phase 0 dependency snapshot inferred from the existing source/build.
+# Before commercial release, convert this to a locked pyproject/uv/pip-tools workflow
+# and generate an SBOM.
+
+PyQt6==6.11.0
+PyQt6-WebEngine==6.11.0
+pyqtdarktheme
+pdfjs-viewer-pyqt6==1.2.0
+PyMuPDF==1.27.2.2
+pyHanko==0.34.1
+python-pkcs11
+PyKCS11==1.5.18
+cryptography==46.0.7
+pikepdf==10.5.1
+pypdfium2==5.7.0
+Pillow==12.2.0
+requests==2.33.1
