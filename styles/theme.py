@@ -56,6 +56,43 @@ DARK_STYLESHEET = """
         border-color: #8b83ff;
         background-color: #1b1b28;
     }
+    QToolButton#ThemeButton {
+        background-color: #2a2345;
+        color: #f7f5ff;
+        border: 1px solid #8b83ff;
+        border-radius: 10px;
+        padding: 4px;
+        min-width: 32px;
+        font-weight: 600;
+    }
+    QToolButton#ThemeButton:hover {
+        background-color: #3a2f63;
+        color: #ffffff;
+        border-color: #a59fff;
+    }
+    QToolButton#ThemeButton::menu-indicator {
+        subcontrol-origin: padding;
+        subcontrol-position: right center;
+        width: 10px;
+    }
+    QToolButton#SidebarToggleButton {
+        background-color: #18202b;
+        color: #dff7ff;
+        border: 1px solid #22485a;
+        border-radius: 10px;
+        padding: 4px;
+        min-width: 32px;
+        font-weight: 600;
+    }
+    QToolButton#SidebarToggleButton:hover {
+        background-color: #1d2b39;
+        border-color: #46c7d9;
+    }
+    QToolButton#SidebarToggleButton:checked {
+        background-color: #123844;
+        color: #f0fdff;
+        border-color: #46c7d9;
+    }
     QSpinBox {
         background-color: #0f0f13;
         color: #d6d6ea;
@@ -83,6 +120,23 @@ DARK_STYLESHEET = """
         font-size: 13px;
         padding: 0 2px;
     }
+    QLabel#InspectorSectionTitle {
+        color: #f0f6ff;
+        background-color: #18202b;
+        border: 1px solid #28465f;
+        border-radius: 9px;
+        padding: 4px 10px;
+        font-weight: 600;
+        margin-top: 4px;
+    }
+    QLabel#EditModeLabel {
+        color: #f0f6ff;
+        background-color: #1d2b39;
+        border: 1px solid #28465f;
+        border-radius: 10px;
+        padding: 4px 10px;
+        font-weight: 600;
+    }
     QStatusBar {
         background-color: #0d0d12;
         border-top: 1px solid #1a1a26;
@@ -93,6 +147,16 @@ DARK_STYLESHEET = """
         color: #a3a3bf;
         font-size: 12px;
         padding: 4px 0;
+    }
+    QDockWidget {
+        color: #d6d6ea;
+    }
+    QDockWidget::title {
+        background-color: #171722;
+        color: #f0f0ff;
+        padding: 6px 10px;
+        border-bottom: 1px solid #6c63ff;
+        font-weight: 600;
     }
     QMenu {
         background-color: #13131a;
@@ -205,6 +269,34 @@ DARK_STYLESHEET = """
         background-color: #222237;
         border-color: #6c63ff;
     }
+    QLineEdit#EditTextInput, QComboBox#ImageSizeCombo {
+        background-color: #0f0f18;
+        color: #ececff;
+        border: 1px solid #2b2b43;
+        border-radius: 8px;
+        padding: 5px 8px;
+        min-height: 28px;
+    }
+    QSpinBox#EditFontSizeSpin {
+        background-color: #0f0f18;
+        color: #ececff;
+        border: 1px solid #2b2b43;
+        border-radius: 8px;
+        padding: 4px 8px;
+        min-height: 28px;
+    }
+    QToolButton#ImagePickButton {
+        background-color: #1a2633;
+        color: #e6f6ff;
+        border: 1px solid #31516d;
+        border-radius: 8px;
+        padding: 4px 10px;
+        min-height: 28px;
+    }
+    QToolButton#ImagePickButton:hover {
+        background-color: #24384b;
+        border-color: #46c7d9;
+    }
     QMessageBox {
         background-color: #13131a;
         color: #e0e0f0;
@@ -311,6 +403,43 @@ LIGHT_STYLESHEET = """
         border-color: #60a5fa;
         background-color: #e8edf9;
     }
+    QToolButton#ThemeButton {
+        background-color: #dbeafe;
+        color: #0f172a;
+        border: 1px solid #60a5fa;
+        border-radius: 10px;
+        padding: 4px;
+        min-width: 32px;
+        font-weight: 600;
+    }
+    QToolButton#ThemeButton:hover {
+        background-color: #bfdbfe;
+        color: #0f172a;
+        border-color: #2563eb;
+    }
+    QToolButton#ThemeButton::menu-indicator {
+        subcontrol-origin: padding;
+        subcontrol-position: right center;
+        width: 10px;
+    }
+    QToolButton#SidebarToggleButton {
+        background-color: #ecfeff;
+        color: #164e63;
+        border: 1px solid #67e8f9;
+        border-radius: 10px;
+        padding: 4px;
+        min-width: 32px;
+        font-weight: 600;
+    }
+    QToolButton#SidebarToggleButton:hover {
+        background-color: #cffafe;
+        border-color: #06b6d4;
+    }
+    QToolButton#SidebarToggleButton:checked {
+        background-color: #bae6fd;
+        color: #0c4a6e;
+        border-color: #0ea5e9;
+    }
     QSpinBox {
         background-color: #ffffff;
         color: #0f172a;
@@ -325,12 +454,39 @@ LIGHT_STYLESHEET = """
     QLabel {
         color: #475569;
     }
+    QLabel#InspectorSectionTitle {
+        color: #1f2937;
+        background-color: #e6eef8;
+        border: 1px solid #b8c9df;
+        border-radius: 9px;
+        padding: 4px 10px;
+        font-weight: 600;
+        margin-top: 4px;
+    }
+    QLabel#EditModeLabel {
+        color: #114b5f;
+        background-color: #e9f7ff;
+        border: 1px solid #9edbed;
+        border-radius: 10px;
+        padding: 4px 10px;
+        font-weight: 600;
+    }
     QStatusBar {
         background-color: #f8f9fd;
         border-top: 1px solid #d7ddea;
     }
     QStatusBar QLabel {
         color: #475569;
+    }
+    QDockWidget {
+        color: #334155;
+    }
+    QDockWidget::title {
+        background-color: #eff6ff;
+        color: #0f172a;
+        padding: 6px 10px;
+        border-bottom: 1px solid #60a5fa;
+        font-weight: 600;
     }
     QMenu {
         background-color: #ffffff;
@@ -340,6 +496,34 @@ LIGHT_STYLESHEET = """
     QMenu::item:selected {
         background-color: #3b82f6;
         color: #ffffff;
+    }
+    QLineEdit#EditTextInput, QComboBox#ImageSizeCombo {
+        background-color: #ffffff;
+        color: #1f2937;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 5px 8px;
+        min-height: 28px;
+    }
+    QSpinBox#EditFontSizeSpin {
+        background-color: #ffffff;
+        color: #1f2937;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 4px 8px;
+        min-height: 28px;
+    }
+    QToolButton#ImagePickButton {
+        background-color: #edf6ff;
+        color: #15576a;
+        border: 1px solid #9edbed;
+        border-radius: 8px;
+        padding: 4px 10px;
+        min-height: 28px;
+    }
+    QToolButton#ImagePickButton:hover {
+        background-color: #ddefff;
+        border-color: #46c7d9;
     }
     QMenu::separator {
         background-color: #e2e8f0;
