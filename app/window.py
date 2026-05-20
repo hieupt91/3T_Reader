@@ -144,6 +144,7 @@ class PDFReaderApp(QMainWindow):
         self._usb_token_detected = False
 
         self._brightness = 100
+        self._action_icons: dict = {}   # {QAction: svg_filename} for theme refresh
         self._tabs_data = {}
         self._global_state = {
             "source_path": None,
@@ -421,26 +422,30 @@ class PDFReaderApp(QMainWindow):
         self.toolbar.setFixedHeight(52)
         self.addToolBar(self.toolbar)
 
+        ic = self._icon_color()   # màu icon theo theme hiện tại
+
         def add(text, svg_file, tooltip, shortcut, slot):
             a = QAction(text, self)
-            a.setIcon(svg_icon(svg_file))
+            a.setIcon(svg_icon(svg_file, color=ic))
             a.setToolTip(tooltip)
             a.setStatusTip(tooltip)
             if shortcut:
                 a.setShortcut(QKeySequence(shortcut))
             a.triggered.connect(slot)
             self.toolbar.addAction(a)
+            self._action_icons[a] = svg_file
             return a
 
         def make(text, svg_file, tooltip, shortcut, slot):
             """Tạo QAction KHÔNG thêm vào toolbar (dùng cho menu)."""
             a = QAction(text, self)
-            a.setIcon(svg_icon(svg_file))
+            a.setIcon(svg_icon(svg_file, color=ic))
             a.setToolTip(tooltip)
             a.setStatusTip(tooltip)
             if shortcut:
                 a.setShortcut(QKeySequence(shortcut))
             a.triggered.connect(slot)
+            self._action_icons[a] = svg_file
             return a
 
         # ── File ──────────────────────────────────────────────────────────
@@ -486,8 +491,18 @@ class PDFReaderApp(QMainWindow):
         self.act_fit      = add("Vừa trang", "fit_page.svg", f"Vừa trang ({shortcut_label('Ctrl+0')})", "Ctrl+0", lambda: zoom_fit(self))
         self.toolbar.addSeparator()
 
+        # ── Sidebar toggle ─────────────────────────────────────────────────
+        self.act_toggle_sidebar_btn = self.sidebar.toggleViewAction()
+        self.act_toggle_sidebar_btn.setIcon(svg_icon("sidebar.svg", color=ic))
+        self.act_toggle_sidebar_btn.setToolTip("Ẩn/Hiện thanh trang (Ctrl+\\)")
+        self.act_toggle_sidebar_btn.setShortcut(QKeySequence("Ctrl+\\"))
+        self.toolbar.addAction(self.act_toggle_sidebar_btn)
+        self._action_icons[self.act_toggle_sidebar_btn] = "sidebar.svg"
+        self.toolbar.addSeparator()
+
         # ── Giao diện + Toàn màn hình ─────────────────────────────────────
-        self.act_theme_toggle = add("☀ Sáng", "sun.svg", "Chuyển sang chế độ sáng (hiện đang: Tối)", None, self._toggle_theme)
+        self.act_theme_toggle = add("☀ Sáng", "sun.svg", "Chuyển sang chế độ sáng (hiện: Tối)", None, self._toggle_theme)
+        self.act_theme_toggle.setIcon(svg_icon("sun.svg", color="#f0c050"))  # icon mặt trời màu vàng, nổi trên nền tối
         theme_btn = self.toolbar.widgetForAction(self.act_theme_toggle)
         if theme_btn:
             theme_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -605,10 +620,8 @@ class PDFReaderApp(QMainWindow):
         menu_view.addAction(self.act_brightness_up)
         menu_view.addAction(self.act_brightness_down)
         menu_view.addSeparator()
-        act_toggle_sidebar = self.sidebar.toggleViewAction()
-        act_toggle_sidebar.setText("Thanh ảnh thu nhỏ")
-        act_toggle_sidebar.setIcon(svg_icon("history.svg", size=16, color="#9b9bc0"))
-        menu_view.addAction(act_toggle_sidebar)
+        self.act_toggle_sidebar_btn.setText("Thanh trang thu nhỏ")
+        menu_view.addAction(self.act_toggle_sidebar_btn)
         act_toggle_toolbar = self.toolbar.toggleViewAction()
         act_toggle_toolbar.setText("Thanh công cụ")
         act_toggle_toolbar.setShortcut(QKeySequence("Ctrl+B"))
@@ -908,14 +921,24 @@ class PDFReaderApp(QMainWindow):
             return True
         return super().eventFilter(obj, event)
 
+    def _icon_color(self) -> str:
+        return "#c0c0e0" if is_dark() else "#3a3a5c"
+
+    def _refresh_icons(self):
+        color = self._icon_color()
+        for action, svg_file in self._action_icons.items():
+            if svg_file not in ("sun.svg", "moon.svg"):
+                action.setIcon(svg_icon(svg_file, color=color))
+
     def _toggle_theme(self):
         toggle_theme()
+        self._refresh_icons()
         if is_dark():
-            self.act_theme_toggle.setIcon(svg_icon("sun.svg"))
+            self.act_theme_toggle.setIcon(svg_icon("sun.svg", color="#f0c050"))
             self.act_theme_toggle.setText("☀ Sáng")
             self.act_theme_toggle.setToolTip("Chuyển sang chế độ sáng (hiện: Tối)")
         else:
-            self.act_theme_toggle.setIcon(svg_icon("moon.svg"))
+            self.act_theme_toggle.setIcon(svg_icon("moon.svg", color="#6c63ff"))
             self.act_theme_toggle.setText("🌙 Tối")
             self.act_theme_toggle.setToolTip("Chuyển sang chế độ tối (hiện: Sáng)")
         btn = self.toolbar.widgetForAction(self.act_theme_toggle)
