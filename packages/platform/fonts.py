@@ -12,10 +12,11 @@ _WINDOWS_CANDIDATES = [
 
 _MACOS_CANDIDATES = [
     "Arial.ttf",
-    "Helvetica.ttc",
-    "Times New Roman.ttf",
     "Arial Unicode.ttf",
-    "Helvetica.dfont",
+    "Times New Roman.ttf",
+    "Georgia.ttf",
+    "Verdana.ttf",
+    "Tahoma.ttf",
 ]
 
 _LINUX_CANDIDATES = [

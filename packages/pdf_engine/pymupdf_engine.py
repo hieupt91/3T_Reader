@@ -89,14 +89,27 @@ class PyMuPdfEngine:
                         text = op.get("text", "").strip()
                         if not text:
                             continue
-                        page.insert_textbox(
-                            rect,
-                            text,
-                            fontsize=max(6, op.get("font_size", 12)),
-                            fontname="helv",
-                            color=op.get("font_color", (0, 0, 0)),
-                            align=0,
-                        )
+                        from packages.platform.fonts import get_vietnamese_font_path
+                        font_path = get_vietnamese_font_path()
+                        if font_path:
+                            page.insert_textbox(
+                                rect,
+                                text,
+                                fontsize=max(6, op.get("font_size", 12)),
+                                fontfile=font_path,
+                                fontname="vifont",
+                                color=op.get("font_color", (0, 0, 0)),
+                                align=0,
+                            )
+                        else:
+                            page.insert_textbox(
+                                rect,
+                                text,
+                                fontsize=max(6, op.get("font_size", 12)),
+                                fontname="helv",
+                                color=op.get("font_color", (0, 0, 0)),
+                                align=0,
+                            )
 
                     elif op_type == "image":
                         image_path = op.get("image_path", "")
