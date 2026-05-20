@@ -35,6 +35,7 @@ from app.actions.edit import (
 from app.actions.navigate import prev_page, next_page, jump_to_page
 from app.actions.zoom import zoom_in, zoom_out, apply_zoom, zoom_fit
 from app.actions.brightness import brightness_up, brightness_down, apply_brightness_to_webview
+from styles.theme import toggle_theme, is_dark
 from app.actions.sign import check_token, sign_document
 from app.sidebar import ThumbnailSidebar
 from app.icon_utils import svg_icon
@@ -497,7 +498,8 @@ class PDFReaderApp(QMainWindow):
         self.act_check_token = add("USB ký số",    "usb.svg",        "Kiểm tra USB ký số", None,  lambda: check_token(self))
         self.act_sign        = add("Ký số",         "pen.svg",        "Ký số tài liệu",     None,  lambda: sign_document(self))
         self.toolbar.addSeparator()
-        self.act_fullscreen  = add("Toàn màn hình", "fullscreen.svg", "Toàn màn hình (F11)", "F11", self.toggle_fullscreen)
+        self.act_theme_toggle = add("Chế độ sáng", "sun.svg", "Chuyển sang chế độ sáng", None, self._toggle_theme)
+        self.act_fullscreen   = add("Toàn màn hình", "fullscreen.svg", "Toàn màn hình (F11)", "F11", self.toggle_fullscreen)
 
     # ------------------------------------------------------------------ #
     #  Print — QPrintDialog + PyMuPDF, KHÔNG dùng ShellExecute            #
@@ -597,6 +599,8 @@ class PDFReaderApp(QMainWindow):
         act_toggle_sidebar.setText("Hiện thanh ảnh thu nhỏ")
         act_toggle_sidebar.setIcon(svg_icon("history.svg", size=16, color="#9b9bc0"))
         menu_view.addAction(act_toggle_sidebar)
+        menu_view.addSeparator()
+        menu_view.addAction(self.act_theme_toggle)
         menu_view.addAction(self.act_fullscreen)
 
         menu_tools = bar.addMenu("Công cụ")
@@ -884,11 +888,11 @@ class PDFReaderApp(QMainWindow):
 
     def eventFilter(self, obj, event):
         from packages.qt_compat.QtCore import QEvent
-        if obj is self.zoom_spin and event.type() == QEvent.Type.MouseButtonDblClick:
+        if hasattr(self, 'zoom_spin') and obj is self.zoom_spin and event.type() == QEvent.Type.MouseButtonDblClick:
             self.zoom_spin.setValue(100)
             apply_zoom(self)
             return True
-        if obj is self.brightness_label and event.type() == QEvent.Type.MouseButtonDblClick:
+        if hasattr(self, 'brightness_label') and obj is self.brightness_label and event.type() == QEvent.Type.MouseButtonDblClick:
             self._brightness = 100
             self.brightness_label.setText("100%")
             wv = self._get_webview()
@@ -898,6 +902,17 @@ class PDFReaderApp(QMainWindow):
                 )
             return True
         return super().eventFilter(obj, event)
+
+    def _toggle_theme(self):
+        toggle_theme()
+        if is_dark():
+            self.act_theme_toggle.setIcon(svg_icon("sun.svg"))
+            self.act_theme_toggle.setText("Chế độ sáng")
+            self.act_theme_toggle.setToolTip("Chuyển sang chế độ sáng")
+        else:
+            self.act_theme_toggle.setIcon(svg_icon("moon.svg"))
+            self.act_theme_toggle.setText("Chế độ tối")
+            self.act_theme_toggle.setToolTip("Chuyển sang chế độ tối")
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
