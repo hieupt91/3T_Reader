@@ -3,13 +3,18 @@
 # Build with: pyinstaller installer/macos/3T_Reader_mac.spec
 
 import sys
+import os
 from pathlib import Path
 
 assert sys.platform == "darwin", "This spec is macOS-only"
 
+# SPECPATH = directory of this spec file (installer/macos/)
+# ROOT     = repo root (two levels up)
+ROOT = os.path.abspath(os.path.join(SPECPATH, "..", ".."))
+
 datas = [
-    ("assets", "assets"),
-    ("third_party/pdfjs", "third_party/pdfjs"),
+    (os.path.join(ROOT, "assets"),             "assets"),
+    (os.path.join(ROOT, "third_party", "pdfjs"), "third_party/pdfjs"),
 ]
 
 hiddenimports = [
@@ -25,8 +30,8 @@ hiddenimports = [
 ]
 
 a = Analysis(
-    ["main.py"],
-    pathex=[],
+    [os.path.join(ROOT, "main.py")],
+    pathex=[ROOT],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
@@ -54,7 +59,7 @@ exe = EXE(
     argv_emulation=True,
     target_arch=None,
     codesign_identity=None,
-    entitlements_file="installer/macos/entitlements.plist",
+    entitlements_file=os.path.join(SPECPATH, "entitlements.plist"),
 )
 
 coll = COLLECT(
