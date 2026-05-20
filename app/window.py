@@ -467,9 +467,9 @@ class PDFReaderApp(QMainWindow):
         self.act_next = add("Trang sau", "chevron_right.svg", "Trang sau (Right)", "Right", lambda: next_page(self))
         self.toolbar.addSeparator()
 
-        # ── Zoom ──────────────────────────────────────────────────────────
-        self.act_zoom_out = add("Thu nhỏ",   "zoom_out.svg", f"Thu nhỏ ({shortcut_label('Ctrl+-')})", "Ctrl+-", lambda: zoom_out(self))
-        self.act_zoom_out.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        # ── Zoom  [+][100%][−][Fit] ───────────────────────────────────────
+        self.act_zoom_in = add("Phóng to",  "zoom_in.svg",  f"Phóng to ({shortcut_label('Ctrl+=')})",  "Ctrl+=", lambda: zoom_in(self))
+        self.act_zoom_in.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
 
         self.zoom_spin = QSpinBox()
         self.zoom_spin.setRange(25, 400)
@@ -481,14 +481,17 @@ class PDFReaderApp(QMainWindow):
         self.zoom_spin.installEventFilter(self)
         self.toolbar.addWidget(self.zoom_spin)
 
-        self.act_zoom_in = add("Phóng to",   "zoom_in.svg",  f"Phóng to ({shortcut_label('Ctrl+=')})",  "Ctrl+=", lambda: zoom_in(self))
-        self.act_zoom_in.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
-        self.act_fit     = add("Vừa trang",  "fit_page.svg", f"Vừa trang ({shortcut_label('Ctrl+0')})", "Ctrl+0", lambda: zoom_fit(self))
+        self.act_zoom_out = add("Thu nhỏ",  "zoom_out.svg", f"Thu nhỏ ({shortcut_label('Ctrl+-')})", "Ctrl+-", lambda: zoom_out(self))
+        self.act_zoom_out.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_fit      = add("Vừa trang", "fit_page.svg", f"Vừa trang ({shortcut_label('Ctrl+0')})", "Ctrl+0", lambda: zoom_fit(self))
         self.toolbar.addSeparator()
 
         # ── Giao diện + Toàn màn hình ─────────────────────────────────────
-        self.act_theme_toggle = add("Chế độ sáng", "sun.svg",        "Chuyển sang chế độ sáng", None,  self._toggle_theme)
-        self.act_fullscreen   = add("Toàn màn hình","fullscreen.svg", f"Toàn màn hình (F11)",    "F11", self.toggle_fullscreen)
+        self.act_theme_toggle = add("☀ Sáng", "sun.svg", "Chuyển sang chế độ sáng (hiện đang: Tối)", None, self._toggle_theme)
+        theme_btn = self.toolbar.widgetForAction(self.act_theme_toggle)
+        if theme_btn:
+            theme_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.act_fullscreen = add("Toàn màn hình", "fullscreen.svg", f"Toàn màn hình (F11)", "F11", self.toggle_fullscreen)
 
         # ── Menu-only: Độ sáng tài liệu ───────────────────────────────────
         self.act_brightness_up   = make("Sáng hơn", "brightness_up.svg",   f"Tăng độ sáng tài liệu ({shortcut_label('Ctrl+Shift+=')})", "Ctrl+Shift+=", lambda: brightness_up(self))
@@ -909,12 +912,15 @@ class PDFReaderApp(QMainWindow):
         toggle_theme()
         if is_dark():
             self.act_theme_toggle.setIcon(svg_icon("sun.svg"))
-            self.act_theme_toggle.setText("Chế độ sáng")
-            self.act_theme_toggle.setToolTip("Chuyển sang chế độ sáng")
+            self.act_theme_toggle.setText("☀ Sáng")
+            self.act_theme_toggle.setToolTip("Chuyển sang chế độ sáng (hiện: Tối)")
         else:
             self.act_theme_toggle.setIcon(svg_icon("moon.svg"))
-            self.act_theme_toggle.setText("Chế độ tối")
-            self.act_theme_toggle.setToolTip("Chuyển sang chế độ tối")
+            self.act_theme_toggle.setText("🌙 Tối")
+            self.act_theme_toggle.setToolTip("Chuyển sang chế độ tối (hiện: Sáng)")
+        btn = self.toolbar.widgetForAction(self.act_theme_toggle)
+        if btn:
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
