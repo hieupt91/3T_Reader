@@ -1,4 +1,7 @@
-from packages.qt_compat.QtWidgets import QDockWidget, QListWidget, QListWidgetItem
+from packages.qt_compat.QtWidgets import (
+    QDockWidget, QListWidget, QListWidgetItem,
+    QTreeWidget, QTreeWidgetItem, QWidget, QVBoxLayout, QLabel,
+)
 from packages.qt_compat.QtGui import QPixmap, QImage, QIcon
 from packages.qt_compat.QtCore import Qt, QSize, QThread, QTimer, pyqtSignal
 
@@ -193,3 +196,110 @@ class ThumbnailSidebar(QDockWidget):
                 QListWidget.ScrollHint.PositionAtCenter
             )
             self._schedule_visible_load()
+
+
+class BookmarkSidebar(QDockWidget):
+    """Hiển thị mục lục (Table of Contents / Outline) của PDF."""
+
+    def __init__(self, parent=None):
+        super().__init__("Mục lục", parent)
+        self.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        self.setFixedWidth(220)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self._empty_label = QLabel("Tệp PDF này\nkhông có mục lục.")
+        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_label.setStyleSheet("color: #6a6a8a; font-size: 12px; padding: 20px;")
+
+        self._tree = QTreeWidget()
+        self._tree.setHeaderHidden(True)
+        self._tree.setColumnCount(1)
+        self._tree.setIndentation(16)
+        self._tree.setAnimated(True)
+        self._tree.setStyleSheet("""
+            QTreeWidget {
+                background-color: #0d0d12;
+                border: none;
+                padding: 6px 4px;
+                color: #c8c8e0;
+                font-size: 12px;
+            }
+            QTreeWidget::item {
+                padding: 5px 4px;
+                border-radius: 4px;
+            }
+            QTreeWidget::item:selected {
+                background-color: #1f1f38;
+                color: #ffffff;
+            }
+            QTreeWidget::item:hover {
+                background-color: #181830;
+            }
+            QTreeWidget:focus { outline: none; }
+        """)
+
+        layout.addWidget(self._empty_label)
+        layout.addWidget(self._tree)
+        self.setWidget(container)
+
+        self._on_navigate = None
+        self._tree.itemClicked.connect(self._handle_click)
+        self._tree.setVisible(False)
+
+    def _handle_click(self, item: QTreeWidgetItem, _col: int):
+        page = item.data(0, Qt.ItemDataRole.UserRole)
+        if page and self._on_navigate:
+            self._on_navigate(page)
+
+    def load_outline(self, pdf_path: str, on_navigate):
+        self._on_navigate = on_navigate
+        self._tree.clear()
+        outline = self._read_outline(pdf_path)
+
+        if not outline:
+            self._tree.setVisible(False)
+            self._empty_label.setVisible(True)
+            return
+
+        self._empty_label.setVisible(False)
+        self._tree.setVisible(True)
+
+        stack: list[tuple[int, QTreeWidgetItem]] = []
+        for level, title, page in outline:
+            item = QTreeWidgetItem([title.strip() or f"Trang {page}"])
+            item.setData(0, Qt.ItemDataRole.UserRole, page)
+            item.setToolTip(0, f"Trang {page}  —  {title.strip()}")
+
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+
+            if stack:
+                stack[-1][1].addChild(item)
+            else:
+                self._tree.addTopLevelItem(item)
+
+            stack.append((level, item))
+
+        self._tree.expandAll()
+
+    def clear(self):
+        self._tree.clear()
+        self._tree.setVisible(False)
+        self._empty_label.setVisible(True)
+
+    def _read_outline(self, pdf_path: str) -> list[tuple[int, str, int]]:
+        try:
+            import fitz
+            doc = fitz.open(pdf_path)
+            toc = doc.get_toc()
+            doc.close()
+            return toc  # [(level, title, page), ...]
+        except Exception:
+            return []

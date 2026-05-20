@@ -46,7 +46,7 @@ from app.actions.annotate import (
     delete_current_page, merge_pdf, extract_pages,
 )
 from app.actions.sign import check_token, sign_document, sign_handwritten
-from app.sidebar import ThumbnailSidebar
+from app.sidebar import ThumbnailSidebar, BookmarkSidebar
 from app.icon_utils import svg_icon, app_logo_icon
 from app.dialogs import show_warning, show_info
 from app.config import WINDOW_TITLE
@@ -196,10 +196,16 @@ class PDFReaderApp(QMainWindow):
             "temp_path": None,
         }
 
+        self.setAcceptDrops(True)
+
         self._build_tab_host()
 
         self.sidebar = ThumbnailSidebar(self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.sidebar)
+
+        self.toc_sidebar = BookmarkSidebar(self)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.toc_sidebar)
+        self.toc_sidebar.hide()
 
         self._build_search_panel()
         self._build_toolbar()
@@ -603,6 +609,18 @@ class PDFReaderApp(QMainWindow):
         if sidebar_btn:
             sidebar_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._action_icons[self.act_toggle_sidebar_btn] = "sidebar.svg"
+
+        self.act_toggle_toc_btn = QAction("Mục lục", self)
+        self.act_toggle_toc_btn.setIcon(svg_icon("history.svg", color="#30b8c8"))
+        self.act_toggle_toc_btn.setToolTip("Ẩn/Hiện mục lục PDF (Ctrl+Alt+T)")
+        self.act_toggle_toc_btn.setShortcut(QKeySequence("Ctrl+Alt+T"))
+        self.act_toggle_toc_btn.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_toggle_toc_btn.triggered.connect(self._toggle_toc)
+        self.toolbar.addAction(self.act_toggle_toc_btn)
+        toc_btn = self.toolbar.widgetForAction(self.act_toggle_toc_btn)
+        if toc_btn:
+            toc_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._action_icons[self.act_toggle_toc_btn] = "history.svg"
         self.toolbar.addSeparator()
 
         # ── Giao diện + Toàn màn hình ─────────────────────────────────────
@@ -720,6 +738,7 @@ class PDFReaderApp(QMainWindow):
         menu_view.addAction(self.act_brightness_down)
         menu_view.addSeparator()
         menu_view.addAction(self.act_toggle_sidebar_btn)
+        menu_view.addAction(self.act_toggle_toc_btn)
         act_toggle_toolbar = self.toolbar.toggleViewAction()
         act_toggle_toolbar.setText("Thanh công cụ")
         act_toggle_toolbar.setShortcut(QKeySequence("Ctrl+B"))
@@ -837,7 +856,7 @@ class PDFReaderApp(QMainWindow):
             act_file_info, act_close_tab, act_tab_next, act_tab_prev,
             act_goto, self.act_toggle_sidebar_btn, act_shortcuts, act_exit,
             self.act_highlight, self.act_undo, act_rotate_cw, act_rotate_ccw, act_del_page,
-            act_merge, act_extract, act_sign_draw,
+            act_merge, act_extract, act_sign_draw, self.act_toggle_toc_btn,
         ):
             action.setIconVisibleInMenu(True)
 
@@ -881,6 +900,7 @@ class PDFReaderApp(QMainWindow):
         if viewer is self.viewer:
             self.search_input.clear()
             self._update_chrome_for_active_tab()
+            self._load_toc_for_active()
 
     def _on_page_ready(self, viewer):
         if viewer is not self.viewer:
@@ -897,9 +917,25 @@ class PDFReaderApp(QMainWindow):
         self.total_label.setText(f" / {total}")
         self.sidebar.highlight_page(cur)
 
+    def _load_toc_for_active(self):
+        state = self._active_state()
+        if not state:
+            self.toc_sidebar.clear()
+            return
+        pdf_path = state.get("source_path")
+        if not pdf_path:
+            self.toc_sidebar.clear()
+            return
+        viewer = state["viewer"]
+        self.toc_sidebar.load_outline(
+            pdf_path,
+            on_navigate=lambda page, v=viewer: v.goto_page(page),
+        )
+
     def _on_tab_changed(self, _index):
         self._update_chrome_for_active_tab()
         self._reposition_search_panel()
+        self._load_toc_for_active()
 
     def _update_chrome_for_active_tab(self):
         state = self._active_state()
@@ -959,6 +995,7 @@ class PDFReaderApp(QMainWindow):
         if self.tab_widget.count() == 0:
             self.hide_search_panel()
             self._update_chrome_for_active_tab()
+            self.toc_sidebar.clear()
 
     def _activate_next_tab(self):
         count = self.tab_widget.count()
@@ -1100,6 +1137,10 @@ class PDFReaderApp(QMainWindow):
         visible = self.sidebar.isVisible()
         self.sidebar.setVisible(not visible)
 
+    def _toggle_toc(self):
+        visible = self.toc_sidebar.isVisible()
+        self.toc_sidebar.setVisible(not visible)
+
     def _toggle_theme(self):
         toggle_theme()
         self._refresh_icons()
@@ -1151,6 +1192,33 @@ class PDFReaderApp(QMainWindow):
             self.is_fullscreen = False
             return
         super().keyPressEvent(event)
+
+    # ------------------------------------------------------------------ #
+    #  Drag & Drop                                                         #
+    # ------------------------------------------------------------------ #
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if any(u.toLocalFile().lower().endswith(".pdf") for u in urls):
+                event.acceptProposedAction()
+                return
+        event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        pdf_files = [u.toLocalFile() for u in urls if u.toLocalFile().lower().endswith(".pdf")]
+        for path in pdf_files:
+            if os.path.isfile(path):
+                self.open_document(path)
+        if pdf_files:
+            event.acceptProposedAction()
 
     def closeEvent(self, event: QCloseEvent):
         for idx in range(self.tab_widget.count() - 1, -1, -1):
