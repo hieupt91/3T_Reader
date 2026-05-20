@@ -13,7 +13,8 @@ _JS_BRIGHTNESS = """
 def _apply(window, pct: int):
     pct = max(_MIN, min(_MAX, pct))
     window._brightness = pct
-    window.brightness_label.setText(f"{pct}%")
+    if hasattr(window, 'status'):
+        window.status.showMessage(f"Độ sáng tài liệu: {pct}%", 2000)
     wv = window._get_webview()
     if wv:
         wv.page().runJavaScript(_JS_BRIGHTNESS % pct)

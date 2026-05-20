@@ -432,21 +432,32 @@ class PDFReaderApp(QMainWindow):
             self.toolbar.addAction(a)
             return a
 
-        # Group: File Ops
+        def make(text, svg_file, tooltip, shortcut, slot):
+            """Tạo QAction KHÔNG thêm vào toolbar (dùng cho menu)."""
+            a = QAction(text, self)
+            a.setIcon(svg_icon(svg_file))
+            a.setToolTip(tooltip)
+            a.setStatusTip(tooltip)
+            if shortcut:
+                a.setShortcut(QKeySequence(shortcut))
+            a.triggered.connect(slot)
+            return a
+
+        # ── File ──────────────────────────────────────────────────────────
         self.act_open   = add("Mở tệp",     "folder_open.svg", f"Mở tệp ({shortcut_label('Ctrl+O')})", "Ctrl+O", lambda: open_file(self))
-        self.act_recent = add("Tệp gần đây", "history.svg",     "Tệp gần đây",     None,     lambda: show_recent_menu(self))
-        self.act_save   = add("Lưu",         "save.svg",        f"Lưu ({shortcut_label('Ctrl+S')})",    "Ctrl+S", lambda: self.viewer.save_pdf() if self.viewer else None)
-        self.act_print  = add("In",          "print.svg",       f"In ({shortcut_label('Ctrl+P')})",     "Ctrl+P", self.print_current_pdf)
+        self.act_recent = add("Tệp gần đây", "history.svg",    "Tệp gần đây",                          None,     lambda: show_recent_menu(self))
+        self.act_save   = add("Lưu",         "save.svg",       f"Lưu ({shortcut_label('Ctrl+S')})",    "Ctrl+S", lambda: self.viewer.save_pdf() if self.viewer else None)
+        self.act_print  = add("In",          "print.svg",      f"In ({shortcut_label('Ctrl+P')})",     "Ctrl+P", self.print_current_pdf)
         self.toolbar.addSeparator()
 
-        # Group: Navigation
+        # ── Điều hướng ────────────────────────────────────────────────────
         self.act_prev = add("Trang trước", "chevron_left.svg", "Trang trước (Left)", "Left", lambda: prev_page(self))
 
         self.page_spin = QSpinBox()
         self.page_spin.setMinimum(1)
         self.page_spin.setMaximum(9999)
         self.page_spin.setFixedWidth(64)
-        self.page_spin.setToolTip("Nhập số trang và Enter")
+        self.page_spin.setToolTip("Nhập số trang rồi Enter")
         self.page_spin.editingFinished.connect(lambda: jump_to_page(self))
         self.toolbar.addWidget(self.page_spin)
 
@@ -456,8 +467,8 @@ class PDFReaderApp(QMainWindow):
         self.act_next = add("Trang sau", "chevron_right.svg", "Trang sau (Right)", "Right", lambda: next_page(self))
         self.toolbar.addSeparator()
 
-        # Group: View
-        self.act_zoom_out = add("Thu nhỏ", "zoom_out.svg", f"Thu nhỏ ({shortcut_label('Ctrl+-')})", "Ctrl+-", lambda: zoom_out(self))
+        # ── Zoom ──────────────────────────────────────────────────────────
+        self.act_zoom_out = add("Thu nhỏ",   "zoom_out.svg", f"Thu nhỏ ({shortcut_label('Ctrl+-')})", "Ctrl+-", lambda: zoom_out(self))
         self.act_zoom_out.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
 
         self.zoom_spin = QSpinBox()
@@ -465,41 +476,34 @@ class PDFReaderApp(QMainWindow):
         self.zoom_spin.setValue(100)
         self.zoom_spin.setSuffix("%")
         self.zoom_spin.setFixedWidth(78)
-        self.zoom_spin.setToolTip("Zoom (double-click → 100%)")
+        self.zoom_spin.setToolTip("Zoom — double-click để về 100%")
         self.zoom_spin.editingFinished.connect(lambda: apply_zoom(self))
         self.zoom_spin.installEventFilter(self)
         self.toolbar.addWidget(self.zoom_spin)
 
-        self.act_zoom_in = add("Phóng to",  "zoom_in.svg",  f"Phóng to ({shortcut_label('Ctrl+=')})",  "Ctrl+=", lambda: zoom_in(self))
+        self.act_zoom_in = add("Phóng to",   "zoom_in.svg",  f"Phóng to ({shortcut_label('Ctrl+=')})",  "Ctrl+=", lambda: zoom_in(self))
         self.act_zoom_in.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
-        self.act_fit     = add("Vừa trang", "fit_page.svg", f"Vừa trang ({shortcut_label('Ctrl+0')})", "Ctrl+0", lambda: zoom_fit(self))
+        self.act_fit     = add("Vừa trang",  "fit_page.svg", f"Vừa trang ({shortcut_label('Ctrl+0')})", "Ctrl+0", lambda: zoom_fit(self))
         self.toolbar.addSeparator()
 
-        # Group: Brightness
-        self.act_brightness_down = add("Tối hơn", "brightness_down.svg", "Giảm độ sáng", None, lambda: brightness_down(self))
-        self.brightness_label = QLabel("100%")
-        self.brightness_label.setFixedWidth(42)
-        self.brightness_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.brightness_label.setToolTip("Độ sáng (double-click → 100%)")
-        self.brightness_label.installEventFilter(self)
-        self.toolbar.addWidget(self.brightness_label)
-        self.act_brightness_up = add("Sáng hơn", "brightness_up.svg", "Tăng độ sáng", None, lambda: brightness_up(self))
-        self.toolbar.addSeparator()
+        # ── Giao diện + Toàn màn hình ─────────────────────────────────────
+        self.act_theme_toggle = add("Chế độ sáng", "sun.svg",        "Chuyển sang chế độ sáng", None,  self._toggle_theme)
+        self.act_fullscreen   = add("Toàn màn hình","fullscreen.svg", f"Toàn màn hình (F11)",    "F11", self.toggle_fullscreen)
 
-        # Group: Edit / Tools
-        self.act_new_pdf         = add("PDF mới",      "file_plus.svg",   f"Tạo PDF mới ({shortcut_label('Ctrl+N')})", "Ctrl+N", lambda: create_new_pdf(self))
-        self.act_insert_text     = add("Chèn text",    "object_plus.svg", "Chèn văn bản vào PDF", None, lambda: insert_text_to_pdf(self))
-        self.act_insert_image    = add("Chèn ảnh",     "object_plus.svg", "Chèn ảnh vào PDF",     None, lambda: insert_image_to_pdf(self))
-        self.act_select_inserted = add("Chỉnh object", "edit_object.svg", "Chỉnh sửa object",     None, lambda: select_inserted_object(self))
-        self.act_undo            = add("Hoàn tác",     "undo.svg",        f"Hoàn tác ({shortcut_label('Ctrl+Z')})", "Ctrl+Z", lambda: undo_last_edit(self))
-        self.toolbar.addSeparator()
+        # ── Menu-only: Độ sáng tài liệu ───────────────────────────────────
+        self.act_brightness_up   = make("Sáng hơn", "brightness_up.svg",   f"Tăng độ sáng tài liệu ({shortcut_label('Ctrl+Shift+=')})", "Ctrl+Shift+=", lambda: brightness_up(self))
+        self.act_brightness_down = make("Tối hơn",  "brightness_down.svg", f"Giảm độ sáng tài liệu ({shortcut_label('Ctrl+Shift+-')})", "Ctrl+Shift+-", lambda: brightness_down(self))
 
-        # Group: Advanced
-        self.act_check_token = add("USB ký số",    "usb.svg",        "Kiểm tra USB ký số", None,  lambda: check_token(self))
-        self.act_sign        = add("Ký số",         "pen.svg",        "Ký số tài liệu",     None,  lambda: sign_document(self))
-        self.toolbar.addSeparator()
-        self.act_theme_toggle = add("Chế độ sáng", "sun.svg", "Chuyển sang chế độ sáng", None, self._toggle_theme)
-        self.act_fullscreen   = add("Toàn màn hình", "fullscreen.svg", "Toàn màn hình (F11)", "F11", self.toggle_fullscreen)
+        # ── Menu-only: Công cụ chỉnh sửa ──────────────────────────────────
+        self.act_new_pdf         = make("PDF mới",      "file_plus.svg",   f"Tạo PDF mới ({shortcut_label('Ctrl+N')})", "Ctrl+N", lambda: create_new_pdf(self))
+        self.act_insert_text     = make("Chèn text",    "object_plus.svg", "Chèn văn bản vào PDF", None, lambda: insert_text_to_pdf(self))
+        self.act_insert_image    = make("Chèn ảnh",     "object_plus.svg", "Chèn ảnh vào PDF",     None, lambda: insert_image_to_pdf(self))
+        self.act_select_inserted = make("Chỉnh object", "edit_object.svg", "Chỉnh sửa object",     None, lambda: select_inserted_object(self))
+        self.act_undo            = make("Hoàn tác",     "undo.svg",        f"Hoàn tác ({shortcut_label('Ctrl+Z')})", "Ctrl+Z", lambda: undo_last_edit(self))
+
+        # ── Menu-only: Ký số ──────────────────────────────────────────────
+        self.act_check_token = make("USB ký số", "usb.svg", "Kiểm tra USB ký số", None, lambda: check_token(self))
+        self.act_sign        = make("Ký số",     "pen.svg", "Ký số tài liệu",     None, lambda: sign_document(self))
 
     # ------------------------------------------------------------------ #
     #  Print — QPrintDialog + PyMuPDF, KHÔNG dùng ShellExecute            #
@@ -595,10 +599,17 @@ class PDFReaderApp(QMainWindow):
         menu_view.addAction(self.act_zoom_out)
         menu_view.addAction(self.act_fit)
         menu_view.addSeparator()
+        menu_view.addAction(self.act_brightness_up)
+        menu_view.addAction(self.act_brightness_down)
+        menu_view.addSeparator()
         act_toggle_sidebar = self.sidebar.toggleViewAction()
-        act_toggle_sidebar.setText("Hiện thanh ảnh thu nhỏ")
+        act_toggle_sidebar.setText("Thanh ảnh thu nhỏ")
         act_toggle_sidebar.setIcon(svg_icon("history.svg", size=16, color="#9b9bc0"))
         menu_view.addAction(act_toggle_sidebar)
+        act_toggle_toolbar = self.toolbar.toggleViewAction()
+        act_toggle_toolbar.setText("Thanh công cụ")
+        act_toggle_toolbar.setShortcut(QKeySequence("Ctrl+B"))
+        menu_view.addAction(act_toggle_toolbar)
         menu_view.addSeparator()
         menu_view.addAction(self.act_theme_toggle)
         menu_view.addAction(self.act_fullscreen)
@@ -891,15 +902,6 @@ class PDFReaderApp(QMainWindow):
         if hasattr(self, 'zoom_spin') and obj is self.zoom_spin and event.type() == QEvent.Type.MouseButtonDblClick:
             self.zoom_spin.setValue(100)
             apply_zoom(self)
-            return True
-        if hasattr(self, 'brightness_label') and obj is self.brightness_label and event.type() == QEvent.Type.MouseButtonDblClick:
-            self._brightness = 100
-            self.brightness_label.setText("100%")
-            wv = self._get_webview()
-            if wv:
-                wv.page().runJavaScript(
-                    "var el=document.getElementById('viewerContainer'); if(el) el.style.filter='';"
-                )
             return True
         return super().eventFilter(obj, event)
 
