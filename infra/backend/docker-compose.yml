@@ -1,0 +1,12 @@
+services:
+  license-api:
+    build:
+      context: ../..
+      dockerfile: infra/backend/Dockerfile
+    environment:
+      THREET_ENV: production
+      THREET_LICENSE_SIGNING_SECRET: change-me-before-deploy
+      THREET_DEFAULT_UPDATE_VERSION: 0.0.0
+      THREET_DEFAULT_UPDATE_URL: https://example.com/releases/3t-reader
+    ports:
+      - "8000:8000"

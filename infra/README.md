@@ -7,3 +7,4 @@ Future Linux VPS deployment scope:
 - PostgreSQL backups.
 - Release artifact storage.
 - Monitoring and audit log retention.
+- Backend service layout under `infra/backend/` for the license API.
