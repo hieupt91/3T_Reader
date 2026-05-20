@@ -39,6 +39,7 @@ from app.sidebar import ThumbnailSidebar
 from app.icon_utils import svg_icon
 from app.dialogs import show_warning, show_info
 from app.config import WINDOW_TITLE
+from app.platform_ui import shortcut_label, use_native_menubar, fullscreen_shortcut_hint
 from core.recent import load_recent, clear_recent
 from packages.pdf_engine import get_pdf_engine
 
@@ -427,11 +428,10 @@ class PDFReaderApp(QMainWindow):
             return a
 
         # Group: File Ops
-        self.act_open   = add("Mở tệp",     "folder_open.svg", "Mở tệp (Ctrl+O)", "Ctrl+O", lambda: open_file(self))
+        self.act_open   = add("Mở tệp",     "folder_open.svg", f"Mở tệp ({shortcut_label('Ctrl+O')})", "Ctrl+O", lambda: open_file(self))
         self.act_recent = add("Tệp gần đây", "history.svg",     "Tệp gần đây",     None,     lambda: show_recent_menu(self))
-        self.act_save   = add("Lưu",         "save.svg",        "Lưu (Ctrl+S)",    "Ctrl+S", lambda: self.viewer.save_pdf() if self.viewer else None)
-        # FIX: dùng self.print_current_pdf — không dùng self.viewer.print_pdf()
-        self.act_print  = add("In",          "print.svg",       "In (Ctrl+P)",     "Ctrl+P", self.print_current_pdf)
+        self.act_save   = add("Lưu",         "save.svg",        f"Lưu ({shortcut_label('Ctrl+S')})",    "Ctrl+S", lambda: self.viewer.save_pdf() if self.viewer else None)
+        self.act_print  = add("In",          "print.svg",       f"In ({shortcut_label('Ctrl+P')})",     "Ctrl+P", self.print_current_pdf)
         self.toolbar.addSeparator()
 
         # Group: Navigation
@@ -452,7 +452,7 @@ class PDFReaderApp(QMainWindow):
         self.toolbar.addSeparator()
 
         # Group: View
-        self.act_zoom_out = add("Thu nhỏ", "zoom_out.svg", "Thu nhỏ (Ctrl+-)", "Ctrl+-", lambda: zoom_out(self))
+        self.act_zoom_out = add("Thu nhỏ", "zoom_out.svg", f"Thu nhỏ ({shortcut_label('Ctrl+-')})", "Ctrl+-", lambda: zoom_out(self))
 
         self.zoom_spin = QSpinBox()
         self.zoom_spin.setRange(25, 400)
@@ -462,16 +462,16 @@ class PDFReaderApp(QMainWindow):
         self.zoom_spin.editingFinished.connect(lambda: apply_zoom(self))
         self.toolbar.addWidget(self.zoom_spin)
 
-        self.act_zoom_in = add("Phóng to",   "zoom_in.svg",  "Phóng to (Ctrl+=)", "Ctrl+=", lambda: zoom_in(self))
-        self.act_fit     = add("Vừa trang",  "fit_page.svg", "Vừa trang (Ctrl+0)", "Ctrl+0", lambda: zoom_fit(self))
+        self.act_zoom_in = add("Phóng to",  "zoom_in.svg",  f"Phóng to ({shortcut_label('Ctrl+=')})",  "Ctrl+=", lambda: zoom_in(self))
+        self.act_fit     = add("Vừa trang", "fit_page.svg", f"Vừa trang ({shortcut_label('Ctrl+0')})", "Ctrl+0", lambda: zoom_fit(self))
         self.toolbar.addSeparator()
 
         # Group: Edit / Tools
-        self.act_new_pdf         = add("PDF mới",        "file_plus.svg",   "Tạo PDF mới",          "Ctrl+N", lambda: create_new_pdf(self))
-        self.act_insert_text     = add("Chèn text",      "object_plus.svg", "Chèn văn bản vào PDF", None,     lambda: insert_text_to_pdf(self))
-        self.act_insert_image    = add("Chèn ảnh",       "object_plus.svg", "Chèn ảnh vào PDF",     None,     lambda: insert_image_to_pdf(self))
-        self.act_select_inserted = add("Chỉnh object",   "edit_object.svg", "Chỉnh sửa object",     None,     lambda: select_inserted_object(self))
-        self.act_undo            = add("Hoàn tác",       "undo.svg",        "Hoàn tác (Ctrl+Z)",    "Ctrl+Z", lambda: undo_last_edit(self))
+        self.act_new_pdf         = add("PDF mới",      "file_plus.svg",   f"Tạo PDF mới ({shortcut_label('Ctrl+N')})", "Ctrl+N", lambda: create_new_pdf(self))
+        self.act_insert_text     = add("Chèn text",    "object_plus.svg", "Chèn văn bản vào PDF", None, lambda: insert_text_to_pdf(self))
+        self.act_insert_image    = add("Chèn ảnh",     "object_plus.svg", "Chèn ảnh vào PDF",     None, lambda: insert_image_to_pdf(self))
+        self.act_select_inserted = add("Chỉnh object", "edit_object.svg", "Chỉnh sửa object",     None, lambda: select_inserted_object(self))
+        self.act_undo            = add("Hoàn tác",     "undo.svg",        f"Hoàn tác ({shortcut_label('Ctrl+Z')})", "Ctrl+Z", lambda: undo_last_edit(self))
         self.toolbar.addSeparator()
 
         # Group: Advanced
@@ -534,7 +534,7 @@ class PDFReaderApp(QMainWindow):
 
     def _build_menubar(self):
         bar = self.menuBar()
-        bar.setNativeMenuBar(False)
+        bar.setNativeMenuBar(use_native_menubar())
 
         menu_file = bar.addMenu("Tệp")
         menu_file.addAction(self.act_new_pdf)
@@ -760,19 +760,20 @@ class PDFReaderApp(QMainWindow):
         self.page_spin.selectAll()
 
     def _show_shortcuts_hint(self):
+        s = shortcut_label
         show_info(
             self, "Phím tắt",
-            "Ctrl+O: Mở tệp\n"
-            "Ctrl+W: Đóng tab\n"
-            "Ctrl+Tab: Tab kế tiếp\n"
-            "Ctrl+Shift+Tab: Tab trước đó\n"
-            "Ctrl+F: Tìm kiếm văn bản\n"
+            f"{s('Ctrl+O')}: Mở tệp\n"
+            f"{s('Ctrl+W')}: Đóng tab\n"
+            f"{s('Ctrl+Tab')}: Tab kế tiếp\n"
+            f"{s('Ctrl+Shift+Tab')}: Tab trước đó\n"
+            f"{s('Ctrl+F')}: Tìm kiếm văn bản\n"
             "F3 / Shift+F3: Tìm tiếp / tìm trước đó\n"
-            "Ctrl+S: Lưu\n"
-            "Ctrl+P: In\n"
-            "Ctrl+0: Vừa trang\n"
-            "Ctrl+- / Ctrl+=: Thu nhỏ / phóng to\n"
-            "F11: Toàn màn hình",
+            f"{s('Ctrl+S')}: Lưu\n"
+            f"{s('Ctrl+P')}: In\n"
+            f"{s('Ctrl+0')}: Vừa trang\n"
+            f"{s('Ctrl+-')} / {s('Ctrl+=')} : Thu nhỏ / phóng to\n"
+            f"{fullscreen_shortcut_hint()}: Toàn màn hình",
         )
 
     def _refresh_recent_menu(self):
@@ -861,6 +862,12 @@ class PDFReaderApp(QMainWindow):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_F11:
+            self.toggle_fullscreen()
+            return
+        # macOS standard fullscreen: Ctrl+Cmd+F
+        if (sys.platform == "darwin"
+                and event.key() == Qt.Key.Key_F
+                and event.modifiers() == (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)):
             self.toggle_fullscreen()
             return
         if event.key() == Qt.Key.Key_Escape and self.search_panel.isVisible():

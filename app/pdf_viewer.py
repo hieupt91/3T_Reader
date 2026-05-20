@@ -1,16 +1,60 @@
 import os
-from pathlib import Path
 
 from packages.pdf_engine import get_pdf_engine
 from packages.qt_compat import QtCore, QtWebEngineWidgets, QtWidgets, pyqtSignal
+from PySide6.QtWebEngineCore import QWebEngineSettings, QWebEngineScript
+
+from app.local_server import LocalPDFJSServer
+
+# Polyfill for Map methods added in V8 13.6+ (Chrome 136+).
+# Qt WebEngine 6.11 reports Chrome/140 but ships a build without these methods.
+_MAP_POLYFILL_JS = """
+(function () {
+    if (!Map.prototype.getOrInsert) {
+        Map.prototype.getOrInsert = function (key, defaultValue) {
+            if (!this.has(key)) { this.set(key, defaultValue); }
+            return this.get(key);
+        };
+    }
+    if (!Map.prototype.getOrInsertComputed) {
+        Map.prototype.getOrInsertComputed = function (key, computeFn) {
+            if (!this.has(key)) { this.set(key, computeFn(key)); }
+            return this.get(key);
+        };
+    }
+})();
+"""
+
+# Hide PDF.js built-in toolbar/sidebar — the app provides its own UI.
+# Injected at DocumentReady so DOM elements exist when the style is applied.
+_HIDE_PDFJS_UI_JS = """
+(function () {
+    var css = [
+        '#toolbarContainer { display: none !important; }',
+        '#loadingBar { display: none !important; }',
+        '#viewsManager { display: none !important; }',
+        '#mainContainer { top: 0 !important; }',
+        '#viewerContainer { top: 0 !important; left: 0 !important; }',
+        'body { background-color: #0f0f13 !important; }',
+        '#viewer .page {',
+        '  border: none !important;',
+        '  box-shadow: 0 4px 24px rgba(0,0,0,.5) !important;',
+        '  margin: 16px auto !important;',
+        '  border-radius: 4px !important;',
+        '}',
+    ].join('\\n');
+    var style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
+})();
+"""
 
 
 class PDFViewerWidget(QtWidgets.QWidget):
-    """Internal PDF.js/QWebEngine viewer adapter.
+    """PDF viewer: QWebEngineView + PDF.js served over local HTTP.
 
-    This replaces the GPL `pdfjs-viewer-pyqt6` wrapper at the app boundary.
-    It loads the Apache-2.0 PDF.js bundle from `third_party/pdfjs` when
-    available. A direct QWebEngine file fallback is kept for Phase 0 dev.
+    ES modules (used by PDF.js 4+) cannot load from file:// in QtWebEngine,
+    so we serve PDF.js via LocalPDFJSServer on 127.0.0.1.
     """
 
     pdf_loaded = pyqtSignal(dict)
@@ -26,6 +70,31 @@ class PDFViewerWidget(QtWidgets.QWidget):
         self._zoom = "page-width"
 
         self._web_view = QtWebEngineWidgets.QWebEngineView(self)
+
+        settings = self._web_view.settings()
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
+
+        # Polyfill: runs before PDF.js modules so missing Map methods are available
+        polyfill = QWebEngineScript()
+        polyfill.setName("map-polyfill")
+        polyfill.setSourceCode(_MAP_POLYFILL_JS)
+        polyfill.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        polyfill.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        polyfill.setRunsOnSubFrames(False)
+
+        # UI hide: runs at DocumentReady (DOM exists) to strip PDF.js built-in chrome
+        hide_ui = QWebEngineScript()
+        hide_ui.setName("pdfjs-hide-ui")
+        hide_ui.setSourceCode(_HIDE_PDFJS_UI_JS)
+        hide_ui.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
+        hide_ui.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        hide_ui.setRunsOnSubFrames(False)
+
+        page_scripts = self._web_view.page().scripts()
+        page_scripts.insert(polyfill)
+        page_scripts.insert(hide_ui)
+
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -74,22 +143,10 @@ class PDFViewerWidget(QtWidgets.QWidget):
         return super().findChild(child_type, name)
 
     def _load_web_view(self, path: str, *, zoom: str, page: int, pagemode: str | None):
-        viewer = self._pdfjs_viewer_path()
-        pdf_url = QtCore.QUrl.fromLocalFile(os.path.abspath(path)).toString()
-        if viewer:
-            viewer_url = QtCore.QUrl.fromLocalFile(str(viewer)).toString()
-            encoded_pdf = QtCore.QUrl.toPercentEncoding(pdf_url).data().decode()
-            target_url = f"{viewer_url}?file={encoded_pdf}#page={page}"
-            if zoom:
-                target_url += f"&zoom={zoom}"
-            if pagemode:
-                target_url += f"&pagemode={pagemode}"
-            self._web_view.load(QtCore.QUrl(target_url))
-            return
-
-        self._web_view.load(QtCore.QUrl.fromLocalFile(os.path.abspath(path)))
-
-    def _pdfjs_viewer_path(self) -> Path | None:
-        root = Path(__file__).resolve().parents[1]
-        viewer = root / "third_party" / "pdfjs" / "web" / "viewer.html"
-        return viewer if viewer.exists() else None
+        server = LocalPDFJSServer.get()
+        url = server.viewer_url(path, page=page, zoom=zoom, pagemode=pagemode)
+        if url:
+            self._web_view.load(QtCore.QUrl(url))
+        else:
+            # Fallback: direct file load (no PDF.js, limited support)
+            self._web_view.load(QtCore.QUrl.fromLocalFile(os.path.abspath(path)))

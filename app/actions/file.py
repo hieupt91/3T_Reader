@@ -9,16 +9,26 @@ from packages.pdf_engine import get_pdf_engine
 
 
 def _pick_pdf_file(window):
+    import sys
     dialog = QFileDialog(window)
     dialog.setWindowTitle("Chọn tệp PDF")
     dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
     dialog.setNameFilter("Tệp PDF (*.pdf)")
-    dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-    dialog.setLabelText(QFileDialog.DialogLabel.LookIn, "Tìm trong")
-    dialog.setLabelText(QFileDialog.DialogLabel.FileName, "Tên tệp")
-    dialog.setLabelText(QFileDialog.DialogLabel.FileType, "Loại tệp")
-    dialog.setLabelText(QFileDialog.DialogLabel.Accept, "Mở")
-    dialog.setLabelText(QFileDialog.DialogLabel.Reject, "Hủy")
+
+    if sys.platform == "darwin":
+        # macOS: use native dialog — lets the OS handle directory access
+        # and security-scoped bookmarks properly. Non-native dialog blocks
+        # navigation to Documents, Desktop, external drives on macOS.
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, False)
+    else:
+        # Windows/Linux: non-native dialog with Vietnamese labels
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dialog.setLabelText(QFileDialog.DialogLabel.LookIn, "Tìm trong")
+        dialog.setLabelText(QFileDialog.DialogLabel.FileName, "Tên tệp")
+        dialog.setLabelText(QFileDialog.DialogLabel.FileType, "Loại tệp")
+        dialog.setLabelText(QFileDialog.DialogLabel.Accept, "Mở")
+        dialog.setLabelText(QFileDialog.DialogLabel.Reject, "Hủy")
+
     if dialog.exec():
         selected = dialog.selectedFiles()
         return selected[0] if selected else None
