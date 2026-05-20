@@ -1,18 +1,36 @@
 import os
-import sys
-from pathlib import Path
 
 from packages.pdf_engine import get_pdf_engine
 from packages.qt_compat import QtCore, QtWebEngineWidgets, QtWidgets, pyqtSignal
-from PySide6.QtWebEngineCore import QWebEngineSettings
+from PySide6.QtWebEngineCore import QWebEngineSettings, QWebEngineScript
+
+from app.local_server import LocalPDFJSServer
+
+# Polyfill for Map methods added in V8 13.6+ (Chrome 136+).
+# Qt WebEngine 6.11 reports Chrome/140 but ships a build without these methods.
+_MAP_POLYFILL_JS = """
+(function () {
+    if (!Map.prototype.getOrInsert) {
+        Map.prototype.getOrInsert = function (key, defaultValue) {
+            if (!this.has(key)) { this.set(key, defaultValue); }
+            return this.get(key);
+        };
+    }
+    if (!Map.prototype.getOrInsertComputed) {
+        Map.prototype.getOrInsertComputed = function (key, computeFn) {
+            if (!this.has(key)) { this.set(key, computeFn(key)); }
+            return this.get(key);
+        };
+    }
+})();
+"""
 
 
 class PDFViewerWidget(QtWidgets.QWidget):
-    """Internal PDF.js/QWebEngine viewer adapter.
+    """PDF viewer: QWebEngineView + PDF.js served over local HTTP.
 
-    This replaces the GPL `pdfjs-viewer-pyqt6` wrapper at the app boundary.
-    It loads the Apache-2.0 PDF.js bundle from `third_party/pdfjs` when
-    available. A direct QWebEngine file fallback is kept for Phase 0 dev.
+    ES modules (used by PDF.js 4+) cannot load from file:// in QtWebEngine,
+    so we serve PDF.js via LocalPDFJSServer on 127.0.0.1.
     """
 
     pdf_loaded = pyqtSignal(dict)
@@ -29,10 +47,18 @@ class PDFViewerWidget(QtWidgets.QWidget):
 
         self._web_view = QtWebEngineWidgets.QWebEngineView(self)
 
-        # Allow PDF.js (a local file:// page) to fetch the PDF (also file://)
         settings = self._web_view.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
+
+        # Inject Map polyfill at DocumentCreation so it runs before PDF.js modules
+        script = QWebEngineScript()
+        script.setName("map-polyfill")
+        script.setSourceCode(_MAP_POLYFILL_JS)
+        script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        script.setRunsOnSubFrames(False)
+        self._web_view.page().scripts().insert(script)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -82,34 +108,10 @@ class PDFViewerWidget(QtWidgets.QWidget):
         return super().findChild(child_type, name)
 
     def _load_web_view(self, path: str, *, zoom: str, page: int, pagemode: str | None):
-        viewer = self._pdfjs_viewer_path()
-        pdf_url = QtCore.QUrl.fromLocalFile(os.path.abspath(path)).toString()
-        if viewer:
-            viewer_url = QtCore.QUrl.fromLocalFile(str(viewer)).toString()
-            encoded_pdf = QtCore.QUrl.toPercentEncoding(pdf_url).data().decode()
-            target_url = f"{viewer_url}?file={encoded_pdf}#page={page}"
-            if zoom:
-                target_url += f"&zoom={zoom}"
-            if pagemode:
-                target_url += f"&pagemode={pagemode}"
-            self._web_view.load(QtCore.QUrl(target_url))
-            return
-
-        self._web_view.load(QtCore.QUrl.fromLocalFile(os.path.abspath(path)))
-
-    def _pdfjs_viewer_path(self) -> Path | None:
-        # Search order: sys._MEIPASS → Contents/MacOS/ → Contents/Resources/ → source root
-        candidates: list[Path] = []
-        if getattr(sys, "frozen", False):
-            if hasattr(sys, "_MEIPASS"):
-                candidates.append(Path(sys._MEIPASS))
-            exe = Path(sys.executable).resolve()
-            candidates.append(exe.parent)                       # Contents/MacOS/
-            candidates.append(exe.parent.parent / "Resources")  # Contents/Resources/
+        server = LocalPDFJSServer.get()
+        url = server.viewer_url(path, page=page, zoom=zoom, pagemode=pagemode)
+        if url:
+            self._web_view.load(QtCore.QUrl(url))
         else:
-            candidates.append(Path(__file__).resolve().parents[1])
-        for root in candidates:
-            viewer = root / "third_party" / "pdfjs" / "web" / "viewer.html"
-            if viewer.exists():
-                return viewer
-        return None
+            # Fallback: direct file load (no PDF.js, limited support)
+            self._web_view.load(QtCore.QUrl.fromLocalFile(os.path.abspath(path)))
