@@ -4,29 +4,30 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from ..config import settings
+from ..models import LicenseRecord
 from .token_service import TokenService
-
-
-@dataclass
-class LicenseRecord:
-    license_key: str
-    customer_name: str
-    seat_limit: int
-    active_devices: dict[str, dict] = field(default_factory=dict)
-    revoked_devices: set[str] = field(default_factory=set)
+from .state_store import FileStateStore
 
 
 @dataclass
 class LicenseService:
     token_service: TokenService
+    state_store: FileStateStore | None = None
     licenses: dict[str, LicenseRecord] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not self.licenses:
+        if self.state_store is None:
+            self.state_store = FileStateStore(f"{settings.data_dir}/{settings.state_file}")
+
+        stored = self.state_store.load_licenses()
+        if stored:
+            self.licenses = stored
+        elif not self.licenses:
             self.licenses = {
                 "THREET-DEMO-0001": LicenseRecord("THREET-DEMO-0001", "Demo Customer", 2),
                 "THREET-DEMO-ENTERPRISE": LicenseRecord("THREET-DEMO-ENTERPRISE", "Enterprise Demo", 10),
             }
+            self._save()
 
     def _expiry(self) -> str:
         return (datetime.now(timezone.utc) + timedelta(days=settings.grace_days)).isoformat()
@@ -62,6 +63,7 @@ class LicenseService:
         }
         token = self.token_service.sign(payload)
         record.active_devices[device_id] = payload
+        self._save()
         return {
             "ok": True,
             "message": "Activated.",
@@ -101,6 +103,7 @@ class LicenseService:
             return {"ok": False, "message": "Unknown license key."}
         record.active_devices.pop(device_id, None)
         record.revoked_devices.add(device_id)
+        self._save()
         return {"ok": True, "message": "Deactivated."}
 
     @staticmethod
@@ -111,3 +114,7 @@ class LicenseService:
             return datetime.fromisoformat(expires_at) < datetime.now(timezone.utc)
         except ValueError:
             return True
+
+    def _save(self) -> None:
+        if self.state_store is not None:
+            self.state_store.save_licenses(self.licenses)
