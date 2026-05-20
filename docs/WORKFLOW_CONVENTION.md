@@ -129,12 +129,15 @@ The shared layer may not contain:
 
 ## Recommended handoff sequence
 
-1. Close Phase 0 with `phase0-closed`.
+1. ✅ Close Phase 0 with `phase0-closed` — done at `67062d3`.
 2. Create `phase1-win`, `phase1-mac`, `phase1-shared`, and `phase1-backend` from that tag.
 3. Make shared changes in `phase1-shared`.
 4. Merge shared changes into both desktop branches.
 5. Keep backend work isolated in the backend branch.
 6. When platform streams are stable, cut `phase2-start`.
+
+For step-by-step git commands and machine setup, see
+[`PHASE1_DUAL_MACHINE_WORKFLOW.md`](PHASE1_DUAL_MACHINE_WORKFLOW.md).
 
 ## Practical rule for this project
 
