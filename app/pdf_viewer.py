@@ -25,6 +25,30 @@ _MAP_POLYFILL_JS = """
 })();
 """
 
+# Hide PDF.js built-in toolbar/sidebar — the app provides its own UI.
+# Injected at DocumentReady so DOM elements exist when the style is applied.
+_HIDE_PDFJS_UI_JS = """
+(function () {
+    var css = [
+        '#toolbarContainer { display: none !important; }',
+        '#loadingBar { display: none !important; }',
+        '#viewsManager { display: none !important; }',
+        '#mainContainer { top: 0 !important; }',
+        '#viewerContainer { top: 0 !important; left: 0 !important; }',
+        'body { background-color: #0f0f13 !important; }',
+        '#viewer .page {',
+        '  border: none !important;',
+        '  box-shadow: 0 4px 24px rgba(0,0,0,.5) !important;',
+        '  margin: 16px auto !important;',
+        '  border-radius: 4px !important;',
+        '}',
+    ].join('\\n');
+    var style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
+})();
+"""
+
 
 class PDFViewerWidget(QtWidgets.QWidget):
     """PDF viewer: QWebEngineView + PDF.js served over local HTTP.
@@ -51,14 +75,25 @@ class PDFViewerWidget(QtWidgets.QWidget):
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
 
-        # Inject Map polyfill at DocumentCreation so it runs before PDF.js modules
-        script = QWebEngineScript()
-        script.setName("map-polyfill")
-        script.setSourceCode(_MAP_POLYFILL_JS)
-        script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
-        script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
-        script.setRunsOnSubFrames(False)
-        self._web_view.page().scripts().insert(script)
+        # Polyfill: runs before PDF.js modules so missing Map methods are available
+        polyfill = QWebEngineScript()
+        polyfill.setName("map-polyfill")
+        polyfill.setSourceCode(_MAP_POLYFILL_JS)
+        polyfill.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        polyfill.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        polyfill.setRunsOnSubFrames(False)
+
+        # UI hide: runs at DocumentReady (DOM exists) to strip PDF.js built-in chrome
+        hide_ui = QWebEngineScript()
+        hide_ui.setName("pdfjs-hide-ui")
+        hide_ui.setSourceCode(_HIDE_PDFJS_UI_JS)
+        hide_ui.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
+        hide_ui.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        hide_ui.setRunsOnSubFrames(False)
+
+        page_scripts = self._web_view.page().scripts()
+        page_scripts.insert(polyfill)
+        page_scripts.insert(hide_ui)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
