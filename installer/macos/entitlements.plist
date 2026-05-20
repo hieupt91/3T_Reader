@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Hardened Runtime entitlements for 3T Reader -->
+
+    <!-- Allow JIT for QtWebEngine's V8 JavaScript engine -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- Allow unsigned executable memory (required by some Qt internals) -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Allow loading of PKCS#11 dylibs installed by CA token vendors -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- Network client access — for license heartbeat and update check -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- USB device access — for PKCS#11 USB token detection -->
+    <key>com.apple.security.device.usb</key>
+    <true/>
+
+    <!-- Smartcard access — for USB token signing -->
+    <key>com.apple.security.smartcard</key>
+    <true/>
+</dict>
+</plist>
