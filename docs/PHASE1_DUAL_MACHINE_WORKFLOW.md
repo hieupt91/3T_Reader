@@ -148,3 +148,6 @@ Phase 1 starts only after:
 - Phase 0: shared foundation.
 - Phase 1: same product, two machines, two platform branches.
 - Phase 2: packaging, hardening, release.
+
+For the full Windows/macOS/Linux VPS split policy, see
+[`PHASE1_3_STREAM_PLAN.md`](PHASE1_3_STREAM_PLAN.md).
