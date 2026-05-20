@@ -138,6 +138,8 @@ The shared layer may not contain:
 
 For step-by-step git commands and machine setup, see
 [`PHASE1_DUAL_MACHINE_WORKFLOW.md`](PHASE1_DUAL_MACHINE_WORKFLOW.md).
+For the full Windows/macOS/Linux VPS split policy, see
+[`PHASE1_3_STREAM_PLAN.md`](PHASE1_3_STREAM_PLAN.md).
 
 ## Practical rule for this project
 
