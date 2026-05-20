@@ -54,6 +54,10 @@ def _run_find(window, query: str, *, find_previous: bool, new_search: bool):
                 f"Đang tìm: '{query}'" + (" (lùi)" if find_previous else ""),
                 3000,
             )
+            # Schedule not-found check after PDF.js has had time to search
+            viewer = window.viewer
+            if viewer and new_search:
+                viewer.check_find_result(query, delay_ms=700)
         elif result:
             show_warning(window, "Không thể tìm kiếm", str(result))
 
