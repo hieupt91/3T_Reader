@@ -42,3 +42,10 @@ Windows USB token notes:
 - To force one or more custom vendor DLL locations, set `THREET_READER_WINDOWS_PKCS11_PATHS`.
 - Multiple entries are separated with the Windows path separator `;`.
 - Example: `set THREET_READER_WINDOWS_PKCS11_PATHS=D:\Tokens\vendor.dll;E:\CA\PKCS11`
+
+Windows setup and release workflow:
+
+- Start with [SETUP_WINDOWS.md](SETUP_WINDOWS.md) if you want the one-page entrypoint for Windows team onboarding.
+- Start with [docs/setup_windows.md](docs/setup_windows.md) for clone, run, test, build, and release steps.
+- Use [docs/PHASE1_WIN_HANDOFF.md](docs/PHASE1_WIN_HANDOFF.md) when you need the current stream summary and next steps.
+- Use [docs/PHASE1_WIN_STATUS.md](docs/PHASE1_WIN_STATUS.md) for the short state snapshot.

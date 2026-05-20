@@ -30,6 +30,8 @@ This document summarizes the current state of the `phase1-win` stream.
 
 - Test real USB token detection and signing on a Windows machine with vendor middleware installed.
 - If you want a fuller release readiness pass, run one end-to-end install/uninstall cycle from `build\installer\Setup_3T_Reader_v1.0.2.exe`.
+- For setup details and Windows rebuild steps, see `docs/setup_windows.md`.
+- For a detailed “what to do next” guide, start with [PHASE1_WIN_HANDOFF.md](PHASE1_WIN_HANDOFF.md).
 
 ## Release Readiness
 
