@@ -1,6 +1,6 @@
 # Split Gate
 
-Do not split implementation streams until Phase 0 is reviewed.
+Do not split implementation streams until Phase 0 is reviewed and the workflow convention is agreed.
 
 The split point is reached when:
 
@@ -21,4 +21,4 @@ After approval, split work into:
 
 The Windows/macOS streams must not fork UX or feature behavior. They should only differ in platform adapters, build, installer, signing, notarization, and native credential/token integration.
 
-Before approving split, review `docs/compliance/PHASE0_BLOCKERS.md`.
+Before approving split, review `docs/compliance/PHASE0_BLOCKERS.md` and `docs/WORKFLOW_CONVENTION.md`.

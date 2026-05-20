@@ -22,5 +22,5 @@ PDF engine note:
 - Legacy PyMuPDF can be selected only for prototype debugging with `THREET_READER_PDF_ENGINE=pymupdf`.
 - Commercial release must keep legacy PyMuPDF out of builds and verify the non-AGPL edit pipeline with tests.
 
-See [docs/PHASE0_SCOPE.md](docs/PHASE0_SCOPE.md), [docs/PHASE0_CLOSURE.md](docs/PHASE0_CLOSURE.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+See [docs/PHASE0_SCOPE.md](docs/PHASE0_SCOPE.md), [docs/PHASE0_CLOSURE.md](docs/PHASE0_CLOSURE.md), [docs/WORKFLOW_CONVENTION.md](docs/WORKFLOW_CONVENTION.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 Compliance status is tracked in [docs/compliance/THIRD_PARTY_MANIFEST.md](docs/compliance/THIRD_PARTY_MANIFEST.md) and [docs/compliance/PHASE0_BLOCKERS.md](docs/compliance/PHASE0_BLOCKERS.md).

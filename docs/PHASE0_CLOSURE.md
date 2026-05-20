@@ -45,3 +45,5 @@ These items are still required before a commercial release:
 
 Phase 0 is a valid and usable base for Phase 1 planning.
 Phase 1 should start from this repo state, not from the original prototype.
+
+The operational handoff rules are defined in `docs/WORKFLOW_CONVENTION.md`.

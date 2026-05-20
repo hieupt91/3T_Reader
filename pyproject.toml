@@ -2,7 +2,7 @@
 name = "3t-reader"
 version = "1.0.2"
 description = "3T Reader desktop foundation for Windows and macOS"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11"
 readme = "README.md"
 authors = [
   { name = "3T Company" }
@@ -12,12 +12,12 @@ authors = [
 # GPL pdfjs-viewer-pyqt6 wrapper from app code.
 dependencies = [
   "PySide6==6.11.0",
-  "pyqtdarktheme",
+  "pyqtdarktheme==0.1.7",
   "pypdfium2==5.7.0",
   "pikepdf==10.5.1",
   "reportlab==4.4.5",
   "pyHanko==0.34.1",
-  "python-pkcs11",
+  "python-pkcs11==0.9.4",
   "cryptography==46.0.7",
   "Pillow==12.2.0",
   "requests==2.33.1",
