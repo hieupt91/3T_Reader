@@ -31,7 +31,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
 
         # Allow PDF.js (a local file:// page) to fetch the PDF (also file://)
         settings = self._web_view.settings()
-        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessLocalUrls, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
 
         layout = QtWidgets.QVBoxLayout(self)
