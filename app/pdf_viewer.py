@@ -95,6 +95,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
     page_changed = pyqtSignal(int, int)
     error_occurred = pyqtSignal(str)
     find_not_found = pyqtSignal(str)   # emitted with the query when PDF.js reports notFound
+    page_ready = pyqtSignal()          # emitted when webview finishes loading (page + PDF.js)
 
     def __init__(self, preset: str | None = None, parent=None):
         super().__init__(parent)
@@ -134,6 +135,8 @@ class PDFViewerWidget(QtWidgets.QWidget):
         self._page_timer = QtCore.QTimer(self)
         self._page_timer.setInterval(400)
         self._page_timer.timeout.connect(self._poll_page)
+
+        self._web_view.loadFinished.connect(lambda ok: self.page_ready.emit() if ok else None)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

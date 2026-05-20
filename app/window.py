@@ -34,6 +34,7 @@ from app.actions.edit import (
 )
 from app.actions.navigate import prev_page, next_page, jump_to_page
 from app.actions.zoom import zoom_in, zoom_out, apply_zoom, zoom_fit
+from app.actions.brightness import brightness_up, brightness_down, apply_brightness_to_webview
 from app.actions.sign import check_token, sign_document
 from app.sidebar import ThumbnailSidebar
 from app.icon_utils import svg_icon
@@ -141,6 +142,7 @@ class PDFReaderApp(QMainWindow):
         self._tab_context_index = -1
         self._usb_token_detected = False
 
+        self._brightness = 100
         self._tabs_data = {}
         self._global_state = {
             "source_path": None,
@@ -274,6 +276,7 @@ class PDFReaderApp(QMainWindow):
         viewer.page_changed.connect(lambda cur, total, v=viewer: self._on_page_changed(v, cur, total))
         viewer.error_occurred.connect(lambda msg: self.status.showMessage(f"Cảnh báo: {msg}", 5000))
         viewer.find_not_found.connect(lambda q: show_warning(self, "Không tìm thấy", f"Không tìm thấy kết quả cho: \"{q}\""))
+        viewer.page_ready.connect(lambda v=viewer: self._on_page_ready(v))
 
     def _find_tab_by_viewer(self, viewer):
         for tab, state in self._tabs_data.items():
@@ -454,6 +457,7 @@ class PDFReaderApp(QMainWindow):
 
         # Group: View
         self.act_zoom_out = add("Thu nhỏ", "zoom_out.svg", f"Thu nhỏ ({shortcut_label('Ctrl+-')})", "Ctrl+-", lambda: zoom_out(self))
+        self.act_zoom_out.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
 
         self.zoom_spin = QSpinBox()
         self.zoom_spin.setRange(25, 400)
@@ -466,7 +470,19 @@ class PDFReaderApp(QMainWindow):
         self.toolbar.addWidget(self.zoom_spin)
 
         self.act_zoom_in = add("Phóng to",  "zoom_in.svg",  f"Phóng to ({shortcut_label('Ctrl+=')})",  "Ctrl+=", lambda: zoom_in(self))
+        self.act_zoom_in.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_fit     = add("Vừa trang", "fit_page.svg", f"Vừa trang ({shortcut_label('Ctrl+0')})", "Ctrl+0", lambda: zoom_fit(self))
+        self.toolbar.addSeparator()
+
+        # Group: Brightness
+        self.act_brightness_down = add("Tối hơn", "brightness_down.svg", "Giảm độ sáng", None, lambda: brightness_down(self))
+        self.brightness_label = QLabel("100%")
+        self.brightness_label.setFixedWidth(42)
+        self.brightness_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.brightness_label.setToolTip("Độ sáng (double-click → 100%)")
+        self.brightness_label.installEventFilter(self)
+        self.toolbar.addWidget(self.brightness_label)
+        self.act_brightness_up = add("Sáng hơn", "brightness_up.svg", "Tăng độ sáng", None, lambda: brightness_up(self))
         self.toolbar.addSeparator()
 
         # Group: Edit / Tools
@@ -675,6 +691,13 @@ class PDFReaderApp(QMainWindow):
             self.search_input.clear()
             self._update_chrome_for_active_tab()
 
+    def _on_page_ready(self, viewer):
+        if viewer is not self.viewer:
+            return
+        wv = self._get_webview_for_viewer(viewer)
+        if wv:
+            apply_brightness_to_webview(self, wv)
+
     def _on_page_changed(self, viewer, cur, total):
         if viewer is not self.viewer:
             return
@@ -864,6 +887,15 @@ class PDFReaderApp(QMainWindow):
         if obj is self.zoom_spin and event.type() == QEvent.Type.MouseButtonDblClick:
             self.zoom_spin.setValue(100)
             apply_zoom(self)
+            return True
+        if obj is self.brightness_label and event.type() == QEvent.Type.MouseButtonDblClick:
+            self._brightness = 100
+            self.brightness_label.setText("100%")
+            wv = self._get_webview()
+            if wv:
+                wv.page().runJavaScript(
+                    "var el=document.getElementById('viewerContainer'); if(el) el.style.filter='';"
+                )
             return True
         return super().eventFilter(obj, event)
 
