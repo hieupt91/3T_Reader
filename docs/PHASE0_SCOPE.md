@@ -1,6 +1,6 @@
 # Phase 0 Scope
 
-Phase 0 goal: convert the existing Windows-oriented prototype into a clean, auditable foundation for commercial Windows + macOS + Linux VPS development.
+Phase 0 goal: convert the existing Windows-oriented prototype into a clean, auditable technical foundation for commercial Windows + macOS + Linux VPS development.
 
 In scope:
 
@@ -24,3 +24,5 @@ Out of scope:
 Start splitting streams only after this scope is complete and reviewed.
 
 Current blocker list: `docs/compliance/PHASE0_BLOCKERS.md`.
+
+Phase 0 closure status is documented in `docs/PHASE0_CLOSURE.md`.
