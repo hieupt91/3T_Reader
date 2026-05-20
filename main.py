@@ -30,11 +30,9 @@ if not acquire_single_instance():
 from packages.qt_compat.QtWidgets import QApplication
 from packages.qt_compat.QtGui import QFont
 from packages.qt_compat.QtCore import QLocale, QLibraryInfo, QTranslator, Qt
-import qdarktheme
 
 from app.window import PDFReaderApp
 from app.config import APP_NAME
-from styles.theme import STYLESHEET
 
 if __name__ == "__main__":
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
@@ -46,8 +44,6 @@ if __name__ == "__main__":
     qt_translator.load(QLocale("vi_VN"), "qtbase", "_", qtbase_path)
     app.installTranslator(qt_translator)
 
-    app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
-    app.setStyleSheet(app.styleSheet() + STYLESHEET)
     _ui_font = {"Darwin": "SF Pro Text", "Windows": "Segoe UI"}.get(_platform.system(), "")
     app.setFont(QFont(_ui_font, 10))
     app.setApplicationName(APP_NAME)

@@ -2,6 +2,8 @@ import os
 import sys
 import subprocess
 
+import qdarktheme
+
 from packages.qt_compat.QtPrintSupport import QPrinter, QPrintDialog
 from packages.qt_compat.QtWidgets import (
     QMainWindow,
@@ -42,23 +44,33 @@ from app.config import WINDOW_TITLE
 from app.platform_ui import shortcut_label, use_native_menubar, fullscreen_shortcut_hint
 from core.recent import load_recent, clear_recent
 from packages.pdf_engine import get_pdf_engine
+from styles.theme import THEME_STYLESHEETS
 
-PDFJS_HIDE_TOOLBAR_CSS = """
+
+def _pdfjs_hide_toolbar_css(theme_mode: str) -> str:
+    body_color = "#f4f6fb" if theme_mode == "light" else "#0f0f13"
+    shadow = "0 8px 24px rgba(15, 23, 42, 0.12)" if theme_mode == "light" else "0 4px 24px rgba(0,0,0,0.5)"
+    return f"""
+(function() {{
+var existing = document.getElementById('app-pdfjs-theme');
+if (existing) existing.remove();
 var style = document.createElement('style');
+style.id = 'app-pdfjs-theme';
 style.innerHTML = `
-#toolbarContainer { display: none !important; }
-#loadingBar { display: none !important; }
-#mainContainer { top: 0 !important; }
-#viewerContainer { top: 0 !important; }
-body { background-color: #0f0f13 !important; }
-#viewer .page {
+#toolbarContainer {{ display: none !important; }}
+#loadingBar {{ display: none !important; }}
+#mainContainer {{ top: 0 !important; }}
+#viewerContainer {{ top: 0 !important; }}
+body {{ background-color: {body_color} !important; }}
+#viewer .page {{
 border: none !important;
-box-shadow: 0 4px 24px rgba(0,0,0,0.5) !important;
+box-shadow: {shadow} !important;
 margin: 16px auto !important;
 border-radius: 4px !important;
-}
+}}
 `;
 document.head.appendChild(style);
+}})();
 """
 
 
@@ -140,6 +152,7 @@ class PDFReaderApp(QMainWindow):
         self.is_fullscreen = False
         self._tab_context_index = -1
         self._usb_token_detected = False
+        self._theme_mode = "dark"
 
         self._tabs_data = {}
         self._global_state = {
@@ -161,6 +174,7 @@ class PDFReaderApp(QMainWindow):
         self._build_statusbar()
         self._connect_signals()
         self._start_token_monitor()
+        self.apply_theme(self._theme_mode)
 
     # ------------------------------------------------------------------ #
     #  Tab host                                                            #
@@ -304,12 +318,37 @@ class PDFReaderApp(QMainWindow):
     def _inject_css_for_viewer(self, viewer):
         wv = self._get_webview_for_viewer(viewer)
         if wv:
-            wv.page().runJavaScript(PDFJS_HIDE_TOOLBAR_CSS)
+            wv.page().runJavaScript(_pdfjs_hide_toolbar_css(self._theme_mode))
 
     def _inject_css(self):
         viewer = self.viewer
         if viewer:
             self._inject_css_for_viewer(viewer)
+
+    def apply_theme(self, theme_mode: str):
+        from packages.qt_compat.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is None:
+            return
+
+        normalized = "light" if theme_mode == "light" else "dark"
+        app.setStyleSheet(qdarktheme.load_stylesheet(normalized) + THEME_STYLESHEETS[normalized])
+        self._theme_mode = normalized
+        if hasattr(self, "act_toggle_theme"):
+            is_light = normalized == "light"
+            self.act_toggle_theme.setChecked(is_light)
+            self.act_toggle_theme.setText("Chế độ tối" if is_light else "Chế độ sáng")
+            self.act_toggle_theme.setStatusTip("Chuyển giao diện sáng/tối")
+            self.act_toggle_theme.setToolTip("Chuyển giao diện sáng/tối")
+
+        for state in self._tabs_data.values():
+            viewer = state.get("viewer")
+            if viewer:
+                self._inject_css_for_viewer(viewer)
+
+    def toggle_theme(self, _checked=False):
+        self.apply_theme("light" if self._theme_mode == "dark" else "dark")
 
     # ------------------------------------------------------------------ #
     #  Search panel                                                        #
@@ -482,6 +521,12 @@ class PDFReaderApp(QMainWindow):
         self.act_sign        = add("Ký số",         "pen.svg",        "Ký số tài liệu",     None,  lambda: sign_document(self))
         self.toolbar.addSeparator()
         self.act_fullscreen  = add("Toàn màn hình", "fullscreen.svg", "Toàn màn hình (F11)", "F11", self.toggle_fullscreen)
+        self.act_toggle_theme = QAction("Chế độ sáng", self)
+        self.act_toggle_theme.setCheckable(True)
+        self.act_toggle_theme.setShortcut(QKeySequence("Ctrl+Shift+L"))
+        self.act_toggle_theme.setStatusTip("Chuyển giao diện sáng/tối")
+        self.act_toggle_theme.setToolTip("Chuyển giao diện sáng/tối")
+        self.act_toggle_theme.triggered.connect(self.toggle_theme)
 
     # ------------------------------------------------------------------ #
     #  Print — QPrintDialog + PyMuPDF, KHÔNG dùng ShellExecute            #
@@ -581,6 +626,7 @@ class PDFReaderApp(QMainWindow):
         act_toggle_sidebar.setText("Hiện thanh ảnh thu nhỏ")
         act_toggle_sidebar.setIcon(svg_icon("history.svg", size=16, color="#9b9bc0"))
         menu_view.addAction(act_toggle_sidebar)
+        menu_view.addAction(self.act_toggle_theme)
         menu_view.addAction(self.act_fullscreen)
 
         menu_tools = bar.addMenu("Công cụ")
@@ -627,6 +673,7 @@ class PDFReaderApp(QMainWindow):
             self.act_insert_text, self.act_insert_image, self.act_select_inserted,
             self.act_save, self.act_print, self.act_prev, self.act_next,
             self.act_zoom_in, self.act_zoom_out, self.act_fit, self.act_fullscreen,
+            self.act_toggle_theme,
             self.act_check_token, self.act_sign,
             act_find, act_find_next, act_find_prev,
             act_file_info, act_close_tab, act_tab_next, act_tab_prev,

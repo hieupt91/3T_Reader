@@ -1,4 +1,4 @@
-STYLESHEET = """
+DARK_STYLESHEET = """
     QMainWindow {
         background-color: #0f0f13;
     }
@@ -271,3 +271,164 @@ STYLESHEET = """
     QScrollBar::add-line:vertical,
     QScrollBar::sub-line:vertical { height: 0; }
 """
+
+LIGHT_STYLESHEET = """
+    QMainWindow {
+        background-color: #f4f6fb;
+    }
+    QMenuBar {
+        background-color: #f8f9fd;
+        border-bottom: 1px solid #d7ddea;
+        color: #334155;
+    }
+    QMenuBar::item:selected {
+        background-color: #e8edf9;
+        color: #0f172a;
+    }
+    QMenuBar::item:pressed {
+        background-color: #3b82f6;
+        color: #ffffff;
+    }
+    QToolBar {
+        background-color: #f8f9fd;
+        border-bottom: 1px solid #d7ddea;
+    }
+    QToolBar::separator {
+        background-color: #d7ddea;
+    }
+    QToolButton {
+        color: #475569;
+    }
+    QToolButton:hover {
+        background-color: #e8edf9;
+        color: #0f172a;
+    }
+    QToolButton:pressed {
+        background-color: #3b82f6;
+        color: #ffffff;
+    }
+    QToolButton:focus {
+        border-color: #60a5fa;
+        background-color: #e8edf9;
+    }
+    QSpinBox {
+        background-color: #ffffff;
+        color: #0f172a;
+        border: 1px solid #cbd5e1;
+    }
+    QSpinBox:hover, QSpinBox:focus {
+        border-color: #3b82f6;
+    }
+    QSpinBox::up-button, QSpinBox::down-button {
+        background-color: #e8edf9;
+    }
+    QLabel {
+        color: #475569;
+    }
+    QStatusBar {
+        background-color: #f8f9fd;
+        border-top: 1px solid #d7ddea;
+    }
+    QStatusBar QLabel {
+        color: #475569;
+    }
+    QMenu {
+        background-color: #ffffff;
+        border: 1px solid #d7ddea;
+        color: #0f172a;
+    }
+    QMenu::item:selected {
+        background-color: #3b82f6;
+        color: #ffffff;
+    }
+    QMenu::separator {
+        background-color: #e2e8f0;
+    }
+    QDialog#AppMessageDialog {
+        background-color: #ffffff;
+        border: 1px solid #d7ddea;
+    }
+    QDialog#AppMessageDialog QLabel#DialogMessage {
+        background-color: #f8fafc;
+        color: #0f172a;
+        border: 1px solid #d7ddea;
+    }
+    QDialog#AppMessageDialog QPushButton#DialogAccept {
+        background-color: #3b82f6;
+    }
+    QDialog#AppMessageDialog QPushButton#DialogAccept:hover {
+        background-color: #2563eb;
+    }
+    QFrame#SearchPanel {
+        background-color: rgba(255, 255, 255, 0.97);
+        border: 1px solid #d7ddea;
+    }
+    QFrame#SearchPanel QLabel#SearchTitle {
+        color: #334155;
+    }
+    QFrame#SearchPanel QLineEdit#SearchInput {
+        background-color: #ffffff;
+        color: #0f172a;
+        border: 1px solid #cbd5e1;
+    }
+    QFrame#SearchPanel QLineEdit#SearchInput:focus {
+        border-color: #3b82f6;
+    }
+    QFrame#SearchPanel QToolButton#SearchBtn {
+        background-color: #f8fafc;
+        border: 1px solid #cbd5e1;
+    }
+    QFrame#SearchPanel QToolButton#SearchBtn:hover {
+        background-color: #e8edf9;
+        border-color: #3b82f6;
+    }
+    QFrame#SearchPanel QToolButton#SearchBtnClose {
+        color: #334155;
+        border: 1px solid #cbd5e1;
+    }
+    QFrame#SearchPanel QToolButton#SearchBtnClose:hover {
+        background-color: #e8edf9;
+        border-color: #3b82f6;
+    }
+    QMessageBox {
+        background-color: #ffffff;
+        color: #0f172a;
+    }
+    QMessageBox QLabel {
+        color: #0f172a;
+    }
+    QMessageBox QPushButton {
+        background-color: #3b82f6;
+    }
+    QMessageBox QPushButton:hover {
+        background-color: #2563eb;
+    }
+    QInputDialog {
+        background-color: #ffffff;
+        color: #0f172a;
+    }
+    QInputDialog QPushButton {
+        background-color: #3b82f6;
+    }
+    QInputDialog QLineEdit {
+        background-color: #ffffff;
+        color: #0f172a;
+        border: 1px solid #cbd5e1;
+    }
+    QLineEdit:focus {
+        border-color: #3b82f6;
+    }
+    QScrollBar::handle:vertical {
+        background-color: #cbd5e1;
+    }
+    QScrollBar::handle:vertical:hover {
+        background-color: #60a5fa;
+    }
+"""
+
+THEME_STYLESHEETS = {
+    "dark": DARK_STYLESHEET,
+    "light": LIGHT_STYLESHEET,
+}
+
+STYLESHEET = DARK_STYLESHEET
