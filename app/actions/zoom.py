@@ -9,12 +9,12 @@ def _adjust_zoom(window, wv, delta: float):
 
 @require_webview
 def zoom_in(window, wv):
-    _adjust_zoom(window, wv, +0.1)
+    _adjust_zoom(window, wv, -0.1)
 
 
 @require_webview
 def zoom_out(window, wv):
-    _adjust_zoom(window, wv, -0.1)
+    _adjust_zoom(window, wv, +0.1)
 
 
 @require_webview

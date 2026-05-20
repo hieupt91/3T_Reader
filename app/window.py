@@ -273,6 +273,7 @@ class PDFReaderApp(QMainWindow):
         viewer.pdf_loaded.connect(lambda meta, v=viewer: self._on_pdf_loaded(v, meta))
         viewer.page_changed.connect(lambda cur, total, v=viewer: self._on_page_changed(v, cur, total))
         viewer.error_occurred.connect(lambda msg: self.status.showMessage(f"Cảnh báo: {msg}", 5000))
+        viewer.find_not_found.connect(lambda q: show_warning(self, "Không tìm thấy", f"Không tìm thấy kết quả cho: \"{q}\""))
 
     def _find_tab_by_viewer(self, viewer):
         for tab, state in self._tabs_data.items():
@@ -459,7 +460,9 @@ class PDFReaderApp(QMainWindow):
         self.zoom_spin.setValue(100)
         self.zoom_spin.setSuffix("%")
         self.zoom_spin.setFixedWidth(78)
+        self.zoom_spin.setToolTip("Zoom (double-click → 100%)")
         self.zoom_spin.editingFinished.connect(lambda: apply_zoom(self))
+        self.zoom_spin.installEventFilter(self)
         self.toolbar.addWidget(self.zoom_spin)
 
         self.act_zoom_in = add("Phóng to",  "zoom_in.svg",  f"Phóng to ({shortcut_label('Ctrl+=')})",  "Ctrl+=", lambda: zoom_in(self))
@@ -855,6 +858,14 @@ class PDFReaderApp(QMainWindow):
                 os.remove(temp_path)
             except OSError:
                 pass
+
+    def eventFilter(self, obj, event):
+        from packages.qt_compat.QtCore import QEvent
+        if obj is self.zoom_spin and event.type() == QEvent.Type.MouseButtonDblClick:
+            self.zoom_spin.setValue(100)
+            apply_zoom(self)
+            return True
+        return super().eventFilter(obj, event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
