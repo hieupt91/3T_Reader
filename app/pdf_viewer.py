@@ -1,10 +1,11 @@
 import os
+import sys
 
-from packages.pdf_engine import get_pdf_engine
-from packages.qt_compat import QtCore, QtWebEngineWidgets, QtWidgets, pyqtSignal
-from PySide6.QtWebEngineCore import QWebEngineSettings, QWebEngineScript
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineScript, QWebEngineSettings
 
 from app.local_server import LocalPDFJSServer
+from packages.pdf_engine import get_pdf_engine
+from packages.qt_compat import QtCore, QtWebEngineWidgets, QtWidgets, pyqtSignal
 
 # Polyfill for Map methods added in V8 13.6+ (Chrome 136+).
 # Qt WebEngine 6.11 reports Chrome/140 but ships a build without these methods.
@@ -25,11 +26,10 @@ _MAP_POLYFILL_JS = """
 })();
 """
 
-# Hide PDF.js built-in toolbar/sidebar — the app provides its own UI.
-# Also installs find-state listener so Python can detect "not found".
+# Hide PDF.js built-in toolbar/sidebar; the app provides its own UI.
+# Also install find/page hooks so Python can react to PDF.js state.
 _PDFJS_UI_AND_HOOKS_JS = """
 (function () {
-    // --- Hide built-in chrome ---
     var css = [
         '#toolbarContainer { display: none !important; }',
         '#loadingBar { display: none !important; }',
@@ -48,8 +48,7 @@ _PDFJS_UI_AND_HOOKS_JS = """
     style.textContent = css;
     document.head.appendChild(style);
 
-    // --- Install PDF.js event hooks (retried until eventBus is ready) ---
-    window.__3tFindState = -1;   // -1=unknown, 0=notFound, 1=found, 2=wrapped
+    window.__3tFindState = -1;
     window.__3tCurrentPage = 0;
 
     function installHooks() {
@@ -58,11 +57,9 @@ _PDFJS_UI_AND_HOOKS_JS = """
             setTimeout(installHooks, 200);
             return;
         }
-        // Track find state
         app.eventBus.on('updatefindcontrolstate', function (data) {
             window.__3tFindState = data.state;
         });
-        // Track page changes from scroll/keyboard inside PDF.js
         app.eventBus.on('pagechanging', function (data) {
             window.__3tCurrentPage = data.pageNumber;
         });
@@ -71,7 +68,6 @@ _PDFJS_UI_AND_HOOKS_JS = """
 })();
 """
 
-# Poll JS: returns current page number (0 if PDF.js not ready)
 _JS_GET_PAGE = """
 (function(){
     var app = window.PDFViewerApplication;
@@ -80,21 +76,26 @@ _JS_GET_PAGE = """
 })()
 """
 
-# Poll JS: returns find state (-1/0/1/2)
 _JS_GET_FIND_STATE = "window.__3tFindState"
 
 
-class PDFViewerWidget(QtWidgets.QWidget):
-    """PDF viewer: QWebEngineView + PDF.js served over local HTTP.
+class _DebugWebEnginePage(QWebEnginePage):
+    def javaScriptConsoleMessage(self, level, message, line_number, source_id):
+        print(
+            f"[PDFJS][{level.name}] {source_id}:{line_number}: {message}",
+            file=sys.stderr,
+            flush=True,
+        )
+        super().javaScriptConsoleMessage(level, message, line_number, source_id)
 
-    ES modules (used by PDF.js 4+) cannot load from file:// in QtWebEngine,
-    so we serve PDF.js via LocalPDFJSServer on 127.0.0.1.
-    """
+
+class PDFViewerWidget(QtWidgets.QWidget):
+    """PDF viewer: QWebEngineView + PDF.js served over local HTTP."""
 
     pdf_loaded = pyqtSignal(dict)
     page_changed = pyqtSignal(int, int)
     error_occurred = pyqtSignal(str)
-    find_not_found = pyqtSignal(str)   # emitted with the query when PDF.js reports notFound
+    find_not_found = pyqtSignal(str)
 
     def __init__(self, preset: str | None = None, parent=None):
         super().__init__(parent)
@@ -105,12 +106,12 @@ class PDFViewerWidget(QtWidgets.QWidget):
         self._zoom = "page-width"
 
         self._web_view = QtWebEngineWidgets.QWebEngineView(self)
+        self._web_view.setPage(_DebugWebEnginePage(self._web_view))
 
         settings = self._web_view.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
 
-        # Polyfill: before PDF.js modules load
         polyfill = QWebEngineScript()
         polyfill.setName("map-polyfill")
         polyfill.setSourceCode(_MAP_POLYFILL_JS)
@@ -118,7 +119,6 @@ class PDFViewerWidget(QtWidgets.QWidget):
         polyfill.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         polyfill.setRunsOnSubFrames(False)
 
-        # UI + hooks: after DOM ready
         ui_hooks = QWebEngineScript()
         ui_hooks.setName("pdfjs-ui-hooks")
         ui_hooks.setSourceCode(_PDFJS_UI_AND_HOOKS_JS)
@@ -130,7 +130,6 @@ class PDFViewerWidget(QtWidgets.QWidget):
         page_scripts.insert(polyfill)
         page_scripts.insert(ui_hooks)
 
-        # Timer: polls current page from PDF.js every 400 ms while a PDF is open
         self._page_timer = QtCore.QTimer(self)
         self._page_timer.setInterval(400)
         self._page_timer.timeout.connect(self._poll_page)
@@ -139,10 +138,6 @@ class PDFViewerWidget(QtWidgets.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._web_view)
-
-    # ------------------------------------------------------------------ #
-    #  Public API                                                          #
-    # ------------------------------------------------------------------ #
 
     def load_pdf(self, path: str, zoom: str = "page-width", page: int | None = None, pagemode: str | None = None):
         self._path = path
@@ -162,7 +157,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
 
     def save_pdf(self):
         if not self._path:
-            self.error_occurred.emit("Chưa mở tệp PDF.")
+            self.error_occurred.emit("Chua mo tep PDF.")
 
     def goto_page(self, page: int):
         self._current_page = max(1, min(int(page), max(1, self._page_count)))
@@ -183,22 +178,18 @@ class PDFViewerWidget(QtWidgets.QWidget):
         return self._page_count
 
     def check_find_result(self, query: str, delay_ms: int = 700):
-        """After dispatching a find event, wait delay_ms then emit find_not_found if state==0."""
         def _check():
             self._web_view.page().runJavaScript(
                 _JS_GET_FIND_STATE,
                 lambda state: self.find_not_found.emit(query) if state == 0 else None,
             )
+
         QtCore.QTimer.singleShot(delay_ms, _check)
 
     def findChild(self, child_type, name: str = ""):
         if child_type is QtWebEngineWidgets.QWebEngineView:
             return self._web_view
         return super().findChild(child_type, name)
-
-    # ------------------------------------------------------------------ #
-    #  Internal                                                            #
-    # ------------------------------------------------------------------ #
 
     def _poll_page(self):
         if not self._path:

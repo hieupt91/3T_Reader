@@ -9,6 +9,7 @@ from PySide6 import QtGui as _QTGUI
 from PySide6 import QtPrintSupport as _QTPRINTSUPPORT
 from PySide6 import QtSvg as _QTSVG
 from PySide6 import QtWebChannel as _QTWEBCHANNEL
+from PySide6 import QtWebEngineCore as _QTWEBENGINECORE
 from PySide6 import QtWebEngineWidgets as _QTWEBENGINEWIDGETS
 from PySide6 import QtWidgets as _QTWIDGETS
 from PySide6.QtCore import Signal as pyqtSignal
@@ -21,6 +22,7 @@ QtGui = _QTGUI
 QtPrintSupport = _QTPRINTSUPPORT
 QtSvg = _QTSVG
 QtWebChannel = _QTWEBCHANNEL
+QtWebEngineCore = _QTWEBENGINECORE
 QtWebEngineWidgets = _QTWEBENGINEWIDGETS
 QtWidgets = _QTWIDGETS
 
@@ -31,6 +33,7 @@ __all__ = [
     "QtPrintSupport",
     "QtSvg",
     "QtWebChannel",
+    "QtWebEngineCore",
     "QtWebEngineWidgets",
     "QtWidgets",
     "pyqtSignal",
@@ -40,6 +43,7 @@ __all__ = [
     "_QTPRINTSUPPORT",
     "_QTSVG",
     "_QTWEBCHANNEL",
+    "_QTWEBENGINECORE",
     "_QTWEBENGINEWIDGETS",
     "_QTWIDGETS",
 ]

@@ -8,6 +8,18 @@ datas += [('assets', 'assets')]
 datas += [('third_party/pdfjs', 'third_party/pdfjs')]
 
 
+def _merge_collected(package_name):
+    collected_datas, collected_binaries, collected_hiddenimports = collect_all(package_name)
+    datas.extend(collected_datas)
+    binaries.extend(collected_binaries)
+    hiddenimports.extend(collected_hiddenimports)
+
+
+# Native PDF backends can require package-provided binaries/data at runtime.
+for _package in ('pypdfium2', 'pikepdf'):
+    _merge_collected(_package)
+
+
 a = Analysis(
     ['main.py'],
     pathex=[],

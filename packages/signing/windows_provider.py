@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from .provider import TokenInfo
 from .shared import _safe_get_pkcs11_attr, extract_signer_identity_from_der, sign_pdf_with_session
@@ -23,21 +24,111 @@ WINDOWS_PKCS11_CANDIDATES = [
     "viettel-ca_v6_s.dll",
 ]
 
+WINDOWS_PKCS11_PATHS_ENV = "THREET_READER_WINDOWS_PKCS11_PATHS"
+WINDOWS_VENDOR_DIR_HINTS = (
+    "viettel",
+    "vnpt",
+    "fpt",
+    "bkav",
+    "safenet",
+    "etoken",
+    "token",
+    "pkcs11",
+    "smartcard",
+    "eps2003",
+)
 
-def _candidate_paths() -> list[str]:
+
+def _split_configured_paths(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [entry.strip().strip('"') for entry in value.split(os.pathsep) if entry.strip()]
+
+
+def _candidate_search_dirs() -> list[str]:
     system_root = os.environ.get("SystemRoot", r"C:\Windows")
+    configured_entries = _split_configured_paths(os.environ.get(WINDOWS_PKCS11_PATHS_ENV))
+
     search_dirs = [
         os.path.join(system_root, "System32"),
         os.path.join(system_root, "SysWOW64"),
     ]
+    for env_name in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
+        base = os.environ.get(env_name)
+        if base:
+            search_dirs.append(base)
+
+    for entry in configured_entries:
+        if os.path.isdir(entry):
+            search_dirs.append(entry)
+        else:
+            parent = str(Path(entry).parent)
+            if parent and parent not in (".", ""):
+                search_dirs.append(parent)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for directory in search_dirs:
+        normalized = os.path.normcase(os.path.normpath(directory))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(directory)
+    return deduped
+
+
+def _candidate_vendor_dirs(base_dir: str) -> list[str]:
+    dirs = [base_dir]
+    try:
+        with os.scandir(base_dir) as entries:
+            first_level = [
+                entry.path
+                for entry in entries
+                if entry.is_dir() and any(hint in entry.name.lower() for hint in WINDOWS_VENDOR_DIR_HINTS)
+            ]
+    except OSError:
+        return dirs
+
+    dirs.extend(first_level)
+    for vendor_dir in first_level:
+        try:
+            with os.scandir(vendor_dir) as entries:
+                dirs.extend(entry.path for entry in entries if entry.is_dir())
+        except OSError:
+            continue
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for directory in dirs:
+        normalized = os.path.normcase(os.path.normpath(directory))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(directory)
+    return deduped
+
+
+def _candidate_paths() -> list[str]:
     paths: list[str] = []
     seen: set[str] = set()
+    configured_entries = _split_configured_paths(os.environ.get(WINDOWS_PKCS11_PATHS_ENV))
+
+    for entry in configured_entries:
+        if os.path.isfile(entry):
+            normalized = os.path.normcase(os.path.normpath(entry))
+            if normalized not in seen:
+                seen.add(normalized)
+                paths.append(entry)
+
+    search_dirs = _candidate_search_dirs()
     for dll in WINDOWS_PKCS11_CANDIDATES:
-        for d in search_dirs:
-            p = os.path.join(d, dll)
-            if os.path.exists(p) and p not in seen:
-                seen.add(p)
-                paths.append(p)
+        for root_dir in search_dirs:
+            for d in _candidate_vendor_dirs(root_dir):
+                p = os.path.join(d, dll)
+                normalized = os.path.normcase(os.path.normpath(p))
+                if os.path.exists(p) and normalized not in seen:
+                    seen.add(normalized)
+                    paths.append(p)
     return paths
 
 

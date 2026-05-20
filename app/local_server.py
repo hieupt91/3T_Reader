@@ -4,20 +4,25 @@ ES modules (used by PDF.js 4+) cannot load from file:// origins in QtWebEngine
 due to cross-origin restrictions. Serving via http://127.0.0.1 avoids this.
 """
 
-import os
-import socket
-import threading
-import urllib.parse
 import http.server
 import mimetypes
+import os
+import socket
 import sys
+import threading
+import urllib.parse
 from pathlib import Path
 
 
+# PDF.js ships ES modules as .mjs files, and Windows/Python often guesses them
+# as text/plain. QtWebEngine needs a JavaScript MIME type for module loading.
+mimetypes.add_type("application/javascript", ".mjs")
+
+
 def _find_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 def _pdfjs_root() -> Path | None:
@@ -32,36 +37,31 @@ def _pdfjs_root() -> Path | None:
     else:
         candidates.append(Path(__file__).resolve().parents[1])
     for root in candidates:
-        p = root / "third_party" / "pdfjs"
-        if p.exists():
-            return p
+        candidate = root / "third_party" / "pdfjs"
+        if candidate.exists():
+            return candidate
     return None
 
 
 class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
-    """Handles:
-      GET /pdf?p=<url-encoded-absolute-path>  → streams the PDF file
-      GET /...                                → serves static files from pdfjs_root
-    """
+    """Serve static PDF.js files and PDF documents over loopback HTTP."""
 
-    pdfjs_root: Path = Path(".")  # set by factory
+    pdfjs_root: Path = Path(".")
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-
-        if path == "/pdf":
+        if parsed.path == "/pdf":
             self._serve_pdf(parsed.query)
         else:
-            self._serve_static(path)
+            self._serve_static(parsed.path)
 
     def _serve_pdf(self, query: str):
         params = urllib.parse.parse_qs(query)
-        raw = params.get("p", [None])[0]
-        if not raw:
+        raw_path = params.get("p", [None])[0]
+        if not raw_path:
             self.send_error(400, "Missing ?p= parameter")
             return
-        pdf_path = urllib.parse.unquote(raw)
+        pdf_path = urllib.parse.unquote(raw_path)
         if not os.path.isabs(pdf_path) or not pdf_path.lower().endswith(".pdf"):
             self.send_error(400, "Invalid path")
             return
@@ -69,8 +69,8 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
             return
         try:
-            with open(pdf_path, "rb") as f:
-                data = f.read()
+            with open(pdf_path, "rb") as stream:
+                data = stream.read()
             self.send_response(200)
             self.send_header("Content-Type", "application/pdf")
             self.send_header("Content-Length", str(len(data)))
@@ -81,8 +81,8 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(500)
 
     def _serve_static(self, url_path: str):
-        rel = url_path.lstrip("/")
-        file_path = self.pdfjs_root / rel
+        relative_path = url_path.lstrip("/")
+        file_path = self.pdfjs_root / relative_path
         if file_path.is_dir():
             file_path = file_path / "index.html"
         if not file_path.exists():
@@ -102,7 +102,7 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(500)
 
     def log_message(self, *args):
-        pass  # suppress access log
+        pass
 
 
 class LocalPDFJSServer:
@@ -111,15 +111,13 @@ class LocalPDFJSServer:
     _instance: "LocalPDFJSServer | None" = None
 
     def __init__(self):
-        self._port: int = 0
+        self._port = 0
         self._server: http.server.HTTPServer | None = None
         self._thread: threading.Thread | None = None
-        self._root: Path | None = _pdfjs_root()
+        self._root = _pdfjs_root()
 
     def start(self):
-        if self._server:
-            return
-        if not self._root:
+        if self._server or not self._root:
             return
 
         root = self._root
@@ -136,7 +134,14 @@ class LocalPDFJSServer:
         )
         self._thread.start()
 
-    def viewer_url(self, pdf_path: str, *, page: int = 1, zoom: str = "page-width", pagemode: str | None = None) -> str | None:
+    def viewer_url(
+        self,
+        pdf_path: str,
+        *,
+        page: int = 1,
+        zoom: str = "page-width",
+        pagemode: str | None = None,
+    ) -> str | None:
         if not self._server or not self._root:
             return None
         encoded_path = urllib.parse.quote(os.path.abspath(pdf_path))

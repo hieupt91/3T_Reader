@@ -7,6 +7,13 @@ from app.config import MUTEX_NAME
 
 _WINDOWS_MUTEX = None
 _LOCK_FILE = None
+_ERROR_ALREADY_EXISTS = 183
+
+
+def _windows_mutex_name() -> str:
+    if MUTEX_NAME.startswith(("Local\\", "Global\\")):
+        return MUTEX_NAME
+    return f"Local\\{MUTEX_NAME}"
 
 
 def acquire_single_instance() -> bool:
@@ -22,8 +29,13 @@ def _acquire_windows_mutex() -> bool:
         import ctypes
 
         kernel32 = ctypes.windll.kernel32
-        _WINDOWS_MUTEX = kernel32.CreateMutexW(None, False, MUTEX_NAME)
-        return kernel32.GetLastError() != 183
+        kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
+        kernel32.CreateMutexW.restype = ctypes.c_void_p
+        kernel32.GetLastError.restype = ctypes.c_ulong
+        _WINDOWS_MUTEX = kernel32.CreateMutexW(None, False, _windows_mutex_name())
+        if not _WINDOWS_MUTEX:
+            return True
+        return kernel32.GetLastError() != _ERROR_ALREADY_EXISTS
     except Exception:
         return True
 
