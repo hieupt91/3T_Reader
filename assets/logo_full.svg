@@ -1,0 +1,24 @@
+<svg width="960" height="320" viewBox="0 0 960 320" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="banner" x1="0" y1="0" x2="960" y2="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#081c34"/>
+      <stop offset="1" stop-color="#102d54"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="32" y1="36" x2="236" y2="236" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff8a00"/>
+      <stop offset="1" stop-color="#f05a28"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="320" rx="42" fill="url(#banner)"/>
+  <rect x="40" y="40" width="240" height="240" rx="56" fill="url(#accent)"/>
+  <path d="M84 106c0-16 13-29 29-29h94c19 0 35 15 35 34v14H84v-19z" fill="#0d2d52"/>
+  <rect x="84" y="121" width="152" height="122" rx="30" fill="#123d67"/>
+  <path d="M113 151h27v54c0 11 9 20 20 20s20-9 20-20v-54h27v54c0 26-21 47-47 47s-47-21-47-47v-54z" fill="#ffffff"/>
+  <path d="M156 149h70v24h-70z" fill="#ffcf7a"/>
+  <path d="M160 189h62v18h-62z" fill="#8fd4ff"/>
+  <circle cx="212" cy="210" r="16" fill="#f6b14b"/>
+
+  <text x="332" y="130" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="72" font-weight="700" letter-spacing="1">3T READER</text>
+  <text x="334" y="182" fill="#9fb6d8" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="500">PDF signing, review, and document tools</text>
+  <text x="334" y="228" fill="#ffd58a" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="600">Windows-ready desktop workflow</text>
+</svg>

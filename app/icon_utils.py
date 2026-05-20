@@ -55,3 +55,27 @@ def svg_icon(filename: str, size: int = 20, color: str = "#9090b8") -> QIcon:
     painter.end()
 
     return QIcon(pixmap)
+
+
+@lru_cache(maxsize=128)
+def svg_pixmap(filename: str, size: int = 20) -> QPixmap:
+    path = os.path.join(ICON_DIR, filename)
+    if not os.path.exists(path) and filename.endswith(".svg"):
+        alt_path = os.path.join(ICON_DIR, f"{filename}.svg")
+        if os.path.exists(alt_path):
+            path = alt_path
+    if not os.path.exists(path):
+        return QPixmap()
+
+    with open(path, "r", encoding="utf-8") as f:
+        svg_data = f.read()
+
+    renderer = QSvgRenderer(svg_data.encode("utf-8"))
+    pixmap = QPixmap(QSize(size, size))
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    renderer.render(painter)
+    painter.end()
+
+    return pixmap

@@ -129,6 +129,12 @@ DARK_STYLESHEET = """
         font-weight: 600;
         margin-top: 4px;
     }
+    QLabel#ToolbarBrandText {
+        color: #f0f6ff;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+    }
     QLabel#EditModeLabel {
         color: #f0f6ff;
         background-color: #1d2b39;
@@ -462,6 +468,12 @@ LIGHT_STYLESHEET = """
         padding: 4px 10px;
         font-weight: 600;
         margin-top: 4px;
+    }
+    QLabel#ToolbarBrandText {
+        color: #0f172a;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
     }
     QLabel#EditModeLabel {
         color: #114b5f;

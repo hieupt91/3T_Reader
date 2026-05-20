@@ -28,11 +28,12 @@ if not acquire_single_instance():
 # BƯỚC 3: Khởi tạo app bình thường
 # ================================================================
 from packages.qt_compat.QtWidgets import QApplication
-from packages.qt_compat.QtGui import QFont
+from packages.qt_compat.QtGui import QFont, QIcon
 from packages.qt_compat.QtCore import QLocale, QLibraryInfo, QTranslator, Qt
 
 from app.window import PDFReaderApp
 from app.config import APP_NAME
+from app.icon_utils import svg_pixmap
 
 if __name__ == "__main__":
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
@@ -47,7 +48,9 @@ if __name__ == "__main__":
     _ui_font = {"Darwin": "SF Pro Text", "Windows": "Segoe UI"}.get(_platform.system(), "")
     app.setFont(QFont(_ui_font, 10))
     app.setApplicationName(APP_NAME)
+    app.setWindowIcon(QIcon(svg_pixmap("logo_mark.svg", size=64)))
 
     window = PDFReaderApp()
+    window.setWindowIcon(QIcon(svg_pixmap("logo_mark.svg", size=64)))
     window.show()
     sys.exit(app.exec())

@@ -26,6 +26,7 @@ from packages.qt_compat.QtWidgets import (
     QCheckBox,
     QFormLayout,
     QWidget,
+    QStackedWidget,
 )
 from packages.qt_compat.QtGui import QAction, QActionGroup, QKeySequence, QCloseEvent, QImage, QPainter
 from packages.qt_compat.QtCore import Qt, QSize, QPoint, QTimer, QThread, QObject, pyqtSignal, QRect
@@ -51,14 +52,17 @@ from app.actions.edit import (
 from app.actions.navigate import prev_page, next_page, jump_to_page
 from app.actions.zoom import zoom_in, zoom_out, apply_zoom, reset_zoom, zoom_fit
 from app.actions.sign import check_token, sign_document
+from app.about_dialog import AboutDialog
+from app.pdf_inline_editor import PdfInlineEditorController
 from app.sidebar import ThumbnailSidebar
-from app.icon_utils import svg_icon
+from app.icon_utils import svg_icon, svg_pixmap
 from app.dialogs import show_warning, show_info
 from app.config import WINDOW_TITLE
 from app.platform_ui import shortcut_label, use_native_menubar, fullscreen_shortcut_hint
 from core.recent import load_recent, clear_recent
 from packages.pdf_engine import get_pdf_engine
 from styles.theme import THEME_STYLESHEETS
+from app.welcome_widget import WelcomeWidget
 
 
 def _pdfjs_hide_toolbar_css(theme_mode: str) -> str:
@@ -169,8 +173,8 @@ class PDFReaderApp(QMainWindow):
         self._theme_preference = "system"
         self._theme_mode = "dark"
         self._selected_insert_image_path = ""
-        self._selection_preview_bridge = None
-        self._selection_preview_webview = None
+        self._content_stack = None
+        self.inline_editor = PdfInlineEditorController(self)
 
         self._tabs_data = {}
         self._global_state = {
@@ -201,6 +205,9 @@ class PDFReaderApp(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def _build_tab_host(self):
+        self.welcome_widget = WelcomeWidget(self)
+        self.welcome_widget.openRequested.connect(lambda: open_file(self))
+
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.setMovable(True)
@@ -208,7 +215,12 @@ class PDFReaderApp(QMainWindow):
         tab_bar = self.tab_widget.tabBar()
         tab_bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         tab_bar.customContextMenuRequested.connect(self._show_tab_context_menu)
-        self.setCentralWidget(self.tab_widget)
+
+        self.content_stack = QStackedWidget()
+        self.content_stack.addWidget(self.welcome_widget)
+        self.content_stack.addWidget(self.tab_widget)
+        self.content_stack.setCurrentWidget(self.welcome_widget)
+        self.setCentralWidget(self.content_stack)
 
     def _build_edit_inspector(self):
         self.edit_inspector = QDockWidget("Công cụ chèn/sửa", self)
@@ -369,8 +381,6 @@ class PDFReaderApp(QMainWindow):
         return None
 
     def show_selected_object_in_inspector(self, op: dict | None):
-        from app.actions.sign import _set_object_preview
-
         if not op:
             self._set_active_selected_op_id(None)
             self.inspector_type.setText("-")
@@ -381,10 +391,11 @@ class PDFReaderApp(QMainWindow):
             self.inspector_text.clear()
             self.inspector_image.setText("Chưa chọn ảnh")
             self._set_inspector_enabled(False)
-            _set_object_preview(self, None)
-            self._selection_preview_bridge = None
-            self._selection_preview_webview = None
-            self.edit_inspector.show()
+            self.inline_editor.clear()
+            if self._active_state() is None:
+                self.edit_inspector.hide()
+            else:
+                self.edit_inspector.show()
             return
 
         self._set_active_selected_op_id(op.get("id"))
@@ -397,9 +408,7 @@ class PDFReaderApp(QMainWindow):
         self.inspector_underline.setChecked(bool(op.get("underline", False)))
         self.inspector_image.setText(os.path.basename(str(op.get("image_path", ""))) or "Chưa chọn ảnh")
 
-        self._install_selection_preview_bridge()
-        _set_object_preview(
-            self,
+        self.inline_editor.show(
             {
                 "page_number": int(op.get("page_number", 1)),
                 "box": tuple(op.get("box", (0, 0, 0, 0))),
@@ -416,19 +425,6 @@ class PDFReaderApp(QMainWindow):
         self._set_inspector_enabled(True)
         self.edit_inspector.show()
         self.edit_inspector.raise_()
-
-    def _install_selection_preview_bridge(self):
-        from app.actions.sign import SignaturePreviewAdjustBridge, _get_web_view, _setup_webchannel
-
-        web_view = _get_web_view(self)
-        if web_view is None:
-            return
-        if self._selection_preview_bridge is None or self._selection_preview_webview is not web_view:
-            bridge = SignaturePreviewAdjustBridge(self)
-            bridge.adjusted.connect(self._apply_selected_object_preview_adjustment)
-            self._selection_preview_bridge = bridge
-            self._selection_preview_webview = web_view
-            _setup_webchannel(web_view, self, "sigPreviewBridge", bridge)
 
     def _apply_selected_object_preview_adjustment(self, page_number, left, bottom, right, top):
         state = self._active_edit_state()
@@ -475,6 +471,16 @@ class PDFReaderApp(QMainWindow):
             return None
         tab = self.tab_widget.widget(index)
         return self._tabs_data.get(tab)
+
+    def _show_welcome_screen(self):
+        if hasattr(self, "content_stack") and hasattr(self, "welcome_widget"):
+            self.content_stack.setCurrentWidget(self.welcome_widget)
+        if hasattr(self, "welcome_widget"):
+            self.welcome_widget.apply_theme(self._theme_mode)
+
+    def _show_tabs_screen(self):
+        if hasattr(self, "content_stack") and hasattr(self, "tab_widget"):
+            self.content_stack.setCurrentWidget(self.tab_widget)
 
     def _state_or_global(self):
         state = self._active_state()
@@ -543,6 +549,7 @@ class PDFReaderApp(QMainWindow):
         title = os.path.basename(state["display_path"]) if state["display_path"] else "PDF"
         index = self.tab_widget.addTab(tab, title)
         self.tab_widget.setCurrentIndex(index)
+        self._show_tabs_screen()
 
         self._connect_viewer_signals(viewer)
 
@@ -701,6 +708,8 @@ class PDFReaderApp(QMainWindow):
         self._refresh_theme_icons()
         if hasattr(self, "sidebar"):
             self.sidebar.apply_theme(resolved_mode)
+        if hasattr(self, "welcome_widget"):
+            self.welcome_widget.apply_theme(resolved_mode)
 
         for state in self._tabs_data.values():
             viewer = state.get("viewer")
@@ -944,6 +953,21 @@ class PDFReaderApp(QMainWindow):
             a.triggered.connect(slot)
             self.toolbar.addAction(a)
             return a
+
+        self.brand_widget = QWidget(self)
+        brand_layout = QHBoxLayout(self.brand_widget)
+        brand_layout.setContentsMargins(4, 0, 12, 0)
+        brand_layout.setSpacing(8)
+        brand_icon = QLabel()
+        brand_icon.setPixmap(svg_pixmap("logo_mark.svg", size=26))
+        brand_icon.setFixedSize(28, 28)
+        brand_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        brand_text = QLabel("3TReader")
+        brand_text.setObjectName("ToolbarBrandText")
+        brand_layout.addWidget(brand_icon)
+        brand_layout.addWidget(brand_text)
+        self.toolbar.addWidget(self.brand_widget)
+        self.toolbar.addSeparator()
 
         # Group: File Ops
         self.act_open   = add("Mở tệp",     "folder_open.svg", f"Mở tệp ({shortcut_label('Ctrl+O')})", "Ctrl+O", lambda: open_file(self))
@@ -1250,6 +1274,10 @@ class PDFReaderApp(QMainWindow):
         act_shortcuts = menu_help.addAction("Xem phím tắt")
         self._set_action_icon(act_shortcuts, "history.svg", role="menu", size=16)
         act_shortcuts.triggered.connect(self._show_shortcuts_hint)
+        menu_help.addSeparator()
+        act_about = menu_help.addAction("Giới thiệu 3T Reader")
+        self._set_action_icon(act_about, "info.svg", role="menu", size=16)
+        act_about.triggered.connect(self._show_about_dialog)
 
         for action in (
             self.act_open, self.act_new_pdf, self.act_recent,
@@ -1261,7 +1289,7 @@ class PDFReaderApp(QMainWindow):
             self.act_check_token, self.act_sign,
             act_find, act_find_next, act_find_prev,
             act_file_info, act_close_tab, act_tab_next, act_tab_prev,
-            act_goto, self.act_toggle_sidebar, act_shortcuts, act_exit,
+            act_goto, self.act_toggle_sidebar, act_shortcuts, act_about, act_exit,
         ):
             action.setIconVisibleInMenu(True)
 
@@ -1338,6 +1366,7 @@ class PDFReaderApp(QMainWindow):
             self.hide_search_panel()
             self.sidebar.list.clear()
             self.show_selected_object_in_inspector(None)
+            self._show_welcome_screen()
             return
 
         display_name = os.path.basename(state["display_path"]) if state["display_path"] else "PDF"
@@ -1371,6 +1400,7 @@ class PDFReaderApp(QMainWindow):
                 if op.get("id") == selected_id:
                     selected_op = op
                     break
+        self._show_tabs_screen()
         self.show_selected_object_in_inspector(selected_op)
 
     # ------------------------------------------------------------------ #
@@ -1392,7 +1422,10 @@ class PDFReaderApp(QMainWindow):
         tab.deleteLater()
         if self.tab_widget.count() == 0:
             self.hide_search_panel()
+            self._show_welcome_screen()
             self._update_chrome_for_active_tab()
+        else:
+            self._show_tabs_screen()
 
     def _activate_next_tab(self):
         count = self.tab_widget.count()
@@ -1426,6 +1459,10 @@ class PDFReaderApp(QMainWindow):
             f"{s('Ctrl+-')} / {s('Ctrl+=')} : Thu nhỏ / phóng to\n"
             f"{fullscreen_shortcut_hint()}: Toàn màn hình",
         )
+
+    def _show_about_dialog(self):
+        dialog = AboutDialog(self)
+        dialog.exec()
 
     def _refresh_recent_menu(self):
         self.menu_recent.clear()
