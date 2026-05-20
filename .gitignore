@@ -19,6 +19,7 @@ env/
 
 # Local app/runtime data
 recent_files.json
+data/
 *.log
 *.tmp
 *.bak
