@@ -1,8 +1,10 @@
 import os
+import sys
 from pathlib import Path
 
 from packages.pdf_engine import get_pdf_engine
 from packages.qt_compat import QtCore, QtWebEngineWidgets, QtWidgets, pyqtSignal
+from PySide6.QtWebEngineCore import QWebEngineSettings
 
 
 class PDFViewerWidget(QtWidgets.QWidget):
@@ -26,6 +28,12 @@ class PDFViewerWidget(QtWidgets.QWidget):
         self._zoom = "page-width"
 
         self._web_view = QtWebEngineWidgets.QWebEngineView(self)
+
+        # Allow PDF.js (a local file:// page) to fetch the PDF (also file://)
+        settings = self._web_view.settings()
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessLocalUrls, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
+
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -90,6 +98,18 @@ class PDFViewerWidget(QtWidgets.QWidget):
         self._web_view.load(QtCore.QUrl.fromLocalFile(os.path.abspath(path)))
 
     def _pdfjs_viewer_path(self) -> Path | None:
-        root = Path(__file__).resolve().parents[1]
-        viewer = root / "third_party" / "pdfjs" / "web" / "viewer.html"
-        return viewer if viewer.exists() else None
+        # Search order: sys._MEIPASS → Contents/MacOS/ → Contents/Resources/ → source root
+        candidates: list[Path] = []
+        if getattr(sys, "frozen", False):
+            if hasattr(sys, "_MEIPASS"):
+                candidates.append(Path(sys._MEIPASS))
+            exe = Path(sys.executable).resolve()
+            candidates.append(exe.parent)                       # Contents/MacOS/
+            candidates.append(exe.parent.parent / "Resources")  # Contents/Resources/
+        else:
+            candidates.append(Path(__file__).resolve().parents[1])
+        for root in candidates:
+            viewer = root / "third_party" / "pdfjs" / "web" / "viewer.html"
+            if viewer.exists():
+                return viewer
+        return None
