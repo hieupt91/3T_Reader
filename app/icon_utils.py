@@ -21,6 +21,21 @@ def get_resource_path(relative_path):
     return os.path.join(os.path.abspath("."), relative_path)
 
 ICON_DIR = get_resource_path(os.path.join("assets", "icons"))
+ASSETS_DIR = get_resource_path("assets")
+
+
+def app_logo_icon(size: int = 64) -> QIcon:
+    """Return QIcon from logo_mark.svg (full colour, no recolour)."""
+    path = os.path.join(ASSETS_DIR, "logo_mark.svg")
+    if not os.path.exists(path):
+        return QIcon()
+    renderer = QSvgRenderer(path)
+    pixmap = QPixmap(QSize(size, size))
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    renderer.render(painter)
+    painter.end()
+    return QIcon(pixmap)
 
 
 @lru_cache(maxsize=128)

@@ -42,8 +42,12 @@ def _setup_webchannel(web_view, parent, name, bridge):
 
 def _teardown_webchannel(web_view):
     """Shared: detach QWebChannel from the web view."""
-    if web_view is not None:
+    if web_view is None:
+        return
+    try:
         web_view.page().setWebChannel(None)
+    except RuntimeError:
+        pass
 
 
 MM_TO_PT = 72.0 / 25.4
@@ -800,8 +804,19 @@ def sign_document(window):
 
         preview_bridge.adjusted.connect(_apply_preview_adjustment)
 
+    def _navigate_to_page(page_no: int):
+        """Cuộn PDF viewer đến trang chỉ định."""
+        wv = _get_web_view(window)
+        if wv:
+            wv.page().runJavaScript(
+                f"(function(){{var app=window.PDFViewerApplication;"
+                f"if(app&&app.pdfViewer){{app.pdfViewer.currentPageNumber={int(page_no)};}}}})()"
+            )
+
     def _refresh_preview(*_args):
-        _set_signature_preview(window, placement_dialog.placement())
+        pl = placement_dialog.placement()
+        _set_signature_preview(window, pl)
+        _navigate_to_page(pl["page_number"])
 
     placement_dialog.page_spin.valueChanged.connect(_refresh_preview)
     placement_dialog.x_spin.valueChanged.connect(_refresh_preview)
@@ -920,3 +935,140 @@ def sign_document(window):
             msg.setText("Ký số thất bại!")
             msg.setDetailedText(traceback.format_exc())
             msg.exec()
+
+
+@require_document(show_message=True)
+def sign_handwritten(window):
+    """Draw a handwritten signature and place it on the current PDF."""
+    import fitz
+    import tempfile
+    import uuid
+    import os as _os
+
+    from app.signature_pad import SignaturePadDialog
+
+    pad = SignaturePadDialog(window)
+    if pad.exec() != QDialog.DialogCode.Accepted:
+        return
+    pixmap = pad.get_pixmap()
+    if not pixmap:
+        return
+
+    tmp_dir = _os.path.join(tempfile.gettempdir(), "reader_pdf_sig")
+    _os.makedirs(tmp_dir, exist_ok=True)
+    sig_img_path = _os.path.join(tmp_dir, f"sig_{uuid.uuid4().hex[:8]}.png")
+    pixmap.save(sig_img_path, "PNG")
+
+    placement = _pick_signature_placement(window)
+    # Nếu huỷ click chọn vị trí thì placement=None, dùng vị trí mặc định
+    # (không bắt buộc phải click — có thể chọn qua spinbox)
+
+    page_count, current_page = 1, 1
+    if window.viewer:
+        try:
+            page_count = max(1, window.viewer.get_page_count())
+            current_page = max(1, window.viewer.get_current_page())
+        except Exception:
+            pass
+
+    initial_page = current_page
+    if placement and "page_number" in placement:
+        initial_page = int(placement["page_number"])
+
+    placement_dialog = SignaturePlacementDialog(
+        window,
+        page_count=page_count,
+        current_page=initial_page,
+        initial_placement=placement,
+    )
+
+    web_view = _get_web_view(window)
+    preview_bridge = None
+    if web_view is not None:
+        preview_bridge = SignaturePreviewAdjustBridge(placement_dialog)
+        _setup_webchannel(web_view, placement_dialog, "sigPreviewBridge", preview_bridge)
+
+        def _apply_adj(page_number, left, bottom, right, top):
+            width = max(1.0, right - left)
+            height = max(1.0, top - bottom)
+            for spin in (placement_dialog.page_spin, placement_dialog.x_spin,
+                         placement_dialog.y_spin, placement_dialog.width_spin,
+                         placement_dialog.height_spin):
+                spin.blockSignals(True)
+            try:
+                placement_dialog.page_spin.setValue(
+                    min(int(page_number), placement_dialog.page_spin.maximum()))
+                placement_dialog.x_spin.setValue(left / MM_TO_PT)
+                placement_dialog.y_spin.setValue(bottom / MM_TO_PT)
+                placement_dialog.width_spin.setValue(width / MM_TO_PT)
+                placement_dialog.height_spin.setValue(height / MM_TO_PT)
+            finally:
+                for spin in (placement_dialog.page_spin, placement_dialog.x_spin,
+                             placement_dialog.y_spin, placement_dialog.width_spin,
+                             placement_dialog.height_spin):
+                    spin.blockSignals(False)
+            _refresh_prev()
+
+        preview_bridge.adjusted.connect(_apply_adj)
+
+    def _nav_page(page_no: int):
+        wv2 = _get_web_view(window)
+        if wv2:
+            wv2.page().runJavaScript(
+                f"(function(){{var app=window.PDFViewerApplication;"
+                f"if(app&&app.pdfViewer){{app.pdfViewer.currentPageNumber={int(page_no)};}}}})()"
+            )
+
+    def _refresh_prev(*_):
+        pl = placement_dialog.placement()
+        _set_signature_preview(window, pl)
+        _nav_page(pl["page_number"])
+
+    for spin in (placement_dialog.page_spin, placement_dialog.x_spin,
+                 placement_dialog.y_spin, placement_dialog.width_spin,
+                 placement_dialog.height_spin):
+        spin.valueChanged.connect(_refresh_prev)
+
+    _refresh_prev()
+    loop = QEventLoop(placement_dialog)
+    placement_dialog.finished.connect(
+        lambda _code: loop.quit() if loop.isRunning() else None)
+    placement_dialog.show()
+    placement_dialog.raise_()
+    placement_dialog.activateWindow()
+    try:
+        loop.exec()
+        if placement_dialog.result() != QDialog.DialogCode.Accepted:
+            return
+        placement = placement_dialog.placement()
+    finally:
+        _set_signature_preview(window, None)
+        _teardown_webchannel(web_view)
+
+    if not placement or "box" not in placement or "page_number" not in placement:
+        return
+
+    page_no = placement["page_number"]
+    box = placement["box"]
+
+    try:
+        doc = fitz.open(window.current_path)
+        page = doc[page_no - 1]
+        page_h = page.rect.height
+        left, bottom, right, top_pt = box
+        rect = fitz.Rect(left, page_h - top_pt, right, page_h - bottom)
+        page.insert_image(rect, filename=sig_img_path, keep_proportion=True)
+
+        tmp_dir2 = _os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
+        _os.makedirs(tmp_dir2, exist_ok=True)
+        out_path = _os.path.join(tmp_dir2, f"signed_{uuid.uuid4().hex[:8]}.pdf")
+        doc.save(out_path)
+        doc.close()
+
+        window.current_path = out_path
+        window.viewer.load_pdf(out_path, page=page_no, zoom="page-width")
+        if hasattr(window, "status"):
+            window.status.showMessage("Đã đặt chữ ký tay lên PDF", 3000)
+    except Exception as exc:
+        import traceback
+        show_warning(window, "Lỗi chèn chữ ký", traceback.format_exc())

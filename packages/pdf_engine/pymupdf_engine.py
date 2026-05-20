@@ -68,6 +68,7 @@ class PyMuPdfEngine:
 
     def rebuild_pdf_with_ops(self, base_path: str, output_path: str, ops: list[dict]) -> None:
         import fitz
+        import os as _os
 
         doc = fitz.open(base_path)
         try:
@@ -81,20 +82,39 @@ class PyMuPdfEngine:
                 page_h = page.rect.height
                 rect = fitz.Rect(pdf_left, page_h - pdf_top, pdf_right, page_h - pdf_bottom)
 
-                if op.get("type") == "text":
-                    page.insert_textbox(
-                        rect,
-                        op.get("text", ""),
-                        fontsize=op.get("font_size", 12),
-                        fontname="helv",
-                        color=op.get("font_color", (0, 0, 0)),
-                        align=0,
-                    )
-                elif op.get("type") == "image":
-                    image_path = op.get("image_path")
-                    if image_path:
+                try:
+                    op_type = op.get("type")
+
+                    if op_type == "text":
+                        text = op.get("text", "").strip()
+                        if not text:
+                            continue
+                        page.insert_textbox(
+                            rect,
+                            text,
+                            fontsize=max(6, op.get("font_size", 12)),
+                            fontname="helv",
+                            color=op.get("font_color", (0, 0, 0)),
+                            align=0,
+                        )
+
+                    elif op_type == "image":
+                        image_path = op.get("image_path", "")
+                        if not image_path or not _os.path.exists(image_path):
+                            continue
                         page.insert_image(rect, filename=image_path, keep_proportion=True)
 
-            doc.save(output_path)
+                    elif op_type == "rect":
+                        fill = op.get("fill_color", (1.0, 1.0, 1.0))
+                        stroke = op.get("stroke_color", fill)
+                        page.draw_rect(rect, color=stroke, fill=fill, width=0)
+
+                except Exception:
+                    continue  # skip bad op, không crash toàn bộ rebuild
+
+            try:
+                doc.save(output_path)
+            except Exception as e:
+                raise RuntimeError(f"Không lưu được file PDF: {e}") from e
         finally:
             doc.close()

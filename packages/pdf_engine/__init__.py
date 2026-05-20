@@ -6,10 +6,17 @@ from .pymupdf_engine import PyMuPdfEngine
 
 
 def _build_default_engine() -> PdfEngine:
-    engine_name = os.environ.get("THREET_READER_PDF_ENGINE", "pdfium").strip().lower()
+    engine_name = os.environ.get("THREET_READER_PDF_ENGINE", "").strip().lower()
     if engine_name in {"pymupdf", "fitz", "legacy"}:
         return PyMuPdfEngine()
-    return PdfiumEngine()
+    if engine_name == "pdfium":
+        return PdfiumEngine()
+    # Auto-detect: dùng PdfiumEngine nếu pikepdf có sẵn, không thì PyMuPdfEngine
+    try:
+        import pikepdf  # noqa: F401
+        return PdfiumEngine()
+    except ImportError:
+        return PyMuPdfEngine()
 
 
 _default_engine = _build_default_engine()

@@ -49,6 +49,9 @@ if __name__ == "__main__":
     app.setFont(QFont(_ui_font, 10))
     app.setApplicationName(APP_NAME)
 
+    from app.icon_utils import app_logo_icon
+    app.setWindowIcon(app_logo_icon(256))
+
     window = PDFReaderApp()
     window.show()
     sys.exit(app.exec())
