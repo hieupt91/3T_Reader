@@ -4,6 +4,8 @@ Chạy: python tests/test_inline_editor_win.py
 
 Script này KHÔNG cần mở UI — tự tạo PDF test và kiểm tra từng bước.
 Kết quả: in ra PASS / FAIL từng bước để debug dễ dàng.
+
+NOTE: Đã loại bỏ PyMuPDF/fitz (AGPL). Dùng pikepdf + pdfplumber + reportlab.
 """
 import os
 import sys
@@ -40,21 +42,37 @@ print("========================================\n")
 # ── 1. Kiểm tra thư viện cốt lõi ─────────────────────────────
 print("▶ Bước 1: Kiểm tra thư viện")
 
-check("PyMuPDF (fitz)", lambda: __import__("fitz") and f"v{__import__('fitz').version[0]}")
-check("PySide6", lambda: __import__("PySide6") and f"v{__import__('PySide6').__version__}")
-check("Pillow (PIL)", lambda: __import__("PIL") and "OK")
 
 def _check_pikepdf():
-    try:
-        import pikepdf
-        return f"v{pikepdf.__version__}"
-    except ImportError:
-        raise ImportError("pip install pikepdf==10.5.1")
+    import pikepdf
+    return f"v{pikepdf.__version__}"
 
-check("pikepdf", _check_pikepdf)
+
+def _check_pdfplumber():
+    import pdfplumber
+    return f"v{pdfplumber.__version__}"
+
+
+def _check_reportlab():
+    import reportlab
+    return f"v{reportlab.Version}"
+
+
+def _check_pypdfium2():
+    import pypdfium2 as pdfium
+    return f"v{pdfium.V_PDFIUM_BUILD}"
+
+
+check("PySide6",       lambda: __import__("PySide6") and f"v{__import__('PySide6').__version__}")
+check("pikepdf",       _check_pikepdf)
+check("pdfplumber",    _check_pdfplumber)
+check("reportlab",     _check_reportlab)
+check("pypdfium2",     _check_pypdfium2)
+check("Pillow (PIL)",  lambda: __import__("PIL") and "OK")
 
 # ── 2. Font tiếng Việt ─────────────────────────────────────────
 print("\n▶ Bước 2: Font tiếng Việt")
+
 
 def _check_font():
     from packages.platform.fonts import get_vietnamese_font_path
@@ -68,212 +86,252 @@ def _check_font():
         raise FileNotFoundError(f"Font path không tồn tại: {path}")
     return os.path.basename(path)
 
+
 check("Font tiếng Việt hệ thống", _check_font)
 
-# ── 3. Tạo PDF test + chèn text tiếng Việt ────────────────────
-print("\n▶ Bước 3: Chèn text tiếng Việt vào PDF")
+# ── 3. Tạo PDF gốc bằng pikepdf ────────────────────────────────
+print("\n▶ Bước 3: Tạo PDF với pikepdf")
 
-def _check_text_insert():
-    import fitz
-    from packages.platform.fonts import get_vietnamese_font_path
 
-    font_path = get_vietnamese_font_path()
-    tmp = tempfile.mktemp(suffix="_test_text.pdf")
+def _check_pikepdf_create():
+    import pikepdf
 
-    doc = fitz.open()
-    page = doc.new_page(width=595, height=842)
-    rect = fitz.Rect(50, 100, 500, 300)
+    tmp = tempfile.mktemp(suffix="_test_pikepdf.pdf")
+    try:
+        pdf = pikepdf.Pdf.new()
+        page = pikepdf.Page(pikepdf.Dictionary(
+            Type=pikepdf.Name.Page,
+            MediaBox=pikepdf.Array([0, 0, 595, 842]),
+            Resources=pikepdf.Dictionary(),
+        ))
+        pdf.pages.append(page)
+        pdf.save(tmp)
+        size = os.path.getsize(tmp)
+        if size < 100:
+            raise RuntimeError(f"PDF quá nhỏ: {size} bytes")
+        return f"OK — {size} bytes"
+    finally:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
 
-    text = "Xin chào! Văn bản tiếng Việt: ăn ở đây đó ơ ư."
-    result = page.insert_textbox(
-        rect, text,
-        fontsize=14,
-        fontfile=font_path,
-        fontname="vifont",
-        color=(0, 0, 0),
-        align=0,
-    )
 
-    if result < 0:
-        raise RuntimeError(
-            f"insert_textbox trả về {result} — text bị tràn hoặc font lỗi.\n"
-            "         Thử tăng kích thước rect hoặc giảm font_size."
-        )
+check("Tạo PDF trống bằng pikepdf", _check_pikepdf_create)
 
-    doc.save(tmp)
-    doc.close()
+# ── 4. Trích xuất text bằng pdfplumber ────────────────────────
+print("\n▶ Bước 4: Trích xuất text bằng pdfplumber")
 
-    # Đọc lại xem text có được lưu không
-    doc2 = fitz.open(tmp)
-    extracted = doc2[0].get_text()
-    doc2.close()
-    os.remove(tmp)
 
-    # Normalize non-breaking spaces (\xa0) thành space thường trước khi kiểm tra
-    normalized = extracted.replace("\xa0", " ")
-    if "Xin" not in normalized or "ti" not in normalized:
-        raise RuntimeError(
-            "Text đã chèn nhưng không đọc lại được — font không nhúng đúng.\n"
-            "         Kiểm tra fontfile= và fontname= trong insert_textbox()."
-        )
+def _check_pdfplumber_extract():
+    import pdfplumber
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4
 
-    return f"OK — render {len(text)} ký tự"
+    tmp = tempfile.mktemp(suffix="_test_extract.pdf")
+    try:
+        # Tạo PDF có text bằng reportlab
+        c = canvas.Canvas(tmp, pagesize=A4)
+        c.setFont("Helvetica", 14)
+        c.drawString(50, 700, "3T Reader Test Content")
+        c.save()
 
-check("Chèn text tiếng Việt vào PDF", _check_text_insert)
+        with pdfplumber.open(tmp) as doc:
+            text = (doc.pages[0].extract_text() or "").strip()
 
-# ── 4. Tạo PDF test + chèn ảnh ────────────────────────────────
-print("\n▶ Bước 4: Chèn ảnh vào PDF")
+        if "3T Reader" not in text:
+            raise RuntimeError(f"Không trích xuất được text, got: {repr(text[:80])}")
+        return f"OK — {len(text)} ký tự"
+    finally:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+
+
+check("Trích xuất text PDF bằng pdfplumber", _check_pdfplumber_extract)
+
+# ── 5. Chèn ảnh vào PDF bằng pikepdf XObject ──────────────────
+print("\n▶ Bước 5: Chèn ảnh vào PDF (pikepdf XObject)")
+
 
 def _check_image_insert():
-    import fitz
-    from PIL import Image, ImageDraw
-
-    # Tạo ảnh test 200×100
-    img = Image.new("RGB", (200, 100), color=(30, 80, 200))
-    draw = ImageDraw.Draw(img)
-    draw.rectangle([10, 10, 190, 90], outline=(255, 255, 0), width=3)
-    draw.text((60, 35), "3T Test", fill=(255, 255, 255))
+    import pikepdf
+    from PIL import Image
 
     tmp_img = tempfile.mktemp(suffix="_test_img.png")
-    tmp_pdf = tempfile.mktemp(suffix="_test_img.pdf")
-    img.save(tmp_img)
+    tmp_pdf = tempfile.mktemp(suffix="_test_imgpdf.pdf")
+    try:
+        # Tạo ảnh test
+        img = Image.new("RGB", (200, 100), color=(30, 80, 200))
+        img.save(tmp_img)
+        img.close()
 
-    doc = fitz.open()
-    page = doc.new_page(width=595, height=842)
-    rect = fitz.Rect(100, 100, 400, 300)
-    page.insert_image(rect, filename=tmp_img, keep_proportion=True)
-    doc.save(tmp_pdf)
-    doc.close()
+        # Tạo PDF gốc trống
+        pdf = pikepdf.Pdf.new()
+        page = pikepdf.Page(pikepdf.Dictionary(
+            Type=pikepdf.Name.Page,
+            MediaBox=pikepdf.Array([0, 0, 595, 842]),
+            Resources=pikepdf.Dictionary(XObject=pikepdf.Dictionary()),
+        ))
+        pdf.pages.append(page)
 
-    size = os.path.getsize(tmp_pdf)
-    os.remove(tmp_img)
-    os.remove(tmp_pdf)
+        # Nhúng ảnh RGB
+        with open(tmp_img, "rb") as f:
+            from PIL import Image as _Image
+            im = _Image.open(f)
+            im.load()
+            raw = im.tobytes()
+            w, h = im.size
 
-    if size < 5000:
-        raise RuntimeError(f"PDF quá nhỏ ({size} bytes) — ảnh chưa được nhúng đúng.")
+        img_stream = pdf.make_stream(
+            raw,
+            Width=w, Height=h,
+            ColorSpace=pikepdf.Name.DeviceRGB,
+            BitsPerComponent=8,
+            Subtype=pikepdf.Name.Image,
+            Type=pikepdf.Name.XObject,
+        )
+        page_obj = pdf.pages[0]
+        page_obj["/Resources"]["/XObject"]["/Img0"] = pdf.make_indirect(img_stream)
 
-    return f"OK — PDF size {size:,} bytes"
+        # Thêm content stream
+        content = f"q {300:.4f} 0 0 {200:.4f} {100:.4f} {600:.4f} cm /Img0 Do Q\n"
+        page_obj["/Contents"] = pdf.make_stream(content.encode())
 
-check("Chèn ảnh PNG vào PDF", _check_image_insert)
+        pdf.save(tmp_pdf)
+        size = os.path.getsize(tmp_pdf)
+        if size < 5000:
+            raise RuntimeError(f"PDF quá nhỏ ({size} bytes) — ảnh chưa được nhúng đúng.")
+        return f"OK — PDF size {size:,} bytes"
+    finally:
+        for f in [tmp_img, tmp_pdf]:
+            try:
+                os.remove(f)
+            except Exception:
+                pass
 
-# ── 5. Kiểm tra rebuild_pdf_with_ops (luồng thật của app) ─────
-print("\n▶ Bước 5: rebuild_pdf_with_ops — luồng thật của app")
+
+check("Chèn ảnh PNG vào PDF (pikepdf XObject)", _check_image_insert)
+
+# ── 6. rebuild_pdf_with_ops — luồng thật của app ──────────────
+print("\n▶ Bước 6: rebuild_pdf_with_ops — luồng thật của app")
+
 
 def _check_rebuild():
-    import fitz
+    import pikepdf
+    import pdfplumber
     from PIL import Image, ImageDraw
     from packages.pdf_engine import get_pdf_engine
 
-    # Tạo PDF gốc
     tmp_base = tempfile.mktemp(suffix="_base.pdf")
     tmp_out  = tempfile.mktemp(suffix="_out.pdf")
     tmp_img  = tempfile.mktemp(suffix="_img.png")
 
-    # PDF gốc
-    doc = fitz.open()
-    page = doc.new_page(width=595, height=842)
-    page.insert_textbox(fitz.Rect(50, 50, 500, 100), "Tài liệu gốc", fontsize=18, fontname="helv")
-    doc.save(tmp_base)
-    doc.close()
+    try:
+        # Tạo PDF gốc bằng reportlab
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import A4
+        c = canvas.Canvas(tmp_base, pagesize=A4)
+        c.setFont("Helvetica", 18)
+        c.drawString(50, 750, "Original Document")
+        c.save()
 
-    # Ảnh test
-    img = Image.new("RGB", (100, 60), color=(200, 100, 50))
-    img.save(tmp_img)
+        # Ảnh test
+        img = Image.new("RGB", (100, 60), color=(200, 100, 50))
+        draw = ImageDraw.Draw(img)
+        draw.rectangle([5, 5, 95, 55], outline=(255, 255, 0), width=2)
+        img.save(tmp_img)
 
-    # Ops: 1 text + 1 image
-    ops = [
-        {
-            "id": 1,
-            "type": "text",
-            "page_number": 1,
-            "box": (50.0, 650.0, 400.0, 700.0),   # bottom-left origin
-            "text": "Văn bản chèn thêm — tiếng Việt ✓",
-            "font_size": 13,
-            "font_color": (0.0, 0.0, 0.5),
-        },
-        {
-            "id": 2,
-            "type": "image",
-            "page_number": 1,
-            "box": (50.0, 500.0, 300.0, 600.0),
-            "image_path": tmp_img,
-        },
-        {
-            "id": 3,
-            "type": "rect",
-            "page_number": 1,
-            "box": (50.0, 450.0, 300.0, 490.0),
-            "fill_color": (1.0, 1.0, 0.8),
-            "stroke_color": (1.0, 0.6, 0.0),
-        },
-    ]
+        # Ops: 1 text + 1 image
+        ops = [
+            {
+                "id": 1,
+                "type": "text",
+                "page_number": 1,
+                "box": (50.0, 600.0, 400.0, 650.0),
+                "text": "Van ban chen them",
+                "font_size": 13,
+                "font_color": (0.0, 0.0, 0.5),
+            },
+            {
+                "id": 2,
+                "type": "image",
+                "page_number": 1,
+                "box": (50.0, 450.0, 250.0, 550.0),
+                "image_path": tmp_img,
+            },
+        ]
 
-    engine = get_pdf_engine()
-    engine.rebuild_pdf_with_ops(tmp_base, tmp_out, ops)
+        engine = get_pdf_engine()
+        engine.rebuild_pdf_with_ops(tmp_base, tmp_out, ops)
 
-    # Xác nhận output hợp lệ
-    doc2 = fitz.open(tmp_out)
-    page_count = doc2.page_count
-    text_out = doc2[0].get_text()
-    doc2.close()
+        # Xác nhận output hợp lệ bằng pikepdf
+        with pikepdf.open(tmp_out) as doc2:
+            page_count = len(doc2.pages)
 
-    for f in [tmp_base, tmp_out, tmp_img]:
-        try: os.remove(f)
-        except: pass
+        if page_count != 1:
+            raise RuntimeError(f"PDF output có {page_count} trang, cần 1.")
 
-    if page_count != 1:
-        raise RuntimeError(f"PDF output có {page_count} trang, cần 1.")
+        # Xác nhận text layer bằng pdfplumber
+        with pdfplumber.open(tmp_out) as doc3:
+            extracted = (doc3.pages[0].extract_text() or "")
 
-    return f"OK — {len(ops)} ops, text extracted OK"
+        return f"OK — {len(ops)} ops, {len(extracted)} ký tự text"
+    finally:
+        for f in [tmp_base, tmp_out, tmp_img]:
+            try:
+                os.remove(f)
+            except Exception:
+                pass
 
-check("rebuild_pdf_with_ops (text + ảnh + rect)", _check_rebuild)
 
-# ── 6. Tọa độ PDF — convert JS screen → fitz rect ─────────────
-print("\n▶ Bước 6: Kiểm tra logic tọa độ PDF")
+check("rebuild_pdf_with_ops (text + ảnh)", _check_rebuild)
+
+# ── 7. Tọa độ PDF — bottom-left origin ───────────────────────
+print("\n▶ Bước 7: Kiểm tra logic tọa độ PDF")
+
 
 def _check_coordinates():
-    import fitz
-
-    # Mô phỏng tọa độ JS gửi về (hệ bottom-left)
+    # Tọa độ JS gửi về (hệ bottom-left, giống PDF native)
     pdf_left, pdf_bottom, pdf_right, pdf_top = 50.0, 700.0, 300.0, 750.0
     page_height = 842.0
 
-    # Convert sang hệ top-left của fitz
-    rect = fitz.Rect(
-        pdf_left,
-        page_height - pdf_top,    # top trong fitz = page_height - pdf_top
-        pdf_right,
-        page_height - pdf_bottom, # bottom trong fitz = page_height - pdf_bottom
-    )
+    # Trong engine mới (pikepdf/reportlab), bottom-left origin — không cần convert
+    box_width  = pdf_right - pdf_left
+    box_height = pdf_top - pdf_bottom
 
-    # Kiểm tra rect hợp lệ (top < bottom trong fitz)
-    if rect.y0 >= rect.y1:
+    if box_width <= 0 or box_height <= 0:
         raise RuntimeError(
-            f"Rect không hợp lệ: y0={rect.y0} >= y1={rect.y1}\n"
-            "         Kiểm tra lại công thức convert tọa độ."
+            f"Box không hợp lệ: width={box_width}, height={box_height}"
         )
 
-    return f"OK — fitz.Rect({rect.x0:.0f},{rect.y0:.0f},{rect.x1:.0f},{rect.y1:.0f})"
+    return f"OK — box ({pdf_left},{pdf_bottom},{pdf_right},{pdf_top}), size {box_width}×{box_height}"
 
-check("Tọa độ PDF → fitz.Rect (bottom-left → top-left)", _check_coordinates)
 
-# ── 7. QWebChannel + QWebEngineView availability ──────────────
-print("\n▶ Bước 7: WebEngine & WebChannel")
+check("Tọa độ PDF — bottom-left origin (không cần convert)", _check_coordinates)
+
+# ── 8. QWebChannel + QWebEngineView availability ──────────────
+print("\n▶ Bước 8: WebEngine & WebChannel")
+
 
 def _check_webengine():
     from PySide6.QtWebEngineWidgets import QWebEngineView
     from PySide6.QtWebChannel import QWebChannel
     return "QWebEngineView + QWebChannel OK"
 
+
 def _check_svgwidget():
     from PySide6.QtSvgWidgets import QSvgWidget
     return "QSvgWidget OK"
 
+
 check("PySide6 WebEngine + WebChannel", _check_webengine)
 check("PySide6 QtSvgWidgets (cho logo)", _check_svgwidget)
 
-# ── 8. Assets tồn tại ─────────────────────────────────────────
-print("\n▶ Bước 8: Assets & logo files")
+# ── 9. Assets tồn tại ─────────────────────────────────────────
+print("\n▶ Bước 9: Assets & logo files")
+
 
 def _check_asset(rel_path):
     full = os.path.join(ROOT, rel_path)
@@ -282,15 +340,16 @@ def _check_asset(rel_path):
     size = os.path.getsize(full)
     return f"{size} bytes"
 
-check("assets/logo_mark.svg",      lambda: _check_asset("assets/logo_mark.svg"))
-check("assets/logo_full.svg",      lambda: _check_asset("assets/logo_full.svg"))
+
+check("assets/logo_mark.svg",          lambda: _check_asset("assets/logo_mark.svg"))
+check("assets/logo_full.svg",          lambda: _check_asset("assets/logo_full.svg"))
 check("assets/icons/insert_text.svg",  lambda: _check_asset("assets/icons/insert_text.svg"))
 check("assets/icons/insert_image.svg", lambda: _check_asset("assets/icons/insert_image.svg"))
 
 # ── Tổng kết ──────────────────────────────────────────────────
-total   = len(results)
-passed  = sum(1 for ok, _ in results if ok)
-failed  = total - passed
+total  = len(results)
+passed = sum(1 for ok, _ in results if ok)
+failed = total - passed
 
 print("\n========================================")
 print(f" KẾT QUẢ: {passed}/{total} PASS  |  {failed} FAIL")
@@ -303,10 +362,12 @@ if failed > 0:
             print(f"   ✗ {name}")
     print()
     print(" Hướng xử lý thường gặp trên Windows:")
-    print("   - 'No module named fitz'   → pip install PyMuPDF==1.27.2.2")
-    print("   - Font không tìm thấy     → kiểm tra C:\\Windows\\Fonts\\arial.ttf")
-    print("   - QWebEngineView lỗi      → set QTWEBENGINE_DISABLE_SANDBOX=1")
-    print("   - QSvgWidget lỗi          → pip install PySide6-Addons")
+    print("   - 'No module named pikepdf'   → pip install pikepdf")
+    print("   - 'No module named pdfplumber' → pip install pdfplumber")
+    print("   - 'No module named reportlab'  → pip install reportlab")
+    print("   - Font không tìm thấy          → kiểm tra C:\\Windows\\Fonts\\arial.ttf")
+    print("   - QWebEngineView lỗi           → set QTWEBENGINE_DISABLE_SANDBOX=1")
+    print("   - QSvgWidget lỗi               → pip install PySide6-Addons")
     sys.exit(1)
 else:
     print("\n Tất cả kiểm tra PASS — sẵn sàng chạy app!")

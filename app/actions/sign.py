@@ -940,7 +940,6 @@ def sign_document(window):
 @require_document(show_message=True)
 def sign_handwritten(window):
     """Draw a handwritten signature and place it on the current PDF."""
-    import fitz
     import tempfile
     import uuid
     import os as _os
@@ -1052,18 +1051,62 @@ def sign_handwritten(window):
     box = placement["box"]
 
     try:
-        doc = fitz.open(window.current_path)
-        page = doc[page_no - 1]
-        page_h = page.rect.height
-        left, bottom, right, top_pt = box
-        rect = fitz.Rect(left, page_h - top_pt, right, page_h - bottom)
-        page.insert_image(rect, filename=sig_img_path, keep_proportion=True)
+        import pikepdf
+        from PIL import Image
+        import io as _io
 
-        tmp_dir2 = _os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
-        _os.makedirs(tmp_dir2, exist_ok=True)
-        out_path = _os.path.join(tmp_dir2, f"signed_{uuid.uuid4().hex[:8]}.pdf")
-        doc.save(out_path)
-        doc.close()
+        left, bottom, right, top_pt = box
+        w_pt = right - left
+        h_pt = top_pt - bottom
+
+        with Image.open(sig_img_path) as im:
+            im_rgba = im.convert("RGBA")
+            iw, ih = im_rgba.size
+            r_ch, g_ch, b_ch, a_ch = im_rgba.split()
+            raw_rgb   = Image.merge("RGB", (r_ch, g_ch, b_ch)).tobytes()
+            raw_alpha = a_ch.tobytes()
+
+        with pikepdf.open(window.current_path) as pdf:
+            page = pdf.pages[page_no - 1]
+
+            smask = pdf.make_stream(
+                raw_alpha,
+                Type=pikepdf.Name.XObject, Subtype=pikepdf.Name.Image,
+                Width=iw, Height=ih,
+                ColorSpace=pikepdf.Name.DeviceGray, BitsPerComponent=8,
+            )
+            img_xobj = pdf.make_stream(
+                raw_rgb,
+                Type=pikepdf.Name.XObject, Subtype=pikepdf.Name.Image,
+                Width=iw, Height=ih,
+                ColorSpace=pikepdf.Name.DeviceRGB, BitsPerComponent=8,
+                SMask=smask,
+            )
+
+            res = page.get("/Resources")
+            if res is None:
+                page["/Resources"] = pikepdf.Dictionary()
+            if "/XObject" not in page["/Resources"]:
+                page["/Resources"]["/XObject"] = pikepdf.Dictionary()
+            page["/Resources"]["/XObject"]["/SigHandwritten"] = img_xobj
+
+            content = (
+                f"q {w_pt:.4f} 0 0 {h_pt:.4f} {left:.4f} {bottom:.4f} cm"
+                f" /SigHandwritten Do Q\n"
+            )
+            new_stream = pdf.make_stream(content.encode())
+            existing = page.get("/Contents")
+            if existing is None:
+                page["/Contents"] = new_stream
+            elif isinstance(existing, pikepdf.Array):
+                page["/Contents"] = pikepdf.Array([*list(existing), new_stream])
+            else:
+                page["/Contents"] = pikepdf.Array([existing, new_stream])
+
+            tmp_dir2 = _os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
+            _os.makedirs(tmp_dir2, exist_ok=True)
+            out_path = _os.path.join(tmp_dir2, f"signed_{uuid.uuid4().hex[:8]}.pdf")
+            pdf.save(out_path)
 
         window.current_path = out_path
         window.viewer.load_pdf(out_path, page=page_no, zoom="page-width")

@@ -296,10 +296,31 @@ class BookmarkSidebar(QDockWidget):
 
     def _read_outline(self, pdf_path: str) -> list[tuple[int, str, int]]:
         try:
-            import fitz
-            doc = fitz.open(pdf_path)
-            toc = doc.get_toc()
-            doc.close()
-            return toc  # [(level, title, page), ...]
+            import pikepdf
+            toc: list[tuple[int, str, int]] = []
+            with pikepdf.open(pdf_path) as doc:
+                page_idx: dict = {}
+                for i, pg in enumerate(doc.pages):
+                    try:
+                        page_idx[pg.obj.objgen] = i + 1
+                    except Exception:
+                        pass
+                with doc.open_outline() as outline:
+                    def _collect(items, level: int = 1):
+                        for item in items:
+                            page_no = 1
+                            try:
+                                dest = item.destination
+                                if isinstance(dest, list) and dest:
+                                    pg_ref = dest[0]
+                                    page_no = page_idx.get(getattr(pg_ref, "objgen", None), 1)
+                            except Exception:
+                                pass
+                            if item.title:
+                                toc.append((level, item.title, page_no))
+                            if item.children:
+                                _collect(item.children, level + 1)
+                    _collect(outline.root)
+            return toc
         except Exception:
             return []

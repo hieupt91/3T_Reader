@@ -117,39 +117,18 @@ Hoặc cài tất cả một lần từ `requirements.txt`:
 pip install -r requirements.txt
 ```
 
-### 5.2 Cài thư viện xuất Word/Excel (BẮT BUỘC cho tính năng xuất file)
+### 5.2 Cài thư viện xuất Word/Excel và chỉnh sửa PDF
 
-> Tính năng **Xuất ra Word (.docx)** và **Xuất ra Excel (.xlsx)** cần 3 thư viện sau:
+Tất cả thư viện cần thiết đã có trong `requirements.txt` (pikepdf, pdfplumber, pdf2docx, openpyxl...).  
+Chạy lệnh `pip install -r requirements.txt` ở bước trên là đủ.
 
-```cmd
-pip install pdf2docx
-pip install pdfplumber
-pip install openpyxl
-```
-
-Kiểm tra:
+Kiểm tra nhanh:
 
 ```cmd
-python -c "import pdf2docx, pdfplumber, openpyxl; print('OK')"
+python -c "import pikepdf, pdfplumber, pdf2docx, openpyxl; print('OK')"
 ```
 
----
-
-### 5.3 Cài PyMuPDF (BẮT BUỘC cho chỉnh sửa PDF)
-
-> ⚠️ Gói này không nằm trong `requirements.txt` nhưng **bắt buộc phải có** để các tính năng chèn text/ảnh, vẽ, highlight, và lưu PDF hoạt động.
-
-```cmd
-pip install PyMuPDF==1.27.2.2
-```
-
-Kiểm tra cài thành công:
-
-```cmd
-python -c "import fitz; print(fitz.version)"
-```
-
-Kết quả phải hiện phiên bản fitz như `('1.27.2', '1.27.2.2', ...)`.
+> **Lưu ý:** App **không dùng PyMuPDF/fitz** (thư viện AGPL). Tất cả thao tác PDF đều dùng `pikepdf` + `pypdfium2` + `pdfplumber`.
 
 ### 5.3 Cài PyKCS11 (tùy chọn — chỉ cần cho USB Token)
 
@@ -215,12 +194,12 @@ python main.py
 
 ## 9. Xử lý lỗi thường gặp
 
-### Lỗi: `No module named 'fitz'`
+### Lỗi: `No module named 'pikepdf'` hoặc `No module named 'pdfplumber'`
 
-PyMuPDF chưa được cài. Chạy:
+Chưa cài đủ thư viện. Chạy:
 
 ```cmd
-pip install PyMuPDF==1.27.2.2
+pip install -r requirements.txt
 ```
 
 ### Lỗi: `No module named 'PySide6'`
@@ -325,7 +304,6 @@ Nếu có thư viện mới được thêm vào `pyproject.toml`:
 
 ```cmd
 pip install -r requirements.txt
-pip install PyMuPDF==1.27.2.2
 ```
 
 ---
@@ -338,4 +316,4 @@ pip install PyMuPDF==1.27.2.2
 
 ---
 
-*Cập nhật lần cuối: 2026-05-20 | Nhánh: phase1-mac*
+*Cập nhật lần cuối: 2026-05-21 | Nhánh: phase1-mac*
