@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets as _secrets
 from pathlib import Path
+
+_KEY_PATTERN = re.compile(r'^3TR-[BPE]-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
@@ -123,6 +126,21 @@ def reject_order(order_id: str, _=Depends(_require_admin)):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@app.delete("/api/admin/orders/{order_id}")
+def delete_order(order_id: str, _=Depends(_require_admin)):
+    try:
+        order_store.delete_order(order_id)
+        return {"ok": True}
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/admin/orders/cleanup")
+def cleanup_orders(_=Depends(_require_admin)):
+    deleted = order_store.cleanup_old_rejected(days=30)
+    return {"ok": True, "deleted": deleted}
+
+
 class OrderSubmitRequest(BaseModel):
     customer_name: str
     customer_email: str
@@ -157,6 +175,9 @@ def api_health() -> dict:
 
 @app.post("/api/license/activate", response_model=ActivateResponse)
 def activate(req: ActivateRequest) -> ActivateResponse:
+    if not _KEY_PATTERN.match(req.license_key.strip().upper()):
+        raise HTTPException(status_code=400, detail="Mã key không đúng định dạng. Ví dụ: 3TR-P-XXXX-XXXX-XXXX")
+    req = req.model_copy(update={"license_key": req.license_key.strip().upper()})
     result = license_service.activate(
         req.license_key,
         req.device_id,

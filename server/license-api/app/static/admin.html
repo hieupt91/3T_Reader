@@ -74,12 +74,16 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .badge.approved{background:rgba(34,197,94,.15);color:var(--green)}
 .badge.rejected{background:rgba(239,68,68,.12);color:var(--red)}
 
-.action-btns{display:flex;gap:8px}
-.btn-approve,.btn-reject{border:none;padding:5px 12px;border-radius:6px;font-size:.78rem;font-weight:600;cursor:pointer;transition:.2s}
+.action-btns{display:flex;gap:8px;flex-wrap:wrap}
+.btn-approve,.btn-reject,.btn-delete{border:none;padding:5px 12px;border-radius:6px;font-size:.78rem;font-weight:600;cursor:pointer;transition:.2s}
 .btn-approve{background:rgba(34,197,94,.15);color:var(--green)}
 .btn-approve:hover{background:rgba(34,197,94,.3)}
 .btn-reject{background:rgba(239,68,68,.1);color:var(--red)}
 .btn-reject:hover{background:rgba(239,68,68,.25)}
+.btn-delete{background:rgba(100,116,139,.12);color:var(--muted)}
+.btn-delete:hover{background:rgba(239,68,68,.15);color:var(--red)}
+.btn-cleanup{background:rgba(100,116,139,.12);border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:7px;font-size:.82rem;cursor:pointer;transition:.2s}
+.btn-cleanup:hover{border-color:var(--red);color:var(--red)}
 
 .empty{text-align:center;padding:48px;color:var(--muted);font-size:.9rem}
 .loading{text-align:center;padding:40px;color:var(--muted)}
@@ -169,10 +173,14 @@ tr:hover td{background:rgba(255,255,255,.02)}
 
     <div class="section-hdr">
       <h2>Danh sách đơn hàng</h2>
-      <div class="tabs">
-        <button class="tab active" onclick="filterOrders('pending',this)">Chờ duyệt</button>
-        <button class="tab" onclick="filterOrders('approved',this)">Đã cấp key</button>
-        <button class="tab" onclick="filterOrders('all',this)">Tất cả</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div class="tabs">
+          <button class="tab active" onclick="filterOrders('pending',this)">Chờ duyệt</button>
+          <button class="tab" onclick="filterOrders('approved',this)">Đã cấp key</button>
+          <button class="tab" onclick="filterOrders('rejected',this)">Từ chối</button>
+          <button class="tab" onclick="filterOrders('all',this)">Tất cả</button>
+        </div>
+        <button class="btn-cleanup" onclick="doCleanup()" title="Xóa đơn từ chối quá 30 ngày">🗑 Dọn dẹp</button>
       </div>
     </div>
 
@@ -313,9 +321,14 @@ function renderOrders() {
         ${o.status === 'pending' ? `
           <div class="action-btns">
             <button class="btn-approve" onclick="confirmApprove('${o.id}')">✓ Cấp key</button>
-            <button class="btn-reject" onclick="rejectOrder('${o.id}')">✕</button>
+            <button class="btn-reject" onclick="rejectOrder('${o.id}')">✕ Từ chối</button>
           </div>
-        ` : o.license_key ? `<code style="font-size:.75rem;color:#34d399">${o.license_key}</code>` : '–'}
+        ` : `
+          <div class="action-btns">
+            ${o.license_key ? `<code style="font-size:.75rem;color:#34d399">${o.license_key}</code>` : ''}
+            <button class="btn-delete" onclick="deleteOrder('${o.id}')" title="Xóa đơn này">🗑</button>
+          </div>
+        `}
       </td>
     </tr>
   `).join('');
@@ -363,6 +376,29 @@ async function rejectOrder(id) {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (res.ok) loadOrders();
+}
+
+async function deleteOrder(id) {
+  if (!confirm('Xóa vĩnh viễn đơn hàng này?')) return;
+  const res = await fetch(`/api/admin/orders/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.ok) loadOrders();
+  else alert('Không thể xóa đơn hàng.');
+}
+
+async function doCleanup() {
+  if (!confirm('Xóa tất cả đơn bị từ chối quá 30 ngày?')) return;
+  const res = await fetch('/api/admin/orders/cleanup', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.ok) {
+    const d = await res.json();
+    alert(`✓ Đã xóa ${d.deleted} đơn cũ.`);
+    loadOrders();
+  }
 }
 
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }

@@ -11,6 +11,13 @@ from email.mime.text import MIMEText
 from pathlib import Path
 from threading import RLock
 
+def _parse_dt(s: str):
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+
 PLAN_META = {
     "basic":      {"name": "Gói Cơ Bản",       "amount": 300_000, "seat_limit": 1},
     "personal":   {"name": "Gói Cá Nhân",      "amount": 500_000, "seat_limit": 1},
@@ -195,3 +202,25 @@ class OrderStore:
         data["orders"][order_id] = order
         self._save(data)
         return order
+
+    def delete_order(self, order_id: str) -> None:
+        data = self._load()
+        if order_id not in data["orders"]:
+            raise KeyError("Đơn hàng không tồn tại")
+        del data["orders"][order_id]
+        self._save(data)
+
+    def cleanup_old_rejected(self, days: int = 30) -> int:
+        """Xóa đơn bị từ chối quá `days` ngày."""
+        data = self._load()
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+        to_delete = [
+            oid for oid, o in data["orders"].items()
+            if o.get("status") == "rejected"
+            and _parse_dt(o.get("created_at", "")) < cutoff
+        ]
+        for oid in to_delete:
+            del data["orders"][oid]
+        if to_delete:
+            self._save(data)
+        return len(to_delete)
