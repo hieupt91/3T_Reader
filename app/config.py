@@ -5,7 +5,7 @@ WINDOW_TITLE = APP_NAME
 MUTEX_NAME = "3T_Reader_SingleInstance_v1"
 
 # VPS backend — set VPS_LICENSE_BASE_URL="" to run without license enforcement
-VPS_LICENSE_BASE_URL = "http://192.168.1.254:8000"
+VPS_LICENSE_BASE_URL = "https://license.3tcomputer.com"
 
 UPDATE_MANIFEST_URL = f"{VPS_LICENSE_BASE_URL}/api/v1/update/check"
 UPDATE_CHANNEL = "stable"
