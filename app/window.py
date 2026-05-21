@@ -46,6 +46,7 @@ from app.actions.annotate import (
     delete_current_page, merge_pdf, extract_pages,
 )
 from app.actions.sign import check_token, sign_document, sign_handwritten
+from app.actions.export import export_pdf_to_word, export_pdf_to_excel
 from app.sidebar import ThumbnailSidebar, BookmarkSidebar
 from app.icon_utils import svg_icon, app_logo_icon
 from app.dialogs import show_warning, show_info
@@ -705,6 +706,16 @@ class PDFReaderApp(QMainWindow):
         menu_file.addSeparator()
         menu_file.addAction(self.act_save)
         menu_file.addAction(self.act_print)
+        menu_file.addSeparator()
+
+        act_export_word = menu_file.addAction("Xuất ra Word (.docx)…")
+        act_export_word.setIcon(svg_icon("save_as.svg", size=16, color="#5b9cf6"))
+        act_export_word.triggered.connect(lambda: export_pdf_to_word(self))
+
+        act_export_excel = menu_file.addAction("Xuất ra Excel (.xlsx)…")
+        act_export_excel.setIcon(svg_icon("extract.svg", size=16, color="#4fc080"))
+        act_export_excel.triggered.connect(lambda: export_pdf_to_excel(self))
+
         menu_file.addSeparator()
 
         act_file_info = menu_file.addAction("Thông tin tệp...")
