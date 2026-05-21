@@ -117,7 +117,25 @@ Hoặc cài tất cả một lần từ `requirements.txt`:
 pip install -r requirements.txt
 ```
 
-### 5.2 Cài PyMuPDF (BẮT BUỘC cho chỉnh sửa PDF)
+### 5.2 Cài thư viện xuất Word/Excel (BẮT BUỘC cho tính năng xuất file)
+
+> Tính năng **Xuất ra Word (.docx)** và **Xuất ra Excel (.xlsx)** cần 3 thư viện sau:
+
+```cmd
+pip install pdf2docx
+pip install pdfplumber
+pip install openpyxl
+```
+
+Kiểm tra:
+
+```cmd
+python -c "import pdf2docx, pdfplumber, openpyxl; print('OK')"
+```
+
+---
+
+### 5.3 Cài PyMuPDF (BẮT BUỘC cho chỉnh sửa PDF)
 
 > ⚠️ Gói này không nằm trong `requirements.txt` nhưng **bắt buộc phải có** để các tính năng chèn text/ảnh, vẽ, highlight, và lưu PDF hoạt động.
 
