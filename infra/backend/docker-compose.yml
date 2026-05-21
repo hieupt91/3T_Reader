@@ -12,9 +12,9 @@ services:
       THREET_DATA_DIR: /data
       THREET_STATE_FILE: license-api-state.json
       THREET_ADMIN_PASSWORD: 3tAdmin2026
-      THREET_ADMIN_EMAIL: hieupt.qb@gmail.com
-      THREET_SMTP_USER: hieupt.qb@gmail.com
-      THREET_SMTP_PASS: ""
+      THREET_ADMIN_EMAIL: 3t.hotro@gmail.com
+      THREET_SMTP_USER: 3t.hotro@gmail.com
+      THREET_SMTP_PASS: ziivuwripyxbcntw
     ports:
       - "8000:8000"
     volumes:

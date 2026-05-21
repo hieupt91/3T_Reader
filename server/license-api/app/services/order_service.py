@@ -17,8 +17,8 @@ PLAN_META = {
     "enterprise": {"name": "Gói Doanh Nghiệp", "amount": 800_000, "seat_limit": 1},
 }
 
-_ADMIN_EMAIL = os.environ.get("THREET_ADMIN_EMAIL", "hieupt.qb@gmail.com")
-_SMTP_USER   = os.environ.get("THREET_SMTP_USER", "hieupt.qb@gmail.com")
+_ADMIN_EMAIL = os.environ.get("THREET_ADMIN_EMAIL", "3t.hotro@gmail.com")
+_SMTP_USER   = os.environ.get("THREET_SMTP_USER", "3t.hotro@gmail.com")
 _SMTP_PASS   = os.environ.get("THREET_SMTP_PASS", "")
 
 
