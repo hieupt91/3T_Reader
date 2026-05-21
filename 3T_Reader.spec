@@ -36,6 +36,7 @@ hiddenimports = [
     'packages.ai.semantic_search',
     'packages.update_client.checker',
     'packages.ocr.engine',
+    'packages.audit.logger',
 ]
 
 datas += [('assets', 'assets')]

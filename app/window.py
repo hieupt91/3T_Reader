@@ -373,6 +373,11 @@ class PDFReaderApp(QMainWindow):
             return False
 
         self.status.showMessage(f"Đã mở: {title}", 3000)
+        try:
+            from packages.audit import log_action, ACT_OPEN
+            log_action(ACT_OPEN, source_path)
+        except Exception:
+            pass
         return True
 
     # ------------------------------------------------------------------ #
@@ -974,6 +979,9 @@ class PDFReaderApp(QMainWindow):
         act_check_update = menu_help.addAction("Kiểm tra cập nhật...")
         act_check_update.triggered.connect(self._check_for_update)
 
+        act_audit_log = menu_help.addAction("📋  Nhật ký hoạt động...")
+        act_audit_log.triggered.connect(self._show_audit_log)
+
         menu_help.addSeparator()
         act_about = menu_help.addAction("Giới thiệu 3T Reader...")
         act_about.triggered.connect(self._show_about)
@@ -1205,6 +1213,11 @@ class PDFReaderApp(QMainWindow):
                 ))
 
         threading.Thread(target=_do_check, daemon=True).start()
+
+    def _show_audit_log(self):
+        from app.audit_log_dialog import AuditLogDialog
+        dlg = AuditLogDialog(self)
+        dlg.exec()
 
     def _refresh_recent_menu(self):
         self.menu_recent.clear()
