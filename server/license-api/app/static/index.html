@@ -363,7 +363,7 @@ footer a{color:#6366f1;text-decoration:none}
         </div>
         <div class="bank-row">
           <span class="bank-label">Chủ tài khoản</span>
-          <span class="bank-val">CTY TNHH ĐẦU TƯ CN VÀ XÂY DỰNG</span>
+          <span class="bank-val">CTY TNHH ĐTCN & XÂY LẮP 3T</span>
         </div>
         <div class="bank-row">
           <span class="bank-label">Số tiền</span>
@@ -460,7 +460,7 @@ function updatePlan(plan) {
   document.getElementById('transferNote').textContent = noteText;
   const qrNote = encodeURIComponent(`3TREADER ${plan.toUpperCase()}${qty > 1 ? ' ' + qty + ' MAY' : ''}`);
   document.getElementById('qrImg').src =
-    `https://img.vietqr.io/image/ACB-555566886-compact2.png?amount=${total}&addInfo=${qrNote}&accountName=CTY%20TNHH%20DAU%20TU%20CN%20VA%20XAY%20DUNG`;
+    `https://img.vietqr.io/image/ACB-555566886-compact2.png?amount=${total}&addInfo=${qrNote}&accountName=CTY%20TNHH%20DTCN%20%26%20XAY%20LAP%203T`;
 }
 
 document.getElementById('custEmail').addEventListener('input', () => {
