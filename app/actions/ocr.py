@@ -50,6 +50,11 @@ def ocr_current_page(window):
     dlg = OCRDialog(window, pdf_path, pages=[current_page],
                     current_page=current_page, high_quality=False)
     dlg.exec()
+    try:
+        from packages.audit import log_action, ACT_OCR
+        log_action(ACT_OCR, pdf_path, f"page={current_page}")
+    except Exception:
+        pass
 
 
 def ocr_full_document(window):

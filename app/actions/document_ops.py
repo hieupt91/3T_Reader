@@ -1,6 +1,7 @@
 """Phase 2 document operations: watermark, password, compress, export-to-image."""
 from __future__ import annotations
 
+import io
 import os
 import shutil
 import tempfile
@@ -19,14 +20,6 @@ from app.dialogs import show_warning, show_info
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
-
-def _fitz():
-    try:
-        import fitz
-        return fitz
-    except ImportError:
-        raise ImportError("Thiếu PyMuPDF.\npip install PyMuPDF==1.27.2.2")
-
 
 def _tmp_pdf():
     return tempfile.mktemp(suffix=".pdf", dir=tempfile.gettempdir())
@@ -139,6 +132,25 @@ class _WatermarkDialog(QDialog):
         }
 
 
+def _watermark_page_bytes(w: float, h: float, text: str, size: int,
+                           color: tuple, angle: float, opacity: float) -> bytes:
+    """Tạo 1 trang PDF chứa watermark text bằng reportlab."""
+    from reportlab.pdfgen import canvas as rlcanvas
+    buf = io.BytesIO()
+    c = rlcanvas.Canvas(buf, pagesize=(w, h))
+    r, g, b = color
+    c.setFillColorRGB(r, g, b, alpha=opacity)
+    c.setFont("Helvetica", int(size))
+    c.saveState()
+    c.translate(w / 2, h / 2)
+    c.rotate(angle)
+    c.drawCentredString(0, 0, text)
+    c.restoreState()
+    c.save()
+    buf.seek(0)
+    return buf.read()
+
+
 @require_document(show_message=True)
 def add_watermark(window):
     dlg = _WatermarkDialog(window)
@@ -148,50 +160,104 @@ def add_watermark(window):
     if not p["text"]:
         return
 
-    fitz = _fitz()
-    src  = window.current_path
-    out  = _tmp_pdf()
-
-    from packages.platform.fonts import get_vietnamese_font_path
-    font_path = get_vietnamese_font_path()
+    src = window.current_path
+    out = _tmp_pdf()
 
     try:
-        doc = fitz.open(src)
+        import pikepdf
+
         cur_page = 0
         try:
             cur_page = max(0, window.viewer.get_current_page() - 1)
         except Exception:
             pass
 
-        pages = range(doc.page_count) if p["all_pages"] else [cur_page]
+        with pikepdf.open(src) as pdf:
+            total = len(pdf.pages)
+            target_pages = range(total) if p["all_pages"] else [cur_page]
 
-        for i in pages:
-            page = doc[i]
-            w, h = page.rect.width, page.rect.height
-            cx, cy = w / 2, h / 2
+            for i in target_pages:
+                page = pdf.pages[i]
+                mbox = page.mediabox
+                w = float(mbox[2]) - float(mbox[0])
+                h = float(mbox[3]) - float(mbox[1])
 
-            tw = fitz.get_text_length(p["text"], fontsize=p["size"])
-            r  = fitz.Rect(cx - tw / 2 - 20, cy - p["size"] - 10,
-                           cx + tw / 2 + 20, cy + p["size"] + 10)
+                wm_data = _watermark_page_bytes(
+                    w, h, p["text"], p["size"],
+                    p["color"], p["angle"], p["opacity"]
+                )
 
-            extra = {}
-            if font_path:
-                extra = {"fontfile": font_path, "fontname": "wmfont"}
-            else:
-                extra = {"fontname": "helv"}
+                wm_pdf = pikepdf.open(io.BytesIO(wm_data))
+                wm_page = wm_pdf.pages[0]
 
-            page.insert_textbox(
-                r, p["text"],
-                fontsize=p["size"],
-                color=p["color"],
-                rotate=p["angle"],
-                opacity=p["opacity"],
-                align=fitz.TEXT_ALIGN_CENTER,
-                **extra,
-            )
+                # Nhúng watermark page như form XObject rồi vẽ lên trang gốc
+                form = pdf.make_indirect(
+                    pikepdf.Dictionary(
+                        Type=pikepdf.Name("/XObject"),
+                        Subtype=pikepdf.Name("/Form"),
+                        BBox=pikepdf.Array([
+                            pikepdf.Real(0), pikepdf.Real(0),
+                            pikepdf.Real(w), pikepdf.Real(h)
+                        ]),
+                        Resources=wm_page.get("/Resources", pikepdf.Dictionary()),
+                        **{"/Stream": wm_page.obj.get("/Contents", pikepdf.Stream(pdf, b""))}
+                    )
+                )
 
-        doc.save(out)
-        doc.close()
+                # Lấy content stream của watermark page
+                wm_contents = wm_page.obj.get("/Contents")
+                if wm_contents is not None:
+                    if isinstance(wm_contents, pikepdf.Array):
+                        wm_stream_data = b""
+                        for s in wm_contents:
+                            wm_stream_data += s.read_bytes()
+                    else:
+                        wm_stream_data = wm_contents.read_bytes()
+                else:
+                    wm_stream_data = b""
+
+                # Tạo form XObject hợp lệ
+                form_xobj = pikepdf.Stream(pdf, wm_stream_data)
+                form_xobj.stream_dict["/Type"] = pikepdf.Name("/XObject")
+                form_xobj.stream_dict["/Subtype"] = pikepdf.Name("/Form")
+                form_xobj.stream_dict["/BBox"] = pikepdf.Array([
+                    pikepdf.Real(0), pikepdf.Real(0),
+                    pikepdf.Real(w), pikepdf.Real(h)
+                ])
+                wm_res = wm_page.obj.get("/Resources")
+                if wm_res is not None:
+                    form_xobj.stream_dict["/Resources"] = wm_res
+
+                form_ref = pdf.make_indirect(form_xobj)
+
+                # Đưa XObject vào Resources của trang
+                if "/Resources" not in page.obj:
+                    page.obj["/Resources"] = pikepdf.Dictionary()
+                res = page.obj["/Resources"]
+                if "/XObject" not in res:
+                    res["/XObject"] = pikepdf.Dictionary()
+                xobj_name = f"/WM{i}"
+                res["/XObject"][xobj_name] = form_ref
+
+                # Thêm lệnh vẽ XObject vào cuối content stream
+                draw_cmd = f"q {xobj_name} Do Q\n".encode()
+                existing = page.obj.get("/Contents")
+                if existing is None:
+                    new_stream = pikepdf.Stream(pdf, draw_cmd)
+                    page.obj["/Contents"] = pdf.make_indirect(new_stream)
+                elif isinstance(existing, pikepdf.Array):
+                    new_stream = pikepdf.Stream(pdf, draw_cmd)
+                    existing.append(pdf.make_indirect(new_stream))
+                else:
+                    new_stream = pikepdf.Stream(pdf, draw_cmd)
+                    page.obj["/Contents"] = pikepdf.Array([
+                        existing, pdf.make_indirect(new_stream)
+                    ])
+
+                wm_pdf.close()
+
+            pdf.save(out)
+
         shutil.copy2(out, src)
         os.remove(out)
         _reload(window, src)
@@ -261,26 +327,21 @@ def set_pdf_password(window):
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return
 
-    password = dlg.password()
-    fitz = _fitz()
-    src  = window.current_path
-    out  = _tmp_pdf()
+    pw  = dlg.password()
+    src = window.current_path
+    out = _tmp_pdf()
 
     try:
-        doc = fitz.open(src)
-        perm = (
-            fitz.PDF_PERM_PRINT
-            | fitz.PDF_PERM_COPY
-            | fitz.PDF_PERM_ANNOTATE
-        )
-        doc.save(
-            out,
-            encryption=fitz.PDF_ENCRYPT_AES_256,
-            user_pw=password,
-            owner_pw=password + "_owner",
-            permissions=perm,
-        )
-        doc.close()
+        import pikepdf
+        with pikepdf.open(src) as doc:
+            doc.save(
+                out,
+                encryption=pikepdf.Encryption(
+                    owner=pw + "_owner",
+                    user=pw,
+                    R=6,
+                )
+            )
         shutil.copy2(out, src)
         os.remove(out)
         _reload(window, src)
@@ -294,31 +355,36 @@ def set_pdf_password(window):
 @require_document(show_message=True)
 def remove_pdf_password(window):
     src = window.current_path
-    fitz = _fitz()
 
     try:
-        doc = fitz.open(src)
-        if not doc.is_encrypted:
+        import pikepdf
+
+        # Thử mở không cần mật khẩu để kiểm tra xem file có được mã hóa không
+        try:
+            test_doc = pikepdf.open(src)
+            test_doc.close()
             show_info(window, "Không có mật khẩu", "File PDF này chưa được đặt mật khẩu.")
-            doc.close()
             return
+        except pikepdf.PasswordError:
+            pass  # File có mật khẩu — tiếp tục
 
         pw, ok = QInputDialog.getText(
             window, "Nhập mật khẩu", "Mật khẩu hiện tại:",
             QLineEdit.EchoMode.Password,
         )
         if not ok or not pw:
-            doc.close()
-            return
-
-        if not doc.authenticate(pw):
-            show_warning(window, "Sai mật khẩu", "Mật khẩu không đúng.")
-            doc.close()
             return
 
         out = _tmp_pdf()
-        doc.save(out, encryption=fitz.PDF_ENCRYPT_NONE)
-        doc.close()
+        try:
+            with pikepdf.open(src, password=pw) as doc:
+                doc.save(out)
+        except pikepdf.PasswordError:
+            show_warning(window, "Sai mật khẩu", "Mật khẩu không đúng.")
+            if os.path.exists(out):
+                os.remove(out)
+            return
+
         shutil.copy2(out, src)
         os.remove(out)
         _reload(window, src)
@@ -331,22 +397,19 @@ def remove_pdf_password(window):
 
 @require_document(show_message=True)
 def compress_pdf(window):
-    src  = window.current_path
-    out  = _tmp_pdf()
-    fitz = _fitz()
+    src = window.current_path
+    out = _tmp_pdf()
 
     try:
+        import pikepdf
         orig_size = os.path.getsize(src)
-        doc = fitz.open(src)
-        doc.save(
-            out,
-            garbage=4,      # xóa object thừa, tối ưu xref
-            deflate=True,   # nén stream
-            deflate_images=True,
-            deflate_fonts=True,
-            clean=True,
-        )
-        doc.close()
+        with pikepdf.open(src) as doc:
+            doc.save(
+                out,
+                compress_streams=True,
+                recompress_flate=True,
+                object_stream_mode=pikepdf.ObjectStreamMode.generate,
+            )
 
         new_size = os.path.getsize(out)
         shutil.copy2(out, src)
@@ -462,11 +525,12 @@ def _parse_range(text: str, max_page: int) -> list[int]:
 
 @require_document(show_message=True)
 def export_pages_to_images(window):
-    fitz = _fitz()
-    src  = window.current_path
+    import pypdfium2 as pdfium
 
-    doc = fitz.open(src)
-    total = doc.page_count
+    src = window.current_path
+
+    doc   = pdfium.PdfDocument(src)
+    total = len(doc)
     doc.close()
 
     try:
@@ -498,19 +562,21 @@ def export_pages_to_images(window):
         return
 
     base_name = os.path.splitext(os.path.basename(src))[0]
-    scale     = p["dpi"] / 72.0
+    # scale: 1 point = 1/72 inch → scale = dpi / 72
+    scale = p["dpi"] / 72.0
 
     window.status.showMessage("Đang xuất ảnh…", 0)
     try:
-        doc  = fitz.open(src)
+        doc  = pdfium.PdfDocument(src)
         done = 0
         for pg in page_list:
-            page = doc[pg - 1]
-            mat  = fitz.Matrix(scale, scale)
-            pix  = page.get_pixmap(matrix=mat, alpha=(p["ext"] == "png"))
-            suffix = f"_trang{pg:03d}.{p['ext']}"
+            page    = doc[pg - 1]
+            bitmap  = page.render(scale=scale)
+            pil_img = bitmap.to_pil()
+            suffix   = f"_trang{pg:03d}.{p['ext']}"
             out_path = os.path.join(out_dir, base_name + suffix)
-            pix.save(out_path)
+            pil_img.save(out_path)
+            page.close()
             done += 1
             window.status.showMessage(f"Đang xuất trang {pg}… ({done}/{len(page_list)})", 0)
         doc.close()
@@ -533,7 +599,8 @@ def export_pages_to_images(window):
 @require_document(show_message=True)
 def export_pdf_to_text(window):
     """Trích xuất toàn bộ văn bản từ PDF ra file .txt."""
-    fitz = _fitz()
+    import pypdfium2 as pdfium
+
     src = window.current_path
     base_name = os.path.splitext(os.path.basename(src))[0]
 
@@ -545,10 +612,14 @@ def export_pdf_to_text(window):
 
     window.status.showMessage("Đang trích xuất văn bản…", 0)
     try:
-        doc = fitz.open(src)
+        doc   = pdfium.PdfDocument(src)
         lines = []
-        for i, page in enumerate(doc):
-            text = page.get_text("text").strip()
+        for i in range(len(doc)):
+            page     = doc[i]
+            textpage = page.get_textpage()
+            text     = textpage.get_text_range().strip()
+            textpage.close()
+            page.close()
             if text:
                 lines.append(f"=== Trang {i + 1} ===")
                 lines.append(text)
@@ -571,11 +642,38 @@ def export_pdf_to_text(window):
 
 # ── Add Page Numbers ──────────────────────────────────────────────────────────
 
+def _page_number_overlay_bytes(w: float, h: float, label: str,
+                                font_size: int, margin: int,
+                                position: str) -> bytes:
+    """Tạo 1 trang PDF chứa số trang bằng reportlab."""
+    from reportlab.pdfgen import canvas as rlcanvas
+    buf = io.BytesIO()
+    c = rlcanvas.Canvas(buf, pagesize=(w, h))
+    c.setFillColorRGB(0.3, 0.3, 0.3)
+    c.setFont("Helvetica", font_size)
+
+    if "trên" in position:
+        y = h - margin - font_size
+    else:
+        y = margin
+
+    text_width = c.stringWidth(label, "Helvetica", font_size)
+    if "Phải" in position:
+        x = w - margin - text_width
+    elif "Trái" in position:
+        x = float(margin)
+    else:
+        x = (w - text_width) / 2.0
+
+    c.drawString(x, y, label)
+    c.save()
+    buf.seek(0)
+    return buf.read()
+
+
 @require_document(show_message=True)
 def add_page_numbers(window):
     """Thêm số trang vào cuối mỗi trang PDF."""
-    fitz = _fitz()
-
     position, ok = QInputDialog.getItem(
         window, "Vị trí số trang", "Chọn vị trí:",
         ["Giữa — dưới trang", "Phải — dưới trang", "Trái — dưới trang",
@@ -595,37 +693,85 @@ def add_page_numbers(window):
     tmp = _tmp_pdf()
     window.status.showMessage("Đang thêm số trang…", 0)
     try:
-        doc = fitz.open(src)
-        for i, page in enumerate(doc):
-            num = start_num + i
-            label = str(num)
-            pw, ph = page.rect.width, page.rect.height
-            font_size = 10
-            margin = 20
+        import pikepdf
 
-            if "trên" in position:
-                y = margin + font_size
-            else:
-                y = ph - margin
+        font_size = 10
+        margin    = 20
 
-            if "Phải" in position:
-                x = pw - margin - len(label) * font_size * 0.6
-            elif "Trái" in position:
-                x = margin
-            else:
-                x = pw / 2 - len(label) * font_size * 0.3
+        with pikepdf.open(src) as pdf:
+            for i, page in enumerate(pdf.pages):
+                num   = start_num + i
+                label = str(num)
 
-            page.insert_text(
-                fitz.Point(x, y),
-                label,
-                fontsize=font_size,
-                color=(0.3, 0.3, 0.3),
-            )
+                mbox = page.mediabox
+                w = float(mbox[2]) - float(mbox[0])
+                h = float(mbox[3]) - float(mbox[1])
 
-        doc.save(tmp)
-        doc.close()
-        _reload(window, tmp)
+                overlay_data = _page_number_overlay_bytes(
+                    w, h, label, font_size, margin, position
+                )
+
+                ol_pdf  = pikepdf.open(io.BytesIO(overlay_data))
+                ol_page = ol_pdf.pages[0]
+
+                # Lấy content stream của overlay
+                ol_contents = ol_page.obj.get("/Contents")
+                if ol_contents is not None:
+                    if isinstance(ol_contents, pikepdf.Array):
+                        ol_stream_data = b""
+                        for s in ol_contents:
+                            ol_stream_data += s.read_bytes()
+                    else:
+                        ol_stream_data = ol_contents.read_bytes()
+                else:
+                    ol_stream_data = b""
+
+                # Tạo form XObject từ overlay page
+                form_xobj = pikepdf.Stream(pdf, ol_stream_data)
+                form_xobj.stream_dict["/Type"]    = pikepdf.Name("/XObject")
+                form_xobj.stream_dict["/Subtype"] = pikepdf.Name("/Form")
+                form_xobj.stream_dict["/BBox"]    = pikepdf.Array([
+                    pikepdf.Real(0), pikepdf.Real(0),
+                    pikepdf.Real(w), pikepdf.Real(h)
+                ])
+                ol_res = ol_page.obj.get("/Resources")
+                if ol_res is not None:
+                    form_xobj.stream_dict["/Resources"] = ol_res
+
+                form_ref = pdf.make_indirect(form_xobj)
+
+                # Tambahkan XObject ke Resources halaman
+                if "/Resources" not in page.obj:
+                    page.obj["/Resources"] = pikepdf.Dictionary()
+                res = page.obj["/Resources"]
+                if "/XObject" not in res:
+                    res["/XObject"] = pikepdf.Dictionary()
+                xobj_name = f"/PN{i}"
+                res["/XObject"][xobj_name] = form_ref
+
+                # Thêm lệnh vẽ vào cuối content stream
+                draw_cmd   = f"q {xobj_name} Do Q\n".encode()
+                new_stream = pikepdf.Stream(pdf, draw_cmd)
+                existing   = page.obj.get("/Contents")
+                if existing is None:
+                    page.obj["/Contents"] = pdf.make_indirect(new_stream)
+                elif isinstance(existing, pikepdf.Array):
+                    existing.append(pdf.make_indirect(new_stream))
+                else:
+                    page.obj["/Contents"] = pikepdf.Array([
+                        existing, pdf.make_indirect(new_stream)
+                    ])
+
+                ol_pdf.close()
+
+            pdf.save(tmp)
+
+        shutil.copy2(tmp, src)
+        os.remove(tmp)
+        _reload(window, src)
         window.status.showMessage("Đã thêm số trang vào tất cả các trang", 4000)
     except Exception as e:
         window.status.showMessage("", 0)
         show_warning(window, "Lỗi thêm số trang", str(e))
+        if os.path.exists(tmp):
+            os.remove(tmp)
