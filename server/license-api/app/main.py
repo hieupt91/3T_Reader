@@ -28,6 +28,7 @@ from .schemas import (
 from .services.admin_config import AdminConfig
 from .services.license_service import LicenseService
 from .services.order_service import OrderStore
+from .services.staff_service import StaffService
 from .services.token_service import TokenService
 from .services.state_store import FileStateStore
 from .services.update_service import UpdateService
@@ -39,10 +40,12 @@ license_service = LicenseService(token_service, state_store=state_store)
 update_service = UpdateService(token_service)
 order_store = OrderStore(f"{settings.data_dir}/orders.json")
 admin_config = AdminConfig(f"{settings.data_dir}/admin-config.json")
+staff_service = StaffService(f"{settings.data_dir}/staff.json")
 
 _ADMIN_PASSWORD = os.environ.get("THREET_ADMIN_PASSWORD", "3tAdmin2026")
 _STATIC = Path(__file__).parent / "static"
 _active_tokens: set[str] = set()
+_staff_tokens: dict[str, dict] = {}  # token → {username, permissions}
 _bearer = HTTPBearer(auto_error=False)
 
 app = FastAPI(title=settings.app_name, version="0.3.0")
@@ -60,6 +63,21 @@ def admin_page():
     return FileResponse(_STATIC / "admin.html", media_type="text/html")
 
 
+@app.get("/support", response_class=FileResponse)
+def support_page():
+    return FileResponse(_STATIC / "support.html", media_type="text/html")
+
+
+@app.get("/privacy", response_class=FileResponse)
+def privacy_page():
+    return FileResponse(_STATIC / "privacy.html", media_type="text/html")
+
+
+@app.get("/terms", response_class=FileResponse)
+def terms_page():
+    return FileResponse(_STATIC / "terms.html", media_type="text/html")
+
+
 class LoginRequest(BaseModel):
     password: str
 
@@ -70,13 +88,47 @@ def admin_login(req: LoginRequest):
         raise HTTPException(status_code=401, detail="Mật khẩu không đúng")
     tok = _secrets.token_hex(32)
     _active_tokens.add(tok)
-    return {"token": tok}
+    return {"token": tok, "role": "admin"}
+
+
+class StaffLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/staff/login")
+def staff_login(req: StaffLoginRequest):
+    if not staff_service.authenticate(req.username, req.password):
+        raise HTTPException(status_code=401, detail="Tên đăng nhập hoặc mật khẩu không đúng")
+    info = staff_service.get_staff(req.username)
+    tok = _secrets.token_hex(32)
+    _staff_tokens[tok] = {
+        "username": req.username.strip().lower(),
+        "permissions": info.get("permissions", []),
+    }
+    return {
+        "token": tok,
+        "role": "staff",
+        "username": req.username.strip().lower(),
+        "permissions": info.get("permissions", []),
+    }
 
 
 def _require_admin(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)):
     if creds is None or creds.credentials not in _active_tokens:
         raise HTTPException(status_code=401, detail="Chưa đăng nhập hoặc phiên hết hạn")
     return creds.credentials
+
+
+def _require_staff_or_admin(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)):
+    if creds is None:
+        raise HTTPException(status_code=401, detail="Chưa đăng nhập")
+    tok = creds.credentials
+    if tok in _active_tokens:
+        return {"role": "admin", "permissions": ["approve", "reject", "delete"]}
+    if tok in _staff_tokens:
+        return _staff_tokens[tok]
+    raise HTTPException(status_code=401, detail="Phiên đăng nhập hết hạn")
 
 
 @app.post("/api/admin/forgot-password")
@@ -104,12 +156,14 @@ def change_password(req: ChangePasswordRequest, _=Depends(_require_admin)):
 
 
 @app.get("/api/admin/orders")
-def list_orders(_=Depends(_require_admin)):
+def list_orders(user=Depends(_require_staff_or_admin)):
     return {"orders": order_store.list_orders()}
 
 
 @app.post("/api/admin/orders/{order_id}/approve")
-def approve_order(order_id: str, _=Depends(_require_admin)):
+def approve_order(order_id: str, user=Depends(_require_staff_or_admin)):
+    if user["role"] != "admin" and "approve" not in user.get("permissions", []):
+        raise HTTPException(status_code=403, detail="Không có quyền cấp key")
     try:
         order = order_store.approve_order(order_id, license_service)
         return {"ok": True, "license_key": order["license_key"]}
@@ -118,7 +172,9 @@ def approve_order(order_id: str, _=Depends(_require_admin)):
 
 
 @app.post("/api/admin/orders/{order_id}/reject")
-def reject_order(order_id: str, _=Depends(_require_admin)):
+def reject_order(order_id: str, user=Depends(_require_staff_or_admin)):
+    if user["role"] != "admin" and "reject" not in user.get("permissions", []):
+        raise HTTPException(status_code=403, detail="Không có quyền từ chối đơn")
     try:
         order_store.reject_order(order_id)
         return {"ok": True}
@@ -127,7 +183,9 @@ def reject_order(order_id: str, _=Depends(_require_admin)):
 
 
 @app.delete("/api/admin/orders/{order_id}")
-def delete_order(order_id: str, _=Depends(_require_admin)):
+def delete_order(order_id: str, user=Depends(_require_staff_or_admin)):
+    if user["role"] != "admin" and "delete" not in user.get("permissions", []):
+        raise HTTPException(status_code=403, detail="Không có quyền xóa đơn")
     try:
         order_store.delete_order(order_id)
         return {"ok": True}
@@ -136,9 +194,58 @@ def delete_order(order_id: str, _=Depends(_require_admin)):
 
 
 @app.post("/api/admin/orders/cleanup")
-def cleanup_orders(_=Depends(_require_admin)):
+def cleanup_orders(user=Depends(_require_staff_or_admin)):
+    if user["role"] != "admin" and "delete" not in user.get("permissions", []):
+        raise HTTPException(status_code=403, detail="Không có quyền dọn dẹp")
     deleted = order_store.cleanup_old_rejected(days=30)
     return {"ok": True, "deleted": deleted}
+
+
+# ── Staff management (admin only) ──────────────────────────────────
+
+@app.get("/api/admin/staff")
+def list_staff(_=Depends(_require_admin)):
+    return {"staff": staff_service.list_staff()}
+
+
+class StaffCreateRequest(BaseModel):
+    username: str
+    password: str
+    permissions: list[str] = ["approve", "reject"]
+
+
+@app.post("/api/admin/staff")
+def create_staff(req: StaffCreateRequest, _=Depends(_require_admin)):
+    try:
+        result = staff_service.create_staff(req.username, req.password, req.permissions)
+        return {"ok": True, **result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class StaffUpdateRequest(BaseModel):
+    permissions: list[str]
+
+
+@app.put("/api/admin/staff/{username}")
+def update_staff(username: str, req: StaffUpdateRequest, _=Depends(_require_admin)):
+    try:
+        staff_service.update_permissions(username, req.permissions)
+        return {"ok": True}
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.delete("/api/admin/staff/{username}")
+def delete_staff(username: str, _=Depends(_require_admin)):
+    try:
+        staff_service.delete_staff(username)
+        to_remove = [t for t, info in _staff_tokens.items() if info["username"] == username]
+        for t in to_remove:
+            del _staff_tokens[t]
+        return {"ok": True}
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 class OrderSubmitRequest(BaseModel):

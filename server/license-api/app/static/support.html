@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hỗ trợ – 3T Reader</title>
+<meta name="description" content="Trung tâm hỗ trợ 3T Reader. Liên hệ, câu hỏi thường gặp và gửi yêu cầu hỗ trợ.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#05080f;--bg2:#0d1117;--card:#111827;--card2:#1a2235;--border:#1f2d45;
+  --text:#e2e8f0;--muted:#64748b;--blue:#3b82f6;--indigo:#6366f1;--green:#22c55e;
+  --red:#ef4444;--yellow:#f59e0b;
+  --grad:linear-gradient(135deg,#3b82f6,#6366f1)
+}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+
+/* ─── NAV ─── */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;backdrop-filter:blur(20px);background:rgba(5,8,15,.88);border-bottom:1px solid var(--border);padding:0 5%}
+.nav-inner{max-width:1100px;margin:auto;display:flex;align-items:center;justify-content:space-between;height:64px}
+.logo{display:flex;align-items:center;gap:10px;font-size:1.2rem;font-weight:700;color:#fff;text-decoration:none}
+.logo-icon{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#FF7700,#FF3300);flex-shrink:0}
+.nav-links{display:flex;gap:28px;list-style:none}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:.9rem;font-weight:500;transition:.2s}
+.nav-links a:hover{color:#fff}
+.nav-cta{background:var(--grad);color:#fff;border:none;padding:9px 20px;border-radius:8px;font-size:.88rem;font-weight:600;cursor:pointer;transition:.2s;text-decoration:none}
+.nav-cta:hover{opacity:.9;transform:translateY(-1px)}
+
+/* ─── PAGE WRAP ─── */
+.page{padding-top:88px;padding-bottom:80px;min-height:100vh}
+
+/* ─── HERO ─── */
+.hero{text-align:center;padding:60px 5% 48px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:-180px;left:50%;transform:translateX(-50%);width:700px;height:700px;background:radial-gradient(ellipse,rgba(59,130,246,.12) 0%,transparent 70%);pointer-events:none}
+.hero-icon{width:72px;height:72px;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.25);border-radius:20px;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:2rem}
+.hero h1{font-size:clamp(1.8rem,4vw,2.8rem);font-weight:800;margin-bottom:14px;letter-spacing:-.02em}
+.hero p{color:var(--muted);font-size:1rem;max-width:500px;margin:0 auto;line-height:1.7}
+
+/* ─── CONTACT CARDS ─── */
+.contact-section{max-width:900px;margin:0 auto;padding:0 5% 56px}
+.contact-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:20px}
+.contact-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px;text-align:center;transition:.3s}
+.contact-card:hover{border-color:rgba(99,102,241,.4);transform:translateY(-3px)}
+.cc-icon{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:1.5rem}
+.cc-icon.blue{background:rgba(59,130,246,.15)}
+.cc-icon.green{background:rgba(34,197,94,.12)}
+.cc-icon.yellow{background:rgba(245,158,11,.12)}
+.cc-title{font-size:.78rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.cc-val{font-size:1rem;font-weight:600;color:var(--text)}
+.cc-val a{color:var(--blue);text-decoration:none}
+.cc-val a:hover{text-decoration:underline}
+.cc-sub{font-size:.8rem;color:var(--muted);margin-top:4px}
+
+/* ─── FAQ ─── */
+.faq-section{max-width:760px;margin:0 auto;padding:0 5% 56px}
+.faq-section h2{font-size:1.5rem;font-weight:700;margin-bottom:32px;text-align:center}
+.faq-item{border-bottom:1px solid var(--border);padding:18px 0}
+.faq-q{font-size:.93rem;font-weight:600;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;user-select:none;transition:.2s}
+.faq-q:hover{color:#a5b4fc}
+.faq-toggle{font-size:1.2rem;color:var(--muted);transition:.25s;flex-shrink:0;line-height:1}
+.faq-a{font-size:.87rem;color:var(--muted);line-height:1.75;margin-top:12px;display:none;padding-right:24px}
+.faq-item.open .faq-a{display:block}
+.faq-item.open .faq-toggle{transform:rotate(45deg);color:var(--indigo)}
+.faq-a a{color:#818cf8;text-decoration:none}
+.faq-a a:hover{text-decoration:underline}
+.faq-a code{background:rgba(99,102,241,.12);color:#a5b4fc;padding:1px 6px;border-radius:4px;font-size:.85em}
+
+/* ─── SUPPORT FORM ─── */
+.form-section{max-width:640px;margin:0 auto;padding:0 5% 60px}
+.form-section h2{font-size:1.5rem;font-weight:700;margin-bottom:8px;text-align:center}
+.form-section .form-sub{text-align:center;color:var(--muted);font-size:.88rem;margin-bottom:32px}
+.form-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:32px}
+.form-group{margin-bottom:18px}
+.form-group label{display:block;font-size:.82rem;font-weight:500;color:#94a3b8;margin-bottom:7px}
+.form-group input,.form-group select,.form-group textarea{
+  width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);
+  padding:11px 14px;border-radius:9px;font-size:.9rem;font-family:inherit;outline:none;transition:.2s
+}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{
+  border-color:var(--indigo);box-shadow:0 0 0 3px rgba(99,102,241,.12)
+}
+.form-group input::placeholder,.form-group textarea::placeholder{color:var(--muted)}
+.form-group select option{background:#1a2235}
+.form-group textarea{resize:vertical;min-height:120px;line-height:1.6}
+.form-optional{font-size:.75rem;color:var(--muted);font-weight:400;margin-left:4px}
+.btn-submit{width:100%;background:var(--grad);color:#fff;border:none;padding:13px;border-radius:10px;font-size:.95rem;font-weight:600;cursor:pointer;transition:.25s;font-family:inherit;margin-top:4px}
+.btn-submit:hover{opacity:.9;transform:translateY(-1px)}
+.submit-note{text-align:center;color:var(--muted);font-size:.8rem;margin-top:12px}
+
+/* ─── FOOTER ─── */
+footer{background:var(--bg2);border-top:1px solid var(--border);padding:36px 5%;text-align:center}
+footer p{color:var(--muted);font-size:.84rem;line-height:1.9}
+footer a{color:var(--indigo);text-decoration:none}
+footer a:hover{color:#a5b4fc}
+
+@media(max-width:600px){
+  .nav-links{display:none}
+  .hero{padding:48px 5% 36px}
+  .form-card{padding:20px}
+}
+</style>
+</head>
+<body>
+
+<!-- ─── NAV ─── -->
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="logo">
+      <div class="logo-icon">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+          <rect x="4" y="2" width="14" height="18" rx="2" fill="white" opacity=".95"/>
+          <rect x="6" y="7" width="7" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+          <rect x="6" y="10" width="10" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+          <rect x="6" y="13" width="8" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+        </svg>
+      </div>
+      3T Reader
+    </a>
+    <ul class="nav-links">
+      <li><a href="/#features">Tính năng</a></li>
+      <li><a href="/#pricing">Bảng giá</a></li>
+      <li><a href="/#faq">FAQ</a></li>
+      <li><a href="/support" style="color:#a5b4fc">Hỗ trợ</a></li>
+    </ul>
+    <a href="/#pricing" class="nav-cta">Mua ngay</a>
+  </div>
+</nav>
+
+<div class="page">
+  <!-- ─── HERO ─── -->
+  <section class="hero">
+    <div class="hero-icon">💬</div>
+    <h1>Trung tâm Hỗ trợ</h1>
+    <p>Chúng tôi luôn sẵn sàng giúp bạn. Tìm câu trả lời nhanh hoặc liên hệ trực tiếp với đội ngũ hỗ trợ.</p>
+  </section>
+
+  <!-- ─── CONTACT CARDS ─── -->
+  <section class="contact-section">
+    <div class="contact-grid">
+      <div class="contact-card">
+        <div class="cc-icon blue">✉️</div>
+        <div class="cc-title">Email hỗ trợ</div>
+        <div class="cc-val"><a href="mailto:3t.hotro@gmail.com">3t.hotro@gmail.com</a></div>
+        <div class="cc-sub">Phản hồi trong 24 giờ làm việc</div>
+      </div>
+      <div class="contact-card">
+        <div class="cc-icon green">🕐</div>
+        <div class="cc-title">Giờ hỗ trợ</div>
+        <div class="cc-val">Thứ 2 – Thứ 6</div>
+        <div class="cc-sub">8:00 – 17:00 (giờ Việt Nam)</div>
+      </div>
+      <div class="contact-card">
+        <div class="cc-icon yellow">⚡</div>
+        <div class="cc-title">Thời gian phản hồi</div>
+        <div class="cc-val">Trong 24 giờ</div>
+        <div class="cc-sub">Kể từ khi nhận yêu cầu</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── FAQ ─── -->
+  <section class="faq-section">
+    <h2>Câu hỏi thường gặp</h2>
+
+    <div class="faq-item">
+      <div class="faq-q">Tôi nhận được license key ở đâu và khi nào? <span class="faq-toggle">+</span></div>
+      <div class="faq-a">Sau khi chuyển khoản và điền form đăng ký, đội ngũ chúng tôi sẽ xác nhận thanh toán và gửi license key đến <strong>địa chỉ email</strong> bạn đăng ký trong vòng <strong>24 giờ làm việc</strong> (thường nhanh hơn). Kiểm tra cả hộp thư Spam nếu không thấy email.</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Cách kích hoạt license key như thế nào? <span class="faq-toggle">+</span></div>
+      <div class="faq-a">Sau khi nhận key qua email, mở phần mềm 3T Reader → vào menu <strong>Trợ giúp → Kích hoạt bản quyền</strong> → nhập license key vào ô và nhấn <strong>Kích hoạt</strong>. Máy tính cần có kết nối internet trong lần kích hoạt đầu tiên để xác thực với máy chủ.</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Phần mềm có hoạt động offline không? <span class="faq-toggle">+</span></div>
+      <div class="faq-a">Có. Sau khi kích hoạt thành công, phần mềm hoạt động <strong>hoàn toàn offline</strong> tối đa <strong>7 ngày liên tục</strong>. Sau đó cần kết nối internet ít nhất một lần để xác thực lại. Điều này giúp bảo vệ bản quyền mà vẫn đảm bảo trải nghiệm liên tục cho người dùng.</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">1 license key dùng được trên bao nhiêu máy? <span class="faq-toggle">+</span></div>
+      <div class="faq-a">Mỗi license key chỉ được kích hoạt trên <strong>1 máy tính</strong>. Nếu bạn thay máy hoặc cài lại hệ điều hành, vui lòng liên hệ <a href="mailto:3t.hotro@gmail.com">3t.hotro@gmail.com</a> kèm mã đơn hàng để được chuyển license sang thiết bị mới. Mỗi key cho phép chuyển tối đa 2 lần/năm.</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">License key hết hạn sau bao lâu và cách gia hạn? <span class="faq-toggle">+</span></div>
+      <div class="faq-a">License key có thời hạn <strong>1 năm</strong> kể từ ngày kích hoạt. Trước khi hết hạn 30 ngày, hệ thống sẽ gửi email nhắc gia hạn. Khách hàng cũ được hưởng <strong>ưu đãi 20%</strong> khi gia hạn. Liên hệ email hoặc mua trực tiếp trên website với cùng địa chỉ email đã đăng ký.</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Phần mềm hỗ trợ những hệ điều hành nào? <span class="faq-toggle">+</span></div>
+      <div class="faq-a">3T Reader hiện hỗ trợ:<br>
+        • <strong>Windows:</strong> Windows 10 / 11 (64-bit)<br>
+        • <strong>macOS:</strong> macOS 12 Monterey trở lên (Intel &amp; Apple Silicon M1/M2/M3)<br>
+        Phiên bản Linux đang trong giai đoạn phát triển và sẽ ra mắt trong tương lai gần.
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SUPPORT FORM ─── -->
+  <section class="form-section">
+    <h2>Gửi yêu cầu hỗ trợ</h2>
+    <p class="form-sub">Không tìm thấy câu trả lời? Điền form bên dưới, chúng tôi sẽ phản hồi sớm nhất có thể.</p>
+    <div class="form-card">
+      <form id="supportForm" onsubmit="submitSupport(event)">
+        <div class="form-group">
+          <label>Họ và tên</label>
+          <input type="text" id="sName" placeholder="Nguyễn Văn A" required>
+        </div>
+        <div class="form-group">
+          <label>Địa chỉ email</label>
+          <input type="email" id="sEmail" placeholder="email@example.com" required>
+        </div>
+        <div class="form-group">
+          <label>Mã đơn hàng <span class="form-optional">(không bắt buộc)</span></label>
+          <input type="text" id="sOrderId" placeholder="vd: ORD-20260501-XXXX">
+        </div>
+        <div class="form-group">
+          <label>Loại vấn đề</label>
+          <select id="sType" required>
+            <option value="" disabled selected>-- Chọn loại vấn đề --</option>
+            <option value="Kích hoạt license">Kích hoạt license</option>
+            <option value="Vấn đề kỹ thuật">Vấn đề kỹ thuật</option>
+            <option value="Gia hạn bản quyền">Gia hạn bản quyền</option>
+            <option value="Chuyển thiết bị">Chuyển thiết bị</option>
+            <option value="Thanh toán">Thanh toán &amp; Đặt hàng</option>
+            <option value="Khác">Khác</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Mô tả chi tiết</label>
+          <textarea id="sDesc" placeholder="Mô tả vấn đề bạn gặp phải, phiên bản phần mềm, hệ điều hành đang dùng..." required></textarea>
+        </div>
+        <button type="submit" class="btn-submit" id="sSubmitBtn">Gửi yêu cầu hỗ trợ</button>
+      </form>
+      <p class="submit-note" id="sNote" style="display:none"></p>
+    </div>
+  </section>
+</div>
+
+<!-- ─── FOOTER ─── -->
+<footer>
+  <p><strong style="color:#e2e8f0">3T Reader</strong> – Phần mềm đọc PDF thông minh cho người Việt</p>
+  <p style="margin-top:8px">
+    © 2026 3T Company &nbsp;·&nbsp;
+    <a href="/privacy">Chính sách bảo mật</a> &nbsp;·&nbsp;
+    <a href="/terms">Điều khoản sử dụng</a> &nbsp;·&nbsp;
+    <a href="mailto:3t.hotro@gmail.com">3t.hotro@gmail.com</a>
+  </p>
+</footer>
+
+<script>
+// FAQ accordion
+document.querySelectorAll('.faq-q').forEach(q => {
+  q.addEventListener('click', () => q.parentElement.classList.toggle('open'));
+});
+
+// Support form → mailto
+function submitSupport(e) {
+  e.preventDefault();
+  const name    = document.getElementById('sName').value.trim();
+  const email   = document.getElementById('sEmail').value.trim();
+  const orderId = document.getElementById('sOrderId').value.trim();
+  const type    = document.getElementById('sType').value;
+  const desc    = document.getElementById('sDesc').value.trim();
+
+  const subject = encodeURIComponent(`[3T Reader Hỗ trợ] ${type} – ${name}`);
+  const body = encodeURIComponent(
+    `Họ tên: ${name}\n` +
+    `Email: ${email}\n` +
+    `Mã đơn hàng: ${orderId || 'Không có'}\n` +
+    `Loại vấn đề: ${type}\n\n` +
+    `Mô tả chi tiết:\n${desc}`
+  );
+  window.location.href = `mailto:3t.hotro@gmail.com?subject=${subject}&body=${body}`;
+
+  const note = document.getElementById('sNote');
+  note.textContent = '✓ Đã mở ứng dụng email. Nếu không tự mở, vui lòng gửi email trực tiếp đến 3t.hotro@gmail.com';
+  note.style.display = 'block';
+  note.style.color = '#34d399';
+}
+</script>
+</body>
+</html>

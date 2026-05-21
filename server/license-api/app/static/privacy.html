@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chính sách bảo mật – 3T Reader</title>
+<meta name="description" content="Chính sách bảo mật của 3T Reader. Tìm hiểu cách chúng tôi thu thập, sử dụng và bảo vệ dữ liệu cá nhân của bạn.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#05080f;--bg2:#0d1117;--card:#111827;--border:#1f2d45;
+  --text:#e2e8f0;--muted:#64748b;--blue:#3b82f6;--indigo:#6366f1;--green:#22c55e;
+  --grad:linear-gradient(135deg,#3b82f6,#6366f1)
+}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+
+nav{position:fixed;top:0;left:0;right:0;z-index:100;backdrop-filter:blur(20px);background:rgba(5,8,15,.88);border-bottom:1px solid var(--border);padding:0 5%}
+.nav-inner{max-width:1100px;margin:auto;display:flex;align-items:center;justify-content:space-between;height:64px}
+.logo{display:flex;align-items:center;gap:10px;font-size:1.2rem;font-weight:700;color:#fff;text-decoration:none}
+.logo-icon{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#FF7700,#FF3300);flex-shrink:0}
+.nav-links{display:flex;gap:28px;list-style:none}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:.9rem;font-weight:500;transition:.2s}
+.nav-links a:hover{color:#fff}
+.nav-cta{background:var(--grad);color:#fff;border:none;padding:9px 20px;border-radius:8px;font-size:.88rem;font-weight:600;cursor:pointer;transition:.2s;text-decoration:none}
+.nav-cta:hover{opacity:.9}
+
+.page{padding-top:88px;padding-bottom:80px}
+
+.doc-hero{text-align:center;padding:52px 5% 40px}
+.doc-hero h1{font-size:clamp(1.7rem,3.5vw,2.5rem);font-weight:800;margin-bottom:10px;letter-spacing:-.02em}
+.doc-hero .meta{color:var(--muted);font-size:.85rem}
+.doc-hero .meta strong{color:#94a3b8}
+
+.doc-wrap{max-width:760px;margin:0 auto;padding:0 5% 60px}
+
+.doc-toc{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px 28px;margin-bottom:40px}
+.doc-toc h3{font-size:.85rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:14px}
+.doc-toc ol{padding-left:20px;display:flex;flex-direction:column;gap:8px}
+.doc-toc li a{color:#818cf8;text-decoration:none;font-size:.88rem;transition:.2s}
+.doc-toc li a:hover{color:#a5b4fc;text-decoration:underline}
+
+.doc-section{margin-bottom:40px}
+.doc-section h2{font-size:1.15rem;font-weight:700;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.sec-num{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;background:rgba(99,102,241,.2);border-radius:6px;font-size:.78rem;font-weight:700;color:#a5b4fc;flex-shrink:0}
+.doc-section p{font-size:.9rem;color:#cbd5e1;line-height:1.8;margin-bottom:12px}
+.doc-section p:last-child{margin-bottom:0}
+.doc-section ul{padding-left:0;list-style:none;display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.doc-section ul li{font-size:.9rem;color:#cbd5e1;line-height:1.7;padding-left:20px;position:relative}
+.doc-section ul li::before{content:'•';position:absolute;left:0;color:var(--indigo);font-weight:700}
+
+.highlight-box{background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.2);border-radius:10px;padding:16px 20px;margin:14px 0;font-size:.88rem;color:#86efac;line-height:1.7}
+.warning-box{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:16px 20px;margin:14px 0;font-size:.88rem;color:#fde68a;line-height:1.7}
+.info-box{background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:16px 20px;margin:14px 0;font-size:.88rem;color:#93c5fd;line-height:1.7}
+
+.data-table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.86rem}
+.data-table th{background:var(--bg2);padding:9px 14px;text-align:left;color:var(--muted);font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.data-table td{padding:10px 14px;border-bottom:1px solid var(--border);color:#cbd5e1;line-height:1.6;vertical-align:top}
+.data-table tr:last-child td{border-bottom:none}
+.data-table-wrap{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin:14px 0}
+
+footer{background:var(--bg2);border-top:1px solid var(--border);padding:36px 5%;text-align:center}
+footer p{color:var(--muted);font-size:.84rem;line-height:1.9}
+footer a{color:var(--indigo);text-decoration:none}
+footer a:hover{color:#a5b4fc}
+
+@media(max-width:600px){
+  .nav-links{display:none}
+  .doc-toc{padding:18px}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="logo">
+      <div class="logo-icon">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+          <rect x="4" y="2" width="14" height="18" rx="2" fill="white" opacity=".95"/>
+          <rect x="6" y="7" width="7" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+          <rect x="6" y="10" width="10" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+          <rect x="6" y="13" width="8" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+        </svg>
+      </div>
+      3T Reader
+    </a>
+    <ul class="nav-links">
+      <li><a href="/#features">Tính năng</a></li>
+      <li><a href="/#pricing">Bảng giá</a></li>
+      <li><a href="/support">Hỗ trợ</a></li>
+    </ul>
+    <a href="/#pricing" class="nav-cta">Mua ngay</a>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="doc-hero">
+    <h1>Chính sách Bảo mật</h1>
+    <p class="meta">Cập nhật lần cuối: <strong>21/05/2026</strong> &nbsp;·&nbsp; 3T Company</p>
+  </div>
+
+  <div class="doc-wrap">
+    <!-- Table of contents -->
+    <div class="doc-toc">
+      <h3>Mục lục</h3>
+      <ol>
+        <li><a href="#s1">Thông tin về Công ty</a></li>
+        <li><a href="#s2">Dữ liệu chúng tôi thu thập</a></li>
+        <li><a href="#s3">Cách chúng tôi sử dụng dữ liệu</a></li>
+        <li><a href="#s4">Cam kết không bán dữ liệu</a></li>
+        <li><a href="#s5">Thời gian lưu trữ dữ liệu</a></li>
+        <li><a href="#s6">Bảo mật và mã hóa</a></li>
+        <li><a href="#s7">Quyền của người dùng</a></li>
+        <li><a href="#s8">Cookie và phân tích</a></li>
+        <li><a href="#s9">Thay đổi chính sách</a></li>
+        <li><a href="#s10">Liên hệ</a></li>
+      </ol>
+    </div>
+
+    <!-- Section 1 -->
+    <div class="doc-section" id="s1">
+      <h2><span class="sec-num">1</span>Thông tin về Công ty</h2>
+      <p><strong>Công ty TNHH Đầu tư Công nghệ và Xây lắp 3T</strong> (viết tắt: 3T Company) là đơn vị phát triển và phân phối phần mềm 3T Reader tại Việt Nam.</p>
+      <p>Chính sách bảo mật này áp dụng cho tất cả người dùng sử dụng phần mềm 3T Reader và truy cập website <strong>reader.3tcomputer.com</strong>. Bằng cách sử dụng phần mềm hoặc mua bản quyền, bạn đồng ý với các điều khoản trong chính sách này.</p>
+    </div>
+
+    <!-- Section 2 -->
+    <div class="doc-section" id="s2">
+      <h2><span class="sec-num">2</span>Dữ liệu chúng tôi thu thập</h2>
+      <p>Chúng tôi chỉ thu thập những dữ liệu tối thiểu cần thiết để cung cấp dịch vụ:</p>
+
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Loại dữ liệu</th>
+              <th>Nội dung cụ thể</th>
+              <th>Mục đích</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Thông tin đặt hàng</strong></td>
+              <td>Họ tên, địa chỉ email</td>
+              <td>Giao license key và hỗ trợ khách hàng</td>
+            </tr>
+            <tr>
+              <td><strong>Device fingerprint</strong></td>
+              <td>Mã định danh phần cứng (CPU, ổ cứng, bo mạch chủ – đã được hash)</td>
+              <td>Ràng buộc license key với thiết bị kích hoạt</td>
+            </tr>
+            <tr>
+              <td><strong>Thông tin giao dịch</strong></td>
+              <td>Gói mua, số lượng, thời gian đặt hàng, gói</td>
+              <td>Xác minh thanh toán, phát hành key</td>
+            </tr>
+            <tr>
+              <td><strong>Nhật ký xác thực</strong></td>
+              <td>Địa chỉ IP, thời gian kiểm tra license (anonymized)</td>
+              <td>Bảo vệ license khỏi sử dụng trái phép</td>
+            </tr>
+            <tr>
+              <td><strong>Dữ liệu sử dụng ẩn danh</strong></td>
+              <td>Thống kê lỗi crash, tần suất sử dụng tính năng (không liên kết với cá nhân)</td>
+              <td>Cải thiện chất lượng phần mềm</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="info-box">
+        Chúng tôi <strong>không thu thập</strong> nội dung tài liệu PDF bạn đọc, lịch sử duyệt web, thông tin ngân hàng, hay bất kỳ dữ liệu cá nhân nhạy cảm nào khác.
+      </div>
+    </div>
+
+    <!-- Section 3 -->
+    <div class="doc-section" id="s3">
+      <h2><span class="sec-num">3</span>Cách chúng tôi sử dụng dữ liệu</h2>
+      <ul>
+        <li>Xử lý đơn hàng và phát hành license key bản quyền</li>
+        <li>Gửi email xác nhận đơn hàng và license key cho khách hàng</li>
+        <li>Xác thực tính hợp lệ của license key khi phần mềm yêu cầu kiểm tra</li>
+        <li>Hỗ trợ khách hàng khi có sự cố về kích hoạt hoặc sử dụng phần mềm</li>
+        <li>Gửi thông báo gia hạn license trước khi hết hạn (chỉ qua email đã đăng ký)</li>
+        <li>Phân tích thống kê ẩn danh để cải thiện phần mềm</li>
+      </ul>
+      <p>Chúng tôi <strong>không</strong> sử dụng email của bạn để gửi quảng cáo từ bên thứ ba hay marketing không liên quan đến sản phẩm 3T Reader.</p>
+    </div>
+
+    <!-- Section 4 -->
+    <div class="doc-section" id="s4">
+      <h2><span class="sec-num">4</span>Cam kết không bán dữ liệu</h2>
+      <div class="highlight-box">
+        <strong>3T Company cam kết tuyệt đối:</strong> Chúng tôi <strong>KHÔNG bao giờ bán, cho thuê, hoặc chia sẻ</strong> thông tin cá nhân của bạn với bất kỳ bên thứ ba nào vì mục đích thương mại.
+      </div>
+      <p>Dữ liệu của bạn chỉ được chia sẻ trong các trường hợp sau:</p>
+      <ul>
+        <li>Khi có yêu cầu hợp pháp từ cơ quan nhà nước có thẩm quyền theo quy định pháp luật Việt Nam</li>
+        <li>Khi cần thiết để cung cấp dịch vụ (ví dụ: dịch vụ gửi email transactional để giao license key)</li>
+      </ul>
+    </div>
+
+    <!-- Section 5 -->
+    <div class="doc-section" id="s5">
+      <h2><span class="sec-num">5</span>Thời gian lưu trữ dữ liệu</h2>
+      <ul>
+        <li><strong>Dữ liệu đơn hàng</strong> (tên, email, gói mua): Lưu trữ <strong>3 năm</strong> theo quy định kế toán và pháp luật Việt Nam</li>
+        <li><strong>Device fingerprint</strong>: Tự động xóa khi license key hết hạn hoặc bị thu hồi</li>
+        <li><strong>Nhật ký xác thực IP</strong>: Lưu tối đa <strong>90 ngày</strong> rồi tự động xóa</li>
+        <li><strong>Dữ liệu thống kê ẩn danh</strong>: Không có thời hạn xóa (do không thể truy ngược về cá nhân)</li>
+      </ul>
+      <p>Sau khi hết thời hạn lưu trữ, dữ liệu sẽ được xóa hoàn toàn khỏi hệ thống của chúng tôi.</p>
+    </div>
+
+    <!-- Section 6 -->
+    <div class="doc-section" id="s6">
+      <h2><span class="sec-num">6</span>Bảo mật và mã hóa</h2>
+      <p>Chúng tôi áp dụng các biện pháp bảo mật kỹ thuật tiên tiến để bảo vệ dữ liệu của bạn:</p>
+      <ul>
+        <li><strong>Chữ ký số Ed25519</strong>: License key được ký bằng thuật toán chữ ký số Ed25519, đảm bảo không thể giả mạo</li>
+        <li><strong>Mã hóa lưu trữ</strong>: Dữ liệu nhạy cảm được mã hóa trước khi lưu vào cơ sở dữ liệu</li>
+        <li><strong>HTTPS bắt buộc</strong>: Toàn bộ giao tiếp giữa phần mềm và máy chủ được mã hóa qua TLS 1.3</li>
+        <li><strong>Giới hạn truy cập</strong>: Chỉ nhân sự được ủy quyền mới có thể truy cập dữ liệu đơn hàng</li>
+        <li><strong>Device fingerprint hashed</strong>: Mã định danh thiết bị được băm (hash) một chiều, không thể khôi phục thông tin gốc</li>
+      </ul>
+      <div class="warning-box">
+        Mặc dù chúng tôi áp dụng các biện pháp bảo mật tiêu chuẩn cao, không có hệ thống nào có thể đảm bảo bảo mật tuyệt đối 100%. Chúng tôi khuyến khích bạn giữ bí mật license key và không chia sẻ với người khác.
+      </div>
+    </div>
+
+    <!-- Section 7 -->
+    <div class="doc-section" id="s7">
+      <h2><span class="sec-num">7</span>Quyền của người dùng</h2>
+      <p>Theo quy định về bảo vệ dữ liệu cá nhân, bạn có các quyền sau:</p>
+      <ul>
+        <li><strong>Quyền truy cập:</strong> Yêu cầu cung cấp thông tin về dữ liệu cá nhân chúng tôi đang lưu trữ về bạn</li>
+        <li><strong>Quyền chỉnh sửa:</strong> Yêu cầu cập nhật thông tin không chính xác (email, họ tên)</li>
+        <li><strong>Quyền xóa:</strong> Yêu cầu xóa dữ liệu cá nhân (trừ dữ liệu phải giữ theo pháp luật)</li>
+        <li><strong>Quyền phản đối:</strong> Phản đối việc xử lý dữ liệu cho mục đích nhất định</li>
+      </ul>
+      <p>Để thực hiện các quyền trên, vui lòng gửi email đến <strong>3t.hotro@gmail.com</strong> với tiêu đề <strong>"Yêu cầu dữ liệu cá nhân"</strong>. Chúng tôi sẽ phản hồi trong vòng 7 ngày làm việc.</p>
+    </div>
+
+    <!-- Section 8 -->
+    <div class="doc-section" id="s8">
+      <h2><span class="sec-num">8</span>Cookie và phân tích</h2>
+      <p>Website reader.3tcomputer.com sử dụng cookie kỹ thuật tối thiểu để duy trì phiên đăng nhập. Chúng tôi <strong>không sử dụng</strong> cookie theo dõi, quảng cáo retargeting, hay Google Analytics.</p>
+      <p>Phần mềm 3T Reader có thể gửi báo cáo lỗi ẩn danh để giúp chúng tôi cải thiện sản phẩm. Tính năng này có thể được tắt trong phần Cài đặt &gt; Quyền riêng tư.</p>
+    </div>
+
+    <!-- Section 9 -->
+    <div class="doc-section" id="s9">
+      <h2><span class="sec-num">9</span>Thay đổi chính sách</h2>
+      <p>Chúng tôi có thể cập nhật chính sách bảo mật này theo thời gian. Khi có thay đổi quan trọng, chúng tôi sẽ:</p>
+      <ul>
+        <li>Cập nhật ngày "Cập nhật lần cuối" ở đầu trang này</li>
+        <li>Gửi thông báo qua email đến khách hàng đang có license còn hiệu lực</li>
+      </ul>
+      <p>Việc tiếp tục sử dụng phần mềm sau ngày thay đổi có hiệu lực được xem là bạn đồng ý với chính sách mới.</p>
+    </div>
+
+    <!-- Section 10 -->
+    <div class="doc-section" id="s10">
+      <h2><span class="sec-num">10</span>Liên hệ</h2>
+      <p>Mọi thắc mắc về chính sách bảo mật, vui lòng liên hệ:</p>
+      <ul>
+        <li><strong>Email:</strong> <a href="mailto:3t.hotro@gmail.com" style="color:#818cf8">3t.hotro@gmail.com</a></li>
+        <li><strong>Tên công ty:</strong> Công ty TNHH Đầu tư Công nghệ và Xây lắp 3T</li>
+        <li><strong>Website:</strong> reader.3tcomputer.com</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <p><strong style="color:#e2e8f0">3T Reader</strong> – Phần mềm đọc PDF thông minh cho người Việt</p>
+  <p style="margin-top:8px">
+    © 2026 3T Company &nbsp;·&nbsp;
+    <a href="/privacy">Chính sách bảo mật</a> &nbsp;·&nbsp;
+    <a href="/terms">Điều khoản sử dụng</a> &nbsp;·&nbsp;
+    <a href="/support">Hỗ trợ</a> &nbsp;·&nbsp;
+    <a href="mailto:3t.hotro@gmail.com">3t.hotro@gmail.com</a>
+  </p>
+</footer>
+
+</body>
+</html>

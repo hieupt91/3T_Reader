@@ -7,45 +7,46 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#05080f;--bg2:#0d1117;--card:#111827;--border:#1f2d45;--text:#e2e8f0;--muted:#64748b;--blue:#3b82f6;--green:#22c55e;--red:#ef4444;--yellow:#f59e0b}
+:root{--bg:#05080f;--bg2:#0d1117;--card:#111827;--border:#1f2d45;--text:#e2e8f0;--muted:#64748b;--blue:#3b82f6;--indigo:#6366f1;--green:#22c55e;--red:#ef4444;--yellow:#f59e0b}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 
-/* LOGIN */
+/* ─── LOGIN ─── */
 .login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
-.login-box{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px;width:100%;max-width:380px}
-.login-logo{text-align:center;font-size:1.5rem;font-weight:700;margin-bottom:6px}
-.login-sub{text-align:center;color:var(--muted);font-size:.85rem;margin-bottom:30px}
+.login-box{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px;width:100%;max-width:400px}
+.login-logo{text-align:center;margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:10px}
+.login-logo-icon{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#FF7700,#FF3300);flex-shrink:0}
+.login-logo span{font-size:1.35rem;font-weight:700}
+.login-sub{text-align:center;color:var(--muted);font-size:.85rem;margin-bottom:22px}
+
+/* Login mode tabs */
+.login-tabs{display:flex;gap:0;border:1px solid var(--border);border-radius:9px;overflow:hidden;margin-bottom:24px}
+.login-tab{flex:1;background:transparent;border:none;color:var(--muted);padding:9px 0;font-size:.88rem;font-weight:600;cursor:pointer;transition:.2s;font-family:inherit}
+.login-tab.active{background:linear-gradient(135deg,var(--blue),var(--indigo));color:#fff}
+.login-tab:not(.active):hover{color:var(--text);background:rgba(255,255,255,.04)}
+
 .form-group{margin-bottom:16px}
 .form-group label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:6px;font-weight:500}
 .form-group input{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:11px 14px;border-radius:8px;font-size:.9rem;font-family:inherit;outline:none;transition:.2s}
 .form-group input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
-.btn-login{width:100%;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;padding:12px;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;margin-top:4px;transition:.2s}
+.btn-login{width:100%;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;padding:12px;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;margin-top:4px;transition:.2s;font-family:inherit}
 .btn-login:hover{opacity:.9}
 .login-err{color:var(--red);font-size:.83rem;text-align:center;margin-top:10px;display:none}
 .forgot-link{display:block;text-align:center;color:var(--muted);font-size:.82rem;margin-top:14px;cursor:pointer;transition:.2s}
 .forgot-link:hover{color:#818cf8}
 .forgot-ok{color:#34d399;font-size:.82rem;text-align:center;margin-top:10px;display:none}
 
-/* ADMIN PANEL */
+/* ─── ADMIN PANEL ─── */
 .admin{display:none}
-header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 28px;display:flex;align-items:center;justify-content:space-between;height:58px}
-.hdr-logo{font-weight:700;font-size:1rem}
-.hdr-right{display:flex;align-items:center;gap:16px}
-.btn-logout{background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:7px;font-size:.82rem;cursor:pointer;transition:.2s}
+header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 28px;display:flex;align-items:center;justify-content:space-between;height:58px;flex-wrap:wrap;gap:8px}
+.hdr-logo{font-weight:700;font-size:1rem;display:flex;align-items:center;gap:8px}
+.hdr-logo-icon{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#FF7700,#FF3300);flex-shrink:0}
+.hdr-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hdr-badge{font-size:.78rem;color:var(--muted);background:rgba(255,255,255,.05);border:1px solid var(--border);padding:4px 10px;border-radius:6px}
+.hdr-badge.staff{color:#a5b4fc;border-color:rgba(99,102,241,.3)}
+.btn-hdr{background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:7px;font-size:.8rem;cursor:pointer;transition:.2s;font-family:inherit;white-space:nowrap}
+.btn-hdr:hover{border-color:#818cf8;color:#a5b4fc}
+.btn-logout{background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:7px;font-size:.8rem;cursor:pointer;transition:.2s;font-family:inherit}
 .btn-logout:hover{border-color:var(--red);color:var(--red)}
-.btn-chpw{background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:7px;font-size:.82rem;cursor:pointer;transition:.2s}
-.btn-chpw:hover{border-color:#818cf8;color:#818cf8}
-
-/* Change password modal */
-.chpw-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:60;display:none;align-items:center;justify-content:center;padding:20px}
-.chpw-overlay.open{display:flex}
-.chpw-box{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:28px;max-width:380px;width:100%}
-.chpw-box h3{font-size:1rem;font-weight:600;margin-bottom:20px}
-.chpw-err{color:var(--red);font-size:.82rem;margin-top:8px;display:none}
-.chpw-ok{color:#34d399;font-size:.82rem;margin-top:8px;display:none}
-.btn-chpw-save{width:100%;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;padding:11px;border-radius:8px;font-weight:600;cursor:pointer;margin-top:12px;font-size:.9rem}
-.btn-chpw-cancel{width:100%;background:transparent;border:1px solid var(--border);color:var(--muted);padding:10px;border-radius:8px;cursor:pointer;margin-top:8px;font-size:.88rem}
-.btn-chpw-cancel:hover{border-color:var(--red);color:var(--red)}
 
 main{padding:28px;max-width:1200px;margin:auto}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:28px}
@@ -56,76 +57,144 @@ main{padding:28px;max-width:1200px;margin:auto}
 .stat.approved .stat-val{color:var(--green)}
 .stat.total .stat-val{color:var(--blue)}
 
-.section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px}
 .section-hdr h2{font-size:1rem;font-weight:600}
-.tabs{display:flex;gap:8px}
-.tab{background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:7px;font-size:.82rem;cursor:pointer;transition:.2s}
+.tabs{display:flex;gap:8px;flex-wrap:wrap}
+.tab{background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:7px;font-size:.82rem;cursor:pointer;transition:.2s;font-family:inherit}
 .tab.active{background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border-color:transparent}
 
-.table-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
-table{width:100%;border-collapse:collapse}
-th{background:var(--bg2);padding:10px 16px;text-align:left;font-size:.78rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.table-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:720px}
+th{background:var(--bg2);padding:10px 16px;text-align:left;font-size:.78rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
 td{padding:12px 16px;font-size:.87rem;border-bottom:1px solid var(--border)}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:rgba(255,255,255,.02)}
 
-.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:.75rem;font-weight:600}
-.badge.pending{background:rgba(245,158,11,.15);color:var(--yellow)}
-.badge.approved{background:rgba(34,197,94,.15);color:var(--green)}
-.badge.rejected{background:rgba(239,68,68,.12);color:var(--red)}
+.tbadge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:.75rem;font-weight:600}
+.tbadge.pending{background:rgba(245,158,11,.15);color:var(--yellow)}
+.tbadge.approved{background:rgba(34,197,94,.15);color:var(--green)}
+.tbadge.rejected{background:rgba(239,68,68,.12);color:var(--red)}
 
-.action-btns{display:flex;gap:8px;flex-wrap:wrap}
-.btn-approve,.btn-reject,.btn-delete{border:none;padding:5px 12px;border-radius:6px;font-size:.78rem;font-weight:600;cursor:pointer;transition:.2s}
+.action-btns{display:flex;gap:6px;flex-wrap:wrap}
+.btn-approve,.btn-reject,.btn-delete{border:none;padding:5px 10px;border-radius:6px;font-size:.78rem;font-weight:600;cursor:pointer;transition:.2s;font-family:inherit;white-space:nowrap}
 .btn-approve{background:rgba(34,197,94,.15);color:var(--green)}
 .btn-approve:hover{background:rgba(34,197,94,.3)}
 .btn-reject{background:rgba(239,68,68,.1);color:var(--red)}
 .btn-reject:hover{background:rgba(239,68,68,.25)}
 .btn-delete{background:rgba(100,116,139,.12);color:var(--muted)}
 .btn-delete:hover{background:rgba(239,68,68,.15);color:var(--red)}
-.btn-cleanup{background:rgba(100,116,139,.12);border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:7px;font-size:.82rem;cursor:pointer;transition:.2s}
+.btn-cleanup{background:rgba(100,116,139,.12);border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:7px;font-size:.82rem;cursor:pointer;transition:.2s;font-family:inherit}
 .btn-cleanup:hover{border-color:var(--red);color:var(--red)}
 
 .empty{text-align:center;padding:48px;color:var(--muted);font-size:.9rem}
 .loading{text-align:center;padding:40px;color:var(--muted)}
 
-/* Modal confirm */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:50;display:none;align-items:center;justify-content:center;padding:20px}
+/* ─── MODALS (shared) ─── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);z-index:50;display:none;align-items:center;justify-content:center;padding:20px}
 .modal-overlay.open{display:flex}
-.confirm-box{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:28px;max-width:400px;width:100%}
-.confirm-box h3{font-size:1rem;font-weight:600;margin-bottom:8px}
-.confirm-box p{font-size:.87rem;color:var(--muted);margin-bottom:20px;line-height:1.6}
-.confirm-info{background:var(--bg2);border-radius:8px;padding:12px;margin-bottom:20px;font-size:.83rem;line-height:1.8}
+.modal-box{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:28px;width:100%;max-width:420px;animation:mUp .2s ease}
+@keyframes mUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
+.modal-box h3{font-size:1rem;font-weight:600;margin-bottom:20px}
+.modal-err{color:var(--red);font-size:.82rem;margin-top:8px;display:none}
+.modal-ok{color:#34d399;font-size:.82rem;margin-top:8px;display:none}
+.btn-modal-save{width:100%;background:linear-gradient(135deg,var(--blue),var(--indigo));color:#fff;border:none;padding:11px;border-radius:8px;font-weight:600;cursor:pointer;margin-top:12px;font-size:.9rem;font-family:inherit}
+.btn-modal-cancel{width:100%;background:transparent;border:1px solid var(--border);color:var(--muted);padding:10px;border-radius:8px;cursor:pointer;margin-top:8px;font-size:.88rem;font-family:inherit}
+.btn-modal-cancel:hover{border-color:var(--red);color:var(--red)}
+
+/* Confirm approve modal specifics */
+.confirm-box{max-width:420px}
+.confirm-info{background:var(--bg2);border-radius:8px;padding:12px;margin-bottom:20px;font-size:.83rem;line-height:1.9}
 .confirm-info strong{color:var(--text)}
+.confirm-box p{font-size:.87rem;color:var(--muted);margin-bottom:14px;line-height:1.6}
 .confirm-btns{display:flex;gap:10px}
-.btn-conf-yes{flex:1;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;padding:10px;border-radius:8px;font-weight:600;cursor:pointer}
-.btn-conf-no{flex:1;background:transparent;border:1px solid var(--border);color:var(--muted);padding:10px;border-radius:8px;cursor:pointer}
+.btn-conf-yes{flex:1;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;padding:10px;border-radius:8px;font-weight:600;cursor:pointer;font-family:inherit}
+.btn-conf-no{flex:1;background:transparent;border:1px solid var(--border);color:var(--muted);padding:10px;border-radius:8px;cursor:pointer;font-family:inherit}
 .btn-conf-no:hover{border-color:var(--red);color:var(--red)}
+
+/* ─── STAFF MODAL ─── */
+.staff-modal-box{max-width:640px;max-height:85vh;overflow-y:auto}
+.staff-modal-box h3{font-size:1rem;font-weight:600;margin-bottom:16px}
+.staff-table-wrap{border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:20px}
+.staff-table{width:100%;border-collapse:collapse}
+.staff-table th{background:var(--bg2);padding:8px 12px;text-align:left;font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.staff-table td{padding:10px 12px;font-size:.85rem;border-bottom:1px solid var(--border)}
+.staff-table tr:last-child td{border-bottom:none}
+.perm-check{display:flex;gap:14px;flex-wrap:wrap}
+.perm-check label{display:flex;align-items:center;gap:5px;font-size:.82rem;cursor:pointer;color:#94a3b8;user-select:none}
+.perm-check input[type=checkbox]{accent-color:var(--indigo);width:14px;height:14px;cursor:pointer}
+.staff-add-form{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-top:4px}
+.staff-add-form h4{font-size:.88rem;font-weight:600;margin-bottom:14px;color:#94a3b8}
+.staff-add-form .form-group{margin-bottom:12px}
+.staff-add-form .form-group label{font-size:.78rem}
+.staff-add-form .form-group input{padding:9px 12px;font-size:.85rem}
+.btn-staff-add{background:linear-gradient(135deg,var(--blue),var(--indigo));color:#fff;border:none;padding:9px 20px;border-radius:8px;font-size:.85rem;font-weight:600;cursor:pointer;font-family:inherit;margin-top:4px}
+.btn-staff-del{background:rgba(239,68,68,.1);color:var(--red);border:none;padding:4px 9px;border-radius:5px;font-size:.75rem;cursor:pointer;font-family:inherit}
+.btn-staff-del:hover{background:rgba(239,68,68,.25)}
+.staff-empty{text-align:center;padding:24px;color:var(--muted);font-size:.85rem}
+
+@media(max-width:600px){
+  header{padding:0 14px}
+  main{padding:16px}
+  .modal-box{padding:20px}
+}
 </style>
 </head>
 <body>
 
-<!-- LOGIN -->
+<!-- ─── LOGIN ─── -->
 <div class="login-wrap" id="loginWrap">
   <div class="login-box">
-    <div class="login-logo">🔐 Admin Panel</div>
-    <div class="login-sub">3T Reader License Management</div>
-    <form onsubmit="login(event)">
+    <div class="login-logo">
+      <div class="login-logo-icon">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+          <rect x="4" y="2" width="14" height="18" rx="2" fill="white" opacity=".95"/>
+          <rect x="6" y="7" width="7" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+          <rect x="6" y="10" width="10" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+          <rect x="6" y="13" width="8" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+        </svg>
+      </div>
+      <span>3T Reader Admin</span>
+    </div>
+    <div class="login-sub">Hệ thống quản lý bản quyền</div>
+
+    <!-- Mode tabs -->
+    <div class="login-tabs">
+      <button class="login-tab active" onclick="switchLoginMode('admin',this)" id="tabAdmin">Admin</button>
+      <button class="login-tab" onclick="switchLoginMode('staff',this)" id="tabStaff">Nhân viên</button>
+    </div>
+
+    <!-- Admin login form -->
+    <form id="adminLoginForm" onsubmit="loginAdmin(event)">
       <div class="form-group">
         <label>Mật khẩu admin</label>
         <input type="password" id="pwInput" placeholder="Nhập mật khẩu..." required autofocus>
       </div>
-      <button type="submit" class="btn-login">Đăng nhập</button>
+      <button type="submit" class="btn-login">Đăng nhập Admin</button>
       <div class="login-err" id="loginErr">Mật khẩu không đúng!</div>
       <div class="forgot-ok" id="forgotOk">✓ Đã gửi mật khẩu về 3t.hotro@gmail.com</div>
       <span class="forgot-link" onclick="forgotPassword()">Quên mật khẩu? Gửi về email</span>
     </form>
+
+    <!-- Staff login form -->
+    <form id="staffLoginForm" onsubmit="loginStaff(event)" style="display:none">
+      <div class="form-group">
+        <label>Tên đăng nhập</label>
+        <input type="text" id="staffUsername" placeholder="Nhập tên đăng nhập..." required>
+      </div>
+      <div class="form-group">
+        <label>Mật khẩu</label>
+        <input type="password" id="staffPassword" placeholder="Nhập mật khẩu..." required>
+      </div>
+      <button type="submit" class="btn-login">Đăng nhập Nhân viên</button>
+      <div class="login-err" id="staffLoginErr">Tên đăng nhập hoặc mật khẩu không đúng!</div>
+    </form>
   </div>
 </div>
 
-<!-- Change password modal -->
-<div class="chpw-overlay" id="chpwOverlay">
-  <div class="chpw-box">
-    <h3>🔑 Đổi mật khẩu Admin</h3>
+<!-- ─── CHANGE PASSWORD MODAL ─── -->
+<div class="modal-overlay" id="chpwOverlay">
+  <div class="modal-box">
+    <h3>Đổi mật khẩu Admin</h3>
     <div class="form-group">
       <label>Mật khẩu hiện tại</label>
       <input type="password" id="curPw" placeholder="Nhập mật khẩu hiện tại">
@@ -138,20 +207,78 @@ tr:hover td{background:rgba(255,255,255,.02)}
       <label>Xác nhận mật khẩu mới</label>
       <input type="password" id="newPw2" placeholder="Nhập lại mật khẩu mới">
     </div>
-    <div class="chpw-err" id="chpwErr"></div>
-    <div class="chpw-ok" id="chpwOk">✓ Đổi mật khẩu thành công! Vui lòng đăng nhập lại.</div>
-    <button class="btn-chpw-save" onclick="doChangePassword()">Lưu mật khẩu mới</button>
-    <button class="btn-chpw-cancel" onclick="closeChpw()">Hủy</button>
+    <div class="modal-err" id="chpwErr"></div>
+    <div class="modal-ok" id="chpwOk">✓ Đổi mật khẩu thành công! Vui lòng đăng nhập lại.</div>
+    <button class="btn-modal-save" onclick="doChangePassword()">Lưu mật khẩu mới</button>
+    <button class="btn-modal-cancel" onclick="closeChpw()">Hủy</button>
   </div>
 </div>
 
-<!-- ADMIN PANEL -->
+<!-- ─── STAFF MANAGEMENT MODAL (admin only) ─── -->
+<div class="modal-overlay" id="staffOverlay">
+  <div class="modal-box staff-modal-box">
+    <h3>Quản lý Nhân viên</h3>
+    <div id="staffListWrap">
+      <div class="loading" id="staffLoading">Đang tải...</div>
+      <div class="staff-table-wrap" id="staffTableWrap" style="display:none">
+        <table class="staff-table">
+          <thead>
+            <tr>
+              <th>Tên đăng nhập</th>
+              <th>Quyền hạn</th>
+              <th>Ngày tạo</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="staffBody"></tbody>
+        </table>
+      </div>
+      <div class="staff-empty" id="staffEmpty" style="display:none">Chưa có nhân viên nào.</div>
+    </div>
+
+    <div class="staff-add-form">
+      <h4>+ Thêm nhân viên mới</h4>
+      <div class="form-group">
+        <label>Tên đăng nhập</label>
+        <input type="text" id="newStaffUser" placeholder="vd: nhanvien01">
+      </div>
+      <div class="form-group">
+        <label>Mật khẩu</label>
+        <input type="password" id="newStaffPass" placeholder="Tối thiểu 6 ký tự">
+      </div>
+      <div class="form-group">
+        <label>Quyền hạn</label>
+        <div class="perm-check">
+          <label><input type="checkbox" id="newPermApprove" value="approve"> Cấp key</label>
+          <label><input type="checkbox" id="newPermReject" value="reject"> Từ chối</label>
+          <label><input type="checkbox" id="newPermDelete" value="delete"> Xóa</label>
+        </div>
+      </div>
+      <div class="modal-err" id="staffAddErr"></div>
+      <button class="btn-staff-add" onclick="addStaff()">Thêm nhân viên</button>
+    </div>
+    <button class="btn-modal-cancel" style="margin-top:14px" onclick="closeStaffModal()">Đóng</button>
+  </div>
+</div>
+
+<!-- ─── ADMIN PANEL ─── -->
 <div class="admin" id="adminPanel">
   <header>
-    <div class="hdr-logo">📋 3T Reader Admin</div>
+    <div class="hdr-logo">
+      <div class="hdr-logo-icon">
+        <svg width="18" height="18" viewBox="0 0 22 22" fill="none">
+          <rect x="4" y="2" width="14" height="18" rx="2" fill="white" opacity=".95"/>
+          <rect x="6" y="7" width="7" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+          <rect x="6" y="10" width="10" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+          <rect x="6" y="13" width="8" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+        </svg>
+      </div>
+      3T Reader Admin
+    </div>
     <div class="hdr-right">
-      <span id="hdrInfo" style="font-size:.82rem;color:var(--muted)"></span>
-      <button class="btn-chpw" onclick="openChpw()">🔑 Đổi mật khẩu</button>
+      <span id="hdrInfo" class="hdr-badge"></span>
+      <button class="btn-hdr" id="btnStaffMgmt" onclick="openStaffModal()" style="display:none">Nhân viên</button>
+      <button class="btn-hdr" id="btnChpw" onclick="openChpw()" style="display:none">Đổi mật khẩu</button>
       <button class="btn-logout" onclick="logout()">Đăng xuất</button>
     </div>
   </header>
@@ -173,14 +300,14 @@ tr:hover td{background:rgba(255,255,255,.02)}
 
     <div class="section-hdr">
       <h2>Danh sách đơn hàng</h2>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <div class="tabs">
           <button class="tab active" onclick="filterOrders('pending',this)">Chờ duyệt</button>
           <button class="tab" onclick="filterOrders('approved',this)">Đã cấp key</button>
           <button class="tab" onclick="filterOrders('rejected',this)">Từ chối</button>
           <button class="tab" onclick="filterOrders('all',this)">Tất cả</button>
         </div>
-        <button class="btn-cleanup" onclick="doCleanup()" title="Xóa đơn từ chối quá 30 ngày">🗑 Dọn dẹp</button>
+        <button class="btn-cleanup" id="btnCleanup" onclick="doCleanup()" title="Xóa đơn từ chối quá 30 ngày">Dọn dẹp</button>
       </div>
     </div>
 
@@ -207,9 +334,9 @@ tr:hover td{background:rgba(255,255,255,.02)}
   </main>
 </div>
 
-<!-- Confirm modal -->
+<!-- ─── CONFIRM APPROVE MODAL ─── -->
 <div class="modal-overlay" id="confirmModal">
-  <div class="confirm-box">
+  <div class="modal-box confirm-box">
     <h3>Xác nhận cấp key bản quyền</h3>
     <p>Hệ thống sẽ tự động tạo license key và gửi email cho khách hàng.</p>
     <div class="confirm-info" id="confirmInfo"></div>
@@ -221,47 +348,148 @@ tr:hover td{background:rgba(255,255,255,.02)}
 </div>
 
 <script>
-let token = sessionStorage.getItem('adminToken') || '';
+// ─── Session state ───────────────────────────────────────────────
+let token = '';
+let role = '';
+let permissions = [];
+let currentUsername = '';
 let orders = [];
 let currentFilter = 'pending';
 let pendingOrderId = null;
 
-const PLAN_NAMES = { basic: 'Cơ Bản', personal: 'Cá Nhân', enterprise: 'Doanh Nghiệp' };
-const PLAN_PRICES = { basic: '300.000đ', personal: '500.000đ', enterprise: '800.000đ' };
+const PLAN_NAMES  = { basic:'Cơ Bản', personal:'Cá Nhân', enterprise:'Doanh Nghiệp' };
+const PLAN_PRICES = { basic:'300.000đ', personal:'500.000đ', enterprise:'800.000đ' };
 
-if (token) showAdmin();
+// Restore session
+(function restoreSession() {
+  try {
+    const s = JSON.parse(sessionStorage.getItem('3t_session') || 'null');
+    if (s && s.token) {
+      token = s.token;
+      role = s.role || 'admin';
+      permissions = s.permissions || [];
+      currentUsername = s.username || '';
+      showAdmin();
+    }
+  } catch {}
+})();
 
-async function login(e) {
+function saveSession(data) {
+  token = data.token;
+  role = data.role || 'admin';
+  permissions = data.permissions || [];
+  currentUsername = data.username || '';
+  sessionStorage.setItem('3t_session', JSON.stringify({ token, role, permissions, username: currentUsername }));
+}
+
+function canDo(perm) {
+  return role === 'admin' || permissions.includes(perm);
+}
+
+// ─── Login mode switch ───────────────────────────────────────────
+let loginMode = 'admin';
+function switchLoginMode(mode, btn) {
+  loginMode = mode;
+  document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('adminLoginForm').style.display = mode === 'admin' ? 'block' : 'none';
+  document.getElementById('staffLoginForm').style.display = mode === 'staff' ? 'block' : 'none';
+  document.getElementById('loginErr').style.display = 'none';
+  document.getElementById('staffLoginErr').style.display = 'none';
+}
+
+// ─── Admin login ─────────────────────────────────────────────────
+async function loginAdmin(e) {
   e.preventDefault();
   const pw = document.getElementById('pwInput').value;
-  const res = await fetch('/api/admin/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password: pw }),
-  });
-  if (res.ok) {
-    const d = await res.json();
-    token = d.token;
-    sessionStorage.setItem('adminToken', token);
-    showAdmin();
-  } else {
-    document.getElementById('loginErr').style.display = 'block';
+  const errEl = document.getElementById('loginErr');
+  errEl.style.display = 'none';
+  try {
+    const res = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    });
+    if (res.ok) {
+      const d = await res.json();
+      saveSession({ token: d.token, role: d.role || 'admin', permissions: [], username: '' });
+      showAdmin();
+    } else {
+      errEl.textContent = 'Mật khẩu không đúng!';
+      errEl.style.display = 'block';
+    }
+  } catch {
+    errEl.textContent = 'Lỗi kết nối server.';
+    errEl.style.display = 'block';
   }
 }
 
+// ─── Staff login ─────────────────────────────────────────────────
+async function loginStaff(e) {
+  e.preventDefault();
+  const username = document.getElementById('staffUsername').value.trim();
+  const password = document.getElementById('staffPassword').value;
+  const errEl = document.getElementById('staffLoginErr');
+  errEl.style.display = 'none';
+  try {
+    const res = await fetch('/api/staff/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (res.ok) {
+      const d = await res.json();
+      saveSession({
+        token: d.token,
+        role: d.role || 'staff',
+        permissions: d.permissions || [],
+        username: d.username || username,
+      });
+      showAdmin();
+    } else {
+      errEl.textContent = 'Tên đăng nhập hoặc mật khẩu không đúng!';
+      errEl.style.display = 'block';
+    }
+  } catch {
+    errEl.textContent = 'Lỗi kết nối server.';
+    errEl.style.display = 'block';
+  }
+}
+
+// ─── Logout ──────────────────────────────────────────────────────
 function logout() {
-  sessionStorage.removeItem('adminToken');
-  token = '';
+  sessionStorage.removeItem('3t_session');
+  token = ''; role = ''; permissions = []; currentUsername = '';
   document.getElementById('loginWrap').style.display = 'flex';
   document.getElementById('adminPanel').style.display = 'none';
 }
 
+// ─── Show admin panel ─────────────────────────────────────────────
 function showAdmin() {
   document.getElementById('loginWrap').style.display = 'none';
   document.getElementById('adminPanel').style.display = 'block';
+
+  // Header info
+  const hdrInfo = document.getElementById('hdrInfo');
+  if (role === 'admin') {
+    hdrInfo.textContent = 'Admin';
+    hdrInfo.className = 'hdr-badge';
+    document.getElementById('btnChpw').style.display = 'inline-flex';
+    document.getElementById('btnStaffMgmt').style.display = 'inline-flex';
+  } else {
+    hdrInfo.textContent = 'Nhân viên: ' + currentUsername;
+    hdrInfo.className = 'hdr-badge staff';
+    document.getElementById('btnChpw').style.display = 'none';
+    document.getElementById('btnStaffMgmt').style.display = 'none';
+  }
+
+  // Cleanup button
+  document.getElementById('btnCleanup').style.display = canDo('delete') ? 'inline-block' : 'none';
+
   loadOrders();
 }
 
+// ─── Orders ──────────────────────────────────────────────────────
 async function loadOrders() {
   try {
     const res = await fetch('/api/admin/orders', {
@@ -278,12 +506,14 @@ async function loadOrders() {
 }
 
 function renderStats() {
-  const pending = orders.filter(o => o.status === 'pending').length;
+  const pending  = orders.filter(o => o.status === 'pending').length;
   const approved = orders.filter(o => o.status === 'approved').length;
-  document.getElementById('sCntPending').textContent = pending;
+  document.getElementById('sCntPending').textContent  = pending;
   document.getElementById('sCntApproved').textContent = approved;
-  document.getElementById('sCntTotal').textContent = orders.length;
-  document.getElementById('hdrInfo').textContent = `${pending} đơn chờ duyệt`;
+  document.getElementById('sCntTotal').textContent    = orders.length;
+  document.getElementById('hdrInfo').textContent = role === 'admin'
+    ? `Admin · ${pending} đơn chờ`
+    : `Nhân viên: ${currentUsername} · ${pending} đơn chờ`;
 }
 
 function filterOrders(filter, btn) {
@@ -307,31 +537,35 @@ function renderOrders() {
   document.getElementById('ordersTable').style.display = 'table';
 
   const tbody = document.getElementById('ordersBody');
-  tbody.innerHTML = filtered.map(o => `
-    <tr>
-      <td><code style="font-size:.8rem;color:#818cf8">${o.id}</code></td>
+  tbody.innerHTML = filtered.map(o => {
+    const approveBtn = canDo('approve') && o.status === 'pending'
+      ? `<button class="btn-approve" onclick="confirmApprove('${o.id}')">✓ Cấp key</button>` : '';
+    const rejectBtn = canDo('reject') && o.status === 'pending'
+      ? `<button class="btn-reject" onclick="rejectOrder('${o.id}')">✕ Từ chối</button>` : '';
+    const deleteBtn = canDo('delete')
+      ? `<button class="btn-delete" onclick="deleteOrder('${o.id}')" title="Xóa đơn này">🗑</button>` : '';
+    const keyDisplay = o.license_key
+      ? `<code style="font-size:.73rem;color:#34d399;word-break:break-all">${esc(o.license_key)}</code>` : '';
+
+    let actions = '';
+    if (o.status === 'pending') {
+      actions = `<div class="action-btns">${approveBtn}${rejectBtn}${deleteBtn}</div>`;
+    } else {
+      actions = `<div class="action-btns">${keyDisplay}${deleteBtn}</div>`;
+    }
+
+    return `<tr>
+      <td><code style="font-size:.78rem;color:#818cf8">${esc(o.id)}</code></td>
       <td>${esc(o.customer_name)}</td>
-      <td>${esc(o.customer_email)}</td>
-      <td>${PLAN_NAMES[o.plan] || o.plan}</td>
+      <td style="color:#94a3b8">${esc(o.customer_email)}</td>
+      <td>${PLAN_NAMES[o.plan] || esc(o.plan)}</td>
       <td>${o.quantity || 1} máy</td>
       <td>${(o.amount_total || 0).toLocaleString('vi-VN')}đ</td>
-      <td style="color:var(--muted)">${fmtDate(o.created_at)}</td>
-      <td><span class="badge ${o.status}">${statusLabel(o.status)}</span></td>
-      <td>
-        ${o.status === 'pending' ? `
-          <div class="action-btns">
-            <button class="btn-approve" onclick="confirmApprove('${o.id}')">✓ Cấp key</button>
-            <button class="btn-reject" onclick="rejectOrder('${o.id}')">✕ Từ chối</button>
-          </div>
-        ` : `
-          <div class="action-btns">
-            ${o.license_key ? `<code style="font-size:.75rem;color:#34d399">${o.license_key}</code>` : ''}
-            <button class="btn-delete" onclick="deleteOrder('${o.id}')" title="Xóa đơn này">🗑</button>
-          </div>
-        `}
-      </td>
-    </tr>
-  `).join('');
+      <td style="color:var(--muted);white-space:nowrap">${fmtDate(o.created_at)}</td>
+      <td><span class="tbadge ${o.status}">${statusLabel(o.status)}</span></td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join('');
 }
 
 function confirmApprove(id) {
@@ -340,7 +574,7 @@ function confirmApprove(id) {
   document.getElementById('confirmInfo').innerHTML = `
     <strong>Khách hàng:</strong> ${esc(o.customer_name)}<br>
     <strong>Email:</strong> ${esc(o.customer_email)}<br>
-    <strong>Gói:</strong> ${PLAN_NAMES[o.plan]} – ${PLAN_PRICES[o.plan]}<br>
+    <strong>Gói:</strong> ${PLAN_NAMES[o.plan] || o.plan} – ${PLAN_PRICES[o.plan] || ''}<br>
     <strong>Đặt lúc:</strong> ${fmtDate(o.created_at)}
   `;
   document.getElementById('confirmModal').classList.add('open');
@@ -353,7 +587,7 @@ function closeConfirm() {
 
 async function doApprove() {
   if (!pendingOrderId) return;
-  const orderId = pendingOrderId;
+  const orderId = pendingOrderId; // save before closing clears it
   closeConfirm();
   const res = await fetch(`/api/admin/orders/${orderId}/approve`, {
     method: 'POST',
@@ -376,6 +610,7 @@ async function rejectOrder(id) {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (res.ok) loadOrders();
+  else alert('Không thể từ chối đơn hàng.');
 }
 
 async function deleteOrder(id) {
@@ -401,24 +636,9 @@ async function doCleanup() {
   }
 }
 
-function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function fmtDate(iso) {
-  if (!iso) return '–';
-  const d = new Date(iso);
-  return d.toLocaleDateString('vi-VN') + ' ' + d.toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
-}
-function statusLabel(s) {
-  return { pending: '⏳ Chờ duyệt', approved: '✓ Đã cấp key', rejected: '✕ Từ chối' }[s] || s;
-}
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeConfirm(); closeChpw(); }
-});
-setInterval(loadOrders, 30000);
-
-// ── Quên mật khẩu ──
+// ─── Forgot password ─────────────────────────────────────────────
 async function forgotPassword() {
-  const el = document.getElementById('forgotOk');
+  const el  = document.getElementById('forgotOk');
   const err = document.getElementById('loginErr');
   try {
     const res = await fetch('/api/admin/forgot-password', { method: 'POST' });
@@ -435,33 +655,26 @@ async function forgotPassword() {
   }
 }
 
-// ── Đổi mật khẩu ──
+// ─── Change password ──────────────────────────────────────────────
 function openChpw() {
-  document.getElementById('curPw').value = '';
-  document.getElementById('newPw').value = '';
-  document.getElementById('newPw2').value = '';
+  ['curPw','newPw','newPw2'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('chpwErr').style.display = 'none';
-  document.getElementById('chpwOk').style.display = 'none';
+  document.getElementById('chpwOk').style.display  = 'none';
   document.getElementById('chpwOverlay').classList.add('open');
 }
-
 function closeChpw() {
   document.getElementById('chpwOverlay').classList.remove('open');
 }
-
 async function doChangePassword() {
   const cur = document.getElementById('curPw').value;
   const nw  = document.getElementById('newPw').value;
   const nw2 = document.getElementById('newPw2').value;
   const err = document.getElementById('chpwErr');
   const ok  = document.getElementById('chpwOk');
-  err.style.display = 'none';
-  ok.style.display = 'none';
-
-  if (!cur || !nw || !nw2) { err.textContent = 'Vui lòng điền đầy đủ.'; err.style.display = 'block'; return; }
-  if (nw !== nw2) { err.textContent = 'Mật khẩu mới không khớp.'; err.style.display = 'block'; return; }
-  if (nw.length < 6) { err.textContent = 'Mật khẩu mới phải có ít nhất 6 ký tự.'; err.style.display = 'block'; return; }
-
+  err.style.display = 'none'; ok.style.display = 'none';
+  if (!cur || !nw || !nw2) { err.textContent='Vui lòng điền đầy đủ.'; err.style.display='block'; return; }
+  if (nw !== nw2) { err.textContent='Mật khẩu mới không khớp.'; err.style.display='block'; return; }
+  if (nw.length < 6) { err.textContent='Mật khẩu mới phải có ít nhất 6 ký tự.'; err.style.display='block'; return; }
   const res = await fetch('/api/admin/change-password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -476,6 +689,139 @@ async function doChangePassword() {
     err.style.display = 'block';
   }
 }
+
+// ─── Staff management ─────────────────────────────────────────────
+async function openStaffModal() {
+  document.getElementById('staffOverlay').classList.add('open');
+  document.getElementById('newStaffUser').value = '';
+  document.getElementById('newStaffPass').value = '';
+  document.getElementById('newPermApprove').checked = false;
+  document.getElementById('newPermReject').checked  = false;
+  document.getElementById('newPermDelete').checked  = false;
+  document.getElementById('staffAddErr').style.display = 'none';
+  await loadStaff();
+}
+function closeStaffModal() {
+  document.getElementById('staffOverlay').classList.remove('open');
+}
+
+async function loadStaff() {
+  document.getElementById('staffLoading').style.display = 'block';
+  document.getElementById('staffTableWrap').style.display = 'none';
+  document.getElementById('staffEmpty').style.display = 'none';
+  try {
+    const res = await fetch('/api/admin/staff', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) { document.getElementById('staffLoading').textContent = 'Lỗi tải danh sách.'; return; }
+    const data = await res.json();
+    const list = data.staff || data || [];
+    document.getElementById('staffLoading').style.display = 'none';
+    if (list.length === 0) {
+      document.getElementById('staffEmpty').style.display = 'block';
+      return;
+    }
+    document.getElementById('staffTableWrap').style.display = 'block';
+    const tbody = document.getElementById('staffBody');
+    tbody.innerHTML = list.map(s => {
+      const perms = s.permissions || [];
+      return `<tr>
+        <td><strong>${esc(s.username)}</strong></td>
+        <td>
+          <div class="perm-check">
+            <label><input type="checkbox" ${perms.includes('approve')?'checked':''} onchange="updateStaffPerm('${esc(s.username)}',this,'approve')"> Cấp key</label>
+            <label><input type="checkbox" ${perms.includes('reject')?'checked':''} onchange="updateStaffPerm('${esc(s.username)}',this,'reject')"> Từ chối</label>
+            <label><input type="checkbox" ${perms.includes('delete')?'checked':''} onchange="updateStaffPerm('${esc(s.username)}',this,'delete')"> Xóa</label>
+          </div>
+        </td>
+        <td style="color:var(--muted);font-size:.8rem">${fmtDate(s.created_at)}</td>
+        <td><button class="btn-staff-del" onclick="deleteStaff('${esc(s.username)}')">Xóa</button></td>
+      </tr>`;
+    }).join('');
+  } catch {
+    document.getElementById('staffLoading').textContent = 'Lỗi kết nối.';
+  }
+}
+
+async function updateStaffPerm(username, checkbox, perm) {
+  // Collect current checkboxes for this row
+  const row = checkbox.closest('tr');
+  const checks = row.querySelectorAll('input[type=checkbox]');
+  const perms = ['approve','reject','delete'].filter((p,i) => checks[i].checked);
+  const res = await fetch(`/api/admin/staff/${encodeURIComponent(username)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ permissions: perms }),
+  });
+  if (!res.ok) {
+    checkbox.checked = !checkbox.checked; // revert
+    alert('Không thể cập nhật quyền.');
+  }
+}
+
+async function addStaff() {
+  const username = document.getElementById('newStaffUser').value.trim();
+  const password = document.getElementById('newStaffPass').value;
+  const perms = [];
+  if (document.getElementById('newPermApprove').checked) perms.push('approve');
+  if (document.getElementById('newPermReject').checked)  perms.push('reject');
+  if (document.getElementById('newPermDelete').checked)  perms.push('delete');
+  const err = document.getElementById('staffAddErr');
+  err.style.display = 'none';
+
+  if (!username) { err.textContent='Nhập tên đăng nhập.'; err.style.display='block'; return; }
+  if (password.length < 6) { err.textContent='Mật khẩu phải có ít nhất 6 ký tự.'; err.style.display='block'; return; }
+
+  const res = await fetch('/api/admin/staff', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ username, password, permissions: perms }),
+  });
+  if (res.ok) {
+    document.getElementById('newStaffUser').value = '';
+    document.getElementById('newStaffPass').value = '';
+    document.getElementById('newPermApprove').checked = false;
+    document.getElementById('newPermReject').checked  = false;
+    document.getElementById('newPermDelete').checked  = false;
+    await loadStaff();
+  } else {
+    const d = await res.json().catch(() => ({}));
+    err.textContent = d.detail || 'Không thể thêm nhân viên.';
+    err.style.display = 'block';
+  }
+}
+
+async function deleteStaff(username) {
+  if (!confirm(`Xóa tài khoản nhân viên "${username}"?`)) return;
+  const res = await fetch(`/api/admin/staff/${encodeURIComponent(username)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.ok) await loadStaff();
+  else alert('Không thể xóa nhân viên.');
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtDate(iso) {
+  if (!iso) return '–';
+  const d = new Date(iso);
+  return d.toLocaleDateString('vi-VN') + ' ' + d.toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
+}
+function statusLabel(s) {
+  return { pending:'⏳ Chờ duyệt', approved:'✓ Đã cấp key', rejected:'✕ Từ chối' }[s] || s;
+}
+
+// ─── Global events ────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeConfirm(); closeChpw(); closeStaffModal(); }
+});
+
+setInterval(() => {
+  if (token && document.getElementById('adminPanel').style.display !== 'none') loadOrders();
+}, 30000);
 </script>
 </body>
 </html>

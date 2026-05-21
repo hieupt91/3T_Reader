@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Điều khoản sử dụng – 3T Reader</title>
+<meta name="description" content="Điều khoản sử dụng phần mềm 3T Reader. Quy định về license, thanh toán, chính sách hoàn tiền và trách nhiệm pháp lý.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#05080f;--bg2:#0d1117;--card:#111827;--border:#1f2d45;
+  --text:#e2e8f0;--muted:#64748b;--blue:#3b82f6;--indigo:#6366f1;--green:#22c55e;
+  --red:#ef4444;--yellow:#f59e0b;
+  --grad:linear-gradient(135deg,#3b82f6,#6366f1)
+}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+
+nav{position:fixed;top:0;left:0;right:0;z-index:100;backdrop-filter:blur(20px);background:rgba(5,8,15,.88);border-bottom:1px solid var(--border);padding:0 5%}
+.nav-inner{max-width:1100px;margin:auto;display:flex;align-items:center;justify-content:space-between;height:64px}
+.logo{display:flex;align-items:center;gap:10px;font-size:1.2rem;font-weight:700;color:#fff;text-decoration:none}
+.logo-icon{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#FF7700,#FF3300);flex-shrink:0}
+.nav-links{display:flex;gap:28px;list-style:none}
+.nav-links a{color:var(--muted);text-decoration:none;font-size:.9rem;font-weight:500;transition:.2s}
+.nav-links a:hover{color:#fff}
+.nav-cta{background:var(--grad);color:#fff;border:none;padding:9px 20px;border-radius:8px;font-size:.88rem;font-weight:600;cursor:pointer;transition:.2s;text-decoration:none}
+.nav-cta:hover{opacity:.9}
+
+.page{padding-top:88px;padding-bottom:80px}
+
+.doc-hero{text-align:center;padding:52px 5% 40px}
+.doc-hero h1{font-size:clamp(1.7rem,3.5vw,2.5rem);font-weight:800;margin-bottom:10px;letter-spacing:-.02em}
+.doc-hero .meta{color:var(--muted);font-size:.85rem}
+.doc-hero .meta strong{color:#94a3b8}
+
+.doc-wrap{max-width:760px;margin:0 auto;padding:0 5% 60px}
+
+.doc-toc{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px 28px;margin-bottom:40px}
+.doc-toc h3{font-size:.85rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:14px}
+.doc-toc ol{padding-left:20px;display:flex;flex-direction:column;gap:8px}
+.doc-toc li a{color:#818cf8;text-decoration:none;font-size:.88rem;transition:.2s}
+.doc-toc li a:hover{color:#a5b4fc;text-decoration:underline}
+
+.doc-section{margin-bottom:40px}
+.doc-section h2{font-size:1.15rem;font-weight:700;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.sec-num{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;background:rgba(99,102,241,.2);border-radius:6px;font-size:.78rem;font-weight:700;color:#a5b4fc;flex-shrink:0}
+.doc-section p{font-size:.9rem;color:#cbd5e1;line-height:1.8;margin-bottom:12px}
+.doc-section p:last-child{margin-bottom:0}
+.doc-section ul{padding-left:0;list-style:none;display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.doc-section ul li{font-size:.9rem;color:#cbd5e1;line-height:1.7;padding-left:20px;position:relative}
+.doc-section ul li::before{content:'•';position:absolute;left:0;color:var(--indigo);font-weight:700}
+.doc-section ul.list-deny li::before{content:'✗';color:var(--red)}
+.doc-section ul.list-ok li::before{content:'✓';color:var(--green)}
+
+.highlight-box{background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.2);border-radius:10px;padding:16px 20px;margin:14px 0;font-size:.88rem;color:#86efac;line-height:1.7}
+.warning-box{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:16px 20px;margin:14px 0;font-size:.88rem;color:#fde68a;line-height:1.7}
+.danger-box{background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:16px 20px;margin:14px 0;font-size:.88rem;color:#fca5a5;line-height:1.7}
+.info-box{background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:16px 20px;margin:14px 0;font-size:.88rem;color:#93c5fd;line-height:1.7}
+
+footer{background:var(--bg2);border-top:1px solid var(--border);padding:36px 5%;text-align:center}
+footer p{color:var(--muted);font-size:.84rem;line-height:1.9}
+footer a{color:var(--indigo);text-decoration:none}
+footer a:hover{color:#a5b4fc}
+
+@media(max-width:600px){
+  .nav-links{display:none}
+  .doc-toc{padding:18px}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="logo">
+      <div class="logo-icon">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+          <rect x="4" y="2" width="14" height="18" rx="2" fill="white" opacity=".95"/>
+          <rect x="6" y="7" width="7" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+          <rect x="6" y="10" width="10" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+          <rect x="6" y="13" width="8" height="1.5" rx=".75" fill="#FF6600" opacity=".7"/>
+        </svg>
+      </div>
+      3T Reader
+    </a>
+    <ul class="nav-links">
+      <li><a href="/#features">Tính năng</a></li>
+      <li><a href="/#pricing">Bảng giá</a></li>
+      <li><a href="/support">Hỗ trợ</a></li>
+    </ul>
+    <a href="/#pricing" class="nav-cta">Mua ngay</a>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="doc-hero">
+    <h1>Điều khoản Sử dụng</h1>
+    <p class="meta">Cập nhật lần cuối: <strong>21/05/2026</strong> &nbsp;·&nbsp; 3T Company</p>
+  </div>
+
+  <div class="doc-wrap">
+    <!-- Intro notice -->
+    <div class="info-box" style="margin-bottom:32px">
+      Vui lòng đọc kỹ các điều khoản này trước khi mua hoặc sử dụng phần mềm 3T Reader. Bằng cách mua license key hoặc cài đặt phần mềm, bạn xác nhận đã đọc, hiểu và đồng ý với tất cả các điều khoản dưới đây.
+    </div>
+
+    <!-- Table of contents -->
+    <div class="doc-toc">
+      <h3>Mục lục</h3>
+      <ol>
+        <li><a href="#t1">Thông tin chung</a></li>
+        <li><a href="#t2">Giấy phép sử dụng phần mềm</a></li>
+        <li><a href="#t3">Thanh toán và xử lý đơn hàng</a></li>
+        <li><a href="#t4">Chính sách hoàn tiền</a></li>
+        <li><a href="#t5">Hành vi bị cấm</a></li>
+        <li><a href="#t6">Bảo hành và giới hạn trách nhiệm</a></li>
+        <li><a href="#t7">Cập nhật phần mềm</a></li>
+        <li><a href="#t8">Chấm dứt license</a></li>
+        <li><a href="#t9">Luật áp dụng và giải quyết tranh chấp</a></li>
+        <li><a href="#t10">Liên hệ</a></li>
+      </ol>
+    </div>
+
+    <!-- Section 1 -->
+    <div class="doc-section" id="t1">
+      <h2><span class="sec-num">1</span>Thông tin chung</h2>
+      <p>Điều khoản sử dụng này là thỏa thuận pháp lý giữa <strong>bạn (Người dùng)</strong> và <strong>Công ty TNHH Đầu tư Công nghệ và Xây lắp 3T</strong> (sau đây gọi là "3T Company" hoặc "Chúng tôi") liên quan đến việc sử dụng phần mềm 3T Reader.</p>
+      <p>"Phần mềm" bao gồm chương trình 3T Reader, tài liệu hướng dẫn đi kèm, bản cập nhật và các thành phần liên quan được cung cấp bởi 3T Company.</p>
+    </div>
+
+    <!-- Section 2 -->
+    <div class="doc-section" id="t2">
+      <h2><span class="sec-num">2</span>Giấy phép sử dụng phần mềm</h2>
+      <p>Sau khi thanh toán thành công và nhận license key, 3T Company cấp cho bạn một giấy phép <strong>không độc quyền, không thể chuyển nhượng, có giới hạn thời hạn</strong> để sử dụng phần mềm 3T Reader theo các điều kiện sau:</p>
+      <ul class="list-ok">
+        <li>Cài đặt và sử dụng phần mềm trên <strong>đúng 1 (một) máy tính</strong> được ràng buộc với license key</li>
+        <li>Sử dụng phần mềm cho mục đích cá nhân hoặc công việc của bạn</li>
+        <li>Tạo bản sao lưu phần mềm cho mục đích dự phòng</li>
+      </ul>
+      <div class="info-box">
+        <strong>Thời hạn license:</strong> Mỗi license key có hiệu lực trong <strong>1 năm</strong> kể từ ngày kích hoạt. Sau khi hết hạn, bạn cần mua gia hạn để tiếp tục sử dụng.
+      </div>
+      <p>License key là <strong>cá nhân và không thể chuyển nhượng</strong>. Bạn không được bán, tặng, cho mượn, hoặc chuyển license key sang người khác trừ khi được 3T Company chấp thuận bằng văn bản.</p>
+    </div>
+
+    <!-- Section 3 -->
+    <div class="doc-section" id="t3">
+      <h2><span class="sec-num">3</span>Thanh toán và xử lý đơn hàng</h2>
+      <p><strong>Phương thức thanh toán:</strong> Chúng tôi chấp nhận thanh toán qua <strong>chuyển khoản ngân hàng nội địa Việt Nam</strong>. Thông tin tài khoản được hiển thị tại trang mua hàng trên website.</p>
+      <p><strong>Quy trình:</strong></p>
+      <ul>
+        <li>Bạn điền form đăng ký với thông tin họ tên, email và gói mua</li>
+        <li>Thực hiện chuyển khoản theo đúng nội dung và số tiền yêu cầu</li>
+        <li>Nhóm kỹ thuật xác minh giao dịch thủ công trong giờ làm việc</li>
+        <li>License key được tạo tự động và gửi về email đã đăng ký trong vòng <strong>24 giờ làm việc</strong></li>
+      </ul>
+      <div class="warning-box">
+        Vui lòng ghi <strong>đúng nội dung chuyển khoản</strong> như hướng dẫn trên website để hỗ trợ xác minh tự động. Sai nội dung có thể làm chậm quá trình xử lý.
+      </div>
+    </div>
+
+    <!-- Section 4 -->
+    <div class="doc-section" id="t4">
+      <h2><span class="sec-num">4</span>Chính sách hoàn tiền</h2>
+      <p>Chúng tôi hiểu rằng đôi khi có vấn đề phát sinh. Chính sách hoàn tiền của chúng tôi như sau:</p>
+
+      <div class="highlight-box">
+        <strong>Hoàn tiền được chấp nhận:</strong> Trong vòng <strong>24 giờ</strong> kể từ khi đặt hàng, nếu license key <strong>chưa được kích hoạt</strong> và bạn liên hệ với đội hỗ trợ. Chúng tôi sẽ hoàn trả 100% qua cùng phương thức thanh toán trong vòng 3-5 ngày làm việc.
+      </div>
+
+      <div class="danger-box">
+        <strong>Không hoàn tiền</strong> trong các trường hợp sau:<br>
+        • License key đã được kích hoạt trên bất kỳ thiết bị nào<br>
+        • Quá 24 giờ kể từ thời điểm key được gửi<br>
+        • Yêu cầu hoàn tiền do lý do không tương thích phần cứng (kiểm tra yêu cầu hệ thống trước khi mua)<br>
+        • Lý do "không dùng đến" sau khi đã kích hoạt
+      </div>
+
+      <p>Để yêu cầu hoàn tiền, gửi email đến <a href="mailto:3t.hotro@gmail.com" style="color:#818cf8">3t.hotro@gmail.com</a> với tiêu đề <strong>"Yêu cầu hoàn tiền – [Mã đơn hàng]"</strong>.</p>
+    </div>
+
+    <!-- Section 5 -->
+    <div class="doc-section" id="t5">
+      <h2><span class="sec-num">5</span>Hành vi bị cấm</h2>
+      <p>Bạn đồng ý <strong>tuyệt đối không</strong> thực hiện các hành vi sau:</p>
+      <ul class="list-deny">
+        <li><strong>Dịch ngược / Decompile:</strong> Dịch ngược, phân tích, tháo gỡ (decompile, disassemble, reverse engineer) mã nguồn phần mềm</li>
+        <li><strong>Chia sẻ license key:</strong> Chia sẻ, đăng tải, hoặc phân phối license key cho người khác dưới bất kỳ hình thức nào</li>
+        <li><strong>Vượt bảo vệ:</strong> Cố ý vượt qua, tắt, hoặc can thiệp vào cơ chế kiểm tra bản quyền của phần mềm</li>
+        <li><strong>Tạo crack / keygen:</strong> Phát triển, phân phối hoặc sử dụng công cụ bẻ khóa (crack) hay tạo key giả mạo</li>
+        <li><strong>Sử dụng thương mại trái phép:</strong> Cung cấp phần mềm như một dịch vụ (SaaS) cho bên thứ ba mà không có giấy phép đặc biệt</li>
+        <li><strong>Xóa thông tin bản quyền:</strong> Xóa hoặc sửa đổi bất kỳ thông báo bản quyền, nhãn hiệu, hoặc thông tin sở hữu nào trong phần mềm</li>
+      </ul>
+      <div class="danger-box">
+        Vi phạm bất kỳ điều nào ở trên sẽ dẫn đến <strong>chấm dứt license ngay lập tức</strong> và 3T Company có quyền truy cứu trách nhiệm pháp lý theo quy định của pháp luật Việt Nam về sở hữu trí tuệ.
+      </div>
+    </div>
+
+    <!-- Section 6 -->
+    <div class="doc-section" id="t6">
+      <h2><span class="sec-num">6</span>Bảo hành và giới hạn trách nhiệm</h2>
+      <p><strong>Phần mềm được cung cấp "như hiện trạng" (as-is)</strong> mà không có bất kỳ bảo đảm nào, dù rõ ràng hay ngụ ý, bao gồm nhưng không giới hạn các bảo đảm về tính thương mại hay phù hợp cho một mục đích cụ thể.</p>
+
+      <div class="warning-box">
+        <strong>Giới hạn trách nhiệm:</strong> 3T Company không chịu trách nhiệm về bất kỳ thiệt hại gián tiếp, ngẫu nhiên, đặc biệt hoặc hậu quả nào phát sinh từ việc sử dụng hoặc không thể sử dụng phần mềm, kể cả khi chúng tôi đã được thông báo về khả năng xảy ra thiệt hại đó.
+      </div>
+
+      <p>Đặc biệt, chúng tôi <strong>không chịu trách nhiệm</strong> về:</p>
+      <ul>
+        <li>Mất mát hoặc hư hỏng dữ liệu phát sinh từ việc sử dụng phần mềm</li>
+        <li>Gián đoạn hoạt động kinh doanh hoặc thiệt hại tài chính</li>
+        <li>Sự cố phát sinh do phần cứng, hệ điều hành, hoặc phần mềm của bên thứ ba</li>
+      </ul>
+      <p>Trong mọi trường hợp, trách nhiệm tối đa của 3T Company không vượt quá số tiền bạn đã thanh toán cho license key trong 12 tháng gần nhất.</p>
+    </div>
+
+    <!-- Section 7 -->
+    <div class="doc-section" id="t7">
+      <h2><span class="sec-num">7</span>Cập nhật phần mềm</h2>
+      <p>Trong thời hạn license còn hiệu lực, bạn sẽ nhận được:</p>
+      <ul class="list-ok">
+        <li>Tất cả bản vá bảo mật và sửa lỗi (patch releases)</li>
+        <li>Cập nhật tính năng nhỏ (minor updates) trong cùng phiên bản chính</li>
+        <li>Thông báo qua email về các cập nhật quan trọng</li>
+      </ul>
+      <p>Nâng cấp lên phiên bản chính mới (major version) có thể yêu cầu mua license mới hoặc trả phí nâng cấp. Chúng tôi sẽ thông báo trước ít nhất 30 ngày.</p>
+    </div>
+
+    <!-- Section 8 -->
+    <div class="doc-section" id="t8">
+      <h2><span class="sec-num">8</span>Chấm dứt license</h2>
+      <p>License của bạn sẽ chấm dứt tự động trong các trường hợp:</p>
+      <ul>
+        <li>License key hết hạn và không được gia hạn</li>
+        <li>Bạn vi phạm bất kỳ điều khoản nào trong thỏa thuận này</li>
+        <li>Theo yêu cầu của bạn (hủy license)</li>
+      </ul>
+      <p>Khi license chấm dứt, bạn phải ngừng sử dụng phần mềm và xóa tất cả bản sao đã cài đặt. 3T Company có quyền vô hiệu hóa license key từ xa trong trường hợp vi phạm điều khoản.</p>
+    </div>
+
+    <!-- Section 9 -->
+    <div class="doc-section" id="t9">
+      <h2><span class="sec-num">9</span>Luật áp dụng và giải quyết tranh chấp</h2>
+      <p>Thỏa thuận này được điều chỉnh và giải thích theo <strong>pháp luật Việt Nam</strong>, đặc biệt là các quy định về sở hữu trí tuệ (Luật Sở hữu trí tuệ số 50/2005/QH11 và các văn bản sửa đổi) và bảo vệ người tiêu dùng.</p>
+      <p>Mọi tranh chấp phát sinh từ hoặc liên quan đến thỏa thuận này sẽ được giải quyết theo trình tự:</p>
+      <ul>
+        <li><strong>Bước 1 – Thương lượng:</strong> Hai bên cố gắng giải quyết qua thương lượng trực tiếp trong vòng 30 ngày</li>
+        <li><strong>Bước 2 – Hòa giải:</strong> Nếu không đạt được thỏa thuận, hai bên thực hiện hòa giải theo quy định pháp luật</li>
+        <li><strong>Bước 3 – Tòa án:</strong> Tranh chấp không giải quyết được sẽ được đưa ra Tòa án nhân dân có thẩm quyền tại Việt Nam</li>
+      </ul>
+    </div>
+
+    <!-- Section 10 -->
+    <div class="doc-section" id="t10">
+      <h2><span class="sec-num">10</span>Liên hệ</h2>
+      <p>Nếu bạn có câu hỏi về các điều khoản sử dụng này, vui lòng liên hệ:</p>
+      <ul>
+        <li><strong>Email:</strong> <a href="mailto:3t.hotro@gmail.com" style="color:#818cf8">3t.hotro@gmail.com</a></li>
+        <li><strong>Tên công ty:</strong> Công ty TNHH Đầu tư Công nghệ và Xây lắp 3T</li>
+        <li><strong>Website:</strong> reader.3tcomputer.com</li>
+      </ul>
+      <div class="info-box" style="margin-top:20px">
+        Bằng cách tiếp tục sử dụng phần mềm 3T Reader, bạn xác nhận đã đọc, hiểu và đồng ý tuân thủ tất cả các điều khoản trong thỏa thuận này.
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <p><strong style="color:#e2e8f0">3T Reader</strong> – Phần mềm đọc PDF thông minh cho người Việt</p>
+  <p style="margin-top:8px">
+    © 2026 3T Company &nbsp;·&nbsp;
+    <a href="/privacy">Chính sách bảo mật</a> &nbsp;·&nbsp;
+    <a href="/terms">Điều khoản sử dụng</a> &nbsp;·&nbsp;
+    <a href="/support">Hỗ trợ</a> &nbsp;·&nbsp;
+    <a href="mailto:3t.hotro@gmail.com">3t.hotro@gmail.com</a>
+  </p>
+</footer>
+
+</body>
+</html>
