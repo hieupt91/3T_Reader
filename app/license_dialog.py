@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
 import threading
+
+_KEY_RE = re.compile(r'^3TR-[BPE]-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
 
 from packages.qt_compat.QtCore import Qt, QTimer
 from packages.qt_compat.QtWidgets import (
@@ -114,7 +117,7 @@ class LicenseActivationDialog(QDialog):
         root.addSpacing(6)
 
         self._key_input = QLineEdit()
-        self._key_input.setPlaceholderText("THREET-XXXX-XXXX-XXXX")
+        self._key_input.setPlaceholderText("3TR-P-XXXX-XXXX-XXXX")
         self._key_input.setMaxLength(64)
         self._key_input.textChanged.connect(self._on_input_changed)
         root.addWidget(self._key_input)
@@ -159,8 +162,13 @@ class LicenseActivationDialog(QDialog):
     # ── slots ────────────────────────────────────────────────────────────────
 
     def _on_input_changed(self, text: str):
-        self._btn_activate.setEnabled(len(text.strip()) >= 6)
-        self._set_status("", "info")
+        key = text.strip().upper()
+        valid = bool(_KEY_RE.match(key))
+        self._btn_activate.setEnabled(valid)
+        if key and not valid:
+            self._set_status("Định dạng key không đúng. VD: 3TR-P-XXXX-XXXX-XXXX", "err")
+        else:
+            self._set_status("", "info")
 
     def _on_activate(self):
         key = self._key_input.text().strip().upper()
