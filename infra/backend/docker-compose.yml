@@ -14,7 +14,7 @@ services:
       THREET_ADMIN_PASSWORD: 3tAdmin2026
       THREET_ADMIN_EMAIL: 3t.hotro@gmail.com
       THREET_SMTP_USER: 3t.hotro@gmail.com
-      THREET_SMTP_PASS: ziivuwripyxbcntw
+      THREET_SMTP_PASS: hlvustkmykstduvv
     ports:
       - "8000:8000"
     volumes:
