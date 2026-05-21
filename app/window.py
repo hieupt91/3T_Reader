@@ -44,18 +44,32 @@ from app.actions.document import (
     export_to_excel,
 )
 from app.actions.edit import (
+    apply_selected_object_changes,
     create_new_pdf,
+    delete_inserted_object,
+    delete_selected_object_via_selection,
+    insert_image_to_pdf,
+    insert_text_to_pdf,
     redo_last_edit,
+    repick_selected_object_placement,
     save_document,
     save_document_as,
+    select_inserted_object,
     undo_last_edit,
 )
 from app.actions.navigate import prev_page, next_page, jump_to_page
+from app.actions.pages import (
+    watermark_document,
+    delete_pages_action,
+    rotate_pages_action,
+    merge_pdfs_action,
+    split_pdf_action,
+)
 from app.actions.zoom import zoom_in, zoom_out, apply_zoom, reset_zoom, zoom_fit
 from app.actions.sign import check_token, sign_document
 from app.about_dialog import AboutDialog
 from app.sidebar import ThumbnailSidebar
-from app.icon_utils import svg_icon, svg_pixmap
+from app.icon_utils import svg_icon, svg_pixmap, clear_icon_cache
 from app.dialogs import show_warning, show_info
 from app.config import WINDOW_TITLE
 from app.platform_ui import shortcut_label, use_native_menubar, fullscreen_shortcut_hint
@@ -285,6 +299,28 @@ class PDFReaderApp(QMainWindow):
 
         layout.addLayout(insert_form)
 
+        insert_action_row = QHBoxLayout()
+        self.btn_do_insert_text = QPushButton("📝 Đặt text lên PDF")
+        self.btn_do_insert_text.setToolTip("Bấm rồi kéo vùng trên PDF để đặt text")
+        self.btn_do_insert_text.clicked.connect(lambda: insert_text_to_pdf(self))
+        self.btn_do_insert_image = QPushButton("🖼 Đặt ảnh lên PDF")
+        self.btn_do_insert_image.setToolTip("Bấm rồi kéo vùng trên PDF để đặt ảnh")
+        self.btn_do_insert_image.clicked.connect(lambda: insert_image_to_pdf(self))
+        insert_action_row.addWidget(self.btn_do_insert_text)
+        insert_action_row.addWidget(self.btn_do_insert_image)
+        layout.addLayout(insert_action_row)
+
+        select_action_row = QHBoxLayout()
+        self.btn_do_select_obj = QPushButton("✏️ Chọn/Sửa")
+        self.btn_do_select_obj.setToolTip("Bấm vào text/ảnh đã chèn để chỉnh sửa")
+        self.btn_do_select_obj.clicked.connect(lambda: select_inserted_object(self))
+        self.btn_do_delete_obj = QPushButton("🗑 Xóa obj")
+        self.btn_do_delete_obj.setToolTip("Bấm vào text/ảnh đã chèn để xóa")
+        self.btn_do_delete_obj.clicked.connect(lambda: delete_inserted_object(self))
+        select_action_row.addWidget(self.btn_do_select_obj)
+        select_action_row.addWidget(self.btn_do_delete_obj)
+        layout.addLayout(select_action_row)
+
         insert_separator = QFrame()
         insert_separator.setFrameShape(QFrame.Shape.HLine)
         insert_separator.setFrameShadow(QFrame.Shadow.Sunken)
@@ -319,6 +355,15 @@ class PDFReaderApp(QMainWindow):
         self.inspector_underline = QCheckBox("Gạch chân")
         selected_form.addRow("", self.inspector_underline)
 
+        self.inspector_color_btn = QPushButton("#000000")
+        self.inspector_color_btn.setToolTip("Nhấn để chọn màu chữ")
+        self.inspector_color_btn.setStyleSheet(
+            "background-color: rgb(0,0,0); color: white; padding: 4px 8px; border-radius: 3px;"
+        )
+        self._inspector_color = (0.0, 0.0, 0.0)
+        self.inspector_color_btn.clicked.connect(self._inspector_pick_color)
+        selected_form.addRow("Màu chữ", self.inspector_color_btn)
+
         self.inspector_image = QLabel("Chưa chọn ảnh")
         self.inspector_image.setWordWrap(True)
         selected_form.addRow("Ảnh", self.inspector_image)
@@ -339,9 +384,9 @@ class PDFReaderApp(QMainWindow):
         button_row.addWidget(self.inspector_delete)
         layout.addLayout(button_row)
 
-        self.inspector_apply.clicked.connect(self._apply_selected_object_changes)
-        self.inspector_delete.clicked.connect(self._delete_selected_object_from_inspector)
-        self.inspector_repick.clicked.connect(self._repick_selected_object_placement)
+        self.inspector_apply.clicked.connect(lambda: apply_selected_object_changes(self))
+        self.inspector_delete.clicked.connect(lambda: delete_selected_object_via_selection(self))
+        self.inspector_repick.clicked.connect(lambda: repick_selected_object_placement(self))
 
         self.edit_inspector.setWidget(body)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.edit_inspector)
@@ -375,9 +420,30 @@ class PDFReaderApp(QMainWindow):
                 return op
         return None
 
+    def _inspector_update_color_btn(self, color: tuple):
+        self._inspector_color = color
+        r, g, b = [int(v * 255) for v in color]
+        luma = 0.299 * r + 0.587 * g + 0.114 * b
+        text_color = "black" if luma > 128 else "white"
+        self.inspector_color_btn.setStyleSheet(
+            f"background-color: rgb({r},{g},{b}); color: {text_color}; padding: 4px 8px; border-radius: 3px;"
+        )
+        self.inspector_color_btn.setText(f"#{r:02X}{g:02X}{b:02X}")
+
+    def _inspector_pick_color(self):
+        from packages.qt_compat.QtWidgets import QColorDialog
+        from packages.qt_compat.QtGui import QColor
+        r, g, b = [int(v * 255) for v in self._inspector_color]
+        color = QColorDialog.getColor(QColor(r, g, b), self, "Chọn màu chữ")
+        if color.isValid():
+            self._inspector_update_color_btn((color.redF(), color.greenF(), color.blueF()))
+
     def show_selected_object_in_inspector(self, op: dict | None):
         self._set_active_selected_op_id(op.get("id") if op else None)
         self._selected_replacement_image_path = ""
+        if op and op.get("type") == "text" and hasattr(self, "inspector_color_btn"):
+            color = op.get("font_color", (0.0, 0.0, 0.0))
+            self._inspector_update_color_btn(color)
 
     def _choose_replacement_image_for_selected(self):
         target_op = self._selected_op()
@@ -593,6 +659,7 @@ class PDFReaderApp(QMainWindow):
             self._set_action_icon(action, svg_file, role=role, size=int(size) if size else 20)
 
     def _refresh_theme_icons(self):
+        clear_icon_cache()
         for action in self.findChildren(QAction):
             svg_file = action.property("icon_svg")
             role = action.property("icon_role")
@@ -806,6 +873,7 @@ class PDFReaderApp(QMainWindow):
         self.search_input.returnPressed.connect(
             lambda: self._search_from_panel(find_previous=False, force_new=False)
         )
+        self.search_input.keyPressEvent = self._search_input_key_press
         row.addWidget(self.search_input, 1)
 
         self.btn_search_prev = QToolButton()
@@ -868,6 +936,12 @@ class PDFReaderApp(QMainWindow):
     def hide_search_panel(self):
         self.search_panel.hide()
 
+    def _search_input_key_press(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.hide_search_panel()
+        else:
+            QLineEdit.keyPressEvent(self.search_input, event)
+
     def _search_from_panel(self, *, find_previous: bool, force_new: bool):
         query = self.search_input.text().strip()
         if not query:
@@ -886,7 +960,7 @@ class PDFReaderApp(QMainWindow):
         self.toolbar.setMovable(False)
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.toolbar.setIconSize(QSize(18, 18))
-        self.toolbar.setFixedHeight(48)
+        self.toolbar.setFixedHeight(46)
         self.addToolBar(self.toolbar)
 
         def add(text, svg_file, tooltip, shortcut, slot):
@@ -903,13 +977,13 @@ class PDFReaderApp(QMainWindow):
         self.brand_widget = QFrame(self)
         self.brand_widget.setObjectName("ToolbarBrand")
         brand_layout = QHBoxLayout(self.brand_widget)
-        brand_layout.setContentsMargins(10, 4, 12, 4)
-        brand_layout.setSpacing(8)
+        brand_layout.setContentsMargins(6, 2, 8, 2)
+        brand_layout.setSpacing(5)
         brand_icon = QLabel()
-        brand_icon.setPixmap(svg_pixmap("logo_mark.svg", size=26))
-        brand_icon.setFixedSize(28, 28)
+        brand_icon.setPixmap(svg_pixmap("logo_mark.svg", size=22))
+        brand_icon.setFixedSize(24, 24)
         brand_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        brand_text = QLabel("3T Reader")
+        brand_text = QLabel("3T")
         brand_text.setObjectName("ToolbarBrandText")
         brand_layout.addWidget(brand_icon)
         brand_layout.addWidget(brand_text)
@@ -935,51 +1009,123 @@ class PDFReaderApp(QMainWindow):
         self._set_action_icon_color(self.act_print, "#b38cff")
         self.toolbar.addSeparator()
 
-        # Group: Navigation
-        self.act_prev = add("Trang trước", "chevron_left.svg", "Trang trước (Left)", "Left", lambda: prev_page(self))
-        self._set_action_icon_color(self.act_prev, "#9fa9c9")
+        # Group: Navigation — bọc vào 1 container để căn hàng hoàn hảo
+        # Giữ act_prev/act_next là QAction (cho shortcut) nhưng không thêm lên toolbar
+        self.act_prev = QAction("Trang trước", self)
+        self.act_prev.setShortcut(QKeySequence("Left"))
+        self.act_prev.triggered.connect(lambda: prev_page(self))
+        self.addAction(self.act_prev)
 
-        self.page_spin = QSpinBox()
+        self.act_next = QAction("Trang sau", self)
+        self.act_next.setShortcut(QKeySequence("Right"))
+        self.act_next.triggered.connect(lambda: next_page(self))
+        self.addAction(self.act_next)
+
+        _NAV_BTN_SIZE = 28
+        _NAV_H = 30
+
+        nav_widget = QWidget(self)
+        nav_widget.setObjectName("NavWidget")
+        nav_layout = QHBoxLayout(nav_widget)
+        nav_layout.setContentsMargins(2, 0, 2, 0)
+        nav_layout.setSpacing(1)
+
+        self.btn_nav_prev = QToolButton(nav_widget)
+        self.btn_nav_prev.setIcon(svg_icon("chevron_left.svg", size=14, color="#9fa9c9"))
+        self.btn_nav_prev.setFixedSize(_NAV_BTN_SIZE, _NAV_H)
+        self.btn_nav_prev.setAutoRaise(True)
+        self.btn_nav_prev.setToolTip("Trang trước (←)")
+        self.btn_nav_prev.clicked.connect(lambda: prev_page(self))
+        nav_layout.addWidget(self.btn_nav_prev)
+
+        self.page_spin = QSpinBox(nav_widget)
         self.page_spin.setMinimum(1)
         self.page_spin.setMaximum(9999)
-        self.page_spin.setFixedWidth(64)
+        self.page_spin.setFixedSize(46, _NAV_H)
+        self.page_spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.page_spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.page_spin.setToolTip("Nhập số trang và Enter")
         self.page_spin.editingFinished.connect(lambda: jump_to_page(self))
-        self.toolbar.addWidget(self.page_spin)
+        nav_layout.addWidget(self.page_spin)
 
-        self.total_label = QLabel(" / -")
-        self.toolbar.addWidget(self.total_label)
+        self.total_label = QLabel(" / -", nav_widget)
+        self.total_label.setFixedHeight(_NAV_H)
+        self.total_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.total_label.setObjectName("NavTotalLabel")
+        nav_layout.addWidget(self.total_label)
 
-        self.act_next = add("Trang sau", "chevron_right.svg", "Trang sau (Right)", "Right", lambda: next_page(self))
-        self._set_action_icon_color(self.act_next, "#9fa9c9")
+        self.btn_nav_next = QToolButton(nav_widget)
+        self.btn_nav_next.setIcon(svg_icon("chevron_right.svg", size=14, color="#9fa9c9"))
+        self.btn_nav_next.setFixedSize(_NAV_BTN_SIZE, _NAV_H)
+        self.btn_nav_next.setAutoRaise(True)
+        self.btn_nav_next.setToolTip("Trang sau (→)")
+        self.btn_nav_next.clicked.connect(lambda: next_page(self))
+        nav_layout.addWidget(self.btn_nav_next)
+
+        self.toolbar.addWidget(nav_widget)
         self.toolbar.addSeparator()
 
-        # Group: View
-        self.act_zoom_out = add("Thu nhỏ", "zoom_out.svg", f"Thu nhỏ ({shortcut_label('Ctrl+-')})", "Ctrl+-", lambda: zoom_out(self))
-        self._set_action_icon_color(self.act_zoom_out, "#ff9a52")
+        # Group: View — zoom cũng bọc vào container
+        self.act_zoom_out = QAction("Thu nhỏ", self)
+        self.act_zoom_out.setShortcut(QKeySequence("Ctrl+-"))
+        self.act_zoom_out.triggered.connect(lambda: zoom_out(self))
+        self.addAction(self.act_zoom_out)
 
-        self.zoom_spin = QSpinBox()
+        self.act_zoom_in = QAction("Phóng to", self)
+        self.act_zoom_in.setShortcut(QKeySequence("Ctrl+="))
+        self.act_zoom_in.triggered.connect(lambda: zoom_in(self))
+        self.addAction(self.act_zoom_in)
+
+        self.act_fit = QAction("Vừa trang", self)
+        self.act_fit.setShortcut(QKeySequence("Ctrl+0"))
+        self.act_fit.triggered.connect(lambda: zoom_fit(self))
+        self.addAction(self.act_fit)
+
+        _ZOOM_H = 30
+
+        zoom_widget = QWidget(self)
+        zoom_widget.setObjectName("ZoomWidget")
+        zoom_layout = QHBoxLayout(zoom_widget)
+        zoom_layout.setContentsMargins(2, 0, 2, 0)
+        zoom_layout.setSpacing(1)
+
+        self.btn_zoom_out = QToolButton(zoom_widget)
+        self.btn_zoom_out.setIcon(svg_icon("zoom_out.svg", size=14, color="#ff9a52"))
+        self.btn_zoom_out.setFixedSize(_NAV_BTN_SIZE, _ZOOM_H)
+        self.btn_zoom_out.setAutoRaise(True)
+        self.btn_zoom_out.setToolTip(f"Thu nhỏ ({shortcut_label('Ctrl+-')})")
+        self.btn_zoom_out.clicked.connect(lambda: zoom_out(self))
+        zoom_layout.addWidget(self.btn_zoom_out)
+
+        self.zoom_spin = QSpinBox(zoom_widget)
         self.zoom_spin.setRange(25, 400)
         self.zoom_spin.setValue(100)
         self.zoom_spin.setSuffix("%")
-        self.zoom_spin.setFixedWidth(78)
-        self.zoom_spin.setToolTip("Zoom (double-click → 100%)")
+        self.zoom_spin.setFixedSize(56, _ZOOM_H)
+        self.zoom_spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.zoom_spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self.zoom_spin.setToolTip("Zoom — nhập % và Enter, double-click → 100%")
         self.zoom_spin.editingFinished.connect(lambda: apply_zoom(self))
         self.zoom_spin.installEventFilter(self)
-        self.toolbar.addWidget(self.zoom_spin)
+        zoom_layout.addWidget(self.zoom_spin)
 
-        self.zoom_reset_button = QToolButton(self)
-        self.zoom_reset_button.setObjectName("ZoomResetButton")
-        self.zoom_reset_button.setAutoRaise(True)
-        self.zoom_reset_button.setText("100%")
-        self.zoom_reset_button.setToolTip("Đưa zoom về 100%")
-        self.zoom_reset_button.clicked.connect(lambda: reset_zoom(self))
-        self.toolbar.addWidget(self.zoom_reset_button)
+        self.btn_zoom_in = QToolButton(zoom_widget)
+        self.btn_zoom_in.setIcon(svg_icon("zoom_in.svg", size=14, color="#57c86f"))
+        self.btn_zoom_in.setFixedSize(_NAV_BTN_SIZE, _ZOOM_H)
+        self.btn_zoom_in.setAutoRaise(True)
+        self.btn_zoom_in.setToolTip(f"Phóng to ({shortcut_label('Ctrl+=')})")
+        self.btn_zoom_in.clicked.connect(lambda: zoom_in(self))
+        zoom_layout.addWidget(self.btn_zoom_in)
 
-        self.act_zoom_in = add("Phóng to",  "zoom_in.svg",  f"Phóng to ({shortcut_label('Ctrl+=')})",  "Ctrl+=", lambda: zoom_in(self))
-        self.act_fit     = add("Vừa trang", "fit_page.svg", f"Vừa trang ({shortcut_label('Ctrl+0')})", "Ctrl+0", lambda: zoom_fit(self))
-        self._set_action_icon_color(self.act_zoom_in, "#57c86f")
-        self._set_action_icon_color(self.act_fit, "#cf78ff")
+        self.btn_fit = QToolButton(zoom_widget)
+        self.btn_fit.setIcon(svg_icon("fit_page.svg", size=14, color="#cf78ff"))
+        self.btn_fit.setFixedSize(_NAV_BTN_SIZE, _ZOOM_H)
+        self.btn_fit.setAutoRaise(True)
+        self.btn_fit.setToolTip(f"Vừa trang ({shortcut_label('Ctrl+0')})")
+        self.btn_fit.clicked.connect(lambda: zoom_fit(self))
+        zoom_layout.addWidget(self.btn_fit)
+
+        self.toolbar.addWidget(zoom_widget)
         self.act_toggle_sidebar = self.sidebar.toggleViewAction()
         self.act_toggle_sidebar.setText("Cột trang")
         self.act_toggle_sidebar.setToolTip("Ẩn/hiện cột trang bên trái")
@@ -990,7 +1136,7 @@ class PDFReaderApp(QMainWindow):
         self.sidebar_toggle_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.sidebar_toggle_button.setIcon(self.act_toggle_sidebar.icon())
         self.sidebar_toggle_button.setIconSize(QSize(16, 16))
-        self.sidebar_toggle_button.setFixedSize(32, 28)
+        self.sidebar_toggle_button.setFixedSize(30, 30)
         self.sidebar_toggle_button.setAutoRaise(True)
         self.sidebar_toggle_button.setCheckable(True)
         self.sidebar_toggle_button.clicked.connect(self._toggle_sidebar_from_button)
@@ -1002,7 +1148,39 @@ class PDFReaderApp(QMainWindow):
         self.act_new_pdf         = add("PDF mới",       "file_plus.svg",   f"Tạo PDF mới ({shortcut_label('Ctrl+N')})", "Ctrl+N", lambda: create_new_pdf(self))
         self.act_undo            = add("Hoàn tác",     "undo.svg",        f"Hoàn tác ({shortcut_label('Ctrl+Z')})", "Ctrl+Z", lambda: undo_last_edit(self))
         self.act_redo            = add("Làm lại",      "redo.svg",        f"Làm lại ({shortcut_label('Ctrl+Y')})", "Ctrl+Y", lambda: redo_last_edit(self))
-        self._edit_mode_actions = {}
+        # Edit actions — menu only, không thêm vào toolbar để tránh tràn
+        self.act_insert_text = QAction("Đặt text", self)
+        self._set_action_icon(self.act_insert_text, "text_insert.svg", role="menu")
+        self.act_insert_text.setToolTip(f"Đặt văn bản lên PDF ({shortcut_label('Ctrl+Shift+T')})")
+        self.act_insert_text.setShortcut(QKeySequence("Ctrl+Shift+T"))
+        self.act_insert_text.triggered.connect(lambda: insert_text_to_pdf(self))
+        self.act_insert_text.setCheckable(True)
+
+        self.act_insert_image = QAction("Đặt ảnh", self)
+        self._set_action_icon(self.act_insert_image, "image_insert.svg", role="menu")
+        self.act_insert_image.setToolTip(f"Đặt ảnh lên PDF ({shortcut_label('Ctrl+Shift+I')})")
+        self.act_insert_image.setShortcut(QKeySequence("Ctrl+Shift+I"))
+        self.act_insert_image.triggered.connect(lambda: insert_image_to_pdf(self))
+        self.act_insert_image.setCheckable(True)
+
+        self.act_select_inserted = QAction("Chọn/Sửa", self)
+        self._set_action_icon(self.act_select_inserted, "edit_object.svg", role="menu")
+        self.act_select_inserted.setToolTip("Chọn và chỉnh nội dung đã chèn")
+        self.act_select_inserted.triggered.connect(lambda: select_inserted_object(self))
+        self.act_select_inserted.setCheckable(True)
+
+        self.act_delete_inserted = QAction("Xóa obj", self)
+        self._set_action_icon(self.act_delete_inserted, "edit_object.svg", role="menu")
+        self.act_delete_inserted.setToolTip("Xóa nội dung đã chèn")
+        self.act_delete_inserted.triggered.connect(lambda: delete_inserted_object(self))
+        self.act_delete_inserted.setCheckable(True)
+
+        self._edit_mode_actions = {
+            "text":   self.act_insert_text,
+            "image":  self.act_insert_image,
+            "edit":   self.act_select_inserted,
+            "delete": self.act_delete_inserted,
+        }
         self._set_action_icon_color(self.act_new_pdf, "#7a8cff")
         self._set_action_icon_color(self.act_undo, "#b39dbb")
         self._set_action_icon_color(self.act_redo, "#8bc6ff")
@@ -1019,11 +1197,11 @@ class PDFReaderApp(QMainWindow):
 
         self.theme_button = QToolButton(self)
         self.theme_button.setObjectName("ThemeButton")
-        self.theme_button.setPopupMode(QToolButton.ToolButtonPopupMode.NoPopup)
+        self.theme_button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
         self.theme_button.setAutoRaise(True)
         self.theme_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.theme_button.setIconSize(QSize(16, 16))
-        self.theme_button.setFixedSize(32, 28)
+        self.theme_button.setFixedSize(30, 30)
         self.theme_button.setIcon(svg_icon(self._theme_icon_name(), size=16, color=self._icon_color("toolbar")))
         self.theme_button.clicked.connect(self._toggle_theme_from_button)
         self.theme_button.setToolTip("Bấm để đổi theme")
@@ -1096,11 +1274,13 @@ class PDFReaderApp(QMainWindow):
         menu_file.addAction(self.act_save)
         menu_file.addAction(self.act_save_as)
         menu_file.addAction(self.act_print)
-        act_export_docx = menu_file.addAction("Xuat DOCX...")
+        act_export_docx = menu_file.addAction("Xuất DOCX...")
         self._set_action_icon(act_export_docx, "save.svg", role="menu", size=16)
+        act_export_docx.setShortcut(QKeySequence("Ctrl+Shift+D"))
         act_export_docx.triggered.connect(lambda: export_to_docx(self))
-        act_export_excel = menu_file.addAction("Xuat Excel...")
+        act_export_excel = menu_file.addAction("Xuất Excel...")
         self._set_action_icon(act_export_excel, "save.svg", role="menu", size=16)
+        act_export_excel.setShortcut(QKeySequence("Ctrl+Shift+E"))
         act_export_excel.triggered.connect(lambda: export_to_excel(self))
         menu_file.addSeparator()
 
@@ -1140,6 +1320,11 @@ class PDFReaderApp(QMainWindow):
         menu_tools.addAction(self.act_undo)
         menu_tools.addAction(self.act_redo)
         menu_tools.addSeparator()
+        menu_tools.addAction(self.act_insert_text)
+        menu_tools.addAction(self.act_insert_image)
+        menu_tools.addAction(self.act_select_inserted)
+        menu_tools.addAction(self.act_delete_inserted)
+        menu_tools.addSeparator()
 
         act_find = menu_tools.addAction("Tìm kiếm văn bản...")
         act_find.setShortcut(QKeySequence("Ctrl+F"))
@@ -1155,6 +1340,28 @@ class PDFReaderApp(QMainWindow):
         act_find_prev.setShortcut(QKeySequence("Shift+F3"))
         act_find_prev.triggered.connect(lambda: search_previous(self))
         self._set_action_icon(act_find_prev, "chevron_left.svg", role="menu", size=16)
+
+        menu_tools.addSeparator()
+        act_watermark = menu_tools.addAction("Đóng dấu (Watermark)...")
+        act_watermark.triggered.connect(lambda: watermark_document(self))
+        self._set_action_icon(act_watermark, "pen.svg", role="menu", size=16)
+
+        act_delete_pages = menu_tools.addAction("Xóa trang...")
+        act_delete_pages.triggered.connect(lambda: delete_pages_action(self))
+        self._set_action_icon(act_delete_pages, "edit_object.svg", role="menu", size=16)
+
+        act_rotate_pages = menu_tools.addAction("Xoay trang...")
+        act_rotate_pages.triggered.connect(lambda: rotate_pages_action(self))
+        self._set_action_icon(act_rotate_pages, "redo.svg", role="menu", size=16)
+
+        menu_tools.addSeparator()
+        act_merge_pdfs = menu_tools.addAction("Gộp PDF...")
+        act_merge_pdfs.triggered.connect(lambda: merge_pdfs_action(self))
+        self._set_action_icon(act_merge_pdfs, "file_plus.svg", role="menu", size=16)
+
+        act_split_pdf = menu_tools.addAction("Tách PDF...")
+        act_split_pdf.triggered.connect(lambda: split_pdf_action(self))
+        self._set_action_icon(act_split_pdf, "save.svg", role="menu", size=16)
 
         menu_tabs = bar.addMenu("Tab")
         act_tab_next = menu_tabs.addAction("Tab kế tiếp")
@@ -1188,6 +1395,8 @@ class PDFReaderApp(QMainWindow):
             act_file_info, act_close_tab, act_tab_next, act_tab_prev,
             act_export_docx, act_export_excel,
             act_goto, self.act_toggle_sidebar, act_shortcuts, act_about, act_exit,
+            act_watermark, act_delete_pages, act_rotate_pages,
+            act_merge_pdfs, act_split_pdf,
         ):
             action.setIconVisibleInMenu(True)
 

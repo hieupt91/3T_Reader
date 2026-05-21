@@ -638,6 +638,7 @@ class _TextPlacementDialog(QDialog):
         initial_rotation: int = 0,
         initial_bold: bool = False,
         initial_underline: bool = False,
+        initial_color: tuple = (0.0, 0.0, 0.0),
     ):
         from packages.qt_compat.QtCore import Qt
 
@@ -651,6 +652,8 @@ class _TextPlacementDialog(QDialog):
         self.setModal(False)
         self.setWindowModality(Qt.WindowModality.NonModal)
         self.setMinimumWidth(360)
+
+        self._color = tuple(initial_color) if initial_color else (0.0, 0.0, 0.0)
 
         root = QVBoxLayout(self)
 
@@ -671,6 +674,12 @@ class _TextPlacementDialog(QDialog):
         self.font_size_spin.setValue(max(6, min(96, int(initial_font_size or 12))))
         self.font_size_spin.setSuffix(" pt")
         form.addRow("Cỡ chữ", self.font_size_spin)
+
+        from packages.qt_compat.QtWidgets import QPushButton
+        self.color_btn = QPushButton()
+        self._update_color_btn()
+        self.color_btn.clicked.connect(self._pick_color)
+        form.addRow("Màu chữ", self.color_btn)
 
         self.rotation_combo = QComboBox()
         self.rotation_combo.addItems(["0°", "90°", "180°", "270°"])
@@ -704,11 +713,32 @@ class _TextPlacementDialog(QDialog):
         y = geo.top() + 72
         self.move(max(0, x), max(0, y))
 
+    def _update_color_btn(self):
+        r, g, b = [int(v * 255) for v in self._color]
+        luma = 0.299 * r + 0.587 * g + 0.114 * b
+        text_color = "black" if luma > 128 else "white"
+        self.color_btn.setStyleSheet(
+            f"background-color: rgb({r},{g},{b}); color: {text_color}; padding: 4px 12px; border-radius: 3px;"
+        )
+        self.color_btn.setText(f"#{r:02X}{g:02X}{b:02X}")
+
+    def _pick_color(self):
+        from packages.qt_compat.QtWidgets import QColorDialog
+        from packages.qt_compat.QtGui import QColor
+        r, g, b = [int(v * 255) for v in self._color]
+        color = QColorDialog.getColor(QColor(r, g, b), self, "Chọn màu chữ")
+        if color.isValid():
+            self._color = (color.redF(), color.greenF(), color.blueF())
+            self._update_color_btn()
+
     def text_value(self) -> str:
         return self.text_edit.toPlainText()
 
     def font_size_value(self) -> int:
         return int(self.font_size_spin.value())
+
+    def color_value(self) -> tuple:
+        return self._color
 
     def rotation_value(self) -> int:
         return [0, 90, 180, 270][self.rotation_combo.currentIndex()]
@@ -774,6 +804,437 @@ def create_new_pdf(window):
 
     open_file(window, output_path)
     window.status.showMessage("Đã tạo PDF mới", 3000)
+
+
+@require_document(show_message=True)
+def insert_text_to_pdf(window):
+    _begin_edit_mode(window, "text", "Bấm hoặc kéo trên PDF để đặt text.")
+    try:
+        placement = _pick_pdf_area(window)
+        if not placement:
+            return
+
+        page_number = max(1, int(placement["page_number"]))
+        left, bottom, right, top = placement["box"]
+
+        if abs(right - left) < 6 and abs(top - bottom) < 6:
+            right = left + 220
+            top = bottom + 56
+
+        placement = {
+            "page_number": page_number,
+            "box": (left, bottom, right, top),
+        }
+        initial_text = window.current_insert_text() if hasattr(window, "current_insert_text") else ""
+        initial_font_size = window.current_insert_font_size() if hasattr(window, "current_insert_font_size") else 12
+        dialog = _TextPlacementDialog(
+            window,
+            initial_text=initial_text,
+            initial_font_size=initial_font_size,
+            initial_rotation=0,
+            initial_bold=False,
+            initial_underline=False,
+        )
+        placement = _confirm_preview_placement(
+            window,
+            placement,
+            title="Đặt text",
+            note="Gõ nội dung và kéo khung trên PDF để chỉnh vị trí.",
+            label="Preview text",
+            dialog=dialog,
+        )
+        if not placement:
+            return
+
+        text = dialog.text_value()
+        if not text:
+            from app.dialogs import show_warning
+            show_warning(window, "Thiếu nội dung text", "Nhập nội dung text trước khi bấm OK.")
+            return
+        font_size = dialog.font_size_value()
+        font_color = dialog.color_value()
+        rotation = dialog.rotation_value()
+        bold = dialog.bold_value()
+        underline = dialog.underline_value()
+
+        state = _ensure_edit_state(window)
+        if not state:
+            return
+
+        op = {
+            "id": state["next_id"],
+            "type": "text",
+            "page_number": int(placement["page_number"]),
+            "box": tuple(placement["box"]),
+            "text": text,
+            "font_size": font_size,
+            "font_color": font_color,
+            "rotation": rotation,
+            "bold": bold,
+            "underline": underline,
+        }
+        state["next_id"] += 1
+        state["ops"].append(op)
+        state["redo_ops"] = []
+
+        _render_edit_state(window, state, "Đã đặt text")
+        _set_selected_object(window, op)
+    finally:
+        _end_edit_mode(window)
+
+
+@require_document(show_message=True)
+def insert_image_to_pdf(window):
+    _begin_edit_mode(window, "image", "Kéo trên PDF để đặt vùng ảnh, hoặc bấm một điểm để dùng kích thước mặc định.")
+    try:
+        image_path = window.current_insert_image_path() if hasattr(window, "current_insert_image_path") else ""
+        if not image_path:
+            image_path, _ = QFileDialog.getOpenFileName(
+                window,
+                "Chọn ảnh",
+                "",
+                "Image Files (*.png *.jpg *.jpeg *.bmp *.webp)",
+            )
+            if not image_path:
+                return
+            setter = getattr(window, "set_selected_insert_image_path", None)
+            if callable(setter):
+                setter(image_path)
+
+        placement = _pick_pdf_area(window)
+        if not placement:
+            return
+
+        page_number = max(1, int(placement["page_number"]))
+        left, bottom, right, top = placement["box"]
+
+        if abs(right - left) < 6 and abs(top - bottom) < 6:
+            box_w, box_h = (180.0, 120.0)
+            if hasattr(window, "current_insert_image_box_size"):
+                box_w, box_h = window.current_insert_image_box_size()
+            right = left + box_w
+            top = bottom + box_h
+
+        placement = {
+            "page_number": page_number,
+            "box": (left, bottom, right, top),
+        }
+        image_dialog = _ObjectPlacementDialog(
+            window,
+            title="Đặt ảnh",
+            note=f"Ảnh: {os.path.basename(image_path)}\n\nKéo khung trên PDF để chỉnh vị trí/kích thước, rồi bấm OK để chèn.",
+            initial_rotation=0,
+        )
+        placement = _confirm_preview_placement(
+            window,
+            placement,
+            title="Đặt ảnh",
+            note="Kéo khung trên PDF để chỉnh vị trí/kích thước.",
+            label="Preview ảnh",
+            dialog=image_dialog,
+        )
+        if not placement:
+            return
+        rotation = image_dialog.rotation_value()
+
+        state = _ensure_edit_state(window)
+        if not state:
+            return
+        staged_image_path = _stage_image_for_edit(state, image_path)
+
+        op = {
+            "id": state["next_id"],
+            "type": "image",
+            "page_number": int(placement["page_number"]),
+            "box": tuple(placement["box"]),
+            "image_path": staged_image_path,
+            "rotation": rotation,
+        }
+        state["next_id"] += 1
+        state["ops"].append(op)
+        state["redo_ops"] = []
+
+        _render_edit_state(window, state, "Đã đặt ảnh")
+        _set_selected_object(window, op)
+    finally:
+        _end_edit_mode(window)
+
+
+@require_document(show_message=True)
+def select_inserted_object(window):
+    from app.actions.sign import (
+        SignaturePreviewAdjustBridge,
+        _get_web_view,
+        _set_object_preview,
+        _setup_webchannel,
+        _teardown_webchannel,
+    )
+
+    _begin_edit_mode(window, "edit", "Bấm vào nội dung đã chèn để chọn, rồi kéo trực tiếp khung để sửa.")
+    try:
+        state = _ensure_edit_state(window)
+        if not state or not state.get("ops"):
+            from app.dialogs import show_warning
+            show_warning(window, "Chưa có nội dung", "Chưa có text/ảnh nào được chèn để chỉnh sửa.")
+            return
+
+        picked_object = _pick_pdf_area(window)
+        if not picked_object:
+            return
+
+        target_op = _find_op_at_pick(state, picked_object)
+        if not target_op:
+            from app.dialogs import show_warning
+            show_warning(window, "Không tìm thấy", "Không xác định được nội dung đã chèn tại vị trí bạn bấm.")
+            return
+
+        web_view = _get_web_view(window)
+        if web_view is None:
+            from app.dialogs import show_warning
+            show_warning(window, "Chưa sẵn sàng", "Trình xem PDF chưa sẵn sàng.")
+            return
+
+        placement = {
+            "page_number": int(target_op["page_number"]),
+            "box": tuple(target_op["box"]),
+        }
+        label = "Chỉnh text" if target_op.get("type") == "text" else "Chỉnh ảnh"
+        if target_op.get("type") == "text":
+            confirm_dialog = _TextPlacementDialog(
+                window,
+                initial_text=str(target_op.get("text", "")),
+                initial_font_size=int(target_op.get("font_size", 12)),
+                initial_rotation=int(target_op.get("rotation", 0)),
+                initial_bold=bool(target_op.get("bold", False)),
+                initial_underline=bool(target_op.get("underline", False)),
+                initial_color=target_op.get("font_color", (0.0, 0.0, 0.0)),
+            )
+        else:
+            confirm_dialog = _ObjectPlacementDialog(
+                window,
+                title="Chỉnh nội dung đã chèn",
+                note="Kéo trực tiếp khung trên PDF để di chuyển hoặc đổi kích thước, rồi bấm OK để lưu.",
+                initial_rotation=int(target_op.get("rotation", 0)),
+            )
+        preview_bridge = SignaturePreviewAdjustBridge(confirm_dialog)
+        _setup_webchannel(web_view, confirm_dialog, "sigPreviewBridge", preview_bridge)
+
+        def _apply_adjustment(page_number, left, bottom, right, top):
+            nonlocal placement
+            placement = {
+                "page_number": max(1, int(page_number)),
+                "box": (left, bottom, right, top),
+            }
+            _set_object_preview(window, placement, label=label)
+
+        preview_bridge.adjusted.connect(_apply_adjustment)
+        _set_object_preview(window, placement, label=label)
+
+        from packages.qt_compat.QtCore import QEventLoop
+        from packages.qt_compat.QtWidgets import QDialog
+        try:
+            loop = QEventLoop(confirm_dialog)
+            confirm_dialog.finished.connect(lambda _code: loop.quit() if loop.isRunning() else None)
+            confirm_dialog.show()
+            confirm_dialog.raise_()
+            confirm_dialog.activateWindow()
+            loop.exec()
+            if confirm_dialog.result() != QDialog.DialogCode.Accepted:
+                return
+        finally:
+            _set_object_preview(window, None)
+            _teardown_webchannel(web_view)
+
+        target_op["page_number"] = int(placement["page_number"])
+        target_op["box"] = tuple(placement["box"])
+        target_op["rotation"] = confirm_dialog.rotation_value()
+        if target_op.get("type") == "text":
+            text_value = confirm_dialog.text_value()
+            if not text_value:
+                from app.dialogs import show_warning
+                show_warning(window, "Thiếu nội dung text", "Nội dung text không được để trống.")
+                return
+            target_op["text"] = text_value
+            target_op["font_size"] = confirm_dialog.font_size_value()
+            target_op["font_color"] = confirm_dialog.color_value()
+            target_op["bold"] = confirm_dialog.bold_value()
+            target_op["underline"] = confirm_dialog.underline_value()
+        state["redo_ops"] = []
+        _render_edit_state(window, state, "Đã cập nhật vị trí/kích thước nội dung")
+        _set_selected_object(window, target_op)
+    finally:
+        _end_edit_mode(window)
+
+
+@require_document(show_message=True)
+def apply_selected_object_changes(window):
+    state = _ensure_edit_state(window)
+    if not state:
+        return
+    selected_id = window._active_selected_op_id() if hasattr(window, "_active_selected_op_id") else None
+    if selected_id is None:
+        from app.dialogs import show_warning
+        show_warning(window, "Chưa chọn đối tượng", "Hãy dùng 'Sửa' hoặc chèn mới để chọn một đối tượng trước.")
+        return
+    target_op = next((op for op in state.get("ops", []) if op.get("id") == selected_id), None)
+    if not target_op:
+        from app.dialogs import show_warning
+        show_warning(window, "Không tìm thấy", "Đối tượng đang chọn không còn tồn tại.")
+        _set_selected_object(window, None)
+        return
+    if target_op.get("type") == "text":
+        text_value = window.inspector_text.toPlainText().strip() if hasattr(window, "inspector_text") else ""
+        if not text_value:
+            from app.dialogs import show_warning
+            show_warning(window, "Thiếu nội dung text", "Nội dung text không được để trống.")
+            return
+        target_op["text"] = text_value
+        if hasattr(window, "inspector_font_size"):
+            target_op["font_size"] = int(window.inspector_font_size.value())
+        if hasattr(window, "inspector_bold"):
+            target_op["bold"] = window.inspector_bold.isChecked()
+        if hasattr(window, "inspector_underline"):
+            target_op["underline"] = window.inspector_underline.isChecked()
+        if hasattr(window, "_inspector_color"):
+            target_op["font_color"] = window._inspector_color
+    if hasattr(window, "inspector_rotation"):
+        target_op["rotation"] = [0, 90, 180, 270][window.inspector_rotation.currentIndex()]
+    state["redo_ops"] = []
+    _render_edit_state(window, state, "Đã áp dụng thay đổi cho đối tượng")
+    _set_selected_object(window, target_op)
+
+
+@require_document(show_message=True)
+def delete_selected_object_via_selection(window):
+    state = _ensure_edit_state(window)
+    if not state:
+        return
+    selected_id = window._active_selected_op_id() if hasattr(window, "_active_selected_op_id") else None
+    if selected_id is None:
+        from app.dialogs import show_warning
+        show_warning(window, "Chưa chọn đối tượng", "Hãy chọn một đối tượng rồi mới xóa.")
+        return
+    target_op = next((op for op in state.get("ops", []) if op.get("id") == selected_id), None)
+    if not target_op:
+        _set_selected_object(window, None)
+        from app.dialogs import show_warning
+        show_warning(window, "Không tìm thấy", "Đối tượng đang chọn không còn tồn tại.")
+        return
+    state["ops"] = [op for op in state.get("ops", []) if op.get("id") != selected_id]
+    state.setdefault("redo_ops", []).clear()
+    if not state["ops"]:
+        base = state.get("base_snapshot")
+        working = state.get("working_file")
+        if base and os.path.exists(base) and working:
+            shutil.copy2(base, working)
+            _reload_viewer(window, working)
+    else:
+        _render_edit_state(window, state, "Đã xóa đối tượng đang chọn")
+    _set_selected_object(window, None)
+
+
+@require_document(show_message=True)
+def repick_selected_object_placement(window):
+    state = _ensure_edit_state(window)
+    if not state:
+        return
+    selected_id = window._active_selected_op_id() if hasattr(window, "_active_selected_op_id") else None
+    if selected_id is None:
+        from app.dialogs import show_warning
+        show_warning(window, "Chưa chọn đối tượng", "Hãy chọn một đối tượng trước.")
+        return
+    target_op = next((op for op in state.get("ops", []) if op.get("id") == selected_id), None)
+    if not target_op:
+        _set_selected_object(window, None)
+        from app.dialogs import show_warning
+        show_warning(window, "Không tìm thấy", "Đối tượng đang chọn không còn tồn tại.")
+        return
+    _begin_edit_mode(window, "edit", "Kéo vùng mới trên PDF để đặt lại vị trí/kích thước.")
+    try:
+        new_area = _pick_pdf_area(window)
+        if not new_area:
+            return
+        l, b, r, t = new_area["box"]
+        if abs(r - l) < 6 and abs(t - b) < 6:
+            w = target_op["box"][2] - target_op["box"][0]
+            h = target_op["box"][3] - target_op["box"][1]
+            r = l + max(20, w)
+            t = b + max(20, h)
+        target_op["page_number"] = int(new_area["page_number"])
+        target_op["box"] = (l, b, r, t)
+        state["redo_ops"] = []
+        _render_edit_state(window, state, "Đã cập nhật vị trí/kích thước đối tượng")
+        _set_selected_object(window, target_op)
+    finally:
+        _end_edit_mode(window)
+
+
+@require_document(show_message=True)
+def delete_inserted_object(window):
+    _begin_edit_mode(window, "delete", "Bấm vào nội dung đã chèn trên PDF để xóa.")
+    try:
+        state = _ensure_edit_state(window)
+        if not state or not state.get("ops"):
+            from app.dialogs import show_warning
+            show_warning(window, "Chưa có nội dung", "Chưa có text/ảnh nào được chèn để xóa.")
+            return
+
+        picked_object = _pick_pdf_area(window)
+        if not picked_object:
+            return
+
+        target_op = _find_op_at_pick(state, picked_object)
+        if not target_op:
+            from app.dialogs import show_warning
+            show_warning(window, "Không tìm thấy", "Không xác định được nội dung đã chèn để xóa.")
+            return
+
+        from app.actions.sign import _get_web_view, _set_object_preview, _teardown_webchannel
+        from packages.qt_compat.QtCore import QEventLoop
+        from packages.qt_compat.QtWidgets import QDialog
+        web_view = _get_web_view(window)
+        placement = {
+            "page_number": int(target_op["page_number"]),
+            "box": tuple(target_op["box"]),
+        }
+        confirm_dialog = _ObjectPlacementDialog(
+            window,
+            title="Xóa nội dung đã chèn",
+            note="Khung đang chọn sẽ bị xóa khỏi tài liệu. Bấm OK để xác nhận xóa.",
+        )
+        if web_view is not None:
+            _set_object_preview(window, placement, label="Sắp xóa")
+        try:
+            loop = QEventLoop(confirm_dialog)
+            confirm_dialog.finished.connect(lambda _code: loop.quit() if loop.isRunning() else None)
+            confirm_dialog.show()
+            confirm_dialog.raise_()
+            confirm_dialog.activateWindow()
+            loop.exec()
+            if confirm_dialog.result() != QDialog.DialogCode.Accepted:
+                return
+        finally:
+            if web_view is not None:
+                _set_object_preview(window, None)
+                _teardown_webchannel(web_view)
+
+        state["ops"] = [op for op in state["ops"] if op.get("id") != target_op.get("id")]
+        state.setdefault("redo_ops", []).clear()
+
+        if not state["ops"]:
+            base = state.get("base_snapshot")
+            working = state.get("working_file")
+            if base and os.path.exists(base) and working:
+                shutil.copy2(base, working)
+                _reload_viewer(window, working)
+            window.status.showMessage("Đã xóa nội dung — về trạng thái ban đầu", 3000)
+            _set_selected_object(window, None)
+            return
+
+        _render_edit_state(window, state, "Đã xóa nội dung")
+        _set_selected_object(window, None)
+    finally:
+        _end_edit_mode(window)
 
 
 

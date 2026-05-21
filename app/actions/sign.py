@@ -594,34 +594,51 @@ class SignaturePickPrompt(QDialog):
 
 
 class SignatureIdentityDialog(QDialog):
-    def __init__(self, parent=None, *, default_signer_name: str = ""):
+    def __init__(self, parent=None, *, default_signer_name: str = "", token_detected: bool = False):
         super().__init__(parent)
-        self.setWindowTitle("Thong tin chu ky")
+        self.setWindowTitle("Thông tin chữ ký số")
         self.setModal(True)
+        self.setMinimumWidth(380)
 
         root = QVBoxLayout(self)
+        root.setSpacing(10)
+
+        if token_detected:
+            token_label = QLabel("✓ USB Token đã phát hiện")
+            token_label.setStyleSheet("color: #4caf50; font-weight: bold;")
+            root.addWidget(token_label)
+        else:
+            no_token_label = QLabel("⚠ Không phát hiện USB Token — sẽ thử ký khi nhập PIN")
+            no_token_label.setWordWrap(True)
+            no_token_label.setStyleSheet("color: #ff9800; font-weight: bold;")
+            root.addWidget(no_token_label)
 
         form = QFormLayout()
         self.signer_name_input = QLineEdit()
-        self.signer_name_input.setPlaceholderText("Nhap ten nguoi ky")
+        self.signer_name_input.setPlaceholderText("Nhập tên người ký (lấy từ chứng thư số)")
         if default_signer_name:
             self.signer_name_input.setText(default_signer_name)
         self.signer_name_input.textChanged.connect(self._update_preview)
-        form.addRow("Nguoi ky", self.signer_name_input)
+        form.addRow("Người ký", self.signer_name_input)
         root.addLayout(form)
 
-        preview_title = QLabel("Xem truoc")
+        preview_title = QLabel("Xem trước dấu ký:")
         root.addWidget(preview_title)
 
         self.preview = QLabel()
         self.preview.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.preview.setStyleSheet(
             "background:#f7f7f7; border:1px solid #b6b6b6; border-radius:6px;"
-            "padding:10px; font-family:'Consolas';"
+            "padding:10px; font-family:'Consolas'; color: #222;"
         )
         self.preview.setMinimumHeight(88)
         self.preview.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         root.addWidget(self.preview)
+
+        pin_note = QLabel("⚠ PIN sẽ được hỏi ở bước tiếp theo. Nhập sai PIN nhiều lần có thể khóa token.")
+        pin_note.setWordWrap(True)
+        pin_note.setStyleSheet("color: #888; font-size: 11px;")
+        root.addWidget(pin_note)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -633,16 +650,16 @@ class SignatureIdentityDialog(QDialog):
         self._update_preview()
 
     def _update_preview(self):
-        signer_name = self.signer_name_input.text().strip() or "Khong ro"
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        signer_name = self.signer_name_input.text().strip() or "Không rõ"
+        ts = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         self.preview.setText(
-            "DA KY SO\n"
-            f"Nguoi ky: {signer_name}\n"
-            f"Timestamp: {ts}"
+            "ĐÃ KÝ SỐ\n"
+            f"Người ký: {signer_name}\n"
+            f"Ngày ký: {ts}"
         )
 
     def signer_name(self) -> str:
-        return self.signer_name_input.text().strip() or "Khong ro"
+        return self.signer_name_input.text().strip() or "Không rõ"
 
 
 def _clamp_box(page_width: float, page_height: float, center_x: float, center_y: float):
@@ -712,25 +729,35 @@ def _pick_signature_placement(window):
 
 def check_token(window):
     provider = get_signing_provider()
+    window.status.showMessage("Đang kiểm tra USB Token...", 2000)
     lib = provider.detect_driver()
     if lib:
         signer_info = provider.get_token_info()
         signer_name = signer_info.signer_name if signer_info else ""
-        signer_line = f"\nNgười ký: {signer_name}" if signer_name else ""
+        tax_code = signer_info.tax_code if signer_info and hasattr(signer_info, "tax_code") else ""
+        signer_line = f"\nNgười ký: {signer_name}" if signer_name else "\n(Chưa đọc được thông tin người ký — cần PIN)"
+        tax_line = f"\nMã số thuế: {tax_code}" if tax_code else ""
+        driver_name = os.path.basename(lib)
         show_info(
             window,
-            "Thiết bị ký số",
-            f"Đã tìm thấy USB ký số.\n\nTrình điều khiển: {os.path.basename(lib)}{signer_line}",
+            "USB Token đã kết nối",
+            f"✓ Đã phát hiện USB ký số.\n\nTrình điều khiển: {driver_name}{signer_line}{tax_line}\n\nBạn có thể ký số tài liệu qua Chữ ký số → Ký số.",
         )
+        window.status.showMessage(f"USB Token OK: {driver_name}", 4000)
     else:
         details = provider.get_last_error()
-        detail_line = f"\n\nChi tiết: {details}" if details else ""
+        detail_line = f"\n\nChi tiết lỗi: {details}" if details else ""
         show_warning(
             window,
-            "Không tìm thấy thiết bị ký số",
-            "Chưa cắm USB ký số hoặc trình điều khiển chưa được cài đặt."
+            "Không tìm thấy USB Token",
+            "Chưa cắm USB ký số hoặc middleware chưa được cài đặt.\n\n"
+            "Hướng dẫn khắc phục:\n"
+            "• Cắm USB Token vào máy tính\n"
+            "• Cài đặt phần mềm middleware của nhà cung cấp (Viettel, VNPT, FPT, BKAv...)\n"
+            "• Khởi động lại ứng dụng và thử lại"
             + detail_line,
         )
+        window.status.showMessage("Không tìm thấy USB Token", 4000)
 
 
 @require_document(show_message=True)
@@ -828,23 +855,26 @@ def sign_document(window):
         _teardown_webchannel(web_view)
 
     signing_provider = get_signing_provider()
-    signer_info = signing_provider.get_token_info()
+    token_lib = signing_provider.detect_driver()
+    token_detected = bool(token_lib)
+    signer_info = signing_provider.get_token_info() if token_detected else None
     default_signer_name = signer_info.signer_name if signer_info else ""
 
     identity_dialog = SignatureIdentityDialog(
         window,
         default_signer_name=default_signer_name,
+        token_detected=token_detected,
     )
     if identity_dialog.exec() != QDialog.DialogCode.Accepted:
         return
     signer_name = identity_dialog.signer_name()
 
     base, ext = os.path.splitext(window.current_path)
-    default_output = f"{base}_signed{ext}"
+    default_output = f"{base}_da_ky{ext}"
 
     output_path, _ = QFileDialog.getSaveFileName(
         window,
-        "Lưu file đã ký",
+        "Lưu file đã ký số",
         default_output,
         "PDF Files (*.pdf)"
     )
@@ -852,13 +882,15 @@ def sign_document(window):
         return
 
     pin, ok = QInputDialog.getText(
-        window, "Nhập mã PIN", "PIN của USB ký số:",
-        QLineEdit.EchoMode.Password
+        window,
+        "Nhập mã PIN USB Token",
+        "Nhập PIN của USB ký số:\n(Lưu ý: nhập sai nhiều lần sẽ khóa token)",
+        QLineEdit.EchoMode.Password,
     )
     if not ok or not pin:
         return
 
-    if signer_name == "Khong ro":
+    if signer_name in ("Không rõ", "Khong ro"):
         signer_info_with_pin = signing_provider.get_token_info(pin)
         if signer_info_with_pin and signer_info_with_pin.signer_name:
             signer_name = signer_info_with_pin.signer_name
