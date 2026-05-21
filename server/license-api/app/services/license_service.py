@@ -30,7 +30,7 @@ class LicenseService:
             self._save()
 
     def _expiry(self) -> str:
-        return (datetime.now(timezone.utc) + timedelta(days=settings.grace_days)).isoformat()
+        return (datetime.now(timezone.utc) + timedelta(days=settings.license_duration_days)).isoformat()
 
     def activate(self, license_key: str, device_id: str, platform: str, app_version: str, machine_name: str | None) -> dict:
         record = self.licenses.get(license_key)
