@@ -47,6 +47,10 @@ from app.actions.annotate import (
     underline_text, strikeout_text, add_comment,
 )
 from app.actions.sign import check_token, sign_document, sign_handwritten
+from app.actions.ai_actions import (
+    open_translate_dialog, open_summarize_dialog,
+    open_chat_dialog, open_ai_settings,
+)
 from app.actions.export import export_pdf_to_word, export_pdf_to_excel
 from app.actions.document_ops import (
     add_watermark, set_pdf_password, remove_pdf_password,
@@ -222,6 +226,12 @@ class PDFReaderApp(QMainWindow):
         self._start_token_monitor()
         self._apply_toolbar_prefs()
         QTimer.singleShot(200, self._check_license)
+        # Khôi phục AI API key đã lưu (nếu có)
+        try:
+            from app.actions.ai_actions import load_ai_config
+            load_ai_config()
+        except Exception:
+            pass
 
     def _check_license(self):
         from app.license_dialog import check_license_on_startup
@@ -929,6 +939,24 @@ class PDFReaderApp(QMainWindow):
         act_ocr_all.setShortcut(QKeySequence("Ctrl+Shift+A"))
         act_ocr_all.triggered.connect(lambda: self._ocr_full_document())
 
+        menu_ai = bar.addMenu("AI")
+
+        act_ai_chat = menu_ai.addAction("💬  Chat với PDF...")
+        act_ai_chat.setShortcut(QKeySequence("Ctrl+Shift+C"))
+        act_ai_chat.triggered.connect(lambda: open_chat_dialog(self))
+
+        act_ai_summarize = menu_ai.addAction("📋  Tóm tắt tài liệu...")
+        act_ai_summarize.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        act_ai_summarize.triggered.connect(lambda: open_summarize_dialog(self))
+
+        act_ai_translate = menu_ai.addAction("🌐  Dịch trang hiện tại...")
+        act_ai_translate.setShortcut(QKeySequence("Ctrl+Shift+T"))
+        act_ai_translate.triggered.connect(lambda: open_translate_dialog(self))
+
+        menu_ai.addSeparator()
+        act_ai_settings = menu_ai.addAction("⚙️  Cài đặt AI (API Key)...")
+        act_ai_settings.triggered.connect(lambda: open_ai_settings(self))
+
         menu_license = bar.addMenu("License")
         act_activate = menu_license.addAction("🔑  Kích hoạt / Nhập key...")
         act_activate.setShortcut(QKeySequence("Ctrl+Shift+L"))
@@ -1038,6 +1066,12 @@ class PDFReaderApp(QMainWindow):
         self._update_chrome_for_active_tab()
         self._reposition_search_panel()
         self._load_toc_for_active()
+        # Thông báo chat dialog khi đổi tài liệu
+        try:
+            from app.actions.ai_actions import notify_pdf_changed
+            notify_pdf_changed(self.current_path)
+        except Exception:
+            pass
 
     def _update_chrome_for_active_tab(self):
         state = self._active_state()
