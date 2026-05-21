@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3T Reader – Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#05080f;--bg2:#0d1117;--card:#111827;--border:#1f2d45;--text:#e2e8f0;--muted:#64748b;--blue:#3b82f6;--green:#22c55e;--red:#ef4444;--yellow:#f59e0b}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+/* LOGIN */
+.login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.login-box{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px;width:100%;max-width:380px}
+.login-logo{text-align:center;font-size:1.5rem;font-weight:700;margin-bottom:6px}
+.login-sub{text-align:center;color:var(--muted);font-size:.85rem;margin-bottom:30px}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:6px;font-weight:500}
+.form-group input{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:11px 14px;border-radius:8px;font-size:.9rem;font-family:inherit;outline:none;transition:.2s}
+.form-group input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
+.btn-login{width:100%;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;padding:12px;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;margin-top:4px;transition:.2s}
+.btn-login:hover{opacity:.9}
+.login-err{color:var(--red);font-size:.83rem;text-align:center;margin-top:10px;display:none}
+
+/* ADMIN PANEL */
+.admin{display:none}
+header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 28px;display:flex;align-items:center;justify-content:space-between;height:58px}
+.hdr-logo{font-weight:700;font-size:1rem}
+.hdr-right{display:flex;align-items:center;gap:16px}
+.btn-logout{background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:7px;font-size:.82rem;cursor:pointer;transition:.2s}
+.btn-logout:hover{border-color:var(--red);color:var(--red)}
+
+main{padding:28px;max-width:1200px;margin:auto}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:28px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
+.stat-val{font-size:2rem;font-weight:700}
+.stat-label{font-size:.82rem;color:var(--muted);margin-top:4px}
+.stat.pending .stat-val{color:var(--yellow)}
+.stat.approved .stat-val{color:var(--green)}
+.stat.total .stat-val{color:var(--blue)}
+
+.section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.section-hdr h2{font-size:1rem;font-weight:600}
+.tabs{display:flex;gap:8px}
+.tab{background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:7px;font-size:.82rem;cursor:pointer;transition:.2s}
+.tab.active{background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border-color:transparent}
+
+.table-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{background:var(--bg2);padding:10px 16px;text-align:left;font-size:.78rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+td{padding:12px 16px;font-size:.87rem;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,.02)}
+
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:.75rem;font-weight:600}
+.badge.pending{background:rgba(245,158,11,.15);color:var(--yellow)}
+.badge.approved{background:rgba(34,197,94,.15);color:var(--green)}
+.badge.rejected{background:rgba(239,68,68,.12);color:var(--red)}
+
+.action-btns{display:flex;gap:8px}
+.btn-approve,.btn-reject{border:none;padding:5px 12px;border-radius:6px;font-size:.78rem;font-weight:600;cursor:pointer;transition:.2s}
+.btn-approve{background:rgba(34,197,94,.15);color:var(--green)}
+.btn-approve:hover{background:rgba(34,197,94,.3)}
+.btn-reject{background:rgba(239,68,68,.1);color:var(--red)}
+.btn-reject:hover{background:rgba(239,68,68,.25)}
+
+.empty{text-align:center;padding:48px;color:var(--muted);font-size:.9rem}
+.loading{text-align:center;padding:40px;color:var(--muted)}
+
+/* Modal confirm */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:50;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.confirm-box{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:28px;max-width:400px;width:100%}
+.confirm-box h3{font-size:1rem;font-weight:600;margin-bottom:8px}
+.confirm-box p{font-size:.87rem;color:var(--muted);margin-bottom:20px;line-height:1.6}
+.confirm-info{background:var(--bg2);border-radius:8px;padding:12px;margin-bottom:20px;font-size:.83rem;line-height:1.8}
+.confirm-info strong{color:var(--text)}
+.confirm-btns{display:flex;gap:10px}
+.btn-conf-yes{flex:1;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;padding:10px;border-radius:8px;font-weight:600;cursor:pointer}
+.btn-conf-no{flex:1;background:transparent;border:1px solid var(--border);color:var(--muted);padding:10px;border-radius:8px;cursor:pointer}
+.btn-conf-no:hover{border-color:var(--red);color:var(--red)}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="login-wrap" id="loginWrap">
+  <div class="login-box">
+    <div class="login-logo">🔐 Admin Panel</div>
+    <div class="login-sub">3T Reader License Management</div>
+    <form onsubmit="login(event)">
+      <div class="form-group">
+        <label>Mật khẩu admin</label>
+        <input type="password" id="pwInput" placeholder="Nhập mật khẩu..." required autofocus>
+      </div>
+      <button type="submit" class="btn-login">Đăng nhập</button>
+      <div class="login-err" id="loginErr">Mật khẩu không đúng!</div>
+    </form>
+  </div>
+</div>
+
+<!-- ADMIN PANEL -->
+<div class="admin" id="adminPanel">
+  <header>
+    <div class="hdr-logo">📋 3T Reader Admin</div>
+    <div class="hdr-right">
+      <span id="hdrInfo" style="font-size:.82rem;color:var(--muted)"></span>
+      <button class="btn-logout" onclick="logout()">Đăng xuất</button>
+    </div>
+  </header>
+  <main>
+    <div class="stats">
+      <div class="stat pending">
+        <div class="stat-val" id="sCntPending">–</div>
+        <div class="stat-label">Chờ xác nhận</div>
+      </div>
+      <div class="stat approved">
+        <div class="stat-val" id="sCntApproved">–</div>
+        <div class="stat-label">Đã cấp key</div>
+      </div>
+      <div class="stat total">
+        <div class="stat-val" id="sCntTotal">–</div>
+        <div class="stat-label">Tổng đơn hàng</div>
+      </div>
+    </div>
+
+    <div class="section-hdr">
+      <h2>Danh sách đơn hàng</h2>
+      <div class="tabs">
+        <button class="tab active" onclick="filterOrders('pending',this)">Chờ duyệt</button>
+        <button class="tab" onclick="filterOrders('approved',this)">Đã cấp key</button>
+        <button class="tab" onclick="filterOrders('all',this)">Tất cả</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <div class="loading" id="tblLoading">Đang tải...</div>
+      <table id="ordersTable" style="display:none">
+        <thead>
+          <tr>
+            <th>Mã đơn</th>
+            <th>Khách hàng</th>
+            <th>Email</th>
+            <th>Gói</th>
+            <th>Số tiền</th>
+            <th>Thời gian</th>
+            <th>Trạng thái</th>
+            <th>Thao tác</th>
+          </tr>
+        </thead>
+        <tbody id="ordersBody"></tbody>
+      </table>
+      <div class="empty" id="tblEmpty" style="display:none">Không có đơn hàng nào</div>
+    </div>
+  </main>
+</div>
+
+<!-- Confirm modal -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="confirm-box">
+    <h3>Xác nhận cấp key bản quyền</h3>
+    <p>Hệ thống sẽ tự động tạo license key và gửi email cho khách hàng.</p>
+    <div class="confirm-info" id="confirmInfo"></div>
+    <div class="confirm-btns">
+      <button class="btn-conf-yes" onclick="doApprove()">✓ Cấp key ngay</button>
+      <button class="btn-conf-no" onclick="closeConfirm()">Hủy</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let token = sessionStorage.getItem('adminToken') || '';
+let orders = [];
+let currentFilter = 'pending';
+let pendingOrderId = null;
+
+const PLAN_NAMES = { basic: 'Cơ Bản', personal: 'Cá Nhân', enterprise: 'Doanh Nghiệp' };
+const PLAN_PRICES = { basic: '300.000đ', personal: '500.000đ', enterprise: '800.000đ' };
+
+if (token) showAdmin();
+
+async function login(e) {
+  e.preventDefault();
+  const pw = document.getElementById('pwInput').value;
+  const res = await fetch('/api/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: pw }),
+  });
+  if (res.ok) {
+    const d = await res.json();
+    token = d.token;
+    sessionStorage.setItem('adminToken', token);
+    showAdmin();
+  } else {
+    document.getElementById('loginErr').style.display = 'block';
+  }
+}
+
+function logout() {
+  sessionStorage.removeItem('adminToken');
+  token = '';
+  document.getElementById('loginWrap').style.display = 'flex';
+  document.getElementById('adminPanel').style.display = 'none';
+}
+
+function showAdmin() {
+  document.getElementById('loginWrap').style.display = 'none';
+  document.getElementById('adminPanel').style.display = 'block';
+  loadOrders();
+}
+
+async function loadOrders() {
+  try {
+    const res = await fetch('/api/admin/orders', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (res.status === 401) { logout(); return; }
+    const data = await res.json();
+    orders = data.orders || [];
+    renderStats();
+    renderOrders();
+  } catch {
+    document.getElementById('tblLoading').textContent = 'Lỗi kết nối.';
+  }
+}
+
+function renderStats() {
+  const pending = orders.filter(o => o.status === 'pending').length;
+  const approved = orders.filter(o => o.status === 'approved').length;
+  document.getElementById('sCntPending').textContent = pending;
+  document.getElementById('sCntApproved').textContent = approved;
+  document.getElementById('sCntTotal').textContent = orders.length;
+  document.getElementById('hdrInfo').textContent = `${pending} đơn chờ duyệt`;
+}
+
+function filterOrders(filter, btn) {
+  currentFilter = filter;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  renderOrders();
+}
+
+function renderOrders() {
+  const filtered = currentFilter === 'all' ? orders :
+    orders.filter(o => o.status === currentFilter);
+
+  document.getElementById('tblLoading').style.display = 'none';
+  if (filtered.length === 0) {
+    document.getElementById('ordersTable').style.display = 'none';
+    document.getElementById('tblEmpty').style.display = 'block';
+    return;
+  }
+  document.getElementById('tblEmpty').style.display = 'none';
+  document.getElementById('ordersTable').style.display = 'table';
+
+  const tbody = document.getElementById('ordersBody');
+  tbody.innerHTML = filtered.map(o => `
+    <tr>
+      <td><code style="font-size:.8rem;color:#818cf8">${o.id}</code></td>
+      <td>${esc(o.customer_name)}</td>
+      <td>${esc(o.customer_email)}</td>
+      <td>${PLAN_NAMES[o.plan] || o.plan}</td>
+      <td>${PLAN_PRICES[o.plan] || ''}</td>
+      <td style="color:var(--muted)">${fmtDate(o.created_at)}</td>
+      <td><span class="badge ${o.status}">${statusLabel(o.status)}</span></td>
+      <td>
+        ${o.status === 'pending' ? `
+          <div class="action-btns">
+            <button class="btn-approve" onclick="confirmApprove('${o.id}')">✓ Cấp key</button>
+            <button class="btn-reject" onclick="rejectOrder('${o.id}')">✕</button>
+          </div>
+        ` : o.license_key ? `<code style="font-size:.75rem;color:#34d399">${o.license_key}</code>` : '–'}
+      </td>
+    </tr>
+  `).join('');
+}
+
+function confirmApprove(id) {
+  pendingOrderId = id;
+  const o = orders.find(x => x.id === id);
+  document.getElementById('confirmInfo').innerHTML = `
+    <strong>Khách hàng:</strong> ${esc(o.customer_name)}<br>
+    <strong>Email:</strong> ${esc(o.customer_email)}<br>
+    <strong>Gói:</strong> ${PLAN_NAMES[o.plan]} – ${PLAN_PRICES[o.plan]}<br>
+    <strong>Đặt lúc:</strong> ${fmtDate(o.created_at)}
+  `;
+  document.getElementById('confirmModal').classList.add('open');
+}
+
+function closeConfirm() {
+  document.getElementById('confirmModal').classList.remove('open');
+  pendingOrderId = null;
+}
+
+async function doApprove() {
+  if (!pendingOrderId) return;
+  closeConfirm();
+  const res = await fetch(`/api/admin/orders/${pendingOrderId}/approve`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.ok) {
+    const d = await res.json();
+    alert(`✓ Đã cấp key: ${d.license_key}\nĐã gửi email cho khách hàng.`);
+    loadOrders();
+  } else {
+    const d = await res.json().catch(() => ({}));
+    alert('Lỗi: ' + (d.detail || 'Không thể cấp key'));
+  }
+}
+
+async function rejectOrder(id) {
+  if (!confirm('Từ chối đơn hàng này?')) return;
+  const res = await fetch(`/api/admin/orders/${id}/reject`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.ok) loadOrders();
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtDate(iso) {
+  if (!iso) return '–';
+  const d = new Date(iso);
+  return d.toLocaleDateString('vi-VN') + ' ' + d.toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
+}
+function statusLabel(s) {
+  return { pending: '⏳ Chờ duyệt', approved: '✓ Đã cấp key', rejected: '✕ Từ chối' }[s] || s;
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeConfirm(); });
+setInterval(loadOrders, 30000); // auto-refresh every 30s
+</script>
+</body>
+</html>

@@ -11,6 +11,10 @@ services:
       THREET_DEFAULT_UPDATE_URL: https://example.com/releases/3t-reader
       THREET_DATA_DIR: /data
       THREET_STATE_FILE: license-api-state.json
+      THREET_ADMIN_PASSWORD: 3tAdmin2026
+      THREET_ADMIN_EMAIL: hieupt.qb@gmail.com
+      THREET_SMTP_USER: hieupt.qb@gmail.com
+      THREET_SMTP_PASS: ""
     ports:
       - "8000:8000"
     volumes:

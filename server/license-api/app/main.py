@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+import os
+import secrets as _secrets
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 
 from .config import settings
 from .schemas import (
@@ -16,6 +23,7 @@ from .schemas import (
     ValidateResponse,
 )
 from .services.license_service import LicenseService
+from .services.order_service import OrderStore
 from .services.token_service import TokenService
 from .services.state_store import FileStateStore
 from .services.update_service import UpdateService
@@ -25,9 +33,88 @@ token_service = TokenService(settings.signing_secret)
 state_store = FileStateStore(f"{settings.data_dir}/{settings.state_file}")
 license_service = LicenseService(token_service, state_store=state_store)
 update_service = UpdateService(token_service)
+order_store = OrderStore(f"{settings.data_dir}/orders.json")
 
-app = FastAPI(title=settings.app_name, version="0.2.0")
+_ADMIN_PASSWORD = os.environ.get("THREET_ADMIN_PASSWORD", "3tAdmin2026")
+_STATIC = Path(__file__).parent / "static"
+_active_tokens: set[str] = set()
+_bearer = HTTPBearer(auto_error=False)
 
+app = FastAPI(title=settings.app_name, version="0.3.0")
+
+
+# ── Sales page & admin ────────────────────────────────────────────
+
+@app.get("/", response_class=FileResponse)
+def index():
+    return FileResponse(_STATIC / "index.html", media_type="text/html")
+
+
+@app.get("/admin", response_class=FileResponse)
+def admin_page():
+    return FileResponse(_STATIC / "admin.html", media_type="text/html")
+
+
+class LoginRequest(BaseModel):
+    password: str
+
+
+@app.post("/api/admin/login")
+def admin_login(req: LoginRequest):
+    if req.password != _ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Mật khẩu không đúng")
+    tok = _secrets.token_hex(32)
+    _active_tokens.add(tok)
+    return {"token": tok}
+
+
+def _require_admin(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)):
+    if creds is None or creds.credentials not in _active_tokens:
+        raise HTTPException(status_code=401, detail="Chưa đăng nhập hoặc phiên hết hạn")
+    return creds.credentials
+
+
+@app.get("/api/admin/orders")
+def list_orders(_=Depends(_require_admin)):
+    return {"orders": order_store.list_orders()}
+
+
+@app.post("/api/admin/orders/{order_id}/approve")
+def approve_order(order_id: str, _=Depends(_require_admin)):
+    try:
+        order = order_store.approve_order(order_id, license_service)
+        return {"ok": True, "license_key": order["license_key"]}
+    except (KeyError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/admin/orders/{order_id}/reject")
+def reject_order(order_id: str, _=Depends(_require_admin)):
+    try:
+        order_store.reject_order(order_id)
+        return {"ok": True}
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+class OrderSubmitRequest(BaseModel):
+    customer_name: str
+    customer_email: str
+    plan: str
+
+
+@app.post("/api/v1/order/submit")
+def submit_order(req: OrderSubmitRequest):
+    if not req.customer_name.strip() or not req.customer_email.strip():
+        raise HTTPException(status_code=422, detail="Vui lòng điền đầy đủ thông tin")
+    try:
+        order = order_store.create_order(req.customer_name.strip(), req.customer_email.strip(), req.plan)
+        return {"ok": True, "order_id": order["id"]}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Health ────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health() -> dict:
