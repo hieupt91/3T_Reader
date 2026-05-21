@@ -75,7 +75,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="3T Reader.app",
-    icon=None,
+    icon=os.path.join(ROOT, "assets", "3TReader.icns"),
     bundle_identifier="com.3t.reader",
     version="1.0.2",
     info_plist={
