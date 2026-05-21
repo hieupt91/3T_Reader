@@ -18,14 +18,17 @@ class OCRResult:
 
 def _tesseract_cmd() -> Optional[str]:
     """Tìm đường dẫn tesseract trên hệ thống."""
+    import os
     candidates = [
         shutil.which("tesseract"),
-        "/opt/homebrew/bin/tesseract",   # Apple Silicon
-        "/usr/local/bin/tesseract",      # Intel Mac
-        "/usr/bin/tesseract",            # Linux
+        "/opt/homebrew/bin/tesseract",                          # Apple Silicon
+        "/usr/local/bin/tesseract",                             # Intel Mac
+        "/usr/bin/tesseract",                                   # Linux
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",        # Windows 64-bit
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",  # Windows 32-bit
     ]
     for p in candidates:
-        if p and shutil.which(p):
+        if p and (shutil.which(p) or os.path.isfile(p)):
             return p
     return None
 
