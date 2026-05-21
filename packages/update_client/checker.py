@@ -55,7 +55,7 @@ def check_for_update(base_url: str, current_version: str, channel: str = "stable
         plat = _current_platform()
         url = (
             f"{base_url.rstrip('/')}/api/v1/update/check"
-            f"?product=3T_READER&platform={plat}&channel={channel}&version={current_version}"
+            f"?platform={plat}&current_version={current_version}"
         )
         resp = requests.get(url, timeout=_TIMEOUT, headers={"User-Agent": "3T-Reader/1.0"})
         resp.raise_for_status()

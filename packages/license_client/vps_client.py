@@ -6,12 +6,18 @@ import socket
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from .credential_manager import (
+    credential_manager_delete,
+    credential_manager_load,
+    credential_manager_save,
+)
 from .fingerprint import get_device_fingerprint
 from .keychain import keychain_delete, keychain_load, keychain_save
 from .models import ActivationResult, LicenseStatus
 
 _TIMEOUT = 8  # seconds
 _USE_KEYCHAIN = platform.system() == "Darwin"
+_USE_CREDENTIAL_MANAGER = platform.system() == "Windows"
 
 
 def _post(base_url: str, path: str, payload: dict) -> dict:
@@ -59,6 +65,10 @@ class VpsLicenseClient:
             data = keychain_load()
             if data:
                 return data
+        elif _USE_CREDENTIAL_MANAGER:
+            data = credential_manager_load()
+            if data:
+                return data
         try:
             return json.loads(self._cache.read_text(encoding="utf-8"))
         except Exception:
@@ -68,12 +78,17 @@ class VpsLicenseClient:
         if _USE_KEYCHAIN:
             if keychain_save(data):
                 return  # Keychain OK, không cần JSON
+        elif _USE_CREDENTIAL_MANAGER:
+            if credential_manager_save(data):
+                return  # Credential Manager OK, không cần JSON
         self._cache.parent.mkdir(parents=True, exist_ok=True)
         self._cache.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def _clear_cache(self) -> None:
         if _USE_KEYCHAIN:
             keychain_delete()
+        elif _USE_CREDENTIAL_MANAGER:
+            credential_manager_delete()
         self._cache.unlink(missing_ok=True)
 
     # ── offline token verification ────────────────────────────────────

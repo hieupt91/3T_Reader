@@ -173,6 +173,8 @@ dist\win\3T_Reader\3T_Reader.exe
 
 - [ ] `python main.py` chạy OK trên Windows
 - [ ] OCR tiếng Việt hoạt động (menu OCR → OCR trang hiện tại)
+- [ ] Xuất Word (.docx) — mở PDF → Tệp → Xuất ra Word
+- [ ] Xuất Excel (.xlsx) — mở PDF có bảng → Tệp → Xuất ra Excel
 - [ ] License activation thành công với key thật
 - [ ] PyInstaller build không lỗi missing module
 - [ ] Installer `.exe` test trên máy Windows sạch
