@@ -219,6 +219,13 @@ class PDFReaderApp(QMainWindow):
         self._connect_signals()
         self._start_token_monitor()
         self._apply_toolbar_prefs()
+        QTimer.singleShot(200, self._check_license)
+
+    def _check_license(self):
+        from app.license_dialog import check_license_on_startup
+        if not check_license_on_startup(self):
+            from packages.qt_compat.QtWidgets import QApplication
+            QApplication.quit()
 
     # ------------------------------------------------------------------ #
     #  Tab host                                                            #
