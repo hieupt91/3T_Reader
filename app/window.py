@@ -47,6 +47,10 @@ from app.actions.annotate import (
 )
 from app.actions.sign import check_token, sign_document, sign_handwritten
 from app.actions.export import export_pdf_to_word, export_pdf_to_excel
+from app.actions.document_ops import (
+    add_watermark, set_pdf_password, remove_pdf_password,
+    compress_pdf, export_pages_to_images,
+)
 from app.sidebar import ThumbnailSidebar, BookmarkSidebar
 from app.icon_utils import svg_icon, app_logo_icon
 from app.dialogs import show_warning, show_info
@@ -716,6 +720,10 @@ class PDFReaderApp(QMainWindow):
         act_export_excel.setIcon(svg_icon("extract.svg", size=16, color="#4fc080"))
         act_export_excel.triggered.connect(lambda: export_pdf_to_excel(self))
 
+        act_export_img = menu_file.addAction("Xuất trang ra ảnh…")
+        act_export_img.setIcon(svg_icon("insert_image.svg", size=16, color="#b060e0"))
+        act_export_img.triggered.connect(lambda: export_pages_to_images(self))
+
         menu_file.addSeparator()
 
         act_file_info = menu_file.addAction("Thông tin tệp...")
@@ -835,6 +843,28 @@ class PDFReaderApp(QMainWindow):
         act_extract = menu_pages.addAction("Trích xuất trang...")
         act_extract.triggered.connect(lambda: extract_pages(self))
         act_extract.setIcon(svg_icon("extract.svg", size=16, color="#f07858"))
+
+        menu_security = bar.addMenu("Bảo mật")
+
+        act_watermark = menu_security.addAction("Thêm watermark…")
+        act_watermark.setIcon(svg_icon("pen.svg", size=16, color="#f0c050"))
+        act_watermark.triggered.connect(lambda: add_watermark(self))
+
+        menu_security.addSeparator()
+
+        act_set_pw = menu_security.addAction("Đặt mật khẩu PDF…")
+        act_set_pw.setIcon(svg_icon("sign_draw.svg", size=16, color="#b060e0"))
+        act_set_pw.triggered.connect(lambda: set_pdf_password(self))
+
+        act_rm_pw = menu_security.addAction("Xóa mật khẩu PDF…")
+        act_rm_pw.setIcon(svg_icon("trash.svg", size=16, color="#e05050"))
+        act_rm_pw.triggered.connect(lambda: remove_pdf_password(self))
+
+        menu_security.addSeparator()
+
+        act_compress = menu_security.addAction("Nén / Tối ưu PDF")
+        act_compress.setIcon(svg_icon("save.svg", size=16, color="#4fc080"))
+        act_compress.triggered.connect(lambda: compress_pdf(self))
 
         menu_sign = bar.addMenu("Chữ ký số")
 
