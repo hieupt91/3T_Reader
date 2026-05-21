@@ -267,6 +267,7 @@ class PDFReaderApp(QMainWindow):
         self._start_token_monitor()
         self._apply_toolbar_prefs()
         QTimer.singleShot(200, self._check_license)
+        QTimer.singleShot(15_000, self._auto_check_update)
         # Khôi phục AI API key đã lưu (nếu có)
         try:
             from app.actions.ai_actions import load_ai_config
@@ -1341,28 +1342,41 @@ class PDFReaderApp(QMainWindow):
         dlg = AboutDialog(self)
         dlg.exec()
 
-    def _check_for_update(self):
+    def _auto_check_update(self):
+        """Silent check lúc khởi động — chỉ hiện dialog nếu có bản mới."""
         import threading
-        from app.dialogs import show_info, show_error
+        from app.config import VPS_LICENSE_BASE_URL, UPDATE_CHANNEL
+        from app.version import APP_VERSION
+        from packages.update_client import check_for_update
+        from packages.qt_compat.QtCore import QTimer
+
+        def _worker():
+            try:
+                info = check_for_update(VPS_LICENSE_BASE_URL, APP_VERSION, UPDATE_CHANNEL)
+                if info.available:
+                    QTimer.singleShot(0, lambda: self._show_update_dialog(info))
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _check_for_update(self):
+        """Check thủ công từ menu — luôn hiện kết quả."""
+        import threading
+        from app.dialogs import show_info
         from app.version import APP_VERSION
         from app.config import VPS_LICENSE_BASE_URL, UPDATE_CHANNEL
         from packages.update_client import check_for_update
+        from packages.qt_compat.QtCore import QTimer
 
         self.status.showMessage("Đang kiểm tra cập nhật...", 0)
 
-        def _do_check():
+        def _worker():
             info = check_for_update(VPS_LICENSE_BASE_URL, APP_VERSION, UPDATE_CHANNEL)
-            from packages.qt_compat.QtCore import QTimer
             if info.available:
-                msg = (
-                    f"Có phiên bản mới: {info.latest_version}\n"
-                    f"(Phiên bản hiện tại: {info.current_version})\n\n"
-                    f"{info.release_notes}\n\n"
-                    "Vui lòng tải bản cập nhật tại website 3T Company."
-                )
                 QTimer.singleShot(0, lambda: (
                     self.status.showMessage("Có bản cập nhật mới!", 5000),
-                    show_info(self, "Có bản cập nhật", msg),
+                    self._show_update_dialog(info),
                 ))
             else:
                 QTimer.singleShot(0, lambda: (
@@ -1370,7 +1384,12 @@ class PDFReaderApp(QMainWindow):
                     show_info(self, "Đã cập nhật", f"Phiên bản {APP_VERSION} là mới nhất."),
                 ))
 
-        threading.Thread(target=_do_check, daemon=True).start()
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _show_update_dialog(self, info):
+        from app.update_dialog import UpdateDialog
+        dlg = UpdateDialog(self, info)
+        dlg.exec()
 
     def _show_audit_log(self):
         from app.audit_log_dialog import AuditLogDialog
