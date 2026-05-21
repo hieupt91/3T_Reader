@@ -29,7 +29,7 @@
   <g transform="translate(344 72)">
     <text x="0" y="70" fill="#f5821f" font-family="Segoe UI, Arial, sans-serif" font-size="72" font-weight="900" letter-spacing="1">3T</text>
     <text x="122" y="70" fill="#1d2b59" font-family="Segoe UI, Arial, sans-serif" font-size="72" font-weight="700" letter-spacing="12">READER</text>
-    <text x="0" y="128" fill="#4e5d78" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="500" letter-spacing="4">DOC MOI LUC - HIEU MOI NOI</text>
+    <text x="0" y="128" fill="#4e5d78" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="500" letter-spacing="4">ĐỌC MỌI LÚC · HIỂU MỌI NƠI</text>
     <line x1="0" y1="144" x2="72" y2="144" stroke="#f5821f" stroke-width="7" stroke-linecap="round"/>
     <line x1="372" y1="144" x2="440" y2="144" stroke="#f5821f" stroke-width="7" stroke-linecap="round"/>
   </g>

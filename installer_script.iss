@@ -42,6 +42,8 @@ SolidCompression=yes
 
 ; Giao diện
 WizardStyle=modern
+SetupIconFile=assets\app.ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
 
 ; Yêu cầu Admin
 PrivilegesRequired=admin

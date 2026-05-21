@@ -42,13 +42,13 @@ class WelcomeWidget(QWidget):
         logo.setMinimumHeight(180)
         hero_layout.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
 
-        tagline = QLabel("DOC MOI LUC - HIEU MOI NOI")
+        tagline = QLabel("ĐỌC MỌI LÚC · HIỂU MỌI NƠI")
         tagline.setObjectName("WelcomeTagline")
         tagline.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hero_layout.addWidget(tagline)
 
         intro = QLabel(
-            "Nen tang PDF cho Windows: doc muot, sua nhanh, ky so USB token va san sang cho huong thuong mai."
+            "Nền tảng PDF cho Windows: đọc mượt, sửa nhanh, ký số USB Token — sẵn sàng cho thương mại."
         )
         intro.setWordWrap(True)
         intro.setObjectName("WelcomeIntro")
@@ -61,10 +61,10 @@ class WelcomeWidget(QWidget):
         features.setVerticalSpacing(18)
 
         items = [
-            ("WelcomeCardOpen", "logo_mark.svg", "Doc PDF muot ma", "Ho tro file lon, tab, thumbnail va tim kiem nhanh."),
-            ("WelcomeCardEdit", "edit_object.svg", "Chinh sua truc tiep", "Chen text, anh, doi vi tri, resize, xoay va undo/redo."),
-            ("WelcomeCardSign", "usb.svg", "Ky so USB Token", "Flow PKCS#11 cho Windows, huong toi xac thuc token that."),
-            ("WelcomeCardSecure", "info.svg", "Bao mat va van hanh", "Temp file, recent, packaging va compliance cho Phase 1 Win."),
+            ("WelcomeCardOpen", "logo_mark.svg", "Đọc PDF mượt mà", "Hỗ trợ file lớn, nhiều tab, thumbnail và tìm kiếm nhanh."),
+            ("WelcomeCardEdit", "edit_object.svg", "Chỉnh sửa trực tiếp", "Chèn text, ảnh, đổi vị trí, resize, xoay và undo/redo."),
+            ("WelcomeCardSign", "usb.svg", "Ký số USB Token", "Flow PKCS#11 cho Windows, xác thực chứng thư số thật."),
+            ("WelcomeCardSecure", "info.svg", "Bảo mật & Vận hành", "Temp file, recent files, packaging và xuất DOCX/Excel."),
         ]
         for idx, item in enumerate(items):
             features.addWidget(self._make_card(*item), 0, idx)
@@ -73,13 +73,13 @@ class WelcomeWidget(QWidget):
         button_row = QHBoxLayout()
         button_row.setSpacing(14)
 
-        open_btn = QPushButton("Mo tep PDF")
+        open_btn = QPushButton("Mở tệp PDF")
         open_btn.setObjectName("WelcomeOpenButton")
         open_btn.clicked.connect(self.openRequested.emit)
         open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         button_row.addWidget(open_btn)
 
-        recent_btn = QPushButton("Mo gan day")
+        recent_btn = QPushButton("Mở gần đây")
         recent_btn.setObjectName("WelcomeRecentButton")
         recent_btn.clicked.connect(self.recentRequested.emit)
         recent_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -87,7 +87,7 @@ class WelcomeWidget(QWidget):
 
         hero_layout.addLayout(button_row)
 
-        drag_hint = QLabel("hoac keo va tha tep PDF vao cua so nay")
+        drag_hint = QLabel("hoặc kéo và thả tệp PDF vào cửa sổ này")
         drag_hint.setObjectName("WelcomeDragHint")
         drag_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hero_layout.addWidget(drag_hint)

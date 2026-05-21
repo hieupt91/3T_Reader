@@ -19,7 +19,7 @@ class AboutDialog(QDialog):
     def __init__(self, parent=None, theme_mode: str = "dark"):
         super().__init__(parent)
         self.setObjectName("AboutDialog")
-        self.setWindowTitle("Gioi thieu 3T Reader")
+        self.setWindowTitle("Giới thiệu 3T Reader")
         self.setModal(True)
         self.setMinimumWidth(720)
         self.setMinimumHeight(460)
@@ -47,7 +47,7 @@ class AboutDialog(QDialog):
         version = QLabel(f"Version {APP_VERSION}")
         version.setObjectName("AboutVersion")
         version.setFont(QFont("Segoe UI", 11, QFont.Weight.Medium))
-        desc = QLabel("DOC MOI LUC - HIEU MOI NOI")
+        desc = QLabel("ĐỌC MỌI LÚC · HIỂU MỌI NƠI")
         desc.setWordWrap(True)
         desc.setObjectName("AboutDescription")
         title_col.addWidget(title)
@@ -63,10 +63,11 @@ class AboutDialog(QDialog):
         body_layout.setContentsMargins(24, 18, 24, 18)
         body_layout.setSpacing(10)
         for text in (
-            "• Mo PDF, recent files, tab va thumbnail sidebar",
-            "• Chen text / anh, sua object, undo / redo",
-            "• PDF.js render qua local HTTP server",
-            "• Windows packaging, USB token va ky so",
+            "• Mở PDF, recent files, nhiều tab và thumbnail sidebar",
+            "• Chèn text / ảnh, sửa object, undo / redo đầy đủ",
+            "• PDF.js render qua local HTTP server, tìm kiếm nhanh",
+            "• Windows packaging, USB Token và ký số PKCS#11",
+            "• Xuất sang DOCX và Excel, watermark, merge, split trang",
         ):
             label = QLabel(text)
             label.setObjectName("AboutBullet")
