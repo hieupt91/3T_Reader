@@ -131,7 +131,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
         page_scripts.insert(ui_hooks)
 
         self._page_timer = QtCore.QTimer(self)
-        self._page_timer.setInterval(400)
+        self._page_timer.setInterval(150)
         self._page_timer.timeout.connect(self._poll_page)
 
         layout = QtWidgets.QVBoxLayout(self)

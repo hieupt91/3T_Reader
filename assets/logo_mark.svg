@@ -1,19 +1,29 @@
 <svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bg" x1="24" y1="24" x2="232" y2="232" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ff8a00"/>
+    <linearGradient id="orange" x1="44" y1="36" x2="150" y2="194" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffd13e"/>
+      <stop offset="0.5" stop-color="#ff9900"/>
       <stop offset="1" stop-color="#f05a28"/>
     </linearGradient>
-    <linearGradient id="panel" x1="44" y1="34" x2="212" y2="220" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#0f3d6e"/>
-      <stop offset="1" stop-color="#123d67"/>
+    <linearGradient id="blue" x1="110" y1="36" x2="200" y2="192" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3190ff"/>
+      <stop offset="1" stop-color="#1548b7"/>
     </linearGradient>
+    <linearGradient id="fold" x1="104" y1="68" x2="146" y2="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dde7f6"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#d9e3f2" flood-opacity=".95"/>
+    </filter>
   </defs>
-  <rect x="20" y="20" width="216" height="216" rx="52" fill="url(#bg)"/>
-  <path d="M58 72c0-13 10-24 24-24h92c17 0 30 13 30 30v10H58V72z" fill="#0d2d52" opacity=".95"/>
-  <rect x="58" y="84" width="140" height="110" rx="28" fill="url(#panel)"/>
-  <path d="M86 108h24v50c0 10 8 18 18 18s18-8 18-18v-50h24v50c0 23-19 42-42 42s-42-19-42-42v-50z" fill="#fff"/>
-  <path d="M122 106h66v22h-66z" fill="#ffcf7a"/>
-  <path d="M126 142h58v16h-58z" fill="#8fd4ff"/>
-  <circle cx="178" cy="166" r="14" fill="#f6b14b"/>
+  <rect x="14" y="14" width="228" height="228" rx="46" fill="#ffffff" filter="url(#shadow)"/>
+  <path d="M40 79c0-20 16-36 36-36h116c-5 11-8 29-11 45h-48c-28 0-39 8-39 24 0 13 10 22 28 22h31c20 0 33 8 39 18 6 9 7 21 2 34-9 25-32 38-72 38H33v-36h89c15 0 26-7 30-18 3-9-4-16-20-16h-37c-42 0-62-23-55-75z" fill="url(#orange)"/>
+  <path d="M129 43h91l-13 41h-32l-34 140h-47l34-140h-27l13-41z" fill="url(#blue)"/>
+  <path d="M110 44h24c13 0 23 8 28 19 5 10 4 22-1 34l-26 55c-8 18-20 34-36 46H74l33-56c14-25 24-58 3-98z" fill="url(#fold)"/>
+  <rect x="177" y="91" width="12" height="12" rx="2.5" fill="#2d86ff"/>
+  <rect x="193" y="103" width="12" height="12" rx="2.5" fill="#2d86ff"/>
+  <rect x="177" y="119" width="12" height="12" rx="2.5" fill="#2d86ff"/>
+  <rect x="193" y="135" width="12" height="12" rx="2.5" fill="#2d86ff"/>
+  <rect x="177" y="151" width="12" height="12" rx="2.5" fill="#2d86ff"/>
 </svg>

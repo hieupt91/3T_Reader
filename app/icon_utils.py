@@ -3,7 +3,7 @@ from functools import lru_cache
 
 from packages.qt_compat.QtGui import QIcon, QPixmap, QPainter
 from packages.qt_compat.QtSvg import QSvgRenderer
-from packages.qt_compat.QtCore import QSize, Qt
+from packages.qt_compat.QtCore import QSize, Qt, QRectF
 
 import sys
 
@@ -21,16 +21,33 @@ def get_resource_path(relative_path):
     return os.path.join(os.path.abspath("."), relative_path)
 
 ICON_DIR = get_resource_path(os.path.join("assets", "icons"))
+ASSET_DIR = get_resource_path("assets")
+
+
+def _resolve_svg_path(filename: str) -> str:
+    candidates = []
+    for base in (ICON_DIR, ASSET_DIR):
+        candidates.append(os.path.join(base, filename))
+        if filename.endswith(".svg"):
+            candidates.append(os.path.join(base, f"{filename}.svg"))
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return ""
+
+
+def _coerce_size(size) -> QSize:
+    if isinstance(size, QSize):
+        return size
+    if isinstance(size, tuple):
+        return QSize(int(size[0]), int(size[1]))
+    return QSize(int(size), int(size))
 
 
 @lru_cache(maxsize=128)
 def svg_icon(filename: str, size: int = 20, color: str = "#9090b8") -> QIcon:
-    path = os.path.join(ICON_DIR, filename)
-    if not os.path.exists(path) and filename.endswith(".svg"):
-        alt_path = os.path.join(ICON_DIR, f"{filename}.svg")
-        if os.path.exists(alt_path):
-            path = alt_path
-    if not os.path.exists(path):
+    path = _resolve_svg_path(filename)
+    if not path:
         return QIcon()
 
     with open(path, "r", encoding="utf-8") as f:
@@ -58,24 +75,28 @@ def svg_icon(filename: str, size: int = 20, color: str = "#9090b8") -> QIcon:
 
 
 @lru_cache(maxsize=128)
-def svg_pixmap(filename: str, size: int = 20) -> QPixmap:
-    path = os.path.join(ICON_DIR, filename)
-    if not os.path.exists(path) and filename.endswith(".svg"):
-        alt_path = os.path.join(ICON_DIR, f"{filename}.svg")
-        if os.path.exists(alt_path):
-            path = alt_path
-    if not os.path.exists(path):
+def svg_pixmap(filename: str, size=20) -> QPixmap:
+    path = _resolve_svg_path(filename)
+    if not path:
         return QPixmap()
 
     with open(path, "r", encoding="utf-8") as f:
         svg_data = f.read()
 
     renderer = QSvgRenderer(svg_data.encode("utf-8"))
-    pixmap = QPixmap(QSize(size, size))
+    target_size = _coerce_size(size)
+    pixmap = QPixmap(target_size)
     pixmap.fill(Qt.GlobalColor.transparent)
 
     painter = QPainter(pixmap)
-    renderer.render(painter)
+    default_size = renderer.defaultSize()
+    if default_size.isValid() and default_size.width() > 0 and default_size.height() > 0:
+        scaled_size = default_size.scaled(target_size, Qt.AspectRatioMode.KeepAspectRatio)
+        x = (target_size.width() - scaled_size.width()) / 2
+        y = (target_size.height() - scaled_size.height()) / 2
+        renderer.render(painter, QRectF(x, y, scaled_size.width(), scaled_size.height()))
+    else:
+        renderer.render(painter)
     painter.end()
 
     return pixmap

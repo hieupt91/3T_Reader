@@ -50,6 +50,52 @@ class ThumbnailSidebar(QDockWidget):
         self.list.setIconSize(QSize(132, 176))
         self.list.setSpacing(8)
         self.list.setUniformItemSizes(True)
+        self.setWidget(self.list)
+        self.apply_theme("dark")
+        self._on_click = None
+        self._pdf_path = None
+        self._page_count = 0
+        self._loaded_pages = set()
+        self._requested_pages = []
+        self._pending_pages = []
+        self._loader = None
+        self._load_timer = QTimer(self)
+        self._load_timer.setSingleShot(True)
+        self._load_timer.setInterval(80)
+        self._load_timer.timeout.connect(self._load_visible_thumbnails)
+        self.list.itemClicked.connect(self._handle_click)
+        self.list.verticalScrollBar().valueChanged.connect(self._schedule_visible_load)
+
+    def apply_theme(self, theme_mode: str):
+        if theme_mode == "light":
+            self.list.setStyleSheet("""
+                QListWidget {
+                    background-color: #f8f9fd;
+                    border: none;
+                    padding: 10px 6px;
+                }
+                QListWidget::item {
+                    background-color: transparent;
+                    border-radius: 8px;
+                    padding: 6px 4px;
+                    color: #475569;
+                    font-size: 11px;
+                    text-align: center;
+                }
+                QListWidget::item:selected {
+                    background-color: #e8edf9;
+                    color: #0f172a;
+                    border: 1px solid #3b82f6;
+                }
+                QListWidget::item:hover {
+                    background-color: #eef2ff;
+                }
+                QListWidget:focus {
+                    outline: none;
+                }
+            """)
+            return
+
         self.list.setStyleSheet("""
             QListWidget {
                 background-color: #0d0d12;
@@ -76,20 +122,6 @@ class ThumbnailSidebar(QDockWidget):
                 outline: none;
             }
         """)
-        self.setWidget(self.list)
-        self._on_click = None
-        self._pdf_path = None
-        self._page_count = 0
-        self._loaded_pages = set()
-        self._requested_pages = []
-        self._pending_pages = []
-        self._loader = None
-        self._load_timer = QTimer(self)
-        self._load_timer.setSingleShot(True)
-        self._load_timer.setInterval(80)
-        self._load_timer.timeout.connect(self._load_visible_thumbnails)
-        self.list.itemClicked.connect(self._handle_click)
-        self.list.verticalScrollBar().valueChanged.connect(self._schedule_visible_load)
 
     def _handle_click(self, item):
         if self._on_click:

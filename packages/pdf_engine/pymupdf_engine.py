@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .base import RenderedPage
+from packages.platform.fonts import get_vietnamese_font_path
 
 
 class PyMuPdfDocument:
@@ -71,6 +72,10 @@ class PyMuPdfEngine:
 
         doc = fitz.open(base_path)
         try:
+            vietnamese_font = get_vietnamese_font_path()
+            font_kwargs = {"fontname": "helv"}
+            if vietnamese_font:
+                font_kwargs = {"fontfile": vietnamese_font}
             for op in ops:
                 page_no = int(op.get("page_number", 1))
                 if page_no < 1 or page_no > doc.page_count:
@@ -86,14 +91,20 @@ class PyMuPdfEngine:
                         rect,
                         op.get("text", ""),
                         fontsize=op.get("font_size", 12),
-                        fontname="helv",
                         color=op.get("font_color", (0, 0, 0)),
                         align=0,
+                        rotate=int(op.get("rotation", 0)),
+                        **font_kwargs,
                     )
                 elif op.get("type") == "image":
                     image_path = op.get("image_path")
                     if image_path:
-                        page.insert_image(rect, filename=image_path, keep_proportion=True)
+                        page.insert_image(
+                            rect,
+                            filename=image_path,
+                            keep_proportion=True,
+                            rotate=int(op.get("rotation", 0)),
+                        )
 
             doc.save(output_path)
         finally:

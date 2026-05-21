@@ -113,9 +113,10 @@ def _populate_recent_menu(menu, window):
         empty.setEnabled(False)
     else:
         from app.icon_utils import svg_icon
+        icon_color = window.menu_icon_color() if hasattr(window, "menu_icon_color") else "#9b9bc0"
         for path in clean_recent:
             action = menu.addAction(f"  {os.path.basename(path)}")
-            action.setIcon(svg_icon("folder_open.svg", size=16, color="#9b9bc0"))
+            action.setIcon(svg_icon("folder_open.svg", size=16, color=icon_color))
             action.setToolTip(path)
             action.setStatusTip(path)
             action.triggered.connect(lambda checked=False, p=path: open_file(window, p))
