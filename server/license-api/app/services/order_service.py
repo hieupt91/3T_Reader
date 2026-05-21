@@ -63,6 +63,10 @@ def _send_email(to: str, subject: str, html: str) -> bool:
 
 def _email_customer(order: dict, license_key: str) -> bool:
     plan_name = PLAN_META.get(order["plan"], {}).get("name", order["plan"])
+    quantity = int(order.get("quantity", 1))
+    unit_price = PLAN_META.get(order["plan"], {}).get("amount", 0)
+    total = order.get("amount_total", unit_price * quantity)
+    device_text = f"{quantity} máy tính" if quantity > 1 else "1 máy tính"
     html = f"""
 <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#1e293b">
   <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:28px;border-radius:12px 12px 0 0;text-align:center">
@@ -77,8 +81,12 @@ def _email_customer(order: dict, license_key: str) -> bool:
     </div>
     <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:16px 0;font-size:.88rem">
       <p style="margin:4px 0">📋 <strong>Gói:</strong> {plan_name}</p>
-      <p style="margin:4px 0">🖥️ <strong>Thiết bị:</strong> 1 máy tính / 1 năm</p>
+      <p style="margin:4px 0">🖥️ <strong>Số máy sử dụng:</strong> <span style="color:#6366f1;font-weight:700">{device_text}</span> / 1 năm</p>
+      <p style="margin:4px 0">💰 <strong>Tổng thanh toán:</strong> {total:,}đ</p>
       <p style="margin:4px 0">📧 <strong>Mã đơn:</strong> {order['id']}</p>
+    </div>
+    <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin:16px 0;font-size:.85rem;color:#92400e">
+      ⚠️ Key này được kích hoạt tối đa <strong>{device_text}</strong>. Mỗi lần kích hoạt trên 1 máy sẽ tính 1 lượt.
     </div>
     <p style="font-size:.85rem;color:#64748b">Hướng dẫn kích hoạt: Mở 3T Reader → menu <em>License</em> → nhập key ở trên → bấm <strong>Kích hoạt</strong>.</p>
     <p style="font-size:.85rem;color:#64748b;margin-top:12px">Cần hỗ trợ? Liên hệ: <a href="mailto:{_ADMIN_EMAIL}" style="color:#6366f1">{_ADMIN_EMAIL}</a></p>
