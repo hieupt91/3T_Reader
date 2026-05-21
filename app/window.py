@@ -227,6 +227,10 @@ class PDFReaderApp(QMainWindow):
             from packages.qt_compat.QtWidgets import QApplication
             QApplication.quit()
 
+    def _open_license_dialog(self):
+        from app.license_dialog import open_license_dialog
+        open_license_dialog(self)
+
     # ------------------------------------------------------------------ #
     #  Tab host                                                            #
     # ------------------------------------------------------------------ #
@@ -882,6 +886,11 @@ class PDFReaderApp(QMainWindow):
         menu_sign.addSeparator()
         menu_sign.addAction(self.act_check_token)
         menu_sign.addAction(self.act_sign)
+
+        menu_license = bar.addMenu("License")
+        act_activate = menu_license.addAction("🔑  Kích hoạt / Nhập key...")
+        act_activate.setShortcut(QKeySequence("Ctrl+Shift+L"))
+        act_activate.triggered.connect(lambda: self._open_license_dialog())
 
         menu_help = bar.addMenu("Trợ giúp")
         act_shortcuts = menu_help.addAction("Xem phím tắt")

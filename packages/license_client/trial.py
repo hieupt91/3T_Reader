@@ -71,6 +71,20 @@ def _trial_file_path() -> str:
     return os.path.join(base, "3TReader", ".trial")
 
 
+def start_trial() -> dict:
+    """Người dùng bấm 'Dùng thử 30 ngày' — ghi ngày bắt đầu nếu chưa có."""
+    data = _keychain_load()
+    if "first_launch" not in data:
+        data["first_launch"] = datetime.now(tz=timezone.utc).isoformat()
+        _keychain_save(data)
+    return get_or_init_trial()
+
+
+def has_trial_started() -> bool:
+    """Kiểm tra người dùng đã chọn dùng thử chưa."""
+    return "first_launch" in _keychain_load()
+
+
 def get_or_init_trial() -> dict:
     """
     Trả về thông tin dùng thử:
