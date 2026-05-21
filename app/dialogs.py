@@ -1,4 +1,4 @@
-from packages.qt_compat.QtCore import Qt
+from packages.qt_compat.QtCore import Qt, QTimer, QThread, QCoreApplication
 from packages.qt_compat.QtWidgets import (
     QApplication,
     QDialog,
@@ -28,6 +28,12 @@ def _screen_geometry(parent):
 
 
 def _show_dialog(parent, title: str, message: str, level: str):
+    # macOS requires all UI on main thread — defer if called from a background thread
+    app = QCoreApplication.instance()
+    if app and QThread.currentThread() is not app.thread():
+        QTimer.singleShot(0, lambda: _show_dialog(parent, title, message, level))
+        return
+
     dialog = QDialog(parent)
     dialog.setObjectName("AppMessageDialog")
     dialog.setWindowTitle(title)

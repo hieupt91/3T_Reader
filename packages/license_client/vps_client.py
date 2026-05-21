@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import platform
 import socket
-import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -16,15 +15,16 @@ _USE_KEYCHAIN = platform.system() == "Darwin"
 
 
 def _post(base_url: str, path: str, payload: dict) -> dict:
-    data = json.dumps(payload).encode()
-    req = urllib.request.Request(
-        f"{base_url.rstrip('/')}{path}",
-        data=data,
-        headers={"Content-Type": "application/json", "User-Agent": "3T-Reader/1.0"},
-        method="POST",
+    import requests
+    url = f"{base_url.rstrip('/')}{path}"
+    resp = requests.post(
+        url,
+        json=payload,
+        headers={"User-Agent": "3T-Reader/1.0"},
+        timeout=_TIMEOUT,
     )
-    with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-        return json.loads(resp.read())
+    resp.raise_for_status()
+    return resp.json()
 
 
 def _parse_dt(s: str | None) -> datetime | None:
