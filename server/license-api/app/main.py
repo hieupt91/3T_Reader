@@ -48,11 +48,6 @@ def activate(req: ActivateRequest) -> ActivateResponse:
         req.app_version,
         req.machine_name,
     )
-
-
-@app.post(f"/api/{settings.api_version}/license/activate", response_model=ActivateResponse)
-def activate_v1(req: ActivateRequest) -> ActivateResponse:
-    return activate(req)
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["message"])
     return ActivateResponse(
@@ -65,6 +60,11 @@ def activate_v1(req: ActivateRequest) -> ActivateResponse:
         grace_days=settings.grace_days,
         seat_limit=result["seat_limit"],
     )
+
+
+@app.post(f"/api/{settings.api_version}/license/activate", response_model=ActivateResponse)
+def activate_v1(req: ActivateRequest) -> ActivateResponse:
+    return activate(req)
 
 
 @app.post("/api/license/validate", response_model=ValidateResponse)
