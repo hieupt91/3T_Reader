@@ -526,3 +526,106 @@ def export_pages_to_images(window):
     except Exception as e:
         window.status.showMessage("", 0)
         show_warning(window, "Lỗi xuất ảnh", str(e))
+
+
+# ── Export PDF to Text ────────────────────────────────────────────────────────
+
+@require_document(show_message=True)
+def export_pdf_to_text(window):
+    """Trích xuất toàn bộ văn bản từ PDF ra file .txt."""
+    fitz = _fitz()
+    src = window.current_path
+    base_name = os.path.splitext(os.path.basename(src))[0]
+
+    out_path, _ = QFileDialog.getSaveFileName(
+        window, "Lưu file văn bản", f"{base_name}.txt", "Text Files (*.txt)"
+    )
+    if not out_path:
+        return
+
+    window.status.showMessage("Đang trích xuất văn bản…", 0)
+    try:
+        doc = fitz.open(src)
+        lines = []
+        for i, page in enumerate(doc):
+            text = page.get_text("text").strip()
+            if text:
+                lines.append(f"=== Trang {i + 1} ===")
+                lines.append(text)
+                lines.append("")
+        doc.close()
+
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+
+        window.status.showMessage(f"Đã xuất văn bản: {os.path.basename(out_path)}", 5000)
+        import subprocess, sys
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", out_path])
+        elif sys.platform == "win32":
+            subprocess.Popen(["explorer", "/select,", out_path])
+    except Exception as e:
+        window.status.showMessage("", 0)
+        show_warning(window, "Lỗi trích xuất văn bản", str(e))
+
+
+# ── Add Page Numbers ──────────────────────────────────────────────────────────
+
+@require_document(show_message=True)
+def add_page_numbers(window):
+    """Thêm số trang vào cuối mỗi trang PDF."""
+    fitz = _fitz()
+
+    position, ok = QInputDialog.getItem(
+        window, "Vị trí số trang", "Chọn vị trí:",
+        ["Giữa — dưới trang", "Phải — dưới trang", "Trái — dưới trang",
+         "Giữa — trên trang", "Phải — trên trang"],
+        0, False
+    )
+    if not ok:
+        return
+
+    start_num, ok = QInputDialog.getInt(
+        window, "Số trang bắt đầu", "Bắt đầu từ số:", 1, 1, 9999
+    )
+    if not ok:
+        return
+
+    src = window.current_path
+    tmp = _tmp_pdf()
+    window.status.showMessage("Đang thêm số trang…", 0)
+    try:
+        doc = fitz.open(src)
+        for i, page in enumerate(doc):
+            num = start_num + i
+            label = str(num)
+            pw, ph = page.rect.width, page.rect.height
+            font_size = 10
+            margin = 20
+
+            if "trên" in position:
+                y = margin + font_size
+            else:
+                y = ph - margin
+
+            if "Phải" in position:
+                x = pw - margin - len(label) * font_size * 0.6
+            elif "Trái" in position:
+                x = margin
+            else:
+                x = pw / 2 - len(label) * font_size * 0.3
+
+            page.insert_text(
+                fitz.Point(x, y),
+                label,
+                fontsize=font_size,
+                color=(0.3, 0.3, 0.3),
+            )
+
+        doc.save(tmp)
+        doc.close()
+        _reload(window, tmp)
+        window.status.showMessage("Đã thêm số trang vào tất cả các trang", 4000)
+    except Exception as e:
+        window.status.showMessage("", 0)
+        show_warning(window, "Lỗi thêm số trang", str(e))

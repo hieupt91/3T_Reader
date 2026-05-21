@@ -44,12 +44,14 @@ from styles.theme import toggle_theme, is_dark
 from app.actions.annotate import (
     highlight_text, rotate_page_cw, rotate_page_ccw,
     delete_current_page, merge_pdf, extract_pages,
+    underline_text, strikeout_text, add_comment,
 )
 from app.actions.sign import check_token, sign_document, sign_handwritten
 from app.actions.export import export_pdf_to_word, export_pdf_to_excel
 from app.actions.document_ops import (
     add_watermark, set_pdf_password, remove_pdf_password,
     compress_pdf, export_pages_to_images,
+    export_pdf_to_text, add_page_numbers,
 )
 from app.sidebar import ThumbnailSidebar, BookmarkSidebar
 from app.icon_utils import svg_icon, app_logo_icon
@@ -743,6 +745,10 @@ class PDFReaderApp(QMainWindow):
         act_export_img.setIcon(svg_icon("insert_image.svg", size=16, color="#b060e0"))
         act_export_img.triggered.connect(lambda: export_pages_to_images(self))
 
+        act_export_txt = menu_file.addAction("Xuất văn bản ra .txt…")
+        act_export_txt.setIcon(svg_icon("history.svg", size=16, color="#9b9bc0"))
+        act_export_txt.triggered.connect(lambda: export_pdf_to_text(self))
+
         menu_file.addSeparator()
 
         act_file_info = menu_file.addAction("Thông tin tệp...")
@@ -806,8 +812,27 @@ class PDFReaderApp(QMainWindow):
         menu_tools.addAction(self.act_undo)
         menu_tools.addSeparator()
 
-        # Tô sáng (dùng lại action từ toolbar)
+        # Chú thích văn bản
         menu_tools.addAction(self.act_highlight)
+
+        act_underline = menu_tools.addAction("Gạch dưới văn bản")
+        act_underline.setIcon(svg_icon("highlight.svg", size=16, color="#4a90d9"))
+        act_underline.triggered.connect(lambda: underline_text(self))
+
+        act_strikeout = menu_tools.addAction("Gạch ngang văn bản")
+        act_strikeout.setIcon(svg_icon("highlight.svg", size=16, color="#e05050"))
+        act_strikeout.triggered.connect(lambda: strikeout_text(self))
+
+        act_comment = menu_tools.addAction("Thêm ghi chú (Note)…")
+        act_comment.setIcon(svg_icon("history.svg", size=16, color="#f0a030"))
+        act_comment.triggered.connect(lambda: add_comment(self))
+
+        menu_tools.addSeparator()
+
+        act_page_numbers = menu_tools.addAction("Thêm số trang…")
+        act_page_numbers.setIcon(svg_icon("chevron_right.svg", size=16, color="#9b9bc0"))
+        act_page_numbers.triggered.connect(lambda: add_page_numbers(self))
+
         menu_tools.addSeparator()
 
         act_find = menu_tools.addAction("Tìm kiếm văn bản...")

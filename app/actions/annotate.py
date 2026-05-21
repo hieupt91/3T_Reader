@@ -56,6 +56,7 @@ def _do_highlight(window, text: str):
     import fitz
     path = window.current_path
     page_no = _get_current_page(window)
+    doc = None
     try:
         doc = fitz.open(path)
         page = doc[page_no - 1]
@@ -75,7 +76,8 @@ def _do_highlight(window, text: str):
                 f"Đã tô sáng {len(instances)} chỗ: \"{text}\"", 3000)
     except Exception as e:
         try:
-            doc.close()
+            if doc:
+                doc.close()
         except Exception:
             pass
         show_warning(window, "Lỗi tô sáng", str(e))
@@ -228,3 +230,125 @@ def _parse_page_range(text: str, max_page: int) -> list[int]:
             except ValueError:
                 pass
     return sorted(set(pages))
+
+
+# ── Underline / Strikeout ─────────────────────────────────────────────────────
+
+def _do_line_annot(window, text: str, annot_type: str):
+    """Thêm gạch dưới (underline) hoặc gạch ngang (strikeout) cho text."""
+    import fitz
+    path = window.current_path
+    page_no = _get_current_page(window)
+    doc = None
+    try:
+        doc = fitz.open(path)
+        page = doc[page_no - 1]
+        instances = page.search_for(text)
+        if not instances:
+            doc.close()
+            show_warning(window, "Không tìm thấy",
+                f'Không tìm thấy "{text}" trên trang {page_no}.')
+            return
+        for rect in instances:
+            if annot_type == "underline":
+                annot = page.add_underline_annot(rect)
+                annot.set_colors(stroke=(0.0, 0.0, 1.0))
+            else:
+                annot = page.add_strikeout_annot(rect)
+                annot.set_colors(stroke=(1.0, 0.0, 0.0))
+            annot.update()
+        _save_and_reload(window, doc)
+        label = "gạch dưới" if annot_type == "underline" else "gạch ngang"
+        if hasattr(window, "status"):
+            window.status.showMessage(
+                f"Đã {label} {len(instances)} chỗ: \"{text}\"", 3000)
+    except Exception as e:
+        try:
+            if doc:
+                doc.close()
+        except Exception:
+            pass
+        show_warning(window, "Lỗi chú thích", str(e))
+
+
+@require_document(show_message=True)
+def underline_text(window):
+    """Gạch dưới văn bản được chọn hoặc nhập."""
+    wv = window._get_webview()
+
+    def _apply(sel_text):
+        text = (sel_text or "").strip()
+        if not text:
+            text, ok = QInputDialog.getText(
+                window, "Gạch dưới văn bản",
+                "Nhập từ/cụm từ cần gạch dưới:",
+                QLineEdit.EchoMode.Normal,
+            )
+            if not ok or not text.strip():
+                return
+            text = text.strip()
+        _do_line_annot(window, text, "underline")
+
+    if wv:
+        wv.page().runJavaScript("window.getSelection().toString()", _apply)
+    else:
+        _apply("")
+
+
+@require_document(show_message=True)
+def strikeout_text(window):
+    """Gạch ngang (strikeout) văn bản được chọn hoặc nhập."""
+    wv = window._get_webview()
+
+    def _apply(sel_text):
+        text = (sel_text or "").strip()
+        if not text:
+            text, ok = QInputDialog.getText(
+                window, "Gạch ngang văn bản",
+                "Nhập từ/cụm từ cần gạch ngang:",
+                QLineEdit.EchoMode.Normal,
+            )
+            if not ok or not text.strip():
+                return
+            text = text.strip()
+        _do_line_annot(window, text, "strikeout")
+
+    if wv:
+        wv.page().runJavaScript("window.getSelection().toString()", _apply)
+    else:
+        _apply("")
+
+
+# ── Note / Comment ────────────────────────────────────────────────────────────
+
+@require_document(show_message=True)
+def add_comment(window):
+    """Thêm ghi chú (sticky note) vào trang hiện tại."""
+    import fitz
+    content, ok = QInputDialog.getMultiLineText(
+        window, "Thêm ghi chú", "Nội dung ghi chú:"
+    )
+    if not ok or not content.strip():
+        return
+
+    path = window.current_path
+    page_no = _get_current_page(window)
+    doc = None
+    try:
+        doc = fitz.open(path)
+        page = doc[page_no - 1]
+        # Đặt note ở góc trên bên phải
+        rect = fitz.Rect(page.rect.width - 40, 10, page.rect.width - 10, 40)
+        annot = page.add_text_annot(rect.tl, content.strip())
+        annot.set_colors(stroke=(1.0, 1.0, 0.0), fill=(1.0, 1.0, 0.8))
+        annot.update()
+        _save_and_reload(window, doc)
+        if hasattr(window, "status"):
+            window.status.showMessage("Đã thêm ghi chú vào trang", 3000)
+    except Exception as e:
+        try:
+            if doc:
+                doc.close()
+        except Exception:
+            pass
+        show_warning(window, "Lỗi thêm ghi chú", str(e))
