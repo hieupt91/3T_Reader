@@ -13,20 +13,42 @@ assert sys.platform == "darwin", "This spec is macOS-only"
 ROOT = os.path.abspath(os.path.join(SPECPATH, "..", ".."))
 
 datas = [
-    (os.path.join(ROOT, "assets"),             "assets"),
+    (os.path.join(ROOT, "assets"),              "assets"),
     (os.path.join(ROOT, "third_party", "pdfjs"), "third_party/pdfjs"),
+    (os.path.join(ROOT, "EULA.md"),             "."),
+    (os.path.join(ROOT, "LICENSES.md"),         "."),
+    (os.path.join(ROOT, "THIRD_PARTY_NOTICES.md"), "."),
+    (os.path.join(ROOT, "PRIVACY_POLICY.md"),   "."),
 ]
 
 hiddenimports = [
-    "pypdfium2",
-    "pikepdf",
-    "reportlab",
-    "PySide6.QtPrintSupport",
-    "PySide6.QtWebEngineWidgets",
-    "PySide6.QtWebEngineCore",
-    "PySide6.QtWebChannel",
+    # PDF engine
+    "pypdfium2", "pikepdf", "pikepdf._core",
+    # Qt
+    "PySide6.QtPrintSupport", "PySide6.QtWebEngineWidgets",
+    "PySide6.QtWebEngineCore", "PySide6.QtWebChannel",
+    # Export
+    "pdf2docx", "pdfplumber", "openpyxl", "openpyxl.styles",
+    "reportlab", "reportlab.lib", "reportlab.platypus",
+    # Signing
+    "pyhanko", "pkcs11", "cryptography",
+    # OCR
+    "pytesseract", "PIL", "PIL.Image",
+    # AI
+    "anthropic", "openai", "numpy", "numpy.core",
+    # Requests / network
+    "requests", "urllib3", "certifi",
+    # Internal packages
     "packages.platform.macos",
     "packages.signing.macos_provider",
+    "packages.license_client.credential_manager",
+    "packages.ai.provider",
+    "packages.ai.translate",
+    "packages.ai.summarize",
+    "packages.ai.chat_pdf",
+    "packages.ai.semantic_search",
+    "packages.update_client.checker",
+    "packages.ocr.engine",
 ]
 
 a = Analysis(
@@ -38,7 +60,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["PyMuPDF", "fitz", "PyKCS11"],
+    excludes=["PyMuPDF", "fitz", "PyKCS11", "tkinter", "matplotlib"],
     noarchive=False,
     optimize=0,
 )

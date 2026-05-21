@@ -84,20 +84,25 @@ def build_index(pdf_path: str, progress_cb=None) -> tuple[SearchIndex, str]:
         return SearchIndex(pdf_path=pdf_path), "Semantic search cần OPENAI_API_KEY."
 
     try:
-        import fitz
-        doc = fitz.open(pdf_path)
+        import pypdfium2 as pdfium
+        doc = pdfium.PdfDocument(pdf_path)
         all_chunks = []
         all_pages = []
+        page_count = len(doc)
         try:
-            for i, page in enumerate(doc):
-                text = page.get_text("text").strip()
+            for i in range(page_count):
+                page = doc[i]
+                textpage = page.get_textpage()
+                text = textpage.get_text_range().strip()
+                textpage.close()
+                page.close()
                 if not text:
                     continue
                 chunks = _chunk_text(text)
                 all_chunks.extend(chunks)
                 all_pages.extend([i + 1] * len(chunks))
                 if progress_cb:
-                    progress_cb(f"Đang phân tích trang {i+1}/{doc.page_count}…")
+                    progress_cb(f"Đang phân tích trang {i+1}/{page_count}…")
         finally:
             doc.close()
     except Exception as e:
