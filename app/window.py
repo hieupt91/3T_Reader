@@ -496,7 +496,7 @@ class PDFReaderApp(QMainWindow):
         self.btn_search_prev = QToolButton()
         self.btn_search_prev.setObjectName("SearchBtn")
         self.btn_search_prev.setToolTip("Tìm trước đó (Shift+F3)")
-        self.btn_search_prev.setIcon(svg_icon("chevron_left.svg", size=16, color="#dcdcff"))
+        self.btn_search_prev.setIcon(svg_icon("chevron_left.svg", size=16, color=self._search_arrow_color()))
         self.btn_search_prev.clicked.connect(
             lambda: self._search_from_panel(find_previous=True, force_new=False)
         )
@@ -505,7 +505,7 @@ class PDFReaderApp(QMainWindow):
         self.btn_search_next = QToolButton()
         self.btn_search_next.setObjectName("SearchBtn")
         self.btn_search_next.setToolTip("Tìm tiếp (F3)")
-        self.btn_search_next.setIcon(svg_icon("chevron_right.svg", size=16, color="#dcdcff"))
+        self.btn_search_next.setIcon(svg_icon("chevron_right.svg", size=16, color=self._search_arrow_color()))
         self.btn_search_next.clicked.connect(
             lambda: self._search_from_panel(find_previous=False, force_new=False)
         )
@@ -572,9 +572,7 @@ class PDFReaderApp(QMainWindow):
         self.toolbar.setMovable(False)
         self.toolbar.setFloatable(False)
         self.toolbar.setContentsMargins(0, 0, 0, 0)
-        self.toolbar.setStyleSheet(
-            "QToolBar { border:none; padding:0; margin:0; spacing:0; background:#12122A; }"
-        )
+        self._apply_toolbar_style()
         self.addToolBar(self.toolbar)
 
         def _ic(svg_file):
@@ -1477,6 +1475,10 @@ class PDFReaderApp(QMainWindow):
             if svg_file not in ("sun.svg", "moon.svg"):
                 color = colors.get(svg_file, fallback)
                 action.setIcon(svg_icon(svg_file, color=color))
+        sc = self._search_arrow_color()
+        self.btn_search_prev.setIcon(svg_icon("chevron_left.svg", size=16, color=sc))
+        self.btn_search_next.setIcon(svg_icon("chevron_right.svg", size=16, color=sc))
+        self._apply_toolbar_style()
 
     def _toggle_sidebar(self):
         visible = self.sidebar.isVisible()
@@ -1501,6 +1503,15 @@ class PDFReaderApp(QMainWindow):
         btn = self.toolbar.widgetForAction(self.act_theme_toggle)
         if btn:
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+
+    def _search_arrow_color(self) -> str:
+        return "#dcdcff" if is_dark() else "#505080"
+
+    def _apply_toolbar_style(self):
+        bg = "#12122A" if is_dark() else "#E8E8F4"
+        self.toolbar.setStyleSheet(
+            f"QToolBar {{ border:none; padding:0; margin:0; spacing:0; background:{bg}; }}"
+        )
 
     def _apply_toolbar_prefs(self):
         from app.toolbar_prefs import load_prefs, apply_prefs
