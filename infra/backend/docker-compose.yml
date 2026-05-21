@@ -6,6 +6,7 @@ services:
     environment:
       THREET_ENV: production
       THREET_LICENSE_SIGNING_SECRET: change-me-before-deploy
+      THREET_LICENSE_ED25519_PRIVATE: /xfT4pWrJhhdCaY5LqTCflO6XarL29oTn8qosF/YWTQ=
       THREET_DEFAULT_UPDATE_VERSION: 0.0.0
       THREET_DEFAULT_UPDATE_URL: https://example.com/releases/3t-reader
       THREET_DATA_DIR: /data
