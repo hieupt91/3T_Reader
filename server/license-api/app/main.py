@@ -22,6 +22,7 @@ from .schemas import (
     ValidateRequest,
     ValidateResponse,
 )
+from .services.admin_config import AdminConfig
 from .services.license_service import LicenseService
 from .services.order_service import OrderStore
 from .services.token_service import TokenService
@@ -34,6 +35,7 @@ state_store = FileStateStore(f"{settings.data_dir}/{settings.state_file}")
 license_service = LicenseService(token_service, state_store=state_store)
 update_service = UpdateService(token_service)
 order_store = OrderStore(f"{settings.data_dir}/orders.json")
+admin_config = AdminConfig(f"{settings.data_dir}/admin-config.json")
 
 _ADMIN_PASSWORD = os.environ.get("THREET_ADMIN_PASSWORD", "3tAdmin2026")
 _STATIC = Path(__file__).parent / "static"
@@ -61,11 +63,35 @@ class LoginRequest(BaseModel):
 
 @app.post("/api/admin/login")
 def admin_login(req: LoginRequest):
-    if req.password != _ADMIN_PASSWORD:
+    if req.password != admin_config.get_password():
         raise HTTPException(status_code=401, detail="Mật khẩu không đúng")
     tok = _secrets.token_hex(32)
     _active_tokens.add(tok)
     return {"token": tok}
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/api/admin/change-password")
+def change_password(req: ChangePasswordRequest, _=Depends(_require_admin)):
+    if req.current_password != admin_config.get_password():
+        raise HTTPException(status_code=400, detail="Mật khẩu hiện tại không đúng")
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Mật khẩu mới phải có ít nhất 6 ký tự")
+    admin_config.set_password(req.new_password)
+    _active_tokens.clear()
+    return {"ok": True}
+
+
+@app.post("/api/admin/forgot-password")
+def forgot_password():
+    ok = admin_config.send_password_by_email()
+    if not ok:
+        raise HTTPException(status_code=503, detail="Không thể gửi email. Kiểm tra cấu hình SMTP.")
+    return {"ok": True}
 
 
 def _require_admin(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)):
@@ -101,6 +127,7 @@ class OrderSubmitRequest(BaseModel):
     customer_name: str
     customer_email: str
     plan: str
+    quantity: int = 1
 
 
 @app.post("/api/v1/order/submit")
@@ -108,7 +135,9 @@ def submit_order(req: OrderSubmitRequest):
     if not req.customer_name.strip() or not req.customer_email.strip():
         raise HTTPException(status_code=422, detail="Vui lòng điền đầy đủ thông tin")
     try:
-        order = order_store.create_order(req.customer_name.strip(), req.customer_email.strip(), req.plan)
+        order = order_store.create_order(
+            req.customer_name.strip(), req.customer_email.strip(), req.plan, req.quantity
+        )
         return {"ok": True, "order_id": order["id"]}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

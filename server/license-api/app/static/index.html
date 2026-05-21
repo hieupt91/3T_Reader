@@ -391,10 +391,14 @@ footer a{color:#6366f1;text-decoration:none}
         <div class="form-group">
           <label>Gói đăng ký</label>
           <select id="planSelect" onchange="updatePlan(this.value)">
-            <option value="basic">Gói Cơ Bản – 300.000đ/năm</option>
-            <option value="personal" selected>Gói Cá Nhân – 500.000đ/năm</option>
-            <option value="enterprise">Gói Doanh Nghiệp – 800.000đ/năm</option>
+            <option value="basic">Gói Cơ Bản – 300.000đ/máy/năm</option>
+            <option value="personal" selected>Gói Cá Nhân – 500.000đ/máy/năm</option>
+            <option value="enterprise">Gói Doanh Nghiệp – 800.000đ/máy/năm</option>
           </select>
+        </div>
+        <div class="form-group">
+          <label>Số lượng máy tính</label>
+          <input type="number" id="quantity" value="1" min="1" max="100" oninput="updatePlan(document.getElementById('planSelect').value)">
         </div>
         <button type="submit" class="btn-submit" id="submitBtn">
           ✓ Xác nhận đã chuyển khoản
@@ -443,15 +447,20 @@ function closeModal() {
 function updatePlan(plan) {
   currentPlan = plan;
   const p = PLANS[plan];
+  const qty = Math.max(1, parseInt(document.getElementById('quantity')?.value) || 1);
+  const total = p.price * qty;
+  const displayPrice = qty > 1
+    ? `${total.toLocaleString('vi-VN')}đ (${qty} máy × ${p.price.toLocaleString('vi-VN')}đ)`
+    : p.display;
   document.getElementById('psName').textContent = p.name;
-  document.getElementById('psPrice').textContent = p.display;
-  document.getElementById('bankAmount').textContent = p.price.toLocaleString('vi-VN') + 'đ';
+  document.getElementById('psPrice').textContent = displayPrice;
+  document.getElementById('bankAmount').textContent = total.toLocaleString('vi-VN') + 'đ';
   const email = document.getElementById('custEmail').value.trim();
-  const noteText = `3TREADER ${plan.toUpperCase()}${email ? ' ' + email : ''}`;
+  const noteText = `3TREADER ${plan.toUpperCase()}${qty > 1 ? ' ' + qty + 'MAY' : ''}${email ? ' ' + email : ''}`;
   document.getElementById('transferNote').textContent = noteText;
-  const qrNote = encodeURIComponent(`3TREADER ${plan.toUpperCase()}`);
+  const qrNote = encodeURIComponent(`3TREADER ${plan.toUpperCase()}${qty > 1 ? ' ' + qty + ' MAY' : ''}`);
   document.getElementById('qrImg').src =
-    `https://img.vietqr.io/image/MB-73366778899-compact2.png?amount=${p.price}&addInfo=${qrNote}&accountName=PHAM%20TRUNG%20HIEU`;
+    `https://img.vietqr.io/image/MB-73366778899-compact2.png?amount=${total}&addInfo=${qrNote}&accountName=PHAM%20TRUNG%20HIEU`;
 }
 
 document.getElementById('custEmail').addEventListener('input', () => {
@@ -477,6 +486,7 @@ async function submitOrder(e) {
   const name = document.getElementById('custName').value.trim();
   const email = document.getElementById('custEmail').value.trim();
   const plan = document.getElementById('planSelect').value;
+  const quantity = Math.max(1, parseInt(document.getElementById('quantity').value) || 1);
   const btn = document.getElementById('submitBtn');
   btn.disabled = true;
   btn.textContent = 'Đang gửi...';
@@ -484,7 +494,7 @@ async function submitOrder(e) {
     const res = await fetch('/api/v1/order/submit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customer_name: name, customer_email: email, plan }),
+      body: JSON.stringify({ customer_name: name, customer_email: email, plan, quantity }),
     });
     const data = await res.json();
     if (res.ok) {

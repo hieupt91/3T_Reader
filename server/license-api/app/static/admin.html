@@ -22,6 +22,9 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 .btn-login{width:100%;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;padding:12px;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;margin-top:4px;transition:.2s}
 .btn-login:hover{opacity:.9}
 .login-err{color:var(--red);font-size:.83rem;text-align:center;margin-top:10px;display:none}
+.forgot-link{display:block;text-align:center;color:var(--muted);font-size:.82rem;margin-top:14px;cursor:pointer;transition:.2s}
+.forgot-link:hover{color:#818cf8}
+.forgot-ok{color:#34d399;font-size:.82rem;text-align:center;margin-top:10px;display:none}
 
 /* ADMIN PANEL */
 .admin{display:none}
@@ -30,6 +33,19 @@ header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 28p
 .hdr-right{display:flex;align-items:center;gap:16px}
 .btn-logout{background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:7px;font-size:.82rem;cursor:pointer;transition:.2s}
 .btn-logout:hover{border-color:var(--red);color:var(--red)}
+.btn-chpw{background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:7px;font-size:.82rem;cursor:pointer;transition:.2s}
+.btn-chpw:hover{border-color:#818cf8;color:#818cf8}
+
+/* Change password modal */
+.chpw-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:60;display:none;align-items:center;justify-content:center;padding:20px}
+.chpw-overlay.open{display:flex}
+.chpw-box{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:28px;max-width:380px;width:100%}
+.chpw-box h3{font-size:1rem;font-weight:600;margin-bottom:20px}
+.chpw-err{color:var(--red);font-size:.82rem;margin-top:8px;display:none}
+.chpw-ok{color:#34d399;font-size:.82rem;margin-top:8px;display:none}
+.btn-chpw-save{width:100%;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;padding:11px;border-radius:8px;font-weight:600;cursor:pointer;margin-top:12px;font-size:.9rem}
+.btn-chpw-cancel{width:100%;background:transparent;border:1px solid var(--border);color:var(--muted);padding:10px;border-radius:8px;cursor:pointer;margin-top:8px;font-size:.88rem}
+.btn-chpw-cancel:hover{border-color:var(--red);color:var(--red)}
 
 main{padding:28px;max-width:1200px;margin:auto}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:28px}
@@ -96,7 +112,32 @@ tr:hover td{background:rgba(255,255,255,.02)}
       </div>
       <button type="submit" class="btn-login">Đăng nhập</button>
       <div class="login-err" id="loginErr">Mật khẩu không đúng!</div>
+      <div class="forgot-ok" id="forgotOk">✓ Đã gửi mật khẩu về 3t.hotro@gmail.com</div>
+      <span class="forgot-link" onclick="forgotPassword()">Quên mật khẩu? Gửi về email</span>
     </form>
+  </div>
+</div>
+
+<!-- Change password modal -->
+<div class="chpw-overlay" id="chpwOverlay">
+  <div class="chpw-box">
+    <h3>🔑 Đổi mật khẩu Admin</h3>
+    <div class="form-group">
+      <label>Mật khẩu hiện tại</label>
+      <input type="password" id="curPw" placeholder="Nhập mật khẩu hiện tại">
+    </div>
+    <div class="form-group">
+      <label>Mật khẩu mới</label>
+      <input type="password" id="newPw" placeholder="Tối thiểu 6 ký tự">
+    </div>
+    <div class="form-group">
+      <label>Xác nhận mật khẩu mới</label>
+      <input type="password" id="newPw2" placeholder="Nhập lại mật khẩu mới">
+    </div>
+    <div class="chpw-err" id="chpwErr"></div>
+    <div class="chpw-ok" id="chpwOk">✓ Đổi mật khẩu thành công! Vui lòng đăng nhập lại.</div>
+    <button class="btn-chpw-save" onclick="doChangePassword()">Lưu mật khẩu mới</button>
+    <button class="btn-chpw-cancel" onclick="closeChpw()">Hủy</button>
   </div>
 </div>
 
@@ -106,6 +147,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <div class="hdr-logo">📋 3T Reader Admin</div>
     <div class="hdr-right">
       <span id="hdrInfo" style="font-size:.82rem;color:var(--muted)"></span>
+      <button class="btn-chpw" onclick="openChpw()">🔑 Đổi mật khẩu</button>
       <button class="btn-logout" onclick="logout()">Đăng xuất</button>
     </div>
   </header>
@@ -143,7 +185,8 @@ tr:hover td{background:rgba(255,255,255,.02)}
             <th>Khách hàng</th>
             <th>Email</th>
             <th>Gói</th>
-            <th>Số tiền</th>
+            <th>Số máy</th>
+            <th>Tổng tiền</th>
             <th>Thời gian</th>
             <th>Trạng thái</th>
             <th>Thao tác</th>
@@ -262,7 +305,8 @@ function renderOrders() {
       <td>${esc(o.customer_name)}</td>
       <td>${esc(o.customer_email)}</td>
       <td>${PLAN_NAMES[o.plan] || o.plan}</td>
-      <td>${PLAN_PRICES[o.plan] || ''}</td>
+      <td>${o.quantity || 1} máy</td>
+      <td>${(o.amount_total || 0).toLocaleString('vi-VN')}đ</td>
       <td style="color:var(--muted)">${fmtDate(o.created_at)}</td>
       <td><span class="badge ${o.status}">${statusLabel(o.status)}</span></td>
       <td>
@@ -331,8 +375,71 @@ function statusLabel(s) {
   return { pending: '⏳ Chờ duyệt', approved: '✓ Đã cấp key', rejected: '✕ Từ chối' }[s] || s;
 }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeConfirm(); });
-setInterval(loadOrders, 30000); // auto-refresh every 30s
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeConfirm(); closeChpw(); }
+});
+setInterval(loadOrders, 30000);
+
+// ── Quên mật khẩu ──
+async function forgotPassword() {
+  const el = document.getElementById('forgotOk');
+  const err = document.getElementById('loginErr');
+  try {
+    const res = await fetch('/api/admin/forgot-password', { method: 'POST' });
+    if (res.ok) {
+      el.style.display = 'block';
+      err.style.display = 'none';
+    } else {
+      err.textContent = 'Không gửi được email. Kiểm tra cấu hình SMTP.';
+      err.style.display = 'block';
+    }
+  } catch {
+    err.textContent = 'Lỗi kết nối server.';
+    err.style.display = 'block';
+  }
+}
+
+// ── Đổi mật khẩu ──
+function openChpw() {
+  document.getElementById('curPw').value = '';
+  document.getElementById('newPw').value = '';
+  document.getElementById('newPw2').value = '';
+  document.getElementById('chpwErr').style.display = 'none';
+  document.getElementById('chpwOk').style.display = 'none';
+  document.getElementById('chpwOverlay').classList.add('open');
+}
+
+function closeChpw() {
+  document.getElementById('chpwOverlay').classList.remove('open');
+}
+
+async function doChangePassword() {
+  const cur = document.getElementById('curPw').value;
+  const nw  = document.getElementById('newPw').value;
+  const nw2 = document.getElementById('newPw2').value;
+  const err = document.getElementById('chpwErr');
+  const ok  = document.getElementById('chpwOk');
+  err.style.display = 'none';
+  ok.style.display = 'none';
+
+  if (!cur || !nw || !nw2) { err.textContent = 'Vui lòng điền đầy đủ.'; err.style.display = 'block'; return; }
+  if (nw !== nw2) { err.textContent = 'Mật khẩu mới không khớp.'; err.style.display = 'block'; return; }
+  if (nw.length < 6) { err.textContent = 'Mật khẩu mới phải có ít nhất 6 ký tự.'; err.style.display = 'block'; return; }
+
+  const res = await fetch('/api/admin/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ current_password: cur, new_password: nw }),
+  });
+  const data = await res.json();
+  if (res.ok) {
+    ok.style.display = 'block';
+    setTimeout(() => { closeChpw(); logout(); }, 2000);
+  } else {
+    err.textContent = data.detail || 'Lỗi không xác định.';
+    err.style.display = 'block';
+  }
+}
 </script>
 </body>
 </html>

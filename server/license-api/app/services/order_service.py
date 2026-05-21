@@ -85,16 +85,19 @@ def _email_customer(order: dict, license_key: str) -> bool:
 
 def _email_admin(order: dict) -> bool:
     plan_name = PLAN_META.get(order["plan"], {}).get("name", order["plan"])
-    amount = PLAN_META.get(order["plan"], {}).get("amount", 0)
+    unit_price = PLAN_META.get(order["plan"], {}).get("amount", 0)
+    quantity = int(order.get("quantity", 1))
+    total = order.get("amount_total", unit_price * quantity)
     html = f"""
 <div style="font-family:Arial,sans-serif;max-width:500px;margin:auto">
   <h2 style="color:#1e293b">📬 Đơn hàng mới – 3T Reader</h2>
   <table style="width:100%;border-collapse:collapse;font-size:.9rem">
-    <tr><td style="padding:8px;color:#64748b;width:120px">Mã đơn</td><td style="padding:8px;font-weight:600">{order['id']}</td></tr>
+    <tr><td style="padding:8px;color:#64748b;width:130px">Mã đơn</td><td style="padding:8px;font-weight:600">{order['id']}</td></tr>
     <tr style="background:#f8fafc"><td style="padding:8px;color:#64748b">Khách hàng</td><td style="padding:8px">{order['customer_name']}</td></tr>
     <tr><td style="padding:8px;color:#64748b">Email</td><td style="padding:8px">{order['customer_email']}</td></tr>
     <tr style="background:#f8fafc"><td style="padding:8px;color:#64748b">Gói</td><td style="padding:8px"><strong>{plan_name}</strong></td></tr>
-    <tr><td style="padding:8px;color:#64748b">Số tiền</td><td style="padding:8px;color:#16a34a;font-weight:700">{amount:,}đ</td></tr>
+    <tr><td style="padding:8px;color:#64748b">Số lượng máy</td><td style="padding:8px"><strong>{quantity} máy</strong></td></tr>
+    <tr style="background:#f8fafc"><td style="padding:8px;color:#64748b">Tổng tiền</td><td style="padding:8px;color:#16a34a;font-weight:700">{total:,}đ</td></tr>
   </table>
   <p style="margin-top:16px">
     <a href="https://reader.3tcomputer.com/admin" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600">→ Vào Admin để duyệt</a>
@@ -129,12 +132,16 @@ class OrderStore:
         orders.sort(key=lambda o: o.get("created_at", ""), reverse=True)
         return orders
 
-    def create_order(self, customer_name: str, customer_email: str, plan: str) -> dict:
+    def create_order(self, customer_name: str, customer_email: str, plan: str, quantity: int = 1) -> dict:
         if plan not in PLAN_META:
             raise ValueError(f"Plan không hợp lệ: {plan}")
+        quantity = max(1, min(quantity, 100))
+        meta = PLAN_META[plan]
         order = {
             "id": _gen_order_id(),
             "plan": plan,
+            "quantity": quantity,
+            "amount_total": meta["amount"] * quantity,
             "customer_name": customer_name,
             "customer_email": customer_email,
             "status": "pending",
@@ -157,15 +164,15 @@ class OrderStore:
             raise ValueError("Đơn hàng này đã được xử lý")
 
         plan = order["plan"]
-        meta = PLAN_META[plan]
+        quantity = int(order.get("quantity", 1))
         license_key = _gen_license_key(plan)
 
-        # Add key to license store
+        # Add key to license store — seat_limit = số máy khách đặt
         from ..models import LicenseRecord
         record = LicenseRecord(
             license_key=license_key,
             customer_name=order["customer_name"],
-            seat_limit=meta["seat_limit"],
+            seat_limit=quantity,
         )
         license_service.licenses[license_key] = record
         license_service._save()
