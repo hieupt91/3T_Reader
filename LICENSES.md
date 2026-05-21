@@ -1,63 +1,50 @@
-# Licenses
+# Licenses — 3T Reader
 
-## 3T Reader
+3T Reader is proprietary software developed by 3T Company.  
+Copyright © 2026 3T Company. All rights reserved.
 
-Copyright 2026 3T Company. All rights reserved.
-
-3T Reader source code in this repository is proprietary and confidential.
-Distribution of this software requires a commercial license agreement.
+This software incorporates third-party open-source components listed below.  
+Full license texts are in `THIRD_PARTY_NOTICES.md`.
 
 ---
 
-## Third-Party Component Licenses
+## Third-Party Components
 
-For the full list of third-party components and their license obligations,
-see **THIRD_PARTY_NOTICES.md** in this directory.
+| Component | Version | License | Usage |
+|---|---|---|---|
+| **PySide6** | 6.11.0 | LGPL v3 | Desktop UI framework (Qt) |
+| **pyqtdarktheme** | 0.1.7 | MIT | Dark/light theme for Qt |
+| **pypdfium2** | 5.7.0 | Apache-2.0 / BSD-3-Clause | PDF rendering (PDFium) |
+| **pikepdf** | 10.5.1 | MPL-2.0 | PDF structure manipulation |
+| **reportlab** | 4.4.5 | BSD | PDF generation |
+| **pyHanko** | 0.34.1 | MIT | PDF digital signatures |
+| **python-pkcs11** | 0.9.4 | MIT | USB token PKCS#11 interface |
+| **cryptography** | 46.0.7 | Apache-2.0 / BSD | Cryptographic operations |
+| **Pillow** | 12.2.0 | HPND | Image processing |
+| **requests** | 2.33.1 | Apache-2.0 | HTTP client |
+| **pytesseract** | ≥ 0.3.13 | Apache-2.0 | Tesseract OCR Python wrapper |
+| **Tesseract OCR** | 5.x | Apache-2.0 | OCR engine (system install) |
+| **PDF.js** | (bundled) | Apache-2.0 | PDF rendering in WebView |
+| **PyInstaller** | 6.20.0 | GPL + bootloader exception | App packaging (build only) |
 
-### License Summary
+---
 
-| Component | License | Commercial Use |
-|---|---|---|
-| PySide6 / Qt 6.11.0 | LGPL-3.0 (dynamic link) | ✅ Allowed |
-| PDF.js 5.6.205 | Apache-2.0 | ✅ Allowed |
-| pypdfium2 5.7.0 | BSD-3-Clause + Apache-2.0 | ✅ Allowed |
-| pikepdf 10.5.1 | MPL-2.0 | ✅ Allowed (copyleft applies to pikepdf changes only) |
-| reportlab 4.4.5 | HPND (BSD-style) | ✅ Allowed |
-| pyHanko 0.34.1 | MIT | ✅ Allowed |
-| python-pkcs11 | MIT | ✅ Allowed |
-| cryptography 46.0.7 | Apache-2.0 / BSD-3-Clause | ✅ Allowed |
-| Pillow 12.2.0 | MIT-CMU (HPND) | ✅ Allowed |
-| requests 2.33.1 | Apache-2.0 | ✅ Allowed |
-| pyqtdarktheme | MIT | ✅ Allowed |
-| Fluent UI System Icons | MIT | ✅ Allowed — commit f981da35 (2026-05-18) |
-| Lucide Icons | ISC | ✅ Allowed — commit 5b40f2c5 (2026-05-15) |
-| PyInstaller 6.20.0 | GPL + bootloader exception | ✅ Build-only (exception covers non-free apps) |
-| **PyMuPDF** (optional) | **AGPL-3.0** | ❌ Not shipped in commercial builds |
-| **PyQt6** (removed) | **GPL-3.0** | ❌ Removed — replaced by PySide6 LGPL |
-| **pdfjs-viewer-pyqt6** (removed) | **GPL-3.0-or-later** | ❌ Removed |
-| **PyKCS11** (optional) | **GPL** | ❌ Not shipped in commercial builds |
+## Assets
 
-### PDF.js Nested Licenses
+- **Application icons** (`assets/3TReader.icns`, `assets/icon.ico`, `assets/icon_*.png`):  
+  Original artwork created by 3T Company. All rights reserved.
 
-The bundled PDF.js distribution (`third_party/pdfjs/`) includes additional
-license files for embedded components:
+- **UI icons** (`assets/icons/*.svg`):  
+  Original artwork created by 3T Company. All rights reserved.
 
-- CMaps: `third_party/pdfjs/web/cmaps/LICENSE`
-- Standard fonts (Foxit): `third_party/pdfjs/web/standard_fonts/LICENSE_FOXIT`
-- Standard fonts (Liberation): `third_party/pdfjs/web/standard_fonts/LICENSE_LIBERATION`
-- WebAssembly modules: `third_party/pdfjs/web/wasm/LICENSE_*`
+- **Logo** (`assets/logo*.svg`):  
+  Original artwork created by 3T Company. All rights reserved.
 
-### Qt / Chromium Notices
+---
 
-PySide6 bundles Qt WebEngine which includes Chromium. Before commercial
-distribution, collect and include Qt's third-party Chromium notices
-as required by the LGPL terms. See:
-https://code.qt.io/cgit/qt/qtwebengine-chromium.git/
+## Compliance Notes
 
-### Required Before Commercial Release
-
-- [ ] Run `pip-licenses` from Windows build environment to generate SBOM.
-- [ ] Collect Qt/Chromium third-party notices per LGPL requirements.
-- [ ] `cyclonedx-py requirements requirements.txt` → CycloneDX SBOM.
-- [ ] Verify PySide6 LGPL dynamic linking compliance per OS.
-- [ ] EULA and Privacy Policy (required before Phase 3 / license server launch).
+- **PySide6 (LGPL v3):** 3T Reader links dynamically to PySide6/Qt libraries. In compliance with LGPL v3, users may replace the Qt libraries. Qt source code is available at https://code.qt.io
+- **pikepdf (MPL-2.0):** MPL-2.0 allows use in proprietary software. Source: https://github.com/pikepdf/pikepdf
+- **PyInstaller bootloader exception:** Permits commercial use despite GPL base license.
+- **Tesseract OCR:** Installed separately on the end-user system; not bundled in the application.
