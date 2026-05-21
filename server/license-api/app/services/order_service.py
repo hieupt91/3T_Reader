@@ -97,7 +97,7 @@ def _email_admin(order: dict) -> bool:
     <tr><td style="padding:8px;color:#64748b">Số tiền</td><td style="padding:8px;color:#16a34a;font-weight:700">{amount:,}đ</td></tr>
   </table>
   <p style="margin-top:16px">
-    <a href="https://license.3tcomputer.com/admin" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600">→ Vào Admin để duyệt</a>
+    <a href="https://3treader.3tcomputer.com/admin" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600">→ Vào Admin để duyệt</a>
   </p>
 </div>
 """
