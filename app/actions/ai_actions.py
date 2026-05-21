@@ -45,6 +45,25 @@ def open_chat_dialog(window):
     dlg.show()
 
 
+@require_document(show_message=True)
+def open_search_dialog(window):
+    """Mở dialog tìm kiếm theo nghĩa (non-modal, có thể giữ mở khi đọc)."""
+    pdf_path = _current_pdf_path(window)
+
+    existing = getattr(window, "_ai_search_dialog", None)
+    if existing is not None and existing.isVisible():
+        if existing._pdf_path != pdf_path:
+            existing.set_pdf(pdf_path)
+        existing.raise_()
+        existing.activateWindow()
+        return
+
+    from app.ai_search_dialog import AISearchDialog
+    dlg = AISearchDialog(window, pdf_path)
+    window._ai_search_dialog = dlg
+    dlg.show()
+
+
 def open_ai_settings(window):
     """Dialog cấu hình API key AI — không yêu cầu tài liệu đang mở."""
     from packages.qt_compat.QtWidgets import (

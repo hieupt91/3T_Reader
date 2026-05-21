@@ -1,23 +1,61 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_all
+# Windows build spec for 3T Reader
+# Build: pyinstaller 3T_Reader.spec --distpath dist\win --workpath build\win --noconfirm
+
+import sys
+import os
 
 datas = []
 binaries = []
-hiddenimports = ['pypdfium2', 'pikepdf', 'PySide6.QtPrintSupport', 'PySide6.QtWebEngineWidgets']
+
+hiddenimports = [
+    # PDF engine
+    'pypdfium2', 'pikepdf', 'pikepdf._core',
+    # Qt
+    'PySide6.QtPrintSupport', 'PySide6.QtWebEngineWidgets',
+    'PySide6.QtWebEngineCore', 'PySide6.QtWebChannel',
+    # Export
+    'pdf2docx', 'pdfplumber', 'openpyxl', 'openpyxl.styles',
+    'reportlab', 'reportlab.lib', 'reportlab.platypus',
+    # Signing
+    'pyhanko', 'pkcs11', 'cryptography',
+    # OCR
+    'pytesseract', 'PIL', 'PIL.Image',
+    # AI
+    'anthropic', 'openai', 'numpy', 'numpy.core',
+    # Requests / network
+    'requests', 'urllib3', 'certifi',
+    # Internal packages
+    'packages.platform.windows',
+    'packages.signing.windows_provider',
+    'packages.license_client.credential_manager',
+    'packages.ai.provider',
+    'packages.ai.translate',
+    'packages.ai.summarize',
+    'packages.ai.chat_pdf',
+    'packages.ai.semantic_search',
+    'packages.update_client.checker',
+    'packages.ocr.engine',
+]
+
 datas += [('assets', 'assets')]
 datas += [('third_party/pdfjs', 'third_party/pdfjs')]
+datas += [('EULA.md', '.')]
+datas += [('LICENSES.md', '.')]
+datas += [('THIRD_PARTY_NOTICES.md', '.')]
+datas += [('PRIVACY_POLICY.md', '.')]
 
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=['.'],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['PyMuPDF', 'fitz', 'PyKCS11', 'tkinter', 'matplotlib'],
     noarchive=False,
     optimize=0,
 )
@@ -39,6 +77,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='assets\\icon.ico',
+    version_file=None,
 )
 coll = COLLECT(
     exe,
