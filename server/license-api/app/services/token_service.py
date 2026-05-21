@@ -60,10 +60,10 @@ class TokenService:
         body_b64 = parts[0]
         sig_part = parts[1]
 
-        if len(parts) == 3 and parts[2].startswith("ed."):
-            # Ed25519 token
+        if len(parts) == 4 and parts[2] == "ed":
+            # Ed25519 token: body.sig.ed.pubkey
             from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-            pub_b64 = parts[2][3:]
+            pub_b64 = parts[3]
             pub_key = Ed25519PublicKey.from_public_bytes(base64.b64decode(pub_b64 + "=="))
             sig_bytes = _b64url_decode(sig_part)
             pub_key.verify(sig_bytes, body_b64.encode("ascii"))  # raises on bad sig
