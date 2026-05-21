@@ -296,8 +296,9 @@ function closeConfirm() {
 
 async function doApprove() {
   if (!pendingOrderId) return;
+  const orderId = pendingOrderId;
   closeConfirm();
-  const res = await fetch(`/api/admin/orders/${pendingOrderId}/approve`, {
+  const res = await fetch(`/api/admin/orders/${orderId}/approve`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
   });
