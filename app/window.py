@@ -17,6 +17,7 @@ from packages.qt_compat.QtWidgets import (
     QVBoxLayout,
     QTabWidget,
     QMenu,
+    QSizePolicy,
 )
 from packages.qt_compat.QtGui import QAction, QKeySequence, QCloseEvent, QImage, QPainter
 from packages.qt_compat.QtCore import Qt, QSize, QPoint, QTimer, QThread, QObject, pyqtSignal, QRect
@@ -526,55 +527,20 @@ class PDFReaderApp(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def _build_toolbar(self):
+        # ── QToolBar chứa ribbon (không hiện widget riêng lẻ) ─────────────
         self.toolbar = QToolBar("Thanh công cụ")
         self.toolbar.setMovable(False)
-        self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        self.toolbar.setIconSize(QSize(20, 20))
-        self.toolbar.setMinimumHeight(44)
-        self.addToolBar(self.toolbar)
-
-        # ── Branding logo (left side) ──────────────────────────────────────
-        from PySide6.QtSvgWidgets import QSvgWidget
-        import os as _os
-        _logo_path = _os.path.join(
-            _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
-            "assets", "logo_mark.svg"
+        self.toolbar.setFloatable(False)
+        self.toolbar.setContentsMargins(0, 0, 0, 0)
+        self.toolbar.setStyleSheet(
+            "QToolBar { border:none; padding:0; margin:0; spacing:0; background:#12122A; }"
         )
-        _brand = QWidget()
-        _brand_layout = QHBoxLayout(_brand)
-        _brand_layout.setContentsMargins(8, 4, 4, 4)
-        _brand_layout.setSpacing(6)
-        if _os.path.exists(_logo_path):
-            _logo_w = QSvgWidget(_logo_path)
-            _logo_w.setFixedSize(QSize(32, 32))
-            _logo_w.setStyleSheet("background:transparent;")
-            _brand_layout.addWidget(_logo_w)
-        _brand_text = QLabel("<b style='color:#1A3C9E;font-size:13px;letter-spacing:1px;'>3T</b>"
-                              "<span style='color:#FF6600;font-size:13px;font-weight:600;'>Reader</span>")
-        _brand_text.setStyleSheet("background:transparent;")
-        _brand_layout.addWidget(_brand_text)
-        self.toolbar.addWidget(_brand)
-
-        # Separator after brand
-        self.toolbar.addSeparator()
+        self.addToolBar(self.toolbar)
 
         def _ic(svg_file):
             return _ICON_COLORS.get(svg_file, self._icon_color())
 
-        def add(text, svg_file, tooltip, shortcut, slot):
-            a = QAction(text, self)
-            a.setIcon(svg_icon(svg_file, color=_ic(svg_file)))
-            a.setToolTip(tooltip)
-            a.setStatusTip(tooltip)
-            if shortcut:
-                a.setShortcut(QKeySequence(shortcut))
-            a.triggered.connect(slot)
-            self.toolbar.addAction(a)
-            self._action_icons[a] = svg_file
-            return a
-
         def make(text, svg_file, tooltip, shortcut, slot):
-            """Tạo QAction KHÔNG thêm vào toolbar (dùng cho menu)."""
             a = QAction(text, self)
             a.setIcon(svg_icon(svg_file, color=_ic(svg_file)))
             a.setToolTip(tooltip)
@@ -585,101 +551,254 @@ class PDFReaderApp(QMainWindow):
             self._action_icons[a] = svg_file
             return a
 
-        # ── File ──────────────────────────────────────────────────────────
-        self.act_open   = add("Mở tệp",     "folder_open.svg", f"Mở tệp ({shortcut_label('Ctrl+O')})", "Ctrl+O", lambda: open_file(self))
-        self.act_recent = add("Tệp gần đây", "history.svg",    "Tệp gần đây",                          None,     lambda: show_recent_menu(self))
-        self.act_save   = add("Lưu",         "save.svg",       f"Lưu ({shortcut_label('Ctrl+S')})",    "Ctrl+S", lambda: save_edits(self))
-        self.act_print  = add("In",          "print.svg",      f"In ({shortcut_label('Ctrl+P')})",     "Ctrl+P", self.print_current_pdf)
-        self.toolbar.addSeparator()
+        # ── Tạo tất cả QAction (không add vào toolbar cũ) ────────────────
+        self.act_open   = make("Mở tệp",    "folder_open.svg", f"Mở tệp ({shortcut_label('Ctrl+O')})",  "Ctrl+O",       lambda: open_file(self))
+        self.act_recent = make("Gần đây",   "history.svg",      "Tệp gần đây",                           None,           lambda: show_recent_menu(self))
+        self.act_save   = make("Lưu",       "save.svg",         f"Lưu ({shortcut_label('Ctrl+S')})",     "Ctrl+S",       lambda: save_edits(self))
+        self.act_print  = make("In",        "print.svg",        f"In ({shortcut_label('Ctrl+P')})",      "Ctrl+P",       self.print_current_pdf)
+        self.act_new_pdf         = make("PDF mới",    "file_plus.svg",       f"Tạo PDF mới ({shortcut_label('Ctrl+N')})",         "Ctrl+N",       lambda: create_new_pdf(self))
+        self.act_save_as         = make("Lưu mới",   "save_as.svg",         f"Lưu thành file mới ({shortcut_label('Ctrl+Shift+S')})", "Ctrl+Shift+S", lambda: save_edits_as(self))
 
-        # ── Điều hướng ────────────────────────────────────────────────────
-        self.act_prev = add("Trang trước", "chevron_left.svg", "Trang trước (Left)", "Left", lambda: prev_page(self))
+        self.act_prev   = make("Trang trước", "chevron_left.svg",  "Trang trước (←)",                   "Left",         lambda: prev_page(self))
+        self.act_next   = make("Trang sau",   "chevron_right.svg", "Trang sau (→)",                      "Right",        lambda: next_page(self))
+        self.act_zoom_in = make("Phóng to",   "zoom_in.svg",       f"Phóng to ({shortcut_label('Ctrl+=')})",  "Ctrl+=", lambda: zoom_in(self))
+        self.act_zoom_in.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_zoom_out = make("Thu nhỏ",   "zoom_out.svg",      f"Thu nhỏ ({shortcut_label('Ctrl+-')})",   "Ctrl+-", lambda: zoom_out(self))
+        self.act_zoom_out.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_fit    = make("Vừa trang",   "fit_page.svg",      f"Vừa trang ({shortcut_label('Ctrl+0')})", "Ctrl+0", lambda: zoom_fit(self))
 
+        self.act_highlight    = make("Tô sáng",   "highlight.svg",    f"Tô sáng ({shortcut_label('Ctrl+H')})", "Ctrl+H", lambda: highlight_text(self))
+        self.act_insert_text  = make("Chèn chữ",  "insert_text.svg",  "Chèn văn bản vào PDF",   None,          lambda: insert_text_to_pdf(self))
+        self.act_insert_image = make("Chèn ảnh",  "insert_image.svg", "Chèn ảnh vào PDF",        None,          lambda: insert_image_to_pdf(self))
+        self.act_draw         = make("Vẽ tự do",  "pen.svg",          "Vẽ tự do lên PDF",         None,          lambda: draw_on_pdf(self))
+        self.act_redact       = make("Xóa trắng", "redact.svg",       "Che/tẩy vùng nội dung",   None,          lambda: redact_area(self))
+        self.act_delete_object= make("Xóa obj",   "trash.svg",        "Xóa text/ảnh đã chèn",    None,          lambda: delete_inserted_object(self))
+        self.act_select_inserted = make("Di chuyển","edit_object.svg", "Di chuyển/đổi kích thước object", None,  lambda: select_inserted_object(self))
+        self.act_undo         = make("Hoàn tác",  "undo.svg",         f"Hoàn tác ({shortcut_label('Ctrl+Z')})", "Ctrl+Z", lambda: undo_last_edit(self))
+
+        self.act_toggle_sidebar_btn = make("Thumb", "sidebar.svg",   "Danh sách trang (Ctrl+\\)", "Ctrl+\\", self._toggle_sidebar)
+        self.act_toggle_sidebar_btn.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_toggle_toc_btn     = make("Mục lục","history.svg",  "Mục lục PDF (Ctrl+Alt+T)", "Ctrl+Alt+T", self._toggle_toc)
+        self.act_toggle_toc_btn.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._action_icons[self.act_toggle_toc_btn] = "history.svg"
+
+        self.act_theme_toggle = make("Giao diện","sun.svg", "Đổi chủ đề sáng/tối", None, self._toggle_theme)
+        self.act_theme_toggle.setIcon(svg_icon("sun.svg", color="#f0c050"))
+        self.act_fullscreen   = make("Toàn màn", "fullscreen.svg", f"Toàn màn hình (F11)", "F11", self.toggle_fullscreen)
+        self.act_brightness_up   = make("Sáng hơn",  "brightness_up.svg",  f"Tăng độ sáng ({shortcut_label('Ctrl+Shift+=')})", "Ctrl+Shift+=", lambda: brightness_up(self))
+        self.act_brightness_down = make("Tối hơn",   "brightness_down.svg", f"Giảm độ sáng ({shortcut_label('Ctrl+Shift+-')})", "Ctrl+Shift+-", lambda: brightness_down(self))
+        self.act_check_token  = make("USB token", "usb.svg", "Kiểm tra USB ký số", None, lambda: check_token(self))
+        self.act_sign         = make("Ký số",     "usb.svg", "Ký số tài liệu",     None, lambda: sign_document(self))
+
+        # ── SpinBox trang & zoom ──────────────────────────────────────────
         self.page_spin = QSpinBox()
         self.page_spin.setMinimum(1)
         self.page_spin.setMaximum(9999)
-        self.page_spin.setFixedWidth(64)
+        self.page_spin.setFixedWidth(62)
         self.page_spin.setToolTip("Nhập số trang rồi Enter")
         self.page_spin.editingFinished.connect(lambda: jump_to_page(self))
-        self.toolbar.addWidget(self.page_spin)
+        self.page_spin.setStyleSheet(
+            "QSpinBox{background:#1C1C36;color:#E0E8FF;border:1px solid #3A3A60;"
+            "border-radius:5px;padding:2px 4px;font-size:12px;}"
+            "QSpinBox::up-button,QSpinBox::down-button{width:0;}"
+        )
 
         self.total_label = QLabel(" / -")
-        self.toolbar.addWidget(self.total_label)
-
-        self.act_next = add("Trang sau", "chevron_right.svg", "Trang sau (Right)", "Right", lambda: next_page(self))
-        self.toolbar.addSeparator()
-
-        # ── Zoom  [+][100%][−][Fit] ───────────────────────────────────────
-        self.act_zoom_in = add("Phóng to",  "zoom_in.svg",  f"Phóng to ({shortcut_label('Ctrl+=')})",  "Ctrl+=", lambda: zoom_in(self))
-        self.act_zoom_in.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.total_label.setStyleSheet("color:#7070A8;font-size:12px;padding-right:6px;")
 
         self.zoom_spin = QSpinBox()
         self.zoom_spin.setRange(25, 400)
         self.zoom_spin.setValue(100)
         self.zoom_spin.setSuffix("%")
-        self.zoom_spin.setFixedWidth(78)
+        self.zoom_spin.setFixedWidth(76)
         self.zoom_spin.setToolTip("Zoom — double-click để về 100%")
         self.zoom_spin.editingFinished.connect(lambda: apply_zoom(self))
         self.zoom_spin.installEventFilter(self)
-        self.toolbar.addWidget(self.zoom_spin)
+        self.zoom_spin.setStyleSheet(
+            "QSpinBox{background:#1C1C36;color:#E0E8FF;border:1px solid #3A3A60;"
+            "border-radius:5px;padding:2px 4px;font-size:12px;}"
+            "QSpinBox::up-button,QSpinBox::down-button{width:0;}"
+        )
 
-        self.act_zoom_out = add("Thu nhỏ",  "zoom_out.svg", f"Thu nhỏ ({shortcut_label('Ctrl+-')})", "Ctrl+-", lambda: zoom_out(self))
-        self.act_zoom_out.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
-        self.act_fit      = add("Vừa trang", "fit_page.svg", f"Vừa trang ({shortcut_label('Ctrl+0')})", "Ctrl+0", lambda: zoom_fit(self))
-        self.toolbar.addSeparator()
+        # ── Xây dựng Ribbon ──────────────────────────────────────────────
+        from app.ribbon_bar import RibbonBar, RibbonPanel, RibbonGroup, make_action_btn, make_ribbon_btn
 
-        # ── Công cụ chỉnh sửa (toolbar) ───────────────────────────────────
-        self.act_highlight    = add("Tô sáng",   "highlight.svg",   f"Tô sáng văn bản ({shortcut_label('Ctrl+H')})", "Ctrl+H", lambda: highlight_text(self))
-        self.act_insert_text  = add("Chèn text", "insert_text.svg",  "Chèn văn bản vào PDF",  None, lambda: insert_text_to_pdf(self))
-        self.act_insert_image = add("Chèn ảnh",  "insert_image.svg", "Chèn ảnh vào PDF",      None, lambda: insert_image_to_pdf(self))
-        self.act_draw         = add("Vẽ",        "pen.svg",         "Vẽ tự do lên PDF",                             None,     lambda: draw_on_pdf(self))
-        self.act_redact       = add("Che",        "redact.svg",      "Che/tẩy vùng nội dung",                       None,     lambda: redact_area(self))
-        self.act_delete_object= add("Xóa obj",   "trash.svg",       "Xóa text/ảnh đã chèn",                        None,     lambda: delete_inserted_object(self))
-        self.act_undo         = add("Hoàn tác",  "undo.svg",        f"Hoàn tác ({shortcut_label('Ctrl+Z')})",       "Ctrl+Z", lambda: undo_last_edit(self))
-        self.toolbar.addSeparator()
+        self.ribbon = RibbonBar(self)
 
-        # ── Sidebar toggle ─────────────────────────────────────────────────
-        self.act_toggle_sidebar_btn = QAction("Trang", self)
-        self.act_toggle_sidebar_btn.setIcon(svg_icon("sidebar.svg", color=_ic("sidebar.svg")))
-        self.act_toggle_sidebar_btn.setToolTip("Ẩn/Hiện danh sách trang (Ctrl+\\)")
-        self.act_toggle_sidebar_btn.setShortcut(QKeySequence("Ctrl+\\"))
-        self.act_toggle_sidebar_btn.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
-        self.act_toggle_sidebar_btn.triggered.connect(self._toggle_sidebar)
-        self.toolbar.addAction(self.act_toggle_sidebar_btn)
-        sidebar_btn = self.toolbar.widgetForAction(self.act_toggle_sidebar_btn)
-        if sidebar_btn:
-            sidebar_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self._action_icons[self.act_toggle_sidebar_btn] = "sidebar.svg"
+        ic = lambda f: svg_icon(f, color=_ic(f))   # shorthand
 
-        self.act_toggle_toc_btn = QAction("Mục lục", self)
-        self.act_toggle_toc_btn.setIcon(svg_icon("history.svg", color="#30b8c8"))
-        self.act_toggle_toc_btn.setToolTip("Ẩn/Hiện mục lục PDF (Ctrl+Alt+T)")
-        self.act_toggle_toc_btn.setShortcut(QKeySequence("Ctrl+Alt+T"))
-        self.act_toggle_toc_btn.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
-        self.act_toggle_toc_btn.triggered.connect(self._toggle_toc)
-        self.toolbar.addAction(self.act_toggle_toc_btn)
-        toc_btn = self.toolbar.widgetForAction(self.act_toggle_toc_btn)
-        if toc_btn:
-            toc_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self._action_icons[self.act_toggle_toc_btn] = "history.svg"
-        self.toolbar.addSeparator()
+        # ─── Tab 0: Tệp & Xem ────────────────────────────────────────────
+        p0 = RibbonPanel()
 
-        # ── Giao diện + Toàn màn hình ─────────────────────────────────────
-        self.act_theme_toggle = add("☀ Sáng", "sun.svg", "Chuyển sang chế độ sáng (hiện: Tối)", None, self._toggle_theme)
-        self.act_theme_toggle.setIcon(svg_icon("sun.svg", color="#f0c050"))
-        theme_btn = self.toolbar.widgetForAction(self.act_theme_toggle)
-        if theme_btn:
-            theme_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.act_fullscreen = add("Toàn màn hình", "fullscreen.svg", f"Toàn màn hình (F11)", "F11", self.toggle_fullscreen)
+        g_file = RibbonGroup("Tệp")
+        g_file.add(make_action_btn(self.act_open,    "Mở"))
+        g_file.add(make_action_btn(self.act_new_pdf, "Mới"))
+        g_file.add(make_action_btn(self.act_recent,  "Gần đây"))
+        g_file.add(make_action_btn(self.act_save,    "Lưu"))
+        g_file.add(make_action_btn(self.act_save_as, "Lưu mới"))
+        g_file.add(make_action_btn(self.act_print,   "In"))
+        p0.add_group(g_file)
 
-        # ── Menu-only ─────────────────────────────────────────────────────
-        self.act_brightness_up   = make("Sáng hơn",   "brightness_up.svg",  f"Tăng độ sáng ({shortcut_label('Ctrl+Shift+=')})", "Ctrl+Shift+=", lambda: brightness_up(self))
-        self.act_brightness_down = make("Tối hơn",    "brightness_down.svg", f"Giảm độ sáng ({shortcut_label('Ctrl+Shift+-')})", "Ctrl+Shift+-", lambda: brightness_down(self))
-        self.act_new_pdf         = make("PDF mới",    "file_plus.svg",       f"Tạo PDF mới ({shortcut_label('Ctrl+N')})",         "Ctrl+N",       lambda: create_new_pdf(self))
-        self.act_select_inserted = make("Di chuyển",  "edit_object.svg",     "Di chuyển/đổi kích thước object",                  None,           lambda: select_inserted_object(self))
-        self.act_save_as         = make("Lưu bản sao","save_as.svg",         f"Lưu thành file mới ({shortcut_label('Ctrl+Shift+S')})", "Ctrl+Shift+S", lambda: save_edits_as(self))
-        self.act_check_token     = make("USB ký số",  "usb.svg",             "Kiểm tra USB ký số",                                None,           lambda: check_token(self))
-        self.act_sign            = make("Ký số",      "usb.svg",             "Ký số tài liệu",                                    None,           lambda: sign_document(self))
+        g_nav = RibbonGroup("Điều hướng")
+        g_nav.add(make_action_btn(self.act_prev, "Trước"))
+        g_nav.add(self.page_spin)
+        g_nav.add(self.total_label)
+        g_nav.add(make_action_btn(self.act_next, "Sau"))
+        p0.add_group(g_nav)
+
+        g_zoom = RibbonGroup("Zoom")
+        g_zoom.add(make_action_btn(self.act_zoom_in,  "Phóng to"))
+        g_zoom.add(self.zoom_spin)
+        g_zoom.add(make_action_btn(self.act_zoom_out, "Thu nhỏ"))
+        g_zoom.add(make_action_btn(self.act_fit,      "Vừa trang"))
+        p0.add_group(g_zoom)
+
+        g_view = RibbonGroup("Giao diện")
+        g_view.add(make_action_btn(self.act_toggle_sidebar_btn, "Thumb"))
+        g_view.add(make_action_btn(self.act_toggle_toc_btn,     "Mục lục"))
+        g_view.add(make_action_btn(self.act_theme_toggle,       "Chủ đề"))
+        g_view.add(make_action_btn(self.act_fullscreen,         "Toàn màn"))
+        p0.add_group(g_view, add_sep=False)
+        p0.add_stretch()
+
+        self.ribbon.add_tab("Tệp & Xem", p0)
+
+        # ─── Tab 1: Chú thích ─────────────────────────────────────────────
+        p1 = RibbonPanel()
+
+        g_mark = RibbonGroup("Đánh dấu")
+        g_mark.add(make_action_btn(self.act_highlight, "Tô sáng"))
+        _act_underline = make("Gạch dưới", "highlight.svg", "Gạch dưới văn bản", None, lambda: underline_text(self))
+        _act_underline.setIcon(svg_icon("highlight.svg", color="#60BFFF"))
+        self._action_icons[_act_underline] = "highlight.svg"
+        g_mark.add(make_action_btn(_act_underline, "Gạch dưới"))
+        _act_strike = make("Gạch ngang", "highlight.svg", "Gạch ngang văn bản", None, lambda: strikeout_text(self))
+        _act_strike.setIcon(svg_icon("highlight.svg", color="#FF7070"))
+        self._action_icons[_act_strike] = "highlight.svg"
+        g_mark.add(make_action_btn(_act_strike, "Gạch ngang"))
+        _act_comment = make("Ghi chú", "insert_text.svg", "Thêm ghi chú", None, lambda: add_comment(self))
+        g_mark.add(make_action_btn(_act_comment, "Ghi chú"))
+        p1.add_group(g_mark)
+
+        g_edit = RibbonGroup("Chỉnh sửa")
+        g_edit.add(make_action_btn(self.act_insert_text,  "Chèn chữ"))
+        g_edit.add(make_action_btn(self.act_insert_image, "Chèn ảnh"))
+        g_edit.add(make_action_btn(self.act_draw,         "Vẽ tự do"))
+        g_edit.add(make_action_btn(self.act_redact,       "Xóa trắng"))
+        g_edit.add(make_action_btn(self.act_select_inserted, "Di chuyển"))
+        g_edit.add(make_action_btn(self.act_delete_object,"Xóa obj"))
+        p1.add_group(g_edit)
+
+        g_undo = RibbonGroup("Lịch sử")
+        g_undo.add(make_action_btn(self.act_undo, "Hoàn tác"))
+        p1.add_group(g_undo, add_sep=False)
+        p1.add_stretch()
+
+        self.ribbon.add_tab("Chú thích", p1)
+
+        # ─── Tab 2: Trang ─────────────────────────────────────────────────
+        p2 = RibbonPanel()
+
+        g_rot = RibbonGroup("Xoay / Xóa")
+        _act_rcw = make("Xoay phải", "rotate_cw.svg",  "Xoay phải 90°", None, lambda: rotate_page_cw(self))
+        _act_rccw= make("Xoay trái", "rotate_ccw.svg", "Xoay trái 90°", None, lambda: rotate_page_ccw(self))
+        _act_del = make("Xóa trang", "trash.svg", "Xóa trang hiện tại", None, lambda: delete_current_page(self))
+        g_rot.add(make_action_btn(_act_rcw,  "Xoay phải"))
+        g_rot.add(make_action_btn(_act_rccw, "Xoay trái"))
+        g_rot.add(make_action_btn(_act_del,  "Xóa trang"))
+        p2.add_group(g_rot)
+
+        g_org = RibbonGroup("Tổ chức")
+        _act_merge   = make("Ghép PDF",   "folder_open.svg", "Ghép PDF vào cuối", None, lambda: merge_pdf(self))
+        _act_extract = make("Trích xuất", "save.svg",        "Trích xuất trang",   None, lambda: extract_pages(self))
+        _act_pgnum   = make("Số trang",   "insert_text.svg", "Thêm số trang",      None, lambda: add_page_numbers(self))
+        g_org.add(make_action_btn(_act_merge,   "Ghép PDF"))
+        g_org.add(make_action_btn(_act_extract, "Trích xuất"))
+        g_org.add(make_action_btn(_act_pgnum,   "Số trang"))
+        p2.add_group(g_org, add_sep=False)
+        p2.add_stretch()
+
+        self.ribbon.add_tab("Trang", p2)
+
+        # ─── Tab 3: Bảo mật & Xuất ────────────────────────────────────────
+        p3 = RibbonPanel()
+
+        g_sec = RibbonGroup("Bảo mật")
+        _act_wm   = make("Watermark",   "pen.svg",      "Thêm watermark",     None, lambda: add_watermark(self))
+        _act_setpw= make("Đặt mật khẩu","save.svg",     "Đặt mật khẩu PDF",  None, lambda: set_pdf_password(self))
+        _act_rmpw = make("Xóa mật khẩu","trash.svg",    "Xóa mật khẩu PDF",  None, lambda: remove_pdf_password(self))
+        _act_comp = make("Nén PDF",     "save.svg",     "Nén / tối ưu PDF",   None, lambda: compress_pdf(self))
+        g_sec.add(make_action_btn(_act_wm,    "Watermark"))
+        g_sec.add(make_action_btn(_act_setpw, "Đặt mật khẩu"))
+        g_sec.add(make_action_btn(_act_rmpw,  "Xóa mật khẩu"))
+        g_sec.add(make_action_btn(_act_comp,  "Nén PDF"))
+        p3.add_group(g_sec)
+
+        g_exp = RibbonGroup("Xuất")
+        _act_word = make("Word",   "save.svg", "Xuất ra Word (.docx)", None, lambda: export_pdf_to_word(self))
+        _act_xl   = make("Excel",  "save.svg", "Xuất ra Excel (.xlsx)",None, lambda: export_pdf_to_excel(self))
+        _act_img  = make("Ảnh",   "save.svg",  "Xuất trang ra ảnh",    None, lambda: export_pages_to_images(self))
+        _act_txt  = make("Văn bản","save.svg", "Xuất văn bản (.txt)",  None, lambda: export_pdf_to_text(self))
+        g_exp.add(make_action_btn(_act_word, "Word"))
+        g_exp.add(make_action_btn(_act_xl,   "Excel"))
+        g_exp.add(make_action_btn(_act_img,  "Ảnh"))
+        g_exp.add(make_action_btn(_act_txt,  "Văn bản"))
+        p3.add_group(g_exp, add_sep=False)
+        p3.add_stretch()
+
+        self.ribbon.add_tab("Bảo mật & Xuất", p3)
+
+        # ─── Tab 4: OCR & AI ──────────────────────────────────────────────
+        p4 = RibbonPanel()
+
+        g_ocr = RibbonGroup("OCR")
+        from app.actions.ocr import ocr_current_page, ocr_full_document
+        _act_ocr1 = make("OCR trang",    "zoom_in.svg",  "OCR trang hiện tại",  None, lambda: ocr_current_page(self))
+        _act_ocr2 = make("OCR tài liệu", "zoom_in.svg",  "OCR toàn bộ tài liệu",None, lambda: ocr_full_document(self))
+        g_ocr.add(make_action_btn(_act_ocr1, "OCR trang"))
+        g_ocr.add(make_action_btn(_act_ocr2, "OCR toàn bộ"))
+        p4.add_group(g_ocr)
+
+        g_ai = RibbonGroup("AI")
+        _act_chat  = make("Chat PDF",    "pen.svg",          "Chat với PDF (Ctrl+Shift+C)", "Ctrl+Shift+C", lambda: open_chat_dialog(self))
+        _act_sum   = make("Tóm tắt",     "insert_text.svg",  "Tóm tắt tài liệu",           "Ctrl+Shift+S", lambda: open_summarize_dialog(self))
+        _act_trans = make("Dịch",        "sidebar.svg",      "Dịch trang hiện tại",         "Ctrl+Shift+T", lambda: open_translate_dialog(self))
+        _act_srch  = make("Tìm nghĩa",   "zoom_in.svg",      "Tìm kiếm theo nghĩa",         "Ctrl+Shift+F", lambda: open_search_dialog(self))
+        _act_aiset = make("Cài đặt AI",  "save.svg",         "Cài đặt AI (API Key)",         None,           lambda: open_ai_settings(self))
+        g_ai.add(make_action_btn(_act_chat,  "Chat PDF"))
+        g_ai.add(make_action_btn(_act_sum,   "Tóm tắt"))
+        g_ai.add(make_action_btn(_act_trans, "Dịch"))
+        g_ai.add(make_action_btn(_act_srch,  "Tìm nghĩa"))
+        g_ai.add(make_action_btn(_act_aiset, "AI Key"))
+        p4.add_group(g_ai, add_sep=False)
+        p4.add_stretch()
+
+        self.ribbon.add_tab("OCR & AI", p4)
+
+        # ─── Tab 5: Ký số ─────────────────────────────────────────────────
+        p5 = RibbonPanel()
+
+        g_sign = RibbonGroup("Chữ ký số")
+        _act_token = make("USB token",  "usb.svg",  "Kiểm tra USB ký số",  None, lambda: check_token(self))
+        _act_sign2 = make("Ký số",      "usb.svg",  "Ký số tài liệu",      None, lambda: sign_document(self))
+        _act_handw = make("Ký tay",     "pen.svg",  "Ký bằng chữ ký tay",  None, lambda: sign_handwritten(self))
+        g_sign.add(make_action_btn(_act_token, "Kiểm tra USB"))
+        g_sign.add(make_action_btn(_act_sign2, "Ký số"))
+        g_sign.add(make_action_btn(_act_handw, "Ký tay"))
+        p5.add_group(g_sign, add_sep=False)
+        p5.add_stretch()
+
+        # Sync với self.act_check_token / self.act_sign (dùng trong menu)
+        self.act_check_token = _act_token
+        self.act_sign        = _act_sign2
+
+        self.ribbon.add_tab("Ký số", p5)
+
+        # ── Thêm ribbon vào toolbar ───────────────────────────────────────
+        spacer_w = QWidget()
+        spacer_w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.ribbon.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.toolbar.addWidget(self.ribbon)
 
     # ------------------------------------------------------------------ #
     #  Print — QPrintDialog + PyMuPDF, KHÔNG dùng ShellExecute            #
