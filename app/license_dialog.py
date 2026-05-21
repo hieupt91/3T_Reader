@@ -241,15 +241,71 @@ def check_license_on_startup(window) -> bool:
         _start_heartbeat(window, client)
         return True
 
-    # Chưa kích hoạt hoặc hết hạn → hiện dialog
+    # Chưa có license hợp lệ — kiểm tra thời gian dùng thử
+    from packages.license_client.trial import get_or_init_trial
+    trial = get_or_init_trial()
+
+    if not trial["expired"]:
+        # Vẫn trong thời gian dùng thử — cho chạy và hiện banner
+        _show_trial_banner(window, trial["days_remaining"])
+        return True
+
+    # Hết cả trial lẫn license → bắt buộc kích hoạt
     dlg = LicenseActivationDialog(window)
     dlg.exec()
 
     if dlg.was_activated():
+        _remove_trial_banner(window)
         _start_heartbeat(window, get_license_client())
         return True
 
     return False  # user bấm Thoát
+
+
+def _show_trial_banner(window, days_remaining: int):
+    """Hiển thị badge dùng thử ở statusbar."""
+    from packages.qt_compat.QtWidgets import QLabel, QApplication
+    from packages.qt_compat.QtCore import Qt
+
+    if days_remaining <= 5:
+        color, prefix = "#E05050", "⚠️"
+    elif days_remaining <= 10:
+        color, prefix = "#f59e0b", "🕐"
+    else:
+        color, prefix = "#64a86e", "✓"
+
+    text = f"{prefix} Dùng thử: còn {days_remaining} ngày · Bấm để kích hoạt"
+
+    class _TrialLabel(QLabel):
+        def mousePressEvent(self, _ev):
+            from app.license_dialog import LicenseActivationDialog
+            from packages.license_client import get_license_client
+            dlg = LicenseActivationDialog(window)
+            dlg.exec()
+            if dlg.was_activated():
+                _remove_trial_banner(window)
+                _start_heartbeat(window, get_license_client())
+
+    lbl = _TrialLabel(text)
+    lbl.setObjectName("_trial_badge")
+    lbl.setStyleSheet(
+        f"color:{color};font-size:11px;padding:2px 10px;"
+        "background:transparent;border-radius:4px;"
+        "text-decoration:underline;cursor:pointer;"
+    )
+    lbl.setCursor(Qt.CursorShape.PointingHandCursor)
+    lbl.setToolTip("Bấm để nhập license key và kích hoạt bản quyền")
+
+    window.statusBar().addPermanentWidget(lbl)
+    window._trial_badge = lbl
+
+
+def _remove_trial_banner(window):
+    badge = getattr(window, "_trial_badge", None)
+    if badge:
+        window.statusBar().removeWidget(badge)
+        badge.deleteLater()
+        window._trial_badge = None
 
 
 def _start_heartbeat(window, client):
