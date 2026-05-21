@@ -914,6 +914,9 @@ class PDFReaderApp(QMainWindow):
         act_shortcuts.setIcon(svg_icon("history.svg", size=16, color="#9b9bc0"))
         act_shortcuts.triggered.connect(self._show_shortcuts_hint)
 
+        act_check_update = menu_help.addAction("Kiểm tra cập nhật...")
+        act_check_update.triggered.connect(self._check_for_update)
+
         menu_help.addSeparator()
         act_about = menu_help.addAction("Giới thiệu 3T Reader...")
         act_about.triggered.connect(self._show_about)
@@ -1108,6 +1111,37 @@ class PDFReaderApp(QMainWindow):
         from app.about_dialog import AboutDialog
         dlg = AboutDialog(self)
         dlg.exec()
+
+    def _check_for_update(self):
+        import threading
+        from app.dialogs import show_info, show_error
+        from app.version import APP_VERSION
+        from app.config import VPS_LICENSE_BASE_URL, UPDATE_CHANNEL
+        from packages.update_client import check_for_update
+
+        self.status.showMessage("Đang kiểm tra cập nhật...", 0)
+
+        def _do_check():
+            info = check_for_update(VPS_LICENSE_BASE_URL, APP_VERSION, UPDATE_CHANNEL)
+            from packages.qt_compat.QtCore import QTimer
+            if info.available:
+                msg = (
+                    f"Có phiên bản mới: {info.latest_version}\n"
+                    f"(Phiên bản hiện tại: {info.current_version})\n\n"
+                    f"{info.release_notes}\n\n"
+                    "Vui lòng tải bản cập nhật tại website 3T Company."
+                )
+                QTimer.singleShot(0, lambda: (
+                    self.status.showMessage("Có bản cập nhật mới!", 5000),
+                    show_info(self, "Có bản cập nhật", msg),
+                ))
+            else:
+                QTimer.singleShot(0, lambda: (
+                    self.status.showMessage("Bạn đang dùng phiên bản mới nhất.", 4000),
+                    show_info(self, "Đã cập nhật", f"Phiên bản {APP_VERSION} là mới nhất."),
+                ))
+
+        threading.Thread(target=_do_check, daemon=True).start()
 
     def _refresh_recent_menu(self):
         self.menu_recent.clear()
