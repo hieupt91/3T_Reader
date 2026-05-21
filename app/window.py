@@ -231,6 +231,14 @@ class PDFReaderApp(QMainWindow):
         from app.license_dialog import open_license_dialog
         open_license_dialog(self)
 
+    def _ocr_current_page(self):
+        from app.actions.ocr import ocr_current_page
+        ocr_current_page(self)
+
+    def _ocr_full_document(self):
+        from app.actions.ocr import ocr_full_document
+        ocr_full_document(self)
+
     # ------------------------------------------------------------------ #
     #  Tab host                                                            #
     # ------------------------------------------------------------------ #
@@ -886,6 +894,15 @@ class PDFReaderApp(QMainWindow):
         menu_sign.addSeparator()
         menu_sign.addAction(self.act_check_token)
         menu_sign.addAction(self.act_sign)
+
+        menu_ocr = bar.addMenu("OCR")
+        act_ocr_page = menu_ocr.addAction("🔍  OCR trang hiện tại")
+        act_ocr_page.setShortcut(QKeySequence("Ctrl+Shift+O"))
+        act_ocr_page.triggered.connect(lambda: self._ocr_current_page())
+
+        act_ocr_all = menu_ocr.addAction("📄  OCR toàn bộ tài liệu")
+        act_ocr_all.setShortcut(QKeySequence("Ctrl+Shift+A"))
+        act_ocr_all.triggered.connect(lambda: self._ocr_full_document())
 
         menu_license = bar.addMenu("License")
         act_activate = menu_license.addAction("🔑  Kích hoạt / Nhập key...")

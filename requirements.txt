@@ -1,4 +1,5 @@
 # Phase 0 dependency snapshot. pyproject.toml is the source of truth.
+# OCR: cần cài tesseract trên OS: brew install tesseract tesseract-lang (macOS)
 
 PySide6==6.11.0
 pyqtdarktheme==0.1.7
@@ -10,3 +11,4 @@ python-pkcs11==0.9.4
 cryptography==46.0.7
 Pillow==12.2.0
 requests==2.33.1
+pytesseract>=0.3.13
