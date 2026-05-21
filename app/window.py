@@ -836,10 +836,10 @@ class PDFReaderApp(QMainWindow):
         self.ribbon.add_tab("Ký số", p5)
 
         # ── Thêm ribbon vào toolbar ───────────────────────────────────────
-        spacer_w = QWidget()
-        spacer_w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.ribbon.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.toolbar.addWidget(self.ribbon)
+        # Áp dụng đúng theme ngay từ đầu
+        self.ribbon.set_theme(is_dark())
 
     # ------------------------------------------------------------------ #
     #  Print — QPrintDialog + PyMuPDF, KHÔNG dùng ShellExecute            #
@@ -1489,6 +1489,7 @@ class PDFReaderApp(QMainWindow):
     def _toggle_theme(self):
         toggle_theme()
         self._refresh_icons()
+        self.ribbon.set_theme(is_dark())
         if is_dark():
             self.act_theme_toggle.setIcon(svg_icon("sun.svg", color="#f0c050"))
             self.act_theme_toggle.setText("☀ Sáng")
