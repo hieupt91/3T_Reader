@@ -70,6 +70,20 @@ def admin_login(req: LoginRequest):
     return {"token": tok}
 
 
+def _require_admin(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)):
+    if creds is None or creds.credentials not in _active_tokens:
+        raise HTTPException(status_code=401, detail="Chưa đăng nhập hoặc phiên hết hạn")
+    return creds.credentials
+
+
+@app.post("/api/admin/forgot-password")
+def forgot_password():
+    ok = admin_config.send_password_by_email()
+    if not ok:
+        raise HTTPException(status_code=503, detail="Không thể gửi email. Kiểm tra cấu hình SMTP.")
+    return {"ok": True}
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
@@ -84,20 +98,6 @@ def change_password(req: ChangePasswordRequest, _=Depends(_require_admin)):
     admin_config.set_password(req.new_password)
     _active_tokens.clear()
     return {"ok": True}
-
-
-@app.post("/api/admin/forgot-password")
-def forgot_password():
-    ok = admin_config.send_password_by_email()
-    if not ok:
-        raise HTTPException(status_code=503, detail="Không thể gửi email. Kiểm tra cấu hình SMTP.")
-    return {"ok": True}
-
-
-def _require_admin(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)):
-    if creds is None or creds.credentials not in _active_tokens:
-        raise HTTPException(status_code=401, detail="Chưa đăng nhập hoặc phiên hết hạn")
-    return creds.credentials
 
 
 @app.get("/api/admin/orders")
