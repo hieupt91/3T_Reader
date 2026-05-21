@@ -19,11 +19,11 @@ def verify_token_offline(token: str) -> dict:
     Trả về payload dict nếu hợp lệ, raise ValueError nếu không hợp lệ.
     """
     parts = token.split(".")
-    if len(parts) != 3 or not parts[2].startswith("ed."):
+    # Format: body.sig.ed.pubkey (4 parts)
+    if len(parts) != 4 or parts[2] != "ed":
         raise ValueError("Token không phải định dạng Ed25519.")
 
-    body_b64, sig_b64, alg = parts
-    pub_b64_in_token = alg[3:]  # bỏ "ed."
+    body_b64, sig_b64, _, pub_b64_in_token = parts
 
     # Kiểm tra public key trong token khớp với key đã nhúng trong app
     expected_pub = base64.b64decode(_ED25519_PUBLIC_B64 + "==")
@@ -46,4 +46,4 @@ def verify_token_offline(token: str) -> dict:
 def is_ed25519_token(token: str) -> bool:
     """Kiểm tra token có phải Ed25519 format không."""
     parts = token.split(".")
-    return len(parts) == 3 and parts[2].startswith("ed.")
+    return len(parts) == 4 and parts[2] == "ed"
