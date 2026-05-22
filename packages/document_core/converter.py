@@ -36,9 +36,10 @@ def convert_pdf_to_docx(
 
     # Count pages for progress reporting
     try:
-        import fitz as _fitz
-        with _fitz.open(pdf_path) as _d:
-            total_pages = _d.page_count
+        import pypdfium2 as _pdfium
+        _d = _pdfium.PdfDocument(pdf_path)
+        total_pages = len(_d)
+        _d.close()
     except Exception:
         total_pages = 0
 

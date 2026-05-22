@@ -79,6 +79,72 @@ class PdfiumEngine:
         doc.save(output_path)
         doc.close()
 
+    def watermark_pdf(self, input_path: str, output_path: str, text: str,
+                      color: tuple = (0.6, 0.6, 0.6), angle: float = 45.0,
+                      apply_to_pages: list[int] | None = None) -> None:
+        import pikepdf
+        with pikepdf.Pdf.open(input_path) as pdf:
+            n = len(pdf.pages)
+            targets = apply_to_pages if apply_to_pages else list(range(1, n + 1))
+            for pn in targets:
+                if pn < 1 or pn > n:
+                    continue
+                page = pdf.pages[pn - 1]
+                w, h = _page_size(page)
+                wm_bytes = _build_watermark_overlay(w, h, text, color, angle)
+                with pikepdf.Pdf.open(io.BytesIO(wm_bytes)) as wm_pdf:
+                    page.add_overlay(wm_pdf.pages[0])
+            pdf.save(output_path)
+
+    def delete_pages(self, input_path: str, output_path: str, page_numbers: list[int]) -> None:
+        import pikepdf
+        with pikepdf.Pdf.open(input_path) as pdf:
+            for pn in sorted(set(page_numbers), reverse=True):
+                if 1 <= pn <= len(pdf.pages):
+                    del pdf.pages[pn - 1]
+            pdf.save(output_path)
+
+    def rotate_pages(self, input_path: str, output_path: str, page_rotations: dict) -> None:
+        import pikepdf
+        with pikepdf.Pdf.open(input_path) as pdf:
+            for pn, degrees in page_rotations.items():
+                if 1 <= pn <= len(pdf.pages):
+                    page = pdf.pages[pn - 1]
+                    current = int(page.get("/Rotate", 0))
+                    page["/Rotate"] = (current + int(degrees)) % 360
+            pdf.save(output_path)
+
+    def merge_pdfs(self, input_paths: list[str], output_path: str) -> None:
+        import pikepdf
+        out = pikepdf.Pdf.new()
+        try:
+            for path in input_paths:
+                with pikepdf.Pdf.open(path) as src:
+                    out.pages.extend(src.pages)
+            out.save(output_path)
+        finally:
+            out.close()
+
+    def split_pdf(self, input_path: str, output_dir: str,
+                  page_ranges: list[tuple]) -> list[str]:
+        import pikepdf
+        base = os.path.splitext(os.path.basename(input_path))[0]
+        out_paths: list[str] = []
+        with pikepdf.Pdf.open(input_path) as src:
+            n = len(src.pages)
+            for i, (start, end) in enumerate(page_ranges, start=1):
+                part = pikepdf.Pdf.new()
+                try:
+                    for pn in range(max(1, start), min(end, n) + 1):
+                        part.pages.append(src.pages[pn - 1])
+                    fname = f"{base}_p{start}-{end}.pdf" if start != end else f"{base}_p{start}.pdf"
+                    fpath = os.path.join(output_dir, fname)
+                    part.save(fpath)
+                    out_paths.append(fpath)
+                finally:
+                    part.close()
+        return out_paths
+
     def rebuild_pdf_with_ops(self, base_path: str, output_path: str, ops: list[dict]) -> None:
         import pikepdf
 
@@ -155,6 +221,26 @@ def _build_overlay_pdf(width: float, height: float, ops: list[dict]) -> bytes:
 
     c.save()
     return buffer.getvalue()
+
+
+def _build_watermark_overlay(width: float, height: float, text: str,
+                              color: tuple, angle: float) -> bytes:
+    from reportlab.lib import colors as rl_colors
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=(width, height))
+    r, g, b = (color + (0.6, 0.6, 0.6))[:3]
+    c.setFillColor(rl_colors.Color(r, g, b, alpha=0.30))
+    font_size = max(18.0, min(width, height) / 6)
+    c.setFont("Helvetica-Bold", font_size)
+    c.saveState()
+    c.translate(width / 2, height / 2)
+    c.rotate(angle)
+    c.drawCentredString(0, 0, text)
+    c.restoreState()
+    c.save()
+    return buf.getvalue()
 
 
 def _draw_text_box(c, text: str, left: float, bottom: float, width: float, height: float, font_size: float) -> None:
