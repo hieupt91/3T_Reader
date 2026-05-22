@@ -310,11 +310,11 @@ class LicenseActivationDialog(QDialog):
         self._activate_timeout.setSingleShot(True)
         self._activate_timeout.timeout.connect(
             lambda: self._finish_err(
-                "Kết nối máy chủ quá lâu (>15 giây).\n"
+                "Kết nối máy chủ quá lâu (>25 giây).\n"
                 "Kiểm tra kết nối mạng rồi thử lại."
             )
         )
-        self._activate_timeout.start(15_000)
+        self._activate_timeout.start(25_000)
 
         # Dots animation while waiting
         self._dot_count = 0

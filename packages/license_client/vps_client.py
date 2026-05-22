@@ -15,7 +15,7 @@ from .fingerprint import get_device_fingerprint
 from .keychain import keychain_delete, keychain_load, keychain_save
 from .models import ActivationResult, LicenseStatus
 
-_TIMEOUT = 8  # seconds
+_TIMEOUT = 20  # seconds — VPS may cold-start up to ~12s
 _USE_KEYCHAIN = platform.system() == "Darwin"
 _USE_CREDENTIAL_MANAGER = platform.system() == "Windows"
 
@@ -29,7 +29,13 @@ def _post(base_url: str, path: str, payload: dict) -> dict:
         headers={"User-Agent": "3T-Reader/1.0"},
         timeout=_TIMEOUT,
     )
-    resp.raise_for_status()
+    if not resp.ok:
+        try:
+            body = resp.json()
+            msg = body.get("message") or body.get("detail") or resp.reason
+        except Exception:
+            msg = resp.reason or f"HTTP {resp.status_code}"
+        raise RuntimeError(msg)
     return resp.json()
 
 
