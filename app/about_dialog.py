@@ -68,7 +68,7 @@ class AboutDialog(QDialog):
         _row("Phiên bản:",  "1.0.0 Beta")
         _row("Nền tảng:",   "macOS · Windows")
         _row("Chức năng:",  "Đọc, chỉnh sửa và ký số tài liệu PDF")
-        _row("Công nghệ:",  "Python · PySide6 · PyMuPDF · PDF.js")
+        _row("Công nghệ:",  "Python · PySide6 · pypdfium2 · pikepdf · PDF.js")
         _row("Nhà phát triển:", "3T Technology")
 
         body.addSpacing(14)

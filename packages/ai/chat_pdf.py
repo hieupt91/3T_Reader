@@ -45,16 +45,13 @@ class PDFChatSession:
         if self._pdf_text is not None:
             return self._pdf_text
         try:
-            import fitz
-            doc = fitz.open(self.pdf_path)
+            import pdfplumber
             parts = []
-            try:
-                for i, page in enumerate(doc):
-                    t = page.get_text("text").strip()
+            with pdfplumber.open(self.pdf_path) as doc:
+                for i, page in enumerate(doc.pages):
+                    t = (page.extract_text() or "").strip()
                     if t:
                         parts.append(f"[Trang {i+1}]\n{t}")
-            finally:
-                doc.close()
             text = "\n\n".join(parts)
             if len(text) > self.max_context_chars:
                 text = text[:self.max_context_chars] + "\n\n[... tài liệu bị cắt bớt ...]"

@@ -90,16 +90,13 @@ class _SummarizeWorker(QObject):
                 return
 
             if self._extract_contract and self._doc_type == "contract":
-                import fitz
-                doc = fitz.open(self._pdf_path)
-                parts = []
-                try:
-                    for i, page in enumerate(doc):
-                        t = page.get_text("text").strip()
+                import pdfplumber
+                with pdfplumber.open(self._pdf_path) as _pdf:
+                    parts = []
+                    for _pg in _pdf.pages:
+                        t = (_pg.extract_text() or "").strip()
                         if t:
                             parts.append(t)
-                finally:
-                    doc.close()
                 text = "\n\n".join(parts)
                 if len(text) > 6000:
                     text = text[:6000]

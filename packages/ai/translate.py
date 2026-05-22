@@ -63,13 +63,9 @@ def translate_pdf_page(pdf_path: str, page_num: int,
                        source_lang: str = "vi", target_lang: str = "en") -> TranslationResult:
     """Trích xuất văn bản trang PDF rồi dịch."""
     try:
-        import fitz
-        doc = fitz.open(pdf_path)
-        try:
-            page = doc[page_num - 1]
-            text = page.get_text("text").strip()
-        finally:
-            doc.close()
+        import pdfplumber
+        with pdfplumber.open(pdf_path) as doc:
+            text = (doc.pages[page_num - 1].extract_text() or "").strip()
     except Exception as e:
         return TranslationResult(original="", translated="", source_lang=source_lang,
                                  target_lang=target_lang, error=f"Không đọc được PDF: {e}")

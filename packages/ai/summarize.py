@@ -69,18 +69,14 @@ def summarize_pdf(pdf_path: str, doc_type: str = "general",
                   max_pages: int = 20, language: str = "vi") -> SummaryResult:
     """Tóm tắt toàn bộ file PDF (tối đa max_pages trang)."""
     try:
-        import fitz
-        doc = fitz.open(pdf_path)
-        try:
-            total = doc.page_count
-            pages_to_read = min(total, max_pages)
-            parts = []
+        import pdfplumber
+        parts = []
+        with pdfplumber.open(pdf_path) as doc:
+            pages_to_read = min(len(doc.pages), max_pages)
             for i in range(pages_to_read):
-                t = doc[i].get_text("text").strip()
+                t = (doc.pages[i].extract_text() or "").strip()
                 if t:
                     parts.append(f"[Trang {i+1}]\n{t}")
-        finally:
-            doc.close()
     except Exception as e:
         return SummaryResult(summary="", error=f"Không đọc được PDF: {e}")
 
