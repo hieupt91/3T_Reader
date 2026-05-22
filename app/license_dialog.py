@@ -111,6 +111,26 @@ QFrame#or_line { background: #2A2A4A; }
 """
 
 
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _vps_error_to_user_message(raw: str) -> str:
+    """Map VPS error strings to user-friendly Vietnamese messages."""
+    s = raw.lower()
+    if "not found" in s or "invalid" in s or "không tìm thấy" in s or "not exist" in s:
+        return "Mã key không đúng hoặc không tồn tại.\nVui lòng kiểm tra lại key của bạn."
+    if "expired" in s or "hết hạn" in s:
+        return "Mã key đã hết hạn.\nVui lòng liên hệ 3T Company để gia hạn."
+    if "already activated" in s or "đã kích hoạt" in s or "already" in s:
+        return "Key này đã được kích hoạt trên thiết bị khác.\nMỗi key chỉ dùng được trên 1 máy."
+    if "max devices" in s or "device limit" in s or "too many" in s:
+        return "Key đã đạt giới hạn số thiết bị được phép."
+    if "suspended" in s or "revoked" in s or "blocked" in s:
+        return "Key này đã bị vô hiệu hóa.\nVui lòng liên hệ 3T Company."
+    if "rate limit" in s or "too many requests" in s:
+        return "Quá nhiều yêu cầu. Vui lòng chờ vài phút rồi thử lại."
+    return f"Kích hoạt thất bại: {raw}"
+
+
 # ── dialog ───────────────────────────────────────────────────────────────────
 
 class LicenseActivationDialog(QDialog):
@@ -283,7 +303,29 @@ class LicenseActivationDialog(QDialog):
         self._btn_quit.setEnabled(False)
         if hasattr(self, "_btn_trial"):
             self._btn_trial.setEnabled(False)
-        self._set_status("Đang kích hoạt…", "info")
+        self._set_status("Đang kết nối máy chủ…", "info")
+
+        # Timeout timer — nếu sau 15s chưa có kết quả → báo lỗi
+        self._activate_timeout = QTimer(self)
+        self._activate_timeout.setSingleShot(True)
+        self._activate_timeout.timeout.connect(
+            lambda: self._finish_err(
+                "Kết nối máy chủ quá lâu (>15 giây).\n"
+                "Kiểm tra kết nối mạng rồi thử lại."
+            )
+        )
+        self._activate_timeout.start(15_000)
+
+        # Dots animation while waiting
+        self._dot_count = 0
+        self._dot_timer = QTimer(self)
+        self._dot_timer.setInterval(500)
+        def _tick():
+            self._dot_count = (self._dot_count + 1) % 4
+            dots = "." * self._dot_count
+            self._set_status(f"Đang kích hoạt{dots}", "info")
+        self._dot_timer.timeout.connect(_tick)
+        self._dot_timer.start()
 
         def _do():
             try:
@@ -295,28 +337,63 @@ class LicenseActivationDialog(QDialog):
                 if result.status.active:
                     QTimer.singleShot(0, lambda: self._finish_ok(result))
                 else:
-                    QTimer.singleShot(0, lambda: self._finish_err("Kích hoạt thất bại."))
+                    QTimer.singleShot(0, lambda: self._finish_err(
+                        "Mã key không hợp lệ hoặc đã hết hạn.\n"
+                        "Vui lòng kiểm tra lại key của bạn."
+                    ))
             except RuntimeError as e:
-                msg = str(e)
-                QTimer.singleShot(0, lambda: self._finish_err(msg))
+                # VPS trả về error message cụ thể
+                raw = str(e).strip()
+                user_msg = _vps_error_to_user_message(raw)
+                QTimer.singleShot(0, lambda msg=user_msg: self._finish_err(msg))
             except Exception as e:
-                QTimer.singleShot(0, lambda: self._finish_err(f"Lỗi kết nối: {e}"))
+                err_str = str(e)
+                if "timeout" in err_str.lower() or "timed out" in err_str.lower():
+                    QTimer.singleShot(0, lambda: self._finish_err(
+                        "Kết nối đến máy chủ bị timeout.\n"
+                        "Kiểm tra mạng và thử lại."
+                    ))
+                elif "connect" in err_str.lower() or "network" in err_str.lower():
+                    QTimer.singleShot(0, lambda: self._finish_err(
+                        "Không thể kết nối máy chủ.\n"
+                        "Kiểm tra kết nối internet rồi thử lại."
+                    ))
+                else:
+                    QTimer.singleShot(0, lambda: self._finish_err(
+                        f"Lỗi không xác định:\n{err_str}"
+                    ))
 
         threading.Thread(target=_do, daemon=True).start()
 
     def _finish_ok(self, result):
+        self._stop_loading_ui()
         exp = result.status.expires_at
         exp_str = exp.strftime("%d/%m/%Y") if exp else "không xác định"
-        self._set_status(f"Kích hoạt thành công! Hết hạn: {exp_str}", "ok")
+        plan = result.status.plan_code or ""
+        plan_str = f"  ·  Gói: {plan}" if plan else ""
+        self._set_status(
+            f"✓  Kích hoạt thành công!{plan_str}\n   Hết hạn: {exp_str}",
+            "ok"
+        )
         self._activated = True
-        QTimer.singleShot(1200, self.accept)
+        QTimer.singleShot(1800, self.accept)
 
     def _finish_err(self, msg: str):
+        self._stop_loading_ui()
         self._set_status(msg, "err")
         self._btn_activate.setEnabled(True)
         self._btn_quit.setEnabled(True)
         if hasattr(self, "_btn_trial"):
             self._btn_trial.setEnabled(True)
+
+    def _stop_loading_ui(self):
+        """Dừng timeout timer và animation dots."""
+        if hasattr(self, "_activate_timeout") and self._activate_timeout:
+            self._activate_timeout.stop()
+            self._activate_timeout = None
+        if hasattr(self, "_dot_timer") and self._dot_timer:
+            self._dot_timer.stop()
+            self._dot_timer = None
 
     def _on_quit(self):
         QApplication.quit()

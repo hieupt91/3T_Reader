@@ -169,6 +169,20 @@ class VpsLicenseClient:
         if not token:
             return LicenseStatus(active=False, message="Chưa kích hoạt license.")
 
+        # ── Fast path: offline Ed25519 verification (< 2ms, no network) ──
+        offline = self._verify_offline(cache)
+        if offline is not None:
+            if offline.active:
+                # Token locally valid → revalidate VPS in background
+                import threading as _t
+                _t.Thread(
+                    target=self._background_revalidate,
+                    args=(cache,),
+                    daemon=True,
+                ).start()
+            return offline
+
+        # ── Slow path: not an Ed25519 token → sync VPS call ──
         try:
             resp = _post(
                 self._base,
@@ -188,9 +202,22 @@ class VpsLicenseClient:
                 message=resp.get("message", ""),
             )
         except Exception:
-            # VPS không reach — thử verify offline bằng Ed25519
-            offline = self._verify_offline(cache)
-            return offline if offline is not None else self._offline_status(cache)
+            return self._offline_status(cache)
+
+    def _background_revalidate(self, cache: dict) -> None:
+        """VPS revalidation chạy ở background thread sau offline-first check."""
+        try:
+            token = cache.get("token", "")
+            resp = _post(
+                self._base,
+                "/api/v1/license/validate",
+                {"token": token, "device_id": cache.get("device_id", self._device_id)},
+            )
+            if not resp.get("valid"):
+                # License bị thu hồi — lưu trạng thái để heartbeat biết
+                self._revoked_message = resp.get("message", "License đã bị thu hồi.")
+        except Exception:
+            pass  # network error, giữ offline status
 
     def heartbeat(self) -> LicenseStatus:
         cache = self._load_cache()
