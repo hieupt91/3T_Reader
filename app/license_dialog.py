@@ -6,6 +6,7 @@ import threading
 _KEY_RE = re.compile(r'^3TR-[BPE]-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
 
 from packages.qt_compat.QtCore import Qt, QTimer
+from packages.qt_compat import pyqtSignal as Signal
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QFrame, QApplication,
@@ -149,6 +150,10 @@ class LicenseActivationDialog(QDialog):
     - Nếu trial hết hạn: chỉ hiện ô nhập key
     """
 
+    # Thread-safe signals — emitted from background thread, received on main thread
+    _sig_ok  = Signal(object)  # ActivationResult
+    _sig_err = Signal(str)     # error message
+
     def __init__(self, parent=None, show_trial_option: bool = True):
         super().__init__(parent)
         self.setWindowTitle("Kích hoạt 3T Reader")
@@ -163,6 +168,8 @@ class LicenseActivationDialog(QDialog):
         self._trial_chosen = False
         self._show_trial_option = show_trial_option
         self._trial_info = self._load_trial_info()
+        self._sig_ok.connect(self._finish_ok)
+        self._sig_err.connect(self._finish_err)
         self._build_ui()
 
     def _load_trial_info(self) -> dict:
@@ -343,33 +350,29 @@ class LicenseActivationDialog(QDialog):
                 fp = get_device_fingerprint()
                 result = client.activate(key, "", fp)
                 if result.status.active:
-                    QTimer.singleShot(0, lambda: self._finish_ok(result))
+                    self._sig_ok.emit(result)
                 else:
-                    QTimer.singleShot(0, lambda: self._finish_err(
+                    self._sig_err.emit(
                         "Mã key không hợp lệ hoặc đã hết hạn.\n"
                         "Vui lòng kiểm tra lại key của bạn."
-                    ))
+                    )
             except RuntimeError as e:
-                # VPS trả về error message cụ thể
-                raw = str(e).strip()
-                user_msg = _vps_error_to_user_message(raw)
-                QTimer.singleShot(0, lambda msg=user_msg: self._finish_err(msg))
+                user_msg = _vps_error_to_user_message(str(e).strip())
+                self._sig_err.emit(user_msg)
             except Exception as e:
                 err_str = str(e)
                 if "timeout" in err_str.lower() or "timed out" in err_str.lower():
-                    QTimer.singleShot(0, lambda: self._finish_err(
+                    self._sig_err.emit(
                         "Kết nối đến máy chủ bị timeout.\n"
                         "Kiểm tra mạng và thử lại."
-                    ))
+                    )
                 elif "connect" in err_str.lower() or "network" in err_str.lower():
-                    QTimer.singleShot(0, lambda: self._finish_err(
+                    self._sig_err.emit(
                         "Không thể kết nối máy chủ.\n"
                         "Kiểm tra kết nối internet rồi thử lại."
-                    ))
+                    )
                 else:
-                    QTimer.singleShot(0, lambda: self._finish_err(
-                        f"Lỗi không xác định:\n{err_str}"
-                    ))
+                    self._sig_err.emit(f"Lỗi không xác định:\n{err_str}")
 
         threading.Thread(target=_do, daemon=True).start()
 
