@@ -6,6 +6,7 @@ import threading
 _KEY_RE = re.compile(r'^3TR-[BPE]-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
 
 from packages.qt_compat.QtCore import Qt, QTimer
+from packages.qt_compat import pyqtSignal as Signal
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QFrame, QApplication,
@@ -120,8 +121,10 @@ class LicenseActivationDialog(QDialog):
     - Nếu đang trong trial: hiện số ngày còn lại
     - Nếu trial hết hạn: chỉ hiện ô nhập key
     """
+    _sig_ok  = Signal(object)  # ActivationResult
+    _sig_err = Signal(str)     # error message
 
-    def __init__(self, parent=None, show_trial_option: bool = True):
+    def __init__(self, parent=None, show_trial_option: bool = True, quit_on_close: bool = False):
         super().__init__(parent)
         self.setWindowTitle("Kích hoạt 3T Reader")
         self.setModal(True)
@@ -132,9 +135,13 @@ class LicenseActivationDialog(QDialog):
             Qt.WindowType.WindowTitleHint
         )
         self._activated = False
+        self._activation_result = None
         self._trial_chosen = False
         self._show_trial_option = show_trial_option
+        self._quit_on_close = quit_on_close
         self._trial_info = self._load_trial_info()
+        self._sig_ok.connect(self._finish_ok)
+        self._sig_err.connect(self._finish_err)
         self._build_ui()
 
     def _load_trial_info(self) -> dict:
@@ -239,7 +246,8 @@ class LicenseActivationDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
 
-        self._btn_quit = QPushButton("Thoát")
+        quit_label = "Thoát ứng dụng" if self._quit_on_close else "Để sau"
+        self._btn_quit = QPushButton(quit_label)
         self._btn_quit.setObjectName("btn_quit")
         self._btn_quit.clicked.connect(self._on_quit)
 
@@ -293,23 +301,23 @@ class LicenseActivationDialog(QDialog):
                 fp = get_device_fingerprint()
                 result = client.activate(key, "", fp)
                 if result.status.active:
-                    QTimer.singleShot(0, lambda: self._finish_ok(result))
+                    self._sig_ok.emit(result)
                 else:
-                    QTimer.singleShot(0, lambda: self._finish_err("Kích hoạt thất bại."))
+                    self._sig_err.emit("Kích hoạt thất bại.")
             except RuntimeError as e:
-                msg = str(e)
-                QTimer.singleShot(0, lambda: self._finish_err(msg))
+                self._sig_err.emit(str(e))
             except Exception as e:
-                QTimer.singleShot(0, lambda: self._finish_err(f"Lỗi kết nối: {e}"))
+                self._sig_err.emit(f"Lỗi kết nối: {e}")
 
         threading.Thread(target=_do, daemon=True).start()
 
     def _finish_ok(self, result):
         exp = result.status.expires_at
         exp_str = exp.strftime("%d/%m/%Y") if exp else "không xác định"
-        self._set_status(f"Kích hoạt thành công! Hết hạn: {exp_str}", "ok")
+        self._set_status(f"✓  Kích hoạt thành công! Hết hạn: {exp_str}", "ok")
         self._activated = True
-        QTimer.singleShot(1200, self.accept)
+        self._activation_result = result
+        QTimer.singleShot(700, self.accept)
 
     def _finish_err(self, msg: str):
         self._set_status(msg, "err")
@@ -319,7 +327,10 @@ class LicenseActivationDialog(QDialog):
             self._btn_trial.setEnabled(True)
 
     def _on_quit(self):
-        QApplication.quit()
+        if self._quit_on_close:
+            QApplication.quit()
+        else:
+            self.reject()
 
     def _set_status(self, text: str, level: str):
         self._status.setText(text)
@@ -334,6 +345,9 @@ class LicenseActivationDialog(QDialog):
 
     def was_trial_chosen(self) -> bool:
         return self._trial_chosen
+
+    def get_activation_result(self):
+        return self._activation_result
 
 
 # ── public helpers ────────────────────────────────────────────────────────────
@@ -357,6 +371,7 @@ def check_license_on_startup(window) -> bool:
     status = client.validate_cached()
 
     if status.active:
+        _show_license_badge(window, status.plan_code or "", status.expires_at)
         _start_heartbeat(window, client)
         return True
 
@@ -365,10 +380,12 @@ def check_license_on_startup(window) -> bool:
 
     if not has_trial_started():
         # Lần đầu dùng app → hiện dialog cho người dùng chọn
-        dlg = LicenseActivationDialog(window, show_trial_option=True)
+        dlg = LicenseActivationDialog(window, show_trial_option=True, quit_on_close=False)
         dlg.exec()
 
         if dlg.was_activated():
+            r = dlg.get_activation_result()
+            _show_license_badge(window, r.status.plan_code or "" if r else "", r.status.expires_at if r else None)
             _start_heartbeat(window, get_license_client())
             return True
 
@@ -377,7 +394,15 @@ def check_license_on_startup(window) -> bool:
             _show_trial_banner(window, trial["days_remaining"])
             return True
 
-        return False  # user bấm Thoát
+        # Bấm "Để sau" → tự động bắt đầu trial, app chạy bình thường
+        from packages.license_client.trial import start_trial
+        try:
+            start_trial()
+        except Exception:
+            pass
+        trial = get_or_init_trial()
+        _show_trial_banner(window, trial["days_remaining"])
+        return True
 
     # Trial đã bắt đầu — kiểm tra còn hạn không
     trial = get_or_init_trial()
@@ -387,16 +412,18 @@ def check_license_on_startup(window) -> bool:
         _show_trial_banner(window, trial["days_remaining"])
         return True
 
-    # Trial hết hạn → bắt buộc kích hoạt
-    dlg = LicenseActivationDialog(window, show_trial_option=False)
+    # Trial hết hạn → bắt buộc kích hoạt, Thoát = thoát hẳn app
+    dlg = LicenseActivationDialog(window, show_trial_option=False, quit_on_close=True)
     dlg.exec()
 
     if dlg.was_activated():
+        r = dlg.get_activation_result()
         _remove_trial_banner(window)
+        _show_license_badge(window, r.status.plan_code or "" if r else "", r.status.expires_at if r else None)
         _start_heartbeat(window, get_license_client())
         return True
 
-    return False  # user bấm Thoát
+    return False  # user bấm "Thoát ứng dụng"
 
 
 def open_license_dialog(window):
@@ -414,8 +441,56 @@ def open_license_dialog(window):
     dlg = LicenseActivationDialog(window, show_trial_option=True)
     dlg.exec()
     if dlg.was_activated():
+        r = dlg.get_activation_result()
         _remove_trial_banner(window)
+        _show_license_badge(window, r.status.plan_code or "" if r else "", r.status.expires_at if r else None)
         _start_heartbeat(window, get_license_client())
+
+
+def _show_license_badge(window, plan_code: str = "", expires_at=None):
+    """Hiển thị badge 'Đã kích hoạt' ở statusbar."""
+    from packages.qt_compat.QtWidgets import QLabel
+    from packages.qt_compat.QtCore import Qt
+
+    _remove_trial_banner(window)
+    _remove_license_badge(window)
+
+    plan_names = {"3TR-B": "Cơ Bản", "3TR-P": "Cá Nhân", "3TR-E": "Doanh Nghiệp"}
+    plan_label = plan_names.get(plan_code[:5] if plan_code else "", "")
+    plan_str = f" — {plan_label}" if plan_label else ""
+
+    exp_str = ""
+    if expires_at:
+        try:
+            exp_str = f"  ·  HH: {expires_at.strftime('%d/%m/%Y')}"
+        except Exception:
+            pass
+
+    text = f"✓  Đã kích hoạt{plan_str}{exp_str}"
+
+    class _LicenseBadge(QLabel):
+        def mousePressEvent(self, _ev):
+            open_license_dialog(window)
+
+    lbl = _LicenseBadge(text)
+    lbl.setObjectName("_license_badge")
+    lbl.setStyleSheet(
+        "color:#4fc080; font-size:11px; padding:2px 10px;"
+        "background:transparent; border-radius:4px;"
+    )
+    lbl.setCursor(Qt.CursorShape.PointingHandCursor)
+    lbl.setToolTip("License đang hoạt động — bấm để xem chi tiết")
+
+    window.statusBar().addPermanentWidget(lbl)
+    window._license_badge = lbl
+
+
+def _remove_license_badge(window):
+    badge = getattr(window, "_license_badge", None)
+    if badge:
+        window.statusBar().removeWidget(badge)
+        badge.deleteLater()
+        window._license_badge = None
 
 
 def _show_trial_banner(window, days_remaining: int):

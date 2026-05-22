@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import platform
 import socket
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -15,21 +16,50 @@ from .fingerprint import get_device_fingerprint
 from .keychain import keychain_delete, keychain_load, keychain_save
 from .models import ActivationResult, LicenseStatus
 
-_TIMEOUT = 8  # seconds
+_CONNECT_TIMEOUT = 6   # giây chờ TCP connect
+_READ_TIMEOUT    = 10  # giây chờ server response
 _USE_KEYCHAIN = platform.system() == "Darwin"
 _USE_CREDENTIAL_MANAGER = platform.system() == "Windows"
 
+# Session dùng chung — reuse TCP/TLS connection, tiết kiệm ~190ms/request
+_session = None
+_session_lock = threading.Lock()
+
+
+def _get_session():
+    global _session
+    if _session is None:
+        with _session_lock:
+            if _session is None:
+                import requests
+                s = requests.Session()
+                s.headers.update({"User-Agent": "3T-Reader/1.0"})
+                _session = s
+    return _session
+
 
 def _post(base_url: str, path: str, payload: dict) -> dict:
-    import requests
+    from requests.exceptions import ConnectionError, Timeout
     url = f"{base_url.rstrip('/')}{path}"
-    resp = requests.post(
-        url,
-        json=payload,
-        headers={"User-Agent": "3T-Reader/1.0"},
-        timeout=_TIMEOUT,
-    )
-    resp.raise_for_status()
+    try:
+        resp = _get_session().post(
+            url,
+            json=payload,
+            timeout=(_CONNECT_TIMEOUT, _READ_TIMEOUT),
+        )
+    except Timeout:
+        raise RuntimeError("Kết nối quá chậm hoặc máy chủ không phản hồi. Vui lòng thử lại.")
+    except ConnectionError:
+        raise RuntimeError("Không thể kết nối máy chủ. Kiểm tra kết nối internet.")
+    except OSError:
+        raise RuntimeError("Lỗi mạng. Kiểm tra kết nối internet và thử lại.")
+    if not resp.ok:
+        try:
+            body = resp.json()
+            msg = body.get("detail") or body.get("message") or f"Lỗi {resp.status_code}"
+        except Exception:
+            msg = f"Lỗi {resp.status_code}"
+        raise RuntimeError(msg)
     return resp.json()
 
 
@@ -77,10 +107,10 @@ class VpsLicenseClient:
     def _save_cache(self, data: dict) -> None:
         if _USE_KEYCHAIN:
             if keychain_save(data):
-                return  # Keychain OK, không cần JSON
+                return
         elif _USE_CREDENTIAL_MANAGER:
             if credential_manager_save(data):
-                return  # Credential Manager OK, không cần JSON
+                return
         self._cache.parent.mkdir(parents=True, exist_ok=True)
         self._cache.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
@@ -115,7 +145,7 @@ class VpsLicenseClient:
                 plan_code=cache.get("plan_code", payload.get("license_key", "")),
                 expires_at=expires_at,
                 offline_grace_until=grace_until,
-                message="Offline — xác thực bằng chữ ký cục bộ.",
+                message="",
             )
         except Exception:
             return None
@@ -169,28 +199,47 @@ class VpsLicenseClient:
         if not token:
             return LicenseStatus(active=False, message="Chưa kích hoạt license.")
 
-        try:
-            resp = _post(
-                self._base,
-                "/api/v1/license/validate",
-                {"token": token, "device_id": cache.get("device_id", self._device_id)},
-            )
-            if not resp.get("valid"):
-                return LicenseStatus(active=False, message=resp.get("message", "License không hợp lệ."))
+        # Thử verify offline trước — nhanh, không cần mạng
+        offline = self._verify_offline(cache)
+        if offline is not None:
+            if offline.active:
+                # Token hợp lệ offline → trả về ngay, validate server trong background
+                self._validate_server_background(token, cache)
+            return offline
 
-            expires_at = _parse_dt(resp.get("expires_at"))
-            grace_days = int(resp.get("grace_days") or cache.get("grace_days", 7))
-            return LicenseStatus(
-                active=True,
-                plan_code=resp.get("license_key") or cache.get("plan_code", ""),
-                expires_at=expires_at,
-                offline_grace_until=(expires_at + timedelta(days=grace_days)) if expires_at else None,
-                message=resp.get("message", ""),
-            )
+        # Không có Ed25519 token → phải gọi server
+        try:
+            return self._validate_server(token, cache)
         except Exception:
-            # VPS không reach — thử verify offline bằng Ed25519
-            offline = self._verify_offline(cache)
-            return offline if offline is not None else self._offline_status(cache)
+            return self._offline_status(cache)
+
+    def _validate_server(self, token: str, cache: dict) -> LicenseStatus:
+        resp = _post(
+            self._base,
+            "/api/v1/license/validate",
+            {"token": token, "device_id": cache.get("device_id", self._device_id)},
+        )
+        if not resp.get("valid"):
+            return LicenseStatus(active=False, message=resp.get("message", "License không hợp lệ."))
+
+        expires_at = _parse_dt(resp.get("expires_at"))
+        grace_days = int(resp.get("grace_days") or cache.get("grace_days", 7))
+        return LicenseStatus(
+            active=True,
+            plan_code=resp.get("license_key") or cache.get("plan_code", ""),
+            expires_at=expires_at,
+            offline_grace_until=(expires_at + timedelta(days=grace_days)) if expires_at else None,
+            message=resp.get("message", ""),
+        )
+
+    def _validate_server_background(self, token: str, cache: dict) -> None:
+        """Validate với server trong background — không block UI."""
+        def _run():
+            try:
+                self._validate_server(token, cache)
+            except Exception:
+                pass
+        threading.Thread(target=_run, daemon=True).start()
 
     def heartbeat(self) -> LicenseStatus:
         cache = self._load_cache()
@@ -228,11 +277,11 @@ class VpsLicenseClient:
                     },
                 )
             except Exception:
-                pass  # best-effort
+                pass
 
         self._clear_cache()
 
-    # ── offline fallback (không có Ed25519 token) ─────────────────────
+    # ── offline fallback ──────────────────────────────────────────────
 
     def _offline_status(self, cache: dict) -> LicenseStatus:
         expires_at = _parse_dt(cache.get("expires_at", ""))
