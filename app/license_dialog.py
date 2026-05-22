@@ -407,7 +407,12 @@ class LicenseActivationDialog(QDialog):
             self._dot_timer = None
 
     def _on_quit(self):
-        QApplication.quit()
+        # Chỉ thoát app khi trial đã hết hạn (bắt buộc kích hoạt)
+        # Nếu còn thời gian dùng thử → chỉ đóng dialog
+        if self._trial_info.get("expired"):
+            QApplication.quit()
+        else:
+            self.reject()
 
     def _set_status(self, text: str, level: str):
         self._status.setText(text)
@@ -460,12 +465,11 @@ def check_license_on_startup(window) -> bool:
             _start_heartbeat(window, get_license_client())
             return True
 
-        if dlg.was_trial_chosen():
-            trial = get_or_init_trial()
-            _show_trial_banner(window, trial["days_remaining"])
-            return True
-
-        return False  # user bấm Thoát
+        # User chọn Dùng thử hoặc chỉ đóng dialog → bắt đầu trial và chạy app
+        from packages.license_client.trial import start_trial
+        trial = start_trial()
+        _show_trial_banner(window, trial["days_remaining"])
+        return True
 
     # Trial đã bắt đầu — kiểm tra còn hạn không
     trial = get_or_init_trial()
