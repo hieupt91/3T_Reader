@@ -116,17 +116,25 @@ QFrame#or_line { background: #2A2A4A; }
 def _vps_error_to_user_message(raw: str) -> str:
     """Map VPS error strings to user-friendly Vietnamese messages."""
     s = raw.lower()
-    if "not found" in s or "invalid" in s or "không tìm thấy" in s or "not exist" in s:
+    # invalid / not found key
+    if any(k in s for k in ("not found", "invalid", "không tìm thấy", "not exist",
+                             "không đúng", "không tồn tại", "key not", "license not")):
         return "Mã key không đúng hoặc không tồn tại.\nVui lòng kiểm tra lại key của bạn."
-    if "expired" in s or "hết hạn" in s:
+    # expired
+    if any(k in s for k in ("expired", "hết hạn", "expir")):
         return "Mã key đã hết hạn.\nVui lòng liên hệ 3T Company để gia hạn."
-    if "already activated" in s or "đã kích hoạt" in s or "already" in s:
+    # already activated / device conflict
+    if any(k in s for k in ("already activated", "đã kích hoạt", "already used",
+                             "device mismatch", "khác thiết bị")):
         return "Key này đã được kích hoạt trên thiết bị khác.\nMỗi key chỉ dùng được trên 1 máy."
-    if "max devices" in s or "device limit" in s or "too many" in s:
+    # device limit
+    if any(k in s for k in ("max devices", "device limit", "too many devices", "giới hạn thiết bị")):
         return "Key đã đạt giới hạn số thiết bị được phép."
-    if "suspended" in s or "revoked" in s or "blocked" in s:
+    # revoked / suspended
+    if any(k in s for k in ("suspended", "revoked", "blocked", "vô hiệu", "thu hồi")):
         return "Key này đã bị vô hiệu hóa.\nVui lòng liên hệ 3T Company."
-    if "rate limit" in s or "too many requests" in s:
+    # rate limit
+    if any(k in s for k in ("rate limit", "too many requests", "quá nhiều")):
         return "Quá nhiều yêu cầu. Vui lòng chờ vài phút rồi thử lại."
     return f"Kích hoạt thất bại: {raw}"
 
