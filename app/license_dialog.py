@@ -112,34 +112,6 @@ QFrame#or_line { background: #2A2A4A; }
 """
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
-
-def _vps_error_to_user_message(raw: str) -> str:
-    """Map VPS error strings to user-friendly Vietnamese messages."""
-    s = raw.lower()
-    # invalid / not found key
-    if any(k in s for k in ("not found", "invalid", "không tìm thấy", "not exist",
-                             "không đúng", "không tồn tại", "key not", "license not")):
-        return "Mã key không đúng hoặc không tồn tại.\nVui lòng kiểm tra lại key của bạn."
-    # expired
-    if any(k in s for k in ("expired", "hết hạn", "expir")):
-        return "Mã key đã hết hạn.\nVui lòng liên hệ 3T Company để gia hạn."
-    # already activated / device conflict
-    if any(k in s for k in ("already activated", "đã kích hoạt", "already used",
-                             "device mismatch", "khác thiết bị")):
-        return "Key này đã được kích hoạt trên thiết bị khác.\nMỗi key chỉ dùng được trên 1 máy."
-    # device limit
-    if any(k in s for k in ("max devices", "device limit", "too many devices", "giới hạn thiết bị")):
-        return "Key đã đạt giới hạn số thiết bị được phép."
-    # revoked / suspended
-    if any(k in s for k in ("suspended", "revoked", "blocked", "vô hiệu", "thu hồi")):
-        return "Key này đã bị vô hiệu hóa.\nVui lòng liên hệ 3T Company."
-    # rate limit
-    if any(k in s for k in ("rate limit", "too many requests", "quá nhiều")):
-        return "Quá nhiều yêu cầu. Vui lòng chờ vài phút rồi thử lại."
-    return f"Kích hoạt thất bại: {raw}"
-
-
 # ── dialog ───────────────────────────────────────────────────────────────────
 
 class LicenseActivationDialog(QDialog):
@@ -149,12 +121,10 @@ class LicenseActivationDialog(QDialog):
     - Nếu đang trong trial: hiện số ngày còn lại
     - Nếu trial hết hạn: chỉ hiện ô nhập key
     """
-
-    # Thread-safe signals — emitted from background thread, received on main thread
     _sig_ok  = Signal(object)  # ActivationResult
     _sig_err = Signal(str)     # error message
 
-    def __init__(self, parent=None, show_trial_option: bool = True):
+    def __init__(self, parent=None, show_trial_option: bool = True, quit_on_close: bool = False):
         super().__init__(parent)
         self.setWindowTitle("Kích hoạt 3T Reader")
         self.setModal(True)
@@ -165,8 +135,10 @@ class LicenseActivationDialog(QDialog):
             Qt.WindowType.WindowTitleHint
         )
         self._activated = False
+        self._activation_result = None
         self._trial_chosen = False
         self._show_trial_option = show_trial_option
+        self._quit_on_close = quit_on_close
         self._trial_info = self._load_trial_info()
         self._sig_ok.connect(self._finish_ok)
         self._sig_err.connect(self._finish_err)
@@ -274,7 +246,8 @@ class LicenseActivationDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
 
-        self._btn_quit = QPushButton("Thoát")
+        quit_label = "Thoát ứng dụng" if self._quit_on_close else "Để sau"
+        self._btn_quit = QPushButton(quit_label)
         self._btn_quit.setObjectName("btn_quit")
         self._btn_quit.clicked.connect(self._on_quit)
 
@@ -318,29 +291,7 @@ class LicenseActivationDialog(QDialog):
         self._btn_quit.setEnabled(False)
         if hasattr(self, "_btn_trial"):
             self._btn_trial.setEnabled(False)
-        self._set_status("Đang kết nối máy chủ…", "info")
-
-        # Timeout timer — nếu sau 15s chưa có kết quả → báo lỗi
-        self._activate_timeout = QTimer(self)
-        self._activate_timeout.setSingleShot(True)
-        self._activate_timeout.timeout.connect(
-            lambda: self._finish_err(
-                "Kết nối máy chủ quá lâu (>60 giây).\n"
-                "Kiểm tra kết nối mạng rồi thử lại."
-            )
-        )
-        self._activate_timeout.start(60_000)
-
-        # Dots animation while waiting
-        self._dot_count = 0
-        self._dot_timer = QTimer(self)
-        self._dot_timer.setInterval(500)
-        def _tick():
-            self._dot_count = (self._dot_count + 1) % 4
-            dots = "." * self._dot_count
-            self._set_status(f"Đang kích hoạt{dots}", "info")
-        self._dot_timer.timeout.connect(_tick)
-        self._dot_timer.start()
+        self._set_status("Đang kích hoạt…", "info")
 
         def _do():
             try:
@@ -352,64 +303,31 @@ class LicenseActivationDialog(QDialog):
                 if result.status.active:
                     self._sig_ok.emit(result)
                 else:
-                    self._sig_err.emit(
-                        "Mã key không hợp lệ hoặc đã hết hạn.\n"
-                        "Vui lòng kiểm tra lại key của bạn."
-                    )
+                    self._sig_err.emit("Kích hoạt thất bại.")
             except RuntimeError as e:
-                user_msg = _vps_error_to_user_message(str(e).strip())
-                self._sig_err.emit(user_msg)
+                self._sig_err.emit(str(e))
             except Exception as e:
-                err_str = str(e)
-                if "timeout" in err_str.lower() or "timed out" in err_str.lower():
-                    self._sig_err.emit(
-                        "Kết nối đến máy chủ bị timeout.\n"
-                        "Kiểm tra mạng và thử lại."
-                    )
-                elif "connect" in err_str.lower() or "network" in err_str.lower():
-                    self._sig_err.emit(
-                        "Không thể kết nối máy chủ.\n"
-                        "Kiểm tra kết nối internet rồi thử lại."
-                    )
-                else:
-                    self._sig_err.emit(f"Lỗi không xác định:\n{err_str}")
+                self._sig_err.emit(f"Lỗi kết nối: {e}")
 
         threading.Thread(target=_do, daemon=True).start()
 
     def _finish_ok(self, result):
-        self._stop_loading_ui()
         exp = result.status.expires_at
         exp_str = exp.strftime("%d/%m/%Y") if exp else "không xác định"
-        plan = result.status.plan_code or ""
-        plan_str = f"  ·  Gói: {plan}" if plan else ""
-        self._set_status(
-            f"✓  Kích hoạt thành công!{plan_str}\n   Hết hạn: {exp_str}",
-            "ok"
-        )
+        self._set_status(f"✓  Kích hoạt thành công! Hết hạn: {exp_str}", "ok")
         self._activated = True
-        QTimer.singleShot(1800, self.accept)
+        self._activation_result = result
+        QTimer.singleShot(700, self.accept)
 
     def _finish_err(self, msg: str):
-        self._stop_loading_ui()
         self._set_status(msg, "err")
         self._btn_activate.setEnabled(True)
         self._btn_quit.setEnabled(True)
         if hasattr(self, "_btn_trial"):
             self._btn_trial.setEnabled(True)
 
-    def _stop_loading_ui(self):
-        """Dừng timeout timer và animation dots."""
-        if hasattr(self, "_activate_timeout") and self._activate_timeout:
-            self._activate_timeout.stop()
-            self._activate_timeout = None
-        if hasattr(self, "_dot_timer") and self._dot_timer:
-            self._dot_timer.stop()
-            self._dot_timer = None
-
     def _on_quit(self):
-        # Chỉ thoát app khi trial đã hết hạn (bắt buộc kích hoạt)
-        # Nếu còn thời gian dùng thử → chỉ đóng dialog
-        if self._trial_info.get("expired"):
+        if self._quit_on_close:
             QApplication.quit()
         else:
             self.reject()
@@ -427,6 +345,9 @@ class LicenseActivationDialog(QDialog):
 
     def was_trial_chosen(self) -> bool:
         return self._trial_chosen
+
+    def get_activation_result(self):
+        return self._activation_result
 
 
 # ── public helpers ────────────────────────────────────────────────────────────
@@ -450,6 +371,7 @@ def check_license_on_startup(window) -> bool:
     status = client.validate_cached()
 
     if status.active:
+        _show_license_badge(window, status.plan_code or "", status.expires_at)
         _start_heartbeat(window, client)
         return True
 
@@ -458,16 +380,27 @@ def check_license_on_startup(window) -> bool:
 
     if not has_trial_started():
         # Lần đầu dùng app → hiện dialog cho người dùng chọn
-        dlg = LicenseActivationDialog(window, show_trial_option=True)
+        dlg = LicenseActivationDialog(window, show_trial_option=True, quit_on_close=False)
         dlg.exec()
 
         if dlg.was_activated():
+            r = dlg.get_activation_result()
+            _show_license_badge(window, r.status.plan_code or "" if r else "", r.status.expires_at if r else None)
             _start_heartbeat(window, get_license_client())
             return True
 
-        # User chọn Dùng thử hoặc chỉ đóng dialog → bắt đầu trial và chạy app
+        if dlg.was_trial_chosen():
+            trial = get_or_init_trial()
+            _show_trial_banner(window, trial["days_remaining"])
+            return True
+
+        # Bấm "Để sau" → tự động bắt đầu trial, app chạy bình thường
         from packages.license_client.trial import start_trial
-        trial = start_trial()
+        try:
+            start_trial()
+        except Exception:
+            pass
+        trial = get_or_init_trial()
         _show_trial_banner(window, trial["days_remaining"])
         return True
 
@@ -479,16 +412,18 @@ def check_license_on_startup(window) -> bool:
         _show_trial_banner(window, trial["days_remaining"])
         return True
 
-    # Trial hết hạn → bắt buộc kích hoạt
-    dlg = LicenseActivationDialog(window, show_trial_option=False)
+    # Trial hết hạn → bắt buộc kích hoạt, Thoát = thoát hẳn app
+    dlg = LicenseActivationDialog(window, show_trial_option=False, quit_on_close=True)
     dlg.exec()
 
     if dlg.was_activated():
+        r = dlg.get_activation_result()
         _remove_trial_banner(window)
+        _show_license_badge(window, r.status.plan_code or "" if r else "", r.status.expires_at if r else None)
         _start_heartbeat(window, get_license_client())
         return True
 
-    return False  # user bấm Thoát
+    return False  # user bấm "Thoát ứng dụng"
 
 
 def open_license_dialog(window):
@@ -506,8 +441,56 @@ def open_license_dialog(window):
     dlg = LicenseActivationDialog(window, show_trial_option=True)
     dlg.exec()
     if dlg.was_activated():
+        r = dlg.get_activation_result()
         _remove_trial_banner(window)
+        _show_license_badge(window, r.status.plan_code or "" if r else "", r.status.expires_at if r else None)
         _start_heartbeat(window, get_license_client())
+
+
+def _show_license_badge(window, plan_code: str = "", expires_at=None):
+    """Hiển thị badge 'Đã kích hoạt' ở statusbar."""
+    from packages.qt_compat.QtWidgets import QLabel
+    from packages.qt_compat.QtCore import Qt
+
+    _remove_trial_banner(window)
+    _remove_license_badge(window)
+
+    plan_names = {"3TR-B": "Cơ Bản", "3TR-P": "Cá Nhân", "3TR-E": "Doanh Nghiệp"}
+    plan_label = plan_names.get(plan_code[:5] if plan_code else "", "")
+    plan_str = f" — {plan_label}" if plan_label else ""
+
+    exp_str = ""
+    if expires_at:
+        try:
+            exp_str = f"  ·  HH: {expires_at.strftime('%d/%m/%Y')}"
+        except Exception:
+            pass
+
+    text = f"✓  Đã kích hoạt{plan_str}{exp_str}"
+
+    class _LicenseBadge(QLabel):
+        def mousePressEvent(self, _ev):
+            open_license_dialog(window)
+
+    lbl = _LicenseBadge(text)
+    lbl.setObjectName("_license_badge")
+    lbl.setStyleSheet(
+        "color:#4fc080; font-size:11px; padding:2px 10px;"
+        "background:transparent; border-radius:4px;"
+    )
+    lbl.setCursor(Qt.CursorShape.PointingHandCursor)
+    lbl.setToolTip("License đang hoạt động — bấm để xem chi tiết")
+
+    window.statusBar().addPermanentWidget(lbl)
+    window._license_badge = lbl
+
+
+def _remove_license_badge(window):
+    badge = getattr(window, "_license_badge", None)
+    if badge:
+        window.statusBar().removeWidget(badge)
+        badge.deleteLater()
+        window._license_badge = None
 
 
 def _show_trial_banner(window, days_remaining: int):
