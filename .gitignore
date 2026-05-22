@@ -5,8 +5,11 @@ __pycache__/
 *.pyd
 .Python
 .venv/
+.venv313/
 venv/
 env/
+*.egg-info/
+.pytest_cache/
 
 # Build artifacts
 /build/

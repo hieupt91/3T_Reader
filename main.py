@@ -28,12 +28,11 @@ if not acquire_single_instance():
 # BƯỚC 3: Khởi tạo app bình thường
 # ================================================================
 from packages.qt_compat.QtWidgets import QApplication
-from packages.qt_compat.QtGui import QFont, QIcon
+from packages.qt_compat.QtGui import QFont
 from packages.qt_compat.QtCore import QLocale, QLibraryInfo, QTranslator, Qt
-
 from app.window import PDFReaderApp
 from app.config import APP_NAME
-from app.icon_utils import svg_pixmap
+from styles.theme import apply_theme
 
 if __name__ == "__main__":
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
@@ -45,12 +44,34 @@ if __name__ == "__main__":
     qt_translator.load(QLocale("vi_VN"), "qtbase", "_", qtbase_path)
     app.installTranslator(qt_translator)
 
+    # Tự detect theme macOS/Windows — theo hệ thống
+    import platform as _plt
+    _initial_theme = "dark"
+    try:
+        if _plt.system() == "Darwin":
+            import subprocess
+            r = subprocess.run(
+                ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                capture_output=True, text=True, timeout=2,
+            )
+            _initial_theme = "dark" if r.stdout.strip() == "Dark" else "light"
+        elif _plt.system() == "Windows":
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+            val, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            winreg.CloseKey(key)
+            _initial_theme = "light" if val == 1 else "dark"
+    except Exception:
+        pass
+    apply_theme(_initial_theme)
     _ui_font = {"Darwin": "SF Pro Text", "Windows": "Segoe UI"}.get(_platform.system(), "")
     app.setFont(QFont(_ui_font, 10))
     app.setApplicationName(APP_NAME)
-    app.setWindowIcon(QIcon(svg_pixmap("logo_mark.svg", size=64)))
+
+    from app.icon_utils import app_logo_icon
+    app.setWindowIcon(app_logo_icon(256))
 
     window = PDFReaderApp()
-    window.setWindowIcon(QIcon(svg_pixmap("logo_mark.svg", size=64)))
     window.show()
     sys.exit(app.exec())

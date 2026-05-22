@@ -1,244 +1,202 @@
+"""Welcome screen shown when no PDF is open."""
 from __future__ import annotations
 
-from packages.qt_compat.QtCore import Qt, Signal
-from packages.qt_compat.QtGui import QFont
-from packages.qt_compat.QtWidgets import (
-    QFrame,
-    QGridLayout,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QSizePolicy,
-    QVBoxLayout,
-    QWidget,
-)
+import os
 
-from app.icon_utils import svg_pixmap
+from packages.qt_compat.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
+)
+from packages.qt_compat.QtCore import Qt, QSize, QEvent
+from PySide6.QtSvgWidgets import QSvgWidget
+
+_ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 
 
 class WelcomeWidget(QWidget):
-    openRequested = Signal()
-    recentRequested = Signal()
+    """Landing page shown on the empty tab before any PDF is opened."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, on_open=None, on_recent=None):
         super().__init__(parent)
-        self.setObjectName("WelcomeWidget")
+        self._on_open = on_open
+        self._on_recent = on_recent
+        self._cards: list[QFrame] = []
+        self._card_title_labels: list[QLabel] = []
+        self._card_desc_labels: list[QLabel] = []
+        self._setup_ui()
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(34, 30, 34, 30)
-        root.setSpacing(18)
+    # ── Theme-aware re-styling ──────────────────────────────────────────────
 
-        hero = QFrame()
-        hero.setObjectName("WelcomeHero")
-        hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(48, 34, 48, 30)
-        hero_layout.setSpacing(18)
-        hero_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+    def changeEvent(self, event: QEvent):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.PaletteChange:
+            self._apply_theme_styles()
 
-        logo = QLabel()
-        logo.setObjectName("WelcomeBrandLogo")
-        logo.setPixmap(svg_pixmap("logo_full.svg", size=(560, 180)))
-        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo.setMinimumHeight(180)
-        hero_layout.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
+    def _is_dark(self) -> bool:
+        try:
+            from styles.theme import is_dark
+            return is_dark()
+        except Exception:
+            return True
 
-        tagline = QLabel("ĐỌC MỌI LÚC · HIỂU MỌI NƠI")
-        tagline.setObjectName("WelcomeTagline")
-        tagline.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hero_layout.addWidget(tagline)
-
-        intro = QLabel(
-            "Nền tảng PDF cho Windows: đọc mượt, sửa nhanh, ký số USB Token — sẵn sàng cho thương mại."
-        )
-        intro.setWordWrap(True)
-        intro.setObjectName("WelcomeIntro")
-        intro.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        intro.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        hero_layout.addWidget(intro)
-
-        features = QGridLayout()
-        features.setHorizontalSpacing(18)
-        features.setVerticalSpacing(18)
-
-        items = [
-            ("WelcomeCardOpen", "logo_mark.svg", "Đọc PDF mượt mà", "Hỗ trợ file lớn, nhiều tab, thumbnail và tìm kiếm nhanh."),
-            ("WelcomeCardEdit", "edit_object.svg", "Chỉnh sửa trực tiếp", "Chèn text, ảnh, đổi vị trí, resize, xoay và undo/redo."),
-            ("WelcomeCardSign", "usb.svg", "Ký số USB Token", "Flow PKCS#11 cho Windows, xác thực chứng thư số thật."),
-            ("WelcomeCardSecure", "info.svg", "Bảo mật & Vận hành", "Temp file, recent files, packaging và xuất DOCX/Excel."),
-        ]
-        for idx, item in enumerate(items):
-            features.addWidget(self._make_card(*item), 0, idx)
-        hero_layout.addLayout(features)
-
-        button_row = QHBoxLayout()
-        button_row.setSpacing(14)
-
-        open_btn = QPushButton("Mở tệp PDF")
-        open_btn.setObjectName("WelcomeOpenButton")
-        open_btn.clicked.connect(self.openRequested.emit)
-        open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        button_row.addWidget(open_btn)
-
-        recent_btn = QPushButton("Mở gần đây")
-        recent_btn.setObjectName("WelcomeRecentButton")
-        recent_btn.clicked.connect(self.recentRequested.emit)
-        recent_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        button_row.addWidget(recent_btn)
-
-        hero_layout.addLayout(button_row)
-
-        drag_hint = QLabel("hoặc kéo và thả tệp PDF vào cửa sổ này")
-        drag_hint.setObjectName("WelcomeDragHint")
-        drag_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hero_layout.addWidget(drag_hint)
-
-        root.addWidget(hero)
-        root.addStretch(1)
-
-        self.apply_theme("dark")
-
-    def _make_card(self, object_name: str, icon_file: str, title: str, body: str) -> QFrame:
-        card = QFrame()
-        card.setObjectName(object_name)
-        card.setFrameShape(QFrame.Shape.StyledPanel)
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(8)
-        layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
-
-        icon = QLabel()
-        icon.setObjectName("WelcomeCardIcon")
-        icon.setPixmap(svg_pixmap(icon_file, size=44))
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        title_label = QLabel(title)
-        title_label.setObjectName("WelcomeCardTitle")
-        title_label.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        body_label = QLabel(body)
-        body_label.setObjectName("WelcomeCardBody")
-        body_label.setWordWrap(True)
-        body_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        layout.addWidget(icon)
-        layout.addWidget(title_label)
-        layout.addWidget(body_label)
-        return card
-
-    def apply_theme(self, mode: str):
-        dark = mode != "light"
+    def _apply_theme_styles(self):
+        dark = self._is_dark()
         if dark:
-            self.setStyleSheet(
-                """
-                QWidget#WelcomeWidget { background: #0f0f13; }
-                QFrame#WelcomeHero {
-                    background: #1f2127;
-                    border: 1px solid #2a3040;
-                    border-radius: 26px;
-                }
-                QLabel#WelcomeBrandLogo { background: transparent; }
-                QLabel#WelcomeTagline {
-                    color: #90b6f2;
-                    font-size: 15px;
-                    font-weight: 700;
-                    letter-spacing: 6px;
-                }
-                QLabel#WelcomeIntro {
-                    color: #c1c8df;
-                    font-size: 14px;
-                    max-width: 900px;
-                }
-                QPushButton#WelcomeOpenButton {
-                    background: #ff8a00;
-                    color: #ffffff;
-                    border: none;
-                    border-radius: 14px;
-                    padding: 14px 28px;
-                    font-size: 15px;
-                    font-weight: 700;
-                    min-width: 190px;
-                }
-                QPushButton#WelcomeOpenButton:hover { background: #ff9f2d; }
-                QPushButton#WelcomeRecentButton {
-                    background: transparent;
-                    color: #ff8a00;
-                    border: 2px solid #ff8a00;
-                    border-radius: 14px;
-                    padding: 12px 28px;
-                    font-size: 15px;
-                    font-weight: 700;
-                    min-width: 190px;
-                }
-                QPushButton#WelcomeRecentButton:hover {
-                    background: rgba(255, 138, 0, 0.08);
-                }
-                QLabel#WelcomeDragHint {
-                    color: #6d7790;
-                    font-size: 13px;
-                }
-                QFrame[objectName^="WelcomeCard"] {
-                    background: #1c1d36;
-                    border: 1px solid #27305b;
-                    border-radius: 16px;
-                    min-width: 220px;
-                }
-                QLabel#WelcomeCardTitle { color: #f0f5ff; }
-                QLabel#WelcomeCardBody { color: #aeb7d1; font-size: 13px; }
-                """
-            )
+            card_bg    = "#1A1A2E"
+            card_border = "#2A2A45"
+            title_color = "#C8D8F8"
+            desc_color  = "#6688AA"
+            hint_color  = "#445566"
+            tag_color   = "#6688BB"
         else:
-            self.setStyleSheet(
-                """
-                QWidget#WelcomeWidget { background: #f4f7fb; }
-                QFrame#WelcomeHero {
-                    background: #ffffff;
-                    border: 1px solid #d1dced;
-                    border-radius: 26px;
-                }
-                QLabel#WelcomeBrandLogo { background: transparent; }
-                QLabel#WelcomeTagline {
-                    color: #1e63d5;
-                    font-size: 15px;
-                    font-weight: 700;
-                    letter-spacing: 6px;
-                }
-                QLabel#WelcomeIntro { color: #334155; font-size: 14px; max-width: 900px; }
-                QPushButton#WelcomeOpenButton {
-                    background: #f05a28;
-                    color: #ffffff;
-                    border: none;
-                    border-radius: 14px;
-                    padding: 14px 28px;
-                    font-size: 15px;
-                    font-weight: 700;
-                    min-width: 190px;
-                }
-                QPushButton#WelcomeOpenButton:hover { background: #ff6c45; }
-                QPushButton#WelcomeRecentButton {
-                    background: transparent;
-                    color: #f05a28;
-                    border: 2px solid #f05a28;
-                    border-radius: 14px;
-                    padding: 12px 28px;
-                    font-size: 15px;
-                    font-weight: 700;
-                    min-width: 190px;
-                }
-                QPushButton#WelcomeRecentButton:hover {
-                    background: rgba(240, 90, 40, 0.06);
-                }
-                QLabel#WelcomeDragHint {
-                    color: #64748b;
-                    font-size: 13px;
-                }
-                QFrame[objectName^="WelcomeCard"] {
-                    background: #ffffff;
-                    border: 1px solid #d6deea;
-                    border-radius: 16px;
-                    min-width: 220px;
-                }
-                QLabel#WelcomeCardTitle { color: #10203a; }
-                QLabel#WelcomeCardBody { color: #475569; font-size: 13px; }
-                """
+            card_bg    = "#F2F4FB"
+            card_border = "#D8DCEE"
+            title_color = "#0D1E6A"
+            desc_color  = "#5566AA"
+            hint_color  = "#9AABCC"
+            tag_color   = "#5566AA"
+
+        card_style = (
+            f"QFrame {{ background:{card_bg}; border:1px solid {card_border};"
+            f"  border-radius:10px; }}"
+        )
+        for card in self._cards:
+            card.setStyleSheet(card_style)
+        for lbl in self._card_title_labels:
+            lbl.setStyleSheet(
+                f"font-size:12px; font-weight:700; color:{title_color};"
+                "background:transparent; border:none;"
             )
+        for lbl in self._card_desc_labels:
+            lbl.setStyleSheet(
+                f"font-size:10px; color:{desc_color}; background:transparent; border:none;"
+            )
+        if hasattr(self, "_hint_lbl"):
+            self._hint_lbl.setStyleSheet(f"color:{hint_color}; font-size:11px;")
+        if hasattr(self, "_tag_lbl"):
+            self._tag_lbl.setStyleSheet(
+                f"color:{tag_color}; font-size:12px; letter-spacing:3px; font-weight:600;"
+            )
+
+    # ── UI build ───────────────────────────────────────────────────────────
+
+    def _setup_ui(self):
+        root = QVBoxLayout(self)
+        root.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root.setSpacing(0)
+        root.setContentsMargins(40, 48, 40, 40)
+
+        # Logo
+        logo_path = os.path.join(_ASSETS, "logo_full.svg")
+        if os.path.exists(logo_path):
+            logo = QSvgWidget(logo_path)
+            logo.setFixedSize(QSize(380, 100))
+            logo.setStyleSheet("background: transparent;")
+            logo_wrap = QHBoxLayout()
+            logo_wrap.addStretch()
+            logo_wrap.addWidget(logo)
+            logo_wrap.addStretch()
+            root.addLayout(logo_wrap)
+        else:
+            title = QLabel("3T READER")
+            title.setStyleSheet(
+                "font-size:38px; font-weight:900; color:#4A80E8; letter-spacing:4px;"
+            )
+            title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            root.addWidget(title)
+
+        root.addSpacing(28)
+
+        # Tagline
+        self._tag_lbl = QLabel("ĐỌC MỌI LÚC – HIỂU MỌI NƠI")
+        self._tag_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(self._tag_lbl)
+
+        root.addSpacing(44)
+
+        # Feature cards
+        features = [
+            ("📖", "Đọc PDF mượt mà",    "Hỗ trợ file lớn, xem toàn trang"),
+            ("✏️", "Chỉnh sửa trực tiếp", "Chèn text, ảnh, vẽ, tô sáng"),
+            ("🔏", "Ký số USB Token",     "Viettel CA, VNPT CA, FPT CA"),
+            ("🔒", "Bảo mật cao",         "Mã hoá, che nội dung nhạy cảm"),
+        ]
+        pills_row = QHBoxLayout()
+        pills_row.setSpacing(16)
+        pills_row.addStretch()
+        for icon, title_txt, desc in features:
+            card = QFrame()
+            card.setFixedWidth(158)
+            self._cards.append(card)
+            card_layout = QVBoxLayout(card)
+            card_layout.setSpacing(6)
+            card_layout.setContentsMargins(12, 14, 12, 14)
+
+            icon_lbl = QLabel(icon)
+            icon_lbl.setStyleSheet(
+                "font-size:26px; background:transparent; border:none;"
+            )
+            icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            card_layout.addWidget(icon_lbl)
+
+            title_lbl = QLabel(title_txt)
+            title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            title_lbl.setWordWrap(True)
+            self._card_title_labels.append(title_lbl)
+            card_layout.addWidget(title_lbl)
+
+            desc_lbl = QLabel(desc)
+            desc_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            desc_lbl.setWordWrap(True)
+            self._card_desc_labels.append(desc_lbl)
+            card_layout.addWidget(desc_lbl)
+
+            pills_row.addWidget(card)
+        pills_row.addStretch()
+        root.addLayout(pills_row)
+
+        root.addSpacing(44)
+
+        # Action buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(16)
+        btn_row.addStretch()
+
+        btn_open = QPushButton("   Mở tệp PDF   ")
+        btn_open.setFixedHeight(44)
+        btn_open.setStyleSheet(
+            "QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            "  stop:0 #FF7700, stop:1 #FF4400); color:white; font-size:14px;"
+            "  font-weight:700; border-radius:8px; padding:0 28px; border:none; }"
+            "QPushButton:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            "  stop:0 #FF9900, stop:1 #FF5500); }"
+            "QPushButton:pressed { background:#FF4400; }"
+        )
+        if self._on_open:
+            btn_open.clicked.connect(self._on_open)
+        btn_row.addWidget(btn_open)
+
+        btn_recent = QPushButton("   Mở gần đây   ")
+        btn_recent.setFixedHeight(44)
+        btn_recent.setStyleSheet(
+            "QPushButton { background:transparent; color:#FF7700; font-size:14px;"
+            "  font-weight:700; border-radius:8px; padding:0 28px;"
+            "  border:2px solid #FF7700; }"
+            "QPushButton:hover { background:rgba(255,119,0,0.1); }"
+            "QPushButton:pressed { background:rgba(255,119,0,0.2); }"
+        )
+        if self._on_recent:
+            btn_recent.clicked.connect(self._on_recent)
+        btn_row.addWidget(btn_recent)
+
+        btn_row.addStretch()
+        root.addLayout(btn_row)
+
+        root.addSpacing(20)
+
+        # Hint
+        self._hint_lbl = QLabel("hoặc kéo & thả tệp PDF vào cửa sổ này")
+        self._hint_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(self._hint_lbl)
+
+        # Apply initial styles
+        self._apply_theme_styles()

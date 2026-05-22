@@ -13,7 +13,10 @@ MACOS_PKCS11_CANDIDATES = [
     # VNPT
     "eps2003csp11.dylib",
     "vnpt_ca_pkcs11.dylib",
-    # Viettel
+    # Viettel CA v6 (FeiTian ePass2003Auto)
+    "viettel-ca_v6.dylib",
+    "viettel-ca_v5.dylib",
+    "viettel-ca.dylib",
     "ViettelCA.dylib",
     "ViettelPKCS11.dylib",
     # FPT
@@ -51,6 +54,24 @@ def _candidate_paths() -> list[str]:
     return paths
 
 
+def _ensure_token_manager_running() -> None:
+    """Thử khởi động Viettel CA Token Manager nếu chưa chạy."""
+    import subprocess
+
+    token_manager = "/Applications/Viettel-CA Token Manager V6.0.app"
+    if not os.path.exists(token_manager):
+        return
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "Viettel-CA Token Manager"],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            subprocess.Popen(["open", token_manager])
+    except Exception:
+        pass
+
+
 class MacOSPkcs11Provider:
     """SigningProvider implementation for macOS, detects .dylib/.so middleware."""
 
@@ -62,24 +83,54 @@ class MacOSPkcs11Provider:
 
     def detect_driver(self) -> str | None:
         self._last_error = ""
-        errors: list[str] = []
+        import pkcs11 as p11
+
+        loadable: list[str] = []   # lib nạp được (dù chưa có token)
+        errors:   list[str] = []
+
         for path in _candidate_paths():
             try:
-                import pkcs11 as p11
-
                 lib = p11.lib(path)
                 if any(True for _ in lib.get_tokens()):
-                    return path
+                    return path          # ✅ có token → dùng ngay
+                loadable.append(path)   # lib OK nhưng chưa thấy token
             except Exception as exc:
-                errors.append(f"{os.path.basename(path)}: {str(exc)[:120]}")
+                errors.append(f"{os.path.basename(path)}: {str(exc)[:80]}")
 
-        self._last_error = (
-            "\n".join(errors[:4])
-            if errors
-            else (
-                "Không tìm thấy thư viện PKCS#11 phù hợp trong hệ thống.\n"
-                "Vui lòng cài đặt driver / middleware cho USB Token từ nhà cung cấp chữ ký số."
+        # Có driver nhưng không thấy token → thử khởi động Token Manager
+        if loadable:
+            _ensure_token_manager_running()
+            import time; time.sleep(2)
+            for path in loadable:
+                try:
+                    lib = p11.lib(path)
+                    if any(True for _ in lib.get_tokens()):
+                        return path
+                except Exception:
+                    pass
+
+            # Vẫn không thấy → báo lỗi cụ thể hơn
+            names = ", ".join(os.path.basename(p) for p in loadable)
+            self._last_error = (
+                f"Đã tìm thấy thư viện ký số ({names}) nhưng không phát hiện USB Token.\n\n"
+                "Vui lòng:\n"
+                "  1. Cắm USB Token vào máy\n"
+                "  2. Mở 'Viettel-CA Token Manager V6.0' (nếu chưa mở)\n"
+                "  3. Rút USB ra rồi cắm lại, đợi 3 giây\n"
+                "  4. Thử ký lại"
             )
+            return None
+
+        # Không tìm thấy driver nào
+        detail = "\n".join(errors[:3]) if errors else (
+            "Không tìm thấy thư viện PKCS#11 phù hợp.\n"
+            "Vui lòng cài đặt driver từ nhà cung cấp chữ ký số."
+        )
+        self._last_error = (
+            detail
+            + "\n\n💡 Với Viettel CA v6 trên macOS:\n"
+            "  • Tải và cài driver tại viettel-ca.vn\n"
+            "  • Mở 'Viettel-CA Token Manager V6.0' trước khi ký"
         )
         return None
 

@@ -10,12 +10,22 @@ _WINDOWS_CANDIDATES = [
     "times.ttf",
 ]
 
+_WINDOWS_BOLD_CANDIDATES = [
+    "arialbd.ttf",
+    "tahomabd.ttf",
+    "segoeuib.ttf",
+    "tahoma.ttf",   # fallback to regular if bold variant missing
+    "arial.ttf",
+    "segoeui.ttf",
+]
+
 _MACOS_CANDIDATES = [
     "Arial.ttf",
-    "Helvetica.ttc",
-    "Times New Roman.ttf",
     "Arial Unicode.ttf",
-    "Helvetica.dfont",
+    "Times New Roman.ttf",
+    "Georgia.ttf",
+    "Verdana.ttf",
+    "Tahoma.ttf",
 ]
 
 _LINUX_CANDIDATES = [
@@ -40,10 +50,11 @@ _LINUX_SEARCH_DIRS = [
 ]
 
 
-def _windows_font_path() -> str | None:
+def _windows_font_path(bold: bool = False) -> str | None:
     import os
     fonts_dir = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "Fonts"
-    for name in _WINDOWS_CANDIDATES:
+    candidates = _WINDOWS_BOLD_CANDIDATES if bold else _WINDOWS_CANDIDATES
+    for name in candidates:
         path = fonts_dir / name
         if path.exists():
             return str(path)
@@ -69,10 +80,10 @@ def _linux_font_path() -> str | None:
     return None
 
 
-def get_vietnamese_font_path() -> str | None:
+def get_vietnamese_font_path(bold: bool = False) -> str | None:
     """Return path to a Vietnamese-compatible font installed on this OS, or None."""
     if sys.platform == "win32":
-        return _windows_font_path()
+        return _windows_font_path(bold)
     if sys.platform == "darwin":
         return _macos_font_path()
     return _linux_font_path()

@@ -42,8 +42,12 @@ def _setup_webchannel(web_view, parent, name, bridge):
 
 def _teardown_webchannel(web_view):
     """Shared: detach QWebChannel from the web view."""
-    if web_view is not None:
+    if web_view is None:
+        return
+    try:
         web_view.page().setWebChannel(None)
+    except RuntimeError:
+        pass
 
 
 MM_TO_PT = 72.0 / 25.4
@@ -594,51 +598,34 @@ class SignaturePickPrompt(QDialog):
 
 
 class SignatureIdentityDialog(QDialog):
-    def __init__(self, parent=None, *, default_signer_name: str = "", token_detected: bool = False):
+    def __init__(self, parent=None, *, default_signer_name: str = ""):
         super().__init__(parent)
-        self.setWindowTitle("Thông tin chữ ký số")
+        self.setWindowTitle("Thong tin chu ky")
         self.setModal(True)
-        self.setMinimumWidth(380)
 
         root = QVBoxLayout(self)
-        root.setSpacing(10)
-
-        if token_detected:
-            token_label = QLabel("✓ USB Token đã phát hiện")
-            token_label.setStyleSheet("color: #4caf50; font-weight: bold;")
-            root.addWidget(token_label)
-        else:
-            no_token_label = QLabel("⚠ Không phát hiện USB Token — sẽ thử ký khi nhập PIN")
-            no_token_label.setWordWrap(True)
-            no_token_label.setStyleSheet("color: #ff9800; font-weight: bold;")
-            root.addWidget(no_token_label)
 
         form = QFormLayout()
         self.signer_name_input = QLineEdit()
-        self.signer_name_input.setPlaceholderText("Nhập tên người ký (lấy từ chứng thư số)")
+        self.signer_name_input.setPlaceholderText("Nhap ten nguoi ky")
         if default_signer_name:
             self.signer_name_input.setText(default_signer_name)
         self.signer_name_input.textChanged.connect(self._update_preview)
-        form.addRow("Người ký", self.signer_name_input)
+        form.addRow("Nguoi ky", self.signer_name_input)
         root.addLayout(form)
 
-        preview_title = QLabel("Xem trước dấu ký:")
+        preview_title = QLabel("Xem truoc")
         root.addWidget(preview_title)
 
         self.preview = QLabel()
         self.preview.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.preview.setStyleSheet(
             "background:#f7f7f7; border:1px solid #b6b6b6; border-radius:6px;"
-            "padding:10px; font-family:'Consolas'; color: #222;"
+            "padding:10px; font-family:'Consolas';"
         )
         self.preview.setMinimumHeight(88)
         self.preview.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         root.addWidget(self.preview)
-
-        pin_note = QLabel("⚠ PIN sẽ được hỏi ở bước tiếp theo. Nhập sai PIN nhiều lần có thể khóa token.")
-        pin_note.setWordWrap(True)
-        pin_note.setStyleSheet("color: #888; font-size: 11px;")
-        root.addWidget(pin_note)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -650,16 +637,16 @@ class SignatureIdentityDialog(QDialog):
         self._update_preview()
 
     def _update_preview(self):
-        signer_name = self.signer_name_input.text().strip() or "Không rõ"
-        ts = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        signer_name = self.signer_name_input.text().strip() or "Khong ro"
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.preview.setText(
-            "ĐÃ KÝ SỐ\n"
-            f"Người ký: {signer_name}\n"
-            f"Ngày ký: {ts}"
+            "DA KY SO\n"
+            f"Nguoi ky: {signer_name}\n"
+            f"Timestamp: {ts}"
         )
 
     def signer_name(self) -> str:
-        return self.signer_name_input.text().strip() or "Không rõ"
+        return self.signer_name_input.text().strip() or "Khong ro"
 
 
 def _clamp_box(page_width: float, page_height: float, center_x: float, center_y: float):
@@ -729,35 +716,25 @@ def _pick_signature_placement(window):
 
 def check_token(window):
     provider = get_signing_provider()
-    window.status.showMessage("Đang kiểm tra USB Token...", 2000)
     lib = provider.detect_driver()
     if lib:
         signer_info = provider.get_token_info()
         signer_name = signer_info.signer_name if signer_info else ""
-        tax_code = signer_info.tax_code if signer_info and hasattr(signer_info, "tax_code") else ""
-        signer_line = f"\nNgười ký: {signer_name}" if signer_name else "\n(Chưa đọc được thông tin người ký — cần PIN)"
-        tax_line = f"\nMã số thuế: {tax_code}" if tax_code else ""
-        driver_name = os.path.basename(lib)
+        signer_line = f"\nNgười ký: {signer_name}" if signer_name else ""
         show_info(
             window,
-            "USB Token đã kết nối",
-            f"✓ Đã phát hiện USB ký số.\n\nTrình điều khiển: {driver_name}{signer_line}{tax_line}\n\nBạn có thể ký số tài liệu qua Chữ ký số → Ký số.",
+            "Thiết bị ký số",
+            f"Đã tìm thấy USB ký số.\n\nTrình điều khiển: {os.path.basename(lib)}{signer_line}",
         )
-        window.status.showMessage(f"USB Token OK: {driver_name}", 4000)
     else:
         details = provider.get_last_error()
-        detail_line = f"\n\nChi tiết lỗi: {details}" if details else ""
+        detail_line = f"\n\nChi tiết: {details}" if details else ""
         show_warning(
             window,
-            "Không tìm thấy USB Token",
-            "Chưa cắm USB ký số hoặc middleware chưa được cài đặt.\n\n"
-            "Hướng dẫn khắc phục:\n"
-            "• Cắm USB Token vào máy tính\n"
-            "• Cài đặt phần mềm middleware của nhà cung cấp (Viettel, VNPT, FPT, BKAv...)\n"
-            "• Khởi động lại ứng dụng và thử lại"
+            "Không tìm thấy thiết bị ký số",
+            "Chưa cắm USB ký số hoặc trình điều khiển chưa được cài đặt."
             + detail_line,
         )
-        window.status.showMessage("Không tìm thấy USB Token", 4000)
 
 
 @require_document(show_message=True)
@@ -827,8 +804,19 @@ def sign_document(window):
 
         preview_bridge.adjusted.connect(_apply_preview_adjustment)
 
+    def _navigate_to_page(page_no: int):
+        """Cuộn PDF viewer đến trang chỉ định."""
+        wv = _get_web_view(window)
+        if wv:
+            wv.page().runJavaScript(
+                f"(function(){{var app=window.PDFViewerApplication;"
+                f"if(app&&app.pdfViewer){{app.pdfViewer.currentPageNumber={int(page_no)};}}}})()"
+            )
+
     def _refresh_preview(*_args):
-        _set_signature_preview(window, placement_dialog.placement())
+        pl = placement_dialog.placement()
+        _set_signature_preview(window, pl)
+        _navigate_to_page(pl["page_number"])
 
     placement_dialog.page_spin.valueChanged.connect(_refresh_preview)
     placement_dialog.x_spin.valueChanged.connect(_refresh_preview)
@@ -855,26 +843,23 @@ def sign_document(window):
         _teardown_webchannel(web_view)
 
     signing_provider = get_signing_provider()
-    token_lib = signing_provider.detect_driver()
-    token_detected = bool(token_lib)
-    signer_info = signing_provider.get_token_info() if token_detected else None
+    signer_info = signing_provider.get_token_info()
     default_signer_name = signer_info.signer_name if signer_info else ""
 
     identity_dialog = SignatureIdentityDialog(
         window,
         default_signer_name=default_signer_name,
-        token_detected=token_detected,
     )
     if identity_dialog.exec() != QDialog.DialogCode.Accepted:
         return
     signer_name = identity_dialog.signer_name()
 
     base, ext = os.path.splitext(window.current_path)
-    default_output = f"{base}_da_ky{ext}"
+    default_output = f"{base}_signed{ext}"
 
     output_path, _ = QFileDialog.getSaveFileName(
         window,
-        "Lưu file đã ký số",
+        "Lưu file đã ký",
         default_output,
         "PDF Files (*.pdf)"
     )
@@ -882,65 +867,69 @@ def sign_document(window):
         return
 
     pin, ok = QInputDialog.getText(
-        window,
-        "Nhập mã PIN USB Token",
-        "Nhập PIN của USB ký số:\n(Lưu ý: nhập sai nhiều lần sẽ khóa token)",
-        QLineEdit.EchoMode.Password,
+        window, "Nhập mã PIN", "PIN của USB ký số:",
+        QLineEdit.EchoMode.Password
     )
     if not ok or not pin:
         return
 
-    if signer_name in ("Không rõ", "Khong ro"):
+    if signer_name == "Khong ro":
         signer_info_with_pin = signing_provider.get_token_info(pin)
         if signer_info_with_pin and signer_info_with_pin.signer_name:
             signer_name = signer_info_with_pin.signer_name
 
-    try:
-        asyncio.run(
-            signing_provider.sign_pdf(
-                window.current_path,
-                output_path,
-                pin,
-                signer_name=signer_name,
-                page_number=placement["page_number"],
-                box=placement["box"],
-            )
-        )
+    # Run signing in a background thread so the GUI stays responsive
+    import threading as _threading
+    from packages.qt_compat.QtCore import QTimer as _QTimer
 
-        with open(output_path, "rb") as f:
-            header = f.read(5)
-        if header != b"%PDF-":
-            os.remove(output_path)
-            raise RuntimeError(
-                "File ký xong không hợp lệ (thiếu %PDF header).\n"
-                "Vui lòng thử lại."
-            )
+    sign_result: dict = {}
 
-        reply = QMessageBox.question(
-            window,
-            "Ký số thành công",
-            f"Ký số thành công!\n\nFile lưu tại:\n{output_path}\n\nMở file đã ký ngay?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            window.current_path = output_path
-            window.viewer.load_pdf(output_path)
+    def _do_sign():
+        try:
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(
+                    signing_provider.sign_pdf(
+                        window.current_path,
+                        output_path,
+                        pin,
+                        signer_name=signer_name,
+                        page_number=placement["page_number"],
+                        box=placement["box"],
+                    )
+                )
+            finally:
+                loop.close()
+            sign_result["ok"] = True
+        except Exception as exc:
+            sign_result["exc"] = exc
 
-    except Exception as exc:
+    if hasattr(window, "status"):
+        window.status.showMessage("Đang ký số, vui lòng chờ…", 0)
+
+    t = _threading.Thread(target=_do_sign, daemon=True)
+    t.start()
+    # Poll until the signing thread finishes (keeps Qt event loop alive)
+    from packages.qt_compat.QtWidgets import QApplication as _QApp
+    while t.is_alive():
+        _QApp.processEvents()
+
+    if hasattr(window, "status"):
+        window.status.showMessage("", 0)
+
+    if "exc" in sign_result:
+        exc = sign_result["exc"]
         exc_type_name = type(exc).__name__
-
         if exc_type_name == "PinIncorrect" or "PinIncorrect" in str(type(exc)):
             QMessageBox.warning(
-                window,
-                "Sai mã PIN",
+                window, "Sai mã PIN",
                 "Mã PIN bạn nhập không đúng.\n\n"
                 "Vui lòng kiểm tra lại mã PIN và thử lại.\n"
-                "⚠️ Lưu ý: Nhập sai PIN nhiều lần có thể khóa USB Token.",
+                "⚠️ Nhập sai PIN nhiều lần có thể khóa USB Token.",
             )
         elif exc_type_name == "PinLocked" or "PinLocked" in str(type(exc)):
             QMessageBox.critical(
-                window,
-                "USB Token đã bị khóa",
+                window, "USB Token đã bị khóa",
                 "USB Token đã bị khóa do nhập sai PIN quá nhiều lần.\n\n"
                 "Vui lòng liên hệ nhà cung cấp chữ ký số để mở khóa.",
             )
@@ -952,3 +941,171 @@ def sign_document(window):
             msg.setText("Ký số thất bại!")
             msg.setDetailedText(traceback.format_exc())
             msg.exec()
+        return
+
+    try:
+        with open(output_path, "rb") as f:
+            header = f.read(5)
+        if header != b"%PDF-":
+            os.remove(output_path)
+            raise RuntimeError(
+                "File ký xong không hợp lệ (thiếu %PDF header).\n"
+                "Vui lòng thử lại."
+            )
+    except RuntimeError:
+        raise
+    except Exception:
+        pass
+
+    reply = QMessageBox.question(
+        window,
+        "Ký số thành công",
+        f"Ký số thành công!\n\nFile lưu tại:\n{output_path}\n\nMở file đã ký ngay?",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+    )
+    if reply == QMessageBox.StandardButton.Yes:
+        window.current_path = output_path
+        window.viewer.load_pdf(output_path)
+
+    try:
+        from packages.audit import log_action, ACT_SIGN
+        log_action(ACT_SIGN, output_path)
+    except Exception:
+        pass
+
+
+@require_document(show_message=True)
+def sign_handwritten(window):
+    """Draw a handwritten signature and place it on the current PDF."""
+    import fitz
+    import tempfile
+    import uuid
+    import os as _os
+
+    from app.signature_pad import SignaturePadDialog
+
+    pad = SignaturePadDialog(window)
+    if pad.exec() != QDialog.DialogCode.Accepted:
+        return
+    pixmap = pad.get_pixmap()
+    if not pixmap:
+        return
+
+    tmp_dir = _os.path.join(tempfile.gettempdir(), "reader_pdf_sig")
+    _os.makedirs(tmp_dir, exist_ok=True)
+    sig_img_path = _os.path.join(tmp_dir, f"sig_{uuid.uuid4().hex[:8]}.png")
+    pixmap.save(sig_img_path, "PNG")
+
+    placement = _pick_signature_placement(window)
+    # Nếu huỷ click chọn vị trí thì placement=None, dùng vị trí mặc định
+    # (không bắt buộc phải click — có thể chọn qua spinbox)
+
+    page_count, current_page = 1, 1
+    if window.viewer:
+        try:
+            page_count = max(1, window.viewer.get_page_count())
+            current_page = max(1, window.viewer.get_current_page())
+        except Exception:
+            pass
+
+    initial_page = current_page
+    if placement and "page_number" in placement:
+        initial_page = int(placement["page_number"])
+
+    placement_dialog = SignaturePlacementDialog(
+        window,
+        page_count=page_count,
+        current_page=initial_page,
+        initial_placement=placement,
+    )
+
+    web_view = _get_web_view(window)
+    preview_bridge = None
+    if web_view is not None:
+        preview_bridge = SignaturePreviewAdjustBridge(placement_dialog)
+        _setup_webchannel(web_view, placement_dialog, "sigPreviewBridge", preview_bridge)
+
+        def _apply_adj(page_number, left, bottom, right, top):
+            width = max(1.0, right - left)
+            height = max(1.0, top - bottom)
+            for spin in (placement_dialog.page_spin, placement_dialog.x_spin,
+                         placement_dialog.y_spin, placement_dialog.width_spin,
+                         placement_dialog.height_spin):
+                spin.blockSignals(True)
+            try:
+                placement_dialog.page_spin.setValue(
+                    min(int(page_number), placement_dialog.page_spin.maximum()))
+                placement_dialog.x_spin.setValue(left / MM_TO_PT)
+                placement_dialog.y_spin.setValue(bottom / MM_TO_PT)
+                placement_dialog.width_spin.setValue(width / MM_TO_PT)
+                placement_dialog.height_spin.setValue(height / MM_TO_PT)
+            finally:
+                for spin in (placement_dialog.page_spin, placement_dialog.x_spin,
+                             placement_dialog.y_spin, placement_dialog.width_spin,
+                             placement_dialog.height_spin):
+                    spin.blockSignals(False)
+            _refresh_prev()
+
+        preview_bridge.adjusted.connect(_apply_adj)
+
+    def _nav_page(page_no: int):
+        wv2 = _get_web_view(window)
+        if wv2:
+            wv2.page().runJavaScript(
+                f"(function(){{var app=window.PDFViewerApplication;"
+                f"if(app&&app.pdfViewer){{app.pdfViewer.currentPageNumber={int(page_no)};}}}})()"
+            )
+
+    def _refresh_prev(*_):
+        pl = placement_dialog.placement()
+        _set_signature_preview(window, pl)
+        _nav_page(pl["page_number"])
+
+    for spin in (placement_dialog.page_spin, placement_dialog.x_spin,
+                 placement_dialog.y_spin, placement_dialog.width_spin,
+                 placement_dialog.height_spin):
+        spin.valueChanged.connect(_refresh_prev)
+
+    _refresh_prev()
+    loop = QEventLoop(placement_dialog)
+    placement_dialog.finished.connect(
+        lambda _code: loop.quit() if loop.isRunning() else None)
+    placement_dialog.show()
+    placement_dialog.raise_()
+    placement_dialog.activateWindow()
+    try:
+        loop.exec()
+        if placement_dialog.result() != QDialog.DialogCode.Accepted:
+            return
+        placement = placement_dialog.placement()
+    finally:
+        _set_signature_preview(window, None)
+        _teardown_webchannel(web_view)
+
+    if not placement or "box" not in placement or "page_number" not in placement:
+        return
+
+    page_no = placement["page_number"]
+    box = placement["box"]
+
+    try:
+        doc = fitz.open(window.current_path)
+        page = doc[page_no - 1]
+        page_h = page.rect.height
+        left, bottom, right, top_pt = box
+        rect = fitz.Rect(left, page_h - top_pt, right, page_h - bottom)
+        page.insert_image(rect, filename=sig_img_path, keep_proportion=True)
+
+        tmp_dir2 = _os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
+        _os.makedirs(tmp_dir2, exist_ok=True)
+        out_path = _os.path.join(tmp_dir2, f"signed_{uuid.uuid4().hex[:8]}.pdf")
+        doc.save(out_path)
+        doc.close()
+
+        window.current_path = out_path
+        window.viewer.load_pdf(out_path, page=page_no, zoom="page-width")
+        if hasattr(window, "status"):
+            window.status.showMessage("Đã đặt chữ ký tay lên PDF", 3000)
+    except Exception as exc:
+        import traceback
+        show_warning(window, "Lỗi chèn chữ ký", traceback.format_exc())

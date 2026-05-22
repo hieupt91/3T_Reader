@@ -1,0 +1,118 @@
+<svg width="580" height="164" viewBox="0 0 580 164" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="g3" x1="0" y1="0" x2="0.3" y2="1">
+    <stop offset="0" stop-color="#FFE04A"/>
+    <stop offset="0.35" stop-color="#FF8E00"/>
+    <stop offset="1" stop-color="#C84000"/>
+  </linearGradient>
+  <radialGradient id="g3sh" cx="0.25" cy="0.18" r="0.5">
+    <stop offset="0" stop-color="#FFFFC0" stop-opacity="0.5"/>
+    <stop offset="1" stop-color="#FFFFC0" stop-opacity="0"/>
+  </radialGradient>
+  <linearGradient id="gT" x1="0.1" y1="0" x2="0.5" y2="1">
+    <stop offset="0" stop-color="#D8EEFF"/>
+    <stop offset="0.5" stop-color="#90B8E8"/>
+    <stop offset="1" stop-color="#4E78B8"/>
+  </linearGradient>
+  <linearGradient id="gTsh" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#fff" stop-opacity="0.45"/>
+    <stop offset="0.4" stop-color="#fff" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="gCard" x1="0.1" y1="0" x2="0.9" y2="1">
+    <stop offset="0" stop-color="#1e3a8a"/>
+    <stop offset="1" stop-color="#0f1e5a"/>
+  </linearGradient>
+  <linearGradient id="gCardHL" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffffff" stop-opacity="0.07"/>
+    <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+  </linearGradient>
+  <radialGradient id="gGlow3" cx="0.3" cy="0.55" r="0.5">
+    <stop offset="0" stop-color="#FF8800" stop-opacity="0.14"/>
+    <stop offset="1" stop-color="#FF8800" stop-opacity="0"/>
+  </radialGradient>
+  <linearGradient id="gBrand" x1="0" y1="0" x2="0.3" y2="1">
+    <stop offset="0" stop-color="#FFE066"/>
+    <stop offset="0.45" stop-color="#FF9800"/>
+    <stop offset="1" stop-color="#E8601A"/>
+  </linearGradient>
+  <filter id="fCard" x="-8%" y="-8%" width="116%" height="116%">
+    <feDropShadow dx="0" dy="5" stdDeviation="9" flood-color="#000820" flood-opacity="0.5"/>
+  </filter>
+  <filter id="f3" x="-15%" y="-10%" width="130%" height="130%">
+    <feDropShadow dx="2" dy="3" stdDeviation="3" flood-color="#882000" flood-opacity="0.5"/>
+  </filter>
+  <filter id="fT" x="-10%" y="-10%" width="130%" height="130%">
+    <feDropShadow dx="1" dy="2" stdDeviation="2" flood-color="#001080" flood-opacity="0.35"/>
+  </filter>
+  <filter id="fBrand3T" x="-10%" y="-10%" width="130%" height="130%">
+    <feDropShadow dx="1" dy="2" stdDeviation="3" flood-color="#c05000" flood-opacity="0.3"/>
+  </filter>
+  <filter id="fBrandRdr" x="-10%" y="-10%" width="130%" height="130%">
+    <feDropShadow dx="1" dy="2" stdDeviation="2.5" flood-color="#003090" flood-opacity="0.25"/>
+  </filter>
+</defs>
+
+<!-- ICON CARD -->
+<rect x="6" y="6" width="152" height="152" rx="30" fill="url(#gCard)" filter="url(#fCard)"/>
+<rect x="6" y="6" width="152" height="152" rx="30" fill="url(#gGlow3)"/>
+<rect x="6" y="6" width="152" height="152" rx="30" fill="url(#gCardHL)"/>
+<rect x="6" y="6" width="152" height="152" rx="30" fill="none" stroke="rgba(100,150,255,0.15)" stroke-width="1.2"/>
+
+<!-- Diagonal speed slash (scaled from logo_mark) -->
+<line x1="93" y1="19" x2="68" y2="150" stroke="#04091e" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+
+<!-- "T" behind — silver-blue metallic paths (scaled 0.633 from logo_mark + offset 6,6) -->
+<g transform="translate(0 87) skewX(-8) translate(0 -87)">
+  <path d="M79,46 L145,46 L145,64 L119,64 L119,128 L106,128 L106,64 L79,64 Z"
+        fill="url(#gT)" filter="url(#fT)"/>
+  <path d="M79,46 L145,46 L145,64 L119,64 L119,128 L106,128 L106,64 L79,64 Z"
+        fill="url(#gTsh)"/>
+</g>
+
+<!-- "3" in front — orange-gold paths (scaled 0.633 from logo_mark + offset 6,6) -->
+<g transform="translate(0 87) skewX(-8) translate(0 -87)">
+  <path d="M38,46 Q71,44 74,62 Q77,76 61,86 Q77,91 76,109 Q73,128 38,128
+           L38,117 Q59,117 60,109 Q61,99 48,95 L61,86 Q48,86 48,78
+           Q48,69 59,67 Q68,66 67,58 Q66,50 38,52 Z"
+        fill="url(#g3)" filter="url(#f3)"/>
+  <path d="M38,46 Q71,44 74,62 Q77,76 61,86 Q77,91 76,109 Q73,128 38,128
+           L38,117 Q59,117 60,109 Q61,99 48,95 L61,86 Q48,86 48,78
+           Q48,69 59,67 Q68,66 67,58 Q66,50 38,52 Z"
+        fill="url(#g3sh)"/>
+</g>
+
+<!-- Orange pixel scatter: near "3" bottom-left -->
+<rect x="15" y="121" width="10" height="10" rx="2.5" fill="#FF8C00"/>
+<rect x="11" y="134" width="8"  height="8"  rx="2"   fill="#FF9200" opacity="0.75"/>
+<rect x="25" y="139" width="6"  height="6"  rx="1.5" fill="#FFB800" opacity="0.6"/>
+<rect x="12" y="144" width="7"  height="7"  rx="1.5" fill="#FF6800" opacity="0.5"/>
+<rect x="21" y="148" width="5"  height="5"  rx="1"   fill="#FFCA00" opacity="0.4"/>
+
+<!-- Blue pixel scatter: near "T" top-right -->
+<rect x="138" y="36" width="10" height="10" rx="2.5" fill="#2878FF"/>
+<rect x="149" y="48" width="8"  height="8"  rx="2"   fill="#2878FF" opacity="0.75"/>
+<rect x="138" y="60" width="6"  height="6"  rx="1.5" fill="#50A0FF" opacity="0.6"/>
+<rect x="150" y="34" width="7"  height="7"  rx="1.5" fill="#1A60E0" opacity="0.55"/>
+<rect x="149" y="66" width="5"  height="5"  rx="1"   fill="#3888FF" opacity="0.4"/>
+
+<!-- DIVIDER -->
+<line x1="178" y1="28" x2="178" y2="136" stroke="rgba(100,160,255,0.18)" stroke-width="1.2"/>
+
+<!-- BRAND TEXT -->
+<text x="198" y="96"
+      font-family="'Segoe UI','Arial Black',sans-serif"
+      font-size="64" font-weight="900"
+      fill="url(#gBrand)" filter="url(#fBrand3T)">3T</text>
+
+<text x="342" y="96"
+      font-family="'Segoe UI',Arial,sans-serif"
+      font-size="64" font-weight="700" fill="#E2EEFF" letter-spacing="2"
+      filter="url(#fBrandRdr)">READER</text>
+
+<text x="198" y="126"
+      font-family="'Segoe UI',Arial,sans-serif"
+      font-size="14.5" font-weight="400" fill="#4e6ea0" letter-spacing="3.5">ĐỌC MỌI LÚC – HIỂU MỌI NƠI</text>
+
+<line x1="198" y1="140" x2="258" y2="140" stroke="#F5821F" stroke-width="3" stroke-linecap="round"/>
+<line x1="508" y1="140" x2="568" y2="140" stroke="#F5821F" stroke-width="3" stroke-linecap="round"/>
+</svg>

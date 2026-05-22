@@ -1,0 +1,60 @@
+<svg width="280" height="280" viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g3" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#FFD04A"/>
+      <stop offset="0.5" stop-color="#FF9800"/>
+      <stop offset="1" stop-color="#F5821F"/>
+    </linearGradient>
+    <linearGradient id="gT" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#4BA6FF"/>
+      <stop offset="1" stop-color="#1548B7"/>
+    </linearGradient>
+    <linearGradient id="gFold" x1="0" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#dde8f8" stop-opacity="0.8"/>
+    </linearGradient>
+    <!-- Drop shadow filter -->
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="rgba(0,0,0,0.25)"/>
+    </filter>
+  </defs>
+
+  <!-- Rounded square background (soft white card) -->
+  <rect x="16" y="16" width="248" height="248" rx="52" fill="#ffffff" filter="url(#shadow)"/>
+  <rect x="16" y="16" width="248" height="248" rx="52" fill="rgba(240,246,255,0.5)"/>
+
+  <!-- "3" numeral -->
+  <path d="M62 82 C62 62 76 50 94 50 L164 50 C148 70 143 88 140 106 L106 106
+           C88 106 78 114 78 126 C78 136 86 142 100 142 L128 142
+           C144 142 154 148 158 158 C163 170 158 184 148 196 C132 218 106 226
+           72 226 L50 226 L50 192 L128 192 C140 192 148 186 150 176 C153 168
+           147 162 134 162 L108 162 C74 162 52 144 58 106 Z"
+        fill="url(#g3)"/>
+
+  <!-- "T" letter -->
+  <path d="M168 50 L232 50 L218 82 L186 82 L152 226 L116 226 L152 82 L138 82 Z"
+        fill="url(#gT)"/>
+
+  <!-- White fold/page over the junction of 3 and T -->
+  <path d="M152 50 L186 50 C174 62 167 80 165 98 L130 98 C137 80 143 64 152 50 Z"
+        fill="url(#gFold)"/>
+
+  <!-- Blue dots (brand pixel motif) -->
+  <rect x="194" y="80" width="10" height="10" rx="2.5" fill="#2d86ff"/>
+  <rect x="208" y="92" width="10" height="10" rx="2.5" fill="#2d86ff"/>
+  <rect x="194" y="106" width="10" height="10" rx="2.5" fill="#2d86ff"/>
+  <rect x="208" y="120" width="10" height="10" rx="2.5" fill="#2d86ff"/>
+  <rect x="194" y="134" width="10" height="10" rx="2.5" fill="#2d86ff"/>
+
+  <!-- "—READER—" text -->
+  <text x="140" y="208" text-anchor="middle"
+        font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700"
+        fill="#1B3C8A" letter-spacing="4">READER</text>
+  <!-- Orange dashes -->
+  <line x1="46" y1="203" x2="72" y2="203" stroke="#F5821F" stroke-width="3.5" stroke-linecap="round"/>
+  <line x1="208" y1="203" x2="234" y2="203" stroke="#F5821F" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Book pages at bottom -->
+  <path d="M70 224 Q140 218 210 224" stroke="#b0c0d8" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M78 230 Q140 225 202 230" stroke="#c8d6ea" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+</svg>

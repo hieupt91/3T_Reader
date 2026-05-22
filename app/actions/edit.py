@@ -4,25 +4,20 @@ import tempfile
 import uuid
 
 from packages.qt_compat.QtCore import QObject, QEventLoop, pyqtSignal, pyqtSlot
-from packages.qt_compat.QtGui import QImage
 from packages.qt_compat.QtWebChannel import QWebChannel
 from packages.qt_compat.QtWidgets import (
-    QComboBox,
-    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
-    QSpinBox,
-    QTextEdit,
     QVBoxLayout,
 )
 
 from app.actions.file import open_file
 from app.actions._guard import require_document
-from app.dialogs import show_info, show_warning
+from app.dialogs import show_warning
 from packages.pdf_engine import get_pdf_engine
 
 A4_WIDTH_PT = 595
@@ -256,38 +251,29 @@ def _pick_pdf_area(window):
     return result or None
 
 
-def _begin_edit_mode(window, mode_key: str, status_text: str):
-    handler = getattr(window, "begin_edit_mode", None)
-    if callable(handler):
-        handler(mode_key, status_text)
-    else:
-        window.status.showMessage(status_text, 5000)
+def _get_edit_state(window):
+    """Get edit state for the currently active tab (falls back to window attr)."""
+    active_fn = getattr(window, "_active_state", None)
+    if callable(active_fn):
+        tab_state = active_fn()
+        if tab_state is not None:
+            return tab_state.get("_pdf_edit_state")
+    return getattr(window, "_pdf_edit_state", None)
 
 
-def _end_edit_mode(window, status_text: str | None = None):
-    handler = getattr(window, "end_edit_mode", None)
-    if callable(handler):
-        handler(status_text)
-    elif status_text:
-        window.status.showMessage(status_text, 3500)
-
-
-def _edit_state_store(window):
-    active_state = window._active_state() if hasattr(window, "_active_state") else None
-    if active_state is not None:
-        active_state.setdefault("edit_state", None)
-        return active_state
-    if hasattr(window, "_global_state"):
-        window._global_state.setdefault("edit_state", None)
-        return window._global_state
-    return None
+def _set_edit_state(window, value):
+    """Set edit state for the currently active tab (falls back to window attr)."""
+    active_fn = getattr(window, "_active_state", None)
+    if callable(active_fn):
+        tab_state = active_fn()
+        if tab_state is not None:
+            tab_state["_pdf_edit_state"] = value
+            return
+    window._pdf_edit_state = value
 
 
 def _reset_edit_state(window):
-    store = _edit_state_store(window)
-    if store is None:
-        return
-    state = store.get("edit_state")
+    state = _get_edit_state(window)
     if not state:
         return
     for path_key in ("base_snapshot", "working_file"):
@@ -297,13 +283,7 @@ def _reset_edit_state(window):
                 os.remove(path)
             except OSError:
                 pass
-    staged_dir = state.get("staged_assets_dir")
-    if staged_dir and os.path.isdir(staged_dir):
-        try:
-            shutil.rmtree(staged_dir, ignore_errors=True)
-        except OSError:
-            pass
-    store["edit_state"] = None
+    _set_edit_state(window, None)
 
 
 def _ensure_edit_state(window):
@@ -311,10 +291,7 @@ def _ensure_edit_state(window):
     if not current:
         return None
 
-    store = _edit_state_store(window)
-    if store is None:
-        return None
-    state = store.get("edit_state")
+    state = _get_edit_state(window)
 
     # Nếu đang edit state và file gốc khớp → tái sử dụng
     if state and state.get("original_path") == current:
@@ -338,42 +315,11 @@ def _ensure_edit_state(window):
         "original_path": current,
         "base_snapshot": base_snapshot,
         "working_file": working_file,
-        "staged_assets_dir": os.path.join(edit_dir, f"assets_{session_id}"),
         "ops": [],
-        "redo_ops": [],
         "next_id": 1,
     }
-    store["edit_state"] = state
+    _set_edit_state(window, state)
     return state
-
-
-def _stage_image_for_edit(state: dict, image_path: str) -> str:
-    if not image_path or not os.path.exists(image_path):
-        return image_path
-    staged_dir = state.get("staged_assets_dir") or tempfile.gettempdir()
-    os.makedirs(staged_dir, exist_ok=True)
-    staged_base = os.path.join(staged_dir, uuid.uuid4().hex)
-
-    # Normalize to PNG so both PDF engines can embed the image reliably.
-    normalized_path = f"{staged_base}.png"
-    qimage = QImage(image_path)
-    if not qimage.isNull() and qimage.save(normalized_path, "PNG"):
-        return normalized_path
-
-    ext = os.path.splitext(image_path)[1] or ".png"
-    staged_path = f"{staged_base}{ext}"
-    shutil.copy2(image_path, staged_path)
-    return staged_path
-
-
-def _set_selected_object(window, op: dict | None):
-    handler = getattr(window, "show_selected_object_in_inspector", None)
-    if callable(handler):
-        handler(op)
-
-
-def _has_visible_text_content(text: str) -> bool:
-    return bool((text or "").strip())
 
 
 def _reload_viewer(window, pdf_path: str, page: int | None = None):
@@ -389,7 +335,21 @@ def _reload_viewer(window, pdf_path: str, page: int | None = None):
     window.viewer.load_pdf(pdf_path, page=page, zoom="page-width")
 
 
-def _render_edit_state(window, state, status_message: str):
+def _navigate_viewer(window, page_no: int):
+    """Điều hướng PDF viewer đến trang chỉ định qua JavaScript."""
+    try:
+        from app.actions.sign import _get_web_view
+        wv = _get_web_view(window)
+        if wv:
+            wv.page().runJavaScript(
+                f"(function(){{var app=window.PDFViewerApplication;"
+                f"if(app&&app.pdfViewer){{app.pdfViewer.currentPageNumber={int(page_no)};}}}})()"
+            )
+    except Exception:
+        pass
+
+
+def _render_edit_state(window, state, status_message: str, focus_page: int | None = None):
     """Rebuild working file from base + all ops, then reload viewer in-place."""
     base_snapshot = state.get("base_snapshot")
     ops = state.get("ops") or []
@@ -402,12 +362,12 @@ def _render_edit_state(window, state, status_message: str):
         show_warning(window, "Không thể chỉnh sửa", "Thiếu file làm việc.")
         return None
 
-    # Lưu trang hiện tại để giữ vị trí sau khi reload
-    current_page = None
-    try:
-        current_page = window.viewer.get_current_page()
-    except Exception:
-        pass
+    current_page = focus_page
+    if current_page is None:
+        try:
+            current_page = window.viewer.get_current_page()
+        except Exception:
+            pass
 
     try:
         get_pdf_engine().rebuild_pdf_with_ops(base_snapshot, working_file, ops)
@@ -417,86 +377,82 @@ def _render_edit_state(window, state, status_message: str):
 
     _reload_viewer(window, working_file, page=current_page)
 
+    # Điều hướng đến trang đã chèn sau khi viewer load xong (delay nhỏ)
+    if focus_page is not None:
+        from packages.qt_compat.QtCore import QTimer
+        QTimer.singleShot(800, lambda: _navigate_viewer(window, focus_page))
+
     op_count = len(ops)
     undo_hint = f" (Ctrl+Z để hoàn tác, {op_count} thao tác)" if op_count > 0 else ""
     window.status.showMessage(f"{status_message}{undo_hint}", 4000)
     return working_file
 
 
-def _finalize_saved_document(window, target_path: str):
-    current_page = 1
+def _adjust_placement(window, initial_placement: dict, title: str = "Xác nhận vị trí") -> dict | None:
+    """Hiển thị overlay kéo/co dãn để người dùng tinh chỉnh vị trí TRƯỚC khi rebuild.
+    Returns: placement dict cuối cùng, hoặc None nếu huỷ."""
+    from app.actions.sign import (
+        _get_web_view, _setup_webchannel, _teardown_webchannel,
+        _set_signature_preview, SignaturePreviewAdjustBridge,
+    )
+
+    web_view = _get_web_view(window)
+    if web_view is None:
+        return initial_placement
+
+    placement = dict(initial_placement)
+
+    confirm_dlg = _ObjectPlacementDialog(
+        window,
+        title=title,
+        note=(
+            "Kéo khung xanh để di chuyển\n"
+            "Kéo góc phải-dưới để thay đổi kích thước\n"
+            "Nhấn OK để xác nhận vị trí"
+        ),
+    )
+
+    bridge = SignaturePreviewAdjustBridge(confirm_dlg)
+    _setup_webchannel(web_view, confirm_dlg, "sigPreviewBridge", bridge)
+
+    def _on_adjusted(page_no, left, bottom, right, top):
+        nonlocal placement
+        placement = {
+            "page_number": max(1, int(page_no)),
+            "box": (left, bottom, right, top),
+        }
+        _set_signature_preview(window, placement)
+
+    bridge.adjusted.connect(_on_adjusted)
+    _set_signature_preview(window, placement)
+
     try:
-        current_page = window.viewer.get_current_page()
-    except Exception:
-        pass
+        loop = QEventLoop(confirm_dlg)
+        confirm_dlg.finished.connect(
+            lambda _code: loop.quit() if loop.isRunning() else None
+        )
+        confirm_dlg.show()
+        confirm_dlg.raise_()
+        confirm_dlg.activateWindow()
+        loop.exec()
 
-    state = window._active_state() if hasattr(window, "_active_state") else None
-    if state is not None:
-        state["source_path"] = target_path
-        state["display_path"] = target_path
-        state["temp_path"] = None
-
-    _reset_edit_state(window)
-    window.current_path = target_path
-    window.viewer.load_pdf(target_path, page=max(1, current_page), zoom="page-width", pagemode="thumbs")
-    window.status.showMessage(f"Đã lưu: {os.path.basename(target_path)}", 4000)
-
-
-def _save_copy(window, source_path: str, suggested_name: str):
-    target_path = _pick_save_pdf_path(window, suggested_name)
-    if not target_path:
-        return None
-    shutil.copy2(source_path, target_path)
-    return target_path
-
-
-@require_document(show_message=True)
-def save_document(window):
-    store = _edit_state_store(window)
-    state = store.get("edit_state") if store else None
-    if state and os.path.exists(state.get("working_file", "")):
-        target_path = window.get_display_path() if hasattr(window, "get_display_path") else window.current_path
-        if not target_path:
-            show_warning(window, "Không thể lưu", "Không xác định được đường dẫn tệp đích.")
-            return
-        shutil.copy2(state["working_file"], target_path)
-        _finalize_saved_document(window, target_path)
-        return
-
-    show_info(window, "Không có thay đổi", "Tài liệu hiện tại chưa có thay đổi để lưu.")
-
-
-@require_document(show_message=True)
-def save_document_as(window):
-    store = _edit_state_store(window)
-    state = store.get("edit_state") if store else None
-    display_path = window.get_display_path() if hasattr(window, "get_display_path") else window.current_path
-    suggested_name = os.path.basename(display_path or "tai_lieu.pdf")
-
-    if state and os.path.exists(state.get("working_file", "")):
-        target_path = _save_copy(window, state["working_file"], suggested_name)
-        if not target_path:
-            return
-        _finalize_saved_document(window, target_path)
-        return
-
-    target_path = _save_copy(window, window.current_path, suggested_name)
-    if not target_path:
-        return
-    window.status.showMessage(f"Đã lưu thành: {os.path.basename(target_path)}", 4000)
+        if confirm_dlg.result() != QDialog.DialogCode.Accepted:
+            return None
+        return placement
+    finally:
+        _set_signature_preview(window, None)
+        _teardown_webchannel(web_view)
 
 
 @require_document(show_message=True)
 def undo_last_edit(window):
     """Hoàn tác thao tác chèn cuối cùng."""
-    store = _edit_state_store(window)
-    state = store.get("edit_state") if store else None
+    state = _get_edit_state(window)
     if not state or not state.get("ops"):
         show_warning(window, "Không có gì để hoàn tác", "Chưa có thao tác chèn nào để hoàn tác.")
         return
 
     removed = state["ops"].pop()
-    state.setdefault("redo_ops", []).append(removed)
     op_type = "văn bản" if removed.get("type") == "text" else "ảnh"
 
     if not state["ops"]:
@@ -515,21 +471,6 @@ def undo_last_edit(window):
         window.status.showMessage(f"Đã hoàn tác chèn {op_type} — về trạng thái ban đầu", 3000)
     else:
         _render_edit_state(window, state, f"Đã hoàn tác chèn {op_type}")
-
-
-@require_document(show_message=True)
-def redo_last_edit(window):
-    store = _edit_state_store(window)
-    state = store.get("edit_state") if store else None
-    redo_ops = state.get("redo_ops") if state else None
-    if not state or not redo_ops:
-        show_warning(window, "Không có gì để làm lại", "Chưa có thao tác nào để làm lại.")
-        return
-
-    restored = redo_ops.pop()
-    state["ops"].append(restored)
-    op_type = "văn bản" if restored.get("type") == "text" else "ảnh"
-    _render_edit_state(window, state, f"Đã làm lại chèn {op_type}")
 
 
 
@@ -576,7 +517,7 @@ def _pick_save_pdf_path(window, default_name: str) -> str | None:
 class _ObjectPlacementDialog(QDialog):
     """Simple confirm dialog for object placement preview (image, text)."""
 
-    def __init__(self, parent=None, *, title: str = "Chèn đối tượng", note: str = "", initial_rotation: int = 0):
+    def __init__(self, parent=None, *, title: str = "Chèn đối tượng", note: str = ""):
         from packages.qt_compat.QtCore import Qt
 
         super().__init__(parent)
@@ -597,15 +538,6 @@ class _ObjectPlacementDialog(QDialog):
             label.setWordWrap(True)
             root.addWidget(label)
 
-        self.rotation_combo = QComboBox()
-        self.rotation_combo.addItems(["0°", "90°", "180°", "270°"])
-        rotation_index = {0: 0, 90: 1, 180: 2, 270: 3}.get(int(initial_rotation or 0) % 360, 0)
-        self.rotation_combo.setCurrentIndex(rotation_index)
-
-        form = QFormLayout()
-        form.addRow("Xoay", self.rotation_combo)
-        root.addLayout(form)
-
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -623,176 +555,6 @@ class _ObjectPlacementDialog(QDialog):
         x = geo.right() - self.width() - 16
         y = geo.top() + 72
         self.move(max(0, x), max(0, y))
-
-    def rotation_value(self) -> int:
-        return [0, 90, 180, 270][self.rotation_combo.currentIndex()]
-
-
-class _TextPlacementDialog(QDialog):
-    def __init__(
-        self,
-        parent=None,
-        *,
-        initial_text: str = "",
-        initial_font_size: int = 12,
-        initial_rotation: int = 0,
-        initial_bold: bool = False,
-        initial_underline: bool = False,
-        initial_color: tuple = (0.0, 0.0, 0.0),
-    ):
-        from packages.qt_compat.QtCore import Qt
-
-        super().__init__(parent)
-        self.setWindowTitle("Đặt text")
-        self.setWindowFlags(
-            self.windowFlags()
-            | Qt.WindowType.Tool
-            | Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.setModal(False)
-        self.setWindowModality(Qt.WindowModality.NonModal)
-        self.setMinimumWidth(360)
-
-        self._color = tuple(initial_color) if initial_color else (0.0, 0.0, 0.0)
-
-        root = QVBoxLayout(self)
-
-        note = QLabel("Gõ nội dung, kéo khung trên PDF để đặt vị trí/kích thước, rồi bấm OK để chèn.")
-        note.setWordWrap(True)
-        root.addWidget(note)
-
-        form = QFormLayout()
-
-        self.text_edit = QTextEdit()
-        self.text_edit.setPlaceholderText("Nhập nội dung cần chèn")
-        self.text_edit.setMinimumHeight(110)
-        self.text_edit.setPlainText(initial_text)
-        form.addRow("Nội dung", self.text_edit)
-
-        self.font_size_spin = QSpinBox()
-        self.font_size_spin.setRange(6, 96)
-        self.font_size_spin.setValue(max(6, min(96, int(initial_font_size or 12))))
-        self.font_size_spin.setSuffix(" pt")
-        form.addRow("Cỡ chữ", self.font_size_spin)
-
-        from packages.qt_compat.QtWidgets import QPushButton
-        self.color_btn = QPushButton()
-        self._update_color_btn()
-        self.color_btn.clicked.connect(self._pick_color)
-        form.addRow("Màu chữ", self.color_btn)
-
-        self.rotation_combo = QComboBox()
-        self.rotation_combo.addItems(["0°", "90°", "180°", "270°"])
-        self.rotation_combo.setCurrentIndex({0: 0, 90: 1, 180: 2, 270: 3}.get(int(initial_rotation or 0) % 360, 0))
-        form.addRow("Xoay", self.rotation_combo)
-
-        self.bold_check = QCheckBox("In đậm")
-        self.bold_check.setChecked(bool(initial_bold))
-        self.underline_check = QCheckBox("Gạch chân")
-        self.underline_check.setChecked(bool(initial_underline))
-        form.addRow("Kiểu chữ", self.bold_check)
-        form.addRow("", self.underline_check)
-
-        root.addLayout(form)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
-
-        self.adjustSize()
-        self._position_near_parent(parent)
-
-    def _position_near_parent(self, parent):
-        if parent is None:
-            return
-        geo = parent.frameGeometry()
-        x = geo.right() - self.width() - 16
-        y = geo.top() + 72
-        self.move(max(0, x), max(0, y))
-
-    def _update_color_btn(self):
-        r, g, b = [int(v * 255) for v in self._color]
-        luma = 0.299 * r + 0.587 * g + 0.114 * b
-        text_color = "black" if luma > 128 else "white"
-        self.color_btn.setStyleSheet(
-            f"background-color: rgb({r},{g},{b}); color: {text_color}; padding: 4px 12px; border-radius: 3px;"
-        )
-        self.color_btn.setText(f"#{r:02X}{g:02X}{b:02X}")
-
-    def _pick_color(self):
-        from packages.qt_compat.QtWidgets import QColorDialog
-        from packages.qt_compat.QtGui import QColor
-        r, g, b = [int(v * 255) for v in self._color]
-        color = QColorDialog.getColor(QColor(r, g, b), self, "Chọn màu chữ")
-        if color.isValid():
-            self._color = (color.redF(), color.greenF(), color.blueF())
-            self._update_color_btn()
-
-    def text_value(self) -> str:
-        return self.text_edit.toPlainText()
-
-    def font_size_value(self) -> int:
-        return int(self.font_size_spin.value())
-
-    def color_value(self) -> tuple:
-        return self._color
-
-    def rotation_value(self) -> int:
-        return [0, 90, 180, 270][self.rotation_combo.currentIndex()]
-
-    def bold_value(self) -> bool:
-        return self.bold_check.isChecked()
-
-    def underline_value(self) -> bool:
-        return self.underline_check.isChecked()
-
-
-def _confirm_preview_placement(window, placement: dict, *, title: str, note: str, label: str, dialog: QDialog):
-    from app.actions.sign import (
-        SignaturePreviewAdjustBridge,
-        _get_web_view,
-        _set_object_preview,
-        _setup_webchannel,
-        _teardown_webchannel,
-    )
-
-    web_view = _get_web_view(window)
-    if web_view is None:
-        show_warning(window, "Chưa sẵn sàng", "Trình xem PDF chưa sẵn sàng.")
-        return None
-
-    preview_bridge = SignaturePreviewAdjustBridge(dialog)
-    _setup_webchannel(web_view, dialog, "sigPreviewBridge", preview_bridge)
-
-    current_placement = dict(placement)
-
-    def _apply_adjustment(page_number, left, bottom, right, top):
-        nonlocal current_placement
-        current_placement = {
-            "page_number": max(1, int(page_number)),
-            "box": (left, bottom, right, top),
-        }
-        _set_object_preview(window, current_placement, label=label)
-
-    preview_bridge.adjusted.connect(_apply_adjustment)
-    _set_object_preview(window, current_placement, label=label)
-
-    try:
-        loop = QEventLoop(dialog)
-        dialog.finished.connect(lambda _code: loop.quit() if loop.isRunning() else None)
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
-        loop.exec()
-        if dialog.result() != QDialog.DialogCode.Accepted:
-            return None
-        return current_placement
-    finally:
-        _set_object_preview(window, None)
-        _teardown_webchannel(web_view)
 
 
 def create_new_pdf(window):
@@ -808,433 +570,411 @@ def create_new_pdf(window):
 
 @require_document(show_message=True)
 def insert_text_to_pdf(window):
-    _begin_edit_mode(window, "text", "Bấm hoặc kéo trên PDF để đặt text.")
-    try:
-        placement = _pick_pdf_area(window)
-        if not placement:
-            return
+    from app.pdf_inline_editor import run_inline_text
 
-        page_number = max(1, int(placement["page_number"]))
-        left, bottom, right, top = placement["box"]
+    result = run_inline_text(window)
+    if not result:
+        return
 
-        if abs(right - left) < 6 and abs(top - bottom) < 6:
-            right = left + 220
-            top = bottom + 56
+    page_number = result["page_number"]
+    left, bottom, right, top = result["box"]
 
-        placement = {
-            "page_number": page_number,
-            "box": (left, bottom, right, top),
-        }
-        initial_text = window.current_insert_text() if hasattr(window, "current_insert_text") else ""
-        initial_font_size = window.current_insert_font_size() if hasattr(window, "current_insert_font_size") else 12
-        dialog = _TextPlacementDialog(
-            window,
-            initial_text=initial_text,
-            initial_font_size=initial_font_size,
-            initial_rotation=0,
-            initial_bold=False,
-            initial_underline=False,
-        )
-        placement = _confirm_preview_placement(
-            window,
-            placement,
-            title="Đặt text",
-            note="Gõ nội dung và kéo khung trên PDF để chỉnh vị trí.",
-            label="Preview text",
-            dialog=dialog,
-        )
-        if not placement:
-            return
+    # Đảm bảo vùng tối thiểu
+    if abs(right - left) < 20:
+        right = left + 180
+    if abs(top - bottom) < 12:
+        top = bottom + 44
 
-        text = dialog.text_value()
-        if not text:
-            from app.dialogs import show_warning
-            show_warning(window, "Thiếu nội dung text", "Nhập nội dung text trước khi bấm OK.")
-            return
-        font_size = dialog.font_size_value()
-        font_color = dialog.color_value()
-        rotation = dialog.rotation_value()
-        bold = dialog.bold_value()
-        underline = dialog.underline_value()
+    state = _ensure_edit_state(window)
+    if not state:
+        return
 
-        state = _ensure_edit_state(window)
-        if not state:
-            return
+    op = {
+        "id":         state["next_id"],
+        "type":       "text",
+        "page_number": page_number,
+        "box":        (left, bottom, right, top),
+        "text":       result["text"],
+        "font_size":  result.get("font_size", 14),
+        "font_color": result.get("color_tuple", (0.0, 0.0, 0.0)),
+        "bold":       result.get("bold", False),
+        "underline":  result.get("underline", False),
+    }
+    state["next_id"] += 1
+    state["ops"].append(op)
 
-        op = {
-            "id": state["next_id"],
-            "type": "text",
-            "page_number": int(placement["page_number"]),
-            "box": tuple(placement["box"]),
-            "text": text,
-            "font_size": font_size,
-            "font_color": font_color,
-            "rotation": rotation,
-            "bold": bold,
-            "underline": underline,
-        }
-        state["next_id"] += 1
-        state["ops"].append(op)
-        state["redo_ops"] = []
-
-        _render_edit_state(window, state, "Đã đặt text")
-        _set_selected_object(window, op)
-    finally:
-        _end_edit_mode(window)
+    _render_edit_state(window, state, "Đã chèn văn bản", focus_page=page_number)
 
 
 @require_document(show_message=True)
 def insert_image_to_pdf(window):
-    _begin_edit_mode(window, "image", "Kéo trên PDF để đặt vùng ảnh, hoặc bấm một điểm để dùng kích thước mặc định.")
+    from app.pdf_inline_editor import run_inline_image
+
+    image_path, _ = QFileDialog.getOpenFileName(
+        window,
+        "Chọn ảnh",
+        "",
+        "Image Files (*.png *.jpg *.jpeg *.bmp *.webp)",
+    )
+    if not image_path:
+        return
+
+    result = run_inline_image(window, image_path)
+    if not result:
+        return
+
+    # Stage image to temp dir so the op doesn't depend on the original path
+    edit_dir = os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
+    os.makedirs(edit_dir, exist_ok=True)
+    ext = os.path.splitext(image_path)[1].lower() or ".png"
+    staged = os.path.join(edit_dir, f"img_{uuid.uuid4().hex[:12]}{ext}")
     try:
-        image_path = window.current_insert_image_path() if hasattr(window, "current_insert_image_path") else ""
-        if not image_path:
-            image_path, _ = QFileDialog.getOpenFileName(
-                window,
-                "Chọn ảnh",
-                "",
-                "Image Files (*.png *.jpg *.jpeg *.bmp *.webp)",
-            )
-            if not image_path:
-                return
-            setter = getattr(window, "set_selected_insert_image_path", None)
-            if callable(setter):
-                setter(image_path)
+        shutil.copy2(image_path, staged)
+        image_path = staged
+    except OSError:
+        pass  # keep original path if staging fails
 
-        placement = _pick_pdf_area(window)
-        if not placement:
-            return
+    page_number = result["page_number"]
+    left, bottom, right, top = result["box"]
 
-        page_number = max(1, int(placement["page_number"]))
-        left, bottom, right, top = placement["box"]
+    # Đảm bảo vùng tối thiểu
+    if abs(right - left) < 20:
+        right = left + 150
+    if abs(top - bottom) < 20:
+        top = bottom + 120
+    box = (left, bottom, right, top)
 
-        if abs(right - left) < 6 and abs(top - bottom) < 6:
-            box_w, box_h = (180.0, 120.0)
-            if hasattr(window, "current_insert_image_box_size"):
-                box_w, box_h = window.current_insert_image_box_size()
-            right = left + box_w
-            top = bottom + box_h
+    state = _ensure_edit_state(window)
+    if not state:
+        return
 
-        placement = {
-            "page_number": page_number,
-            "box": (left, bottom, right, top),
-        }
-        image_dialog = _ObjectPlacementDialog(
-            window,
-            title="Đặt ảnh",
-            note=f"Ảnh: {os.path.basename(image_path)}\n\nKéo khung trên PDF để chỉnh vị trí/kích thước, rồi bấm OK để chèn.",
-            initial_rotation=0,
-        )
-        placement = _confirm_preview_placement(
-            window,
-            placement,
-            title="Đặt ảnh",
-            note="Kéo khung trên PDF để chỉnh vị trí/kích thước.",
-            label="Preview ảnh",
-            dialog=image_dialog,
-        )
-        if not placement:
-            return
-        rotation = image_dialog.rotation_value()
+    op = {
+        "id":          state["next_id"],
+        "type":        "image",
+        "page_number": page_number,
+        "box":         box,
+        "image_path":  image_path,
+    }
+    state["next_id"] += 1
+    state["ops"].append(op)
 
-        state = _ensure_edit_state(window)
-        if not state:
-            return
-        staged_image_path = _stage_image_for_edit(state, image_path)
+    _render_edit_state(window, state, "Đã chèn ảnh", focus_page=page_number)
 
-        op = {
-            "id": state["next_id"],
-            "type": "image",
-            "page_number": int(placement["page_number"]),
-            "box": tuple(placement["box"]),
-            "image_path": staged_image_path,
-            "rotation": rotation,
-        }
-        state["next_id"] += 1
-        state["ops"].append(op)
-        state["redo_ops"] = []
-
-        _render_edit_state(window, state, "Đã đặt ảnh")
-        _set_selected_object(window, op)
-    finally:
-        _end_edit_mode(window)
 
 
 @require_document(show_message=True)
-def select_inserted_object(window):
-    from app.actions.sign import (
-        SignaturePreviewAdjustBridge,
-        _get_web_view,
-        _set_object_preview,
-        _setup_webchannel,
-        _teardown_webchannel,
+def save_edits(window):
+    """Lưu các thay đổi (text/ảnh đã chèn) vào file gốc."""
+    state = _get_edit_state(window)
+    if not state:
+        # Không có edit state — lưu thông thường
+        try:
+            window.viewer.save_pdf()
+        except Exception:
+            pass
+        return
+
+    working = state.get("working_file")
+    base = state.get("base_snapshot")
+    original = state.get("original_path")
+
+    if not working or not base or not os.path.exists(base):
+        show_warning(window, "Không lưu được", "Không tìm thấy file làm việc.")
+        return
+
+    # Rebuild lần cuối vào working file
+    try:
+        get_pdf_engine().rebuild_pdf_with_ops(base, working, state.get("ops", []))
+    except Exception as e:
+        show_warning(window, "Lỗi khi dựng file", str(e))
+        return
+
+    # Xác định đường dẫn lưu
+    save_path = original
+    if not save_path or not os.path.exists(os.path.dirname(save_path) or "."):
+        save_path = _pick_save_pdf_path(window, "document.pdf")
+    if not save_path:
+        return
+
+    try:
+        shutil.copy2(working, save_path)
+    except Exception as e:
+        show_warning(window, "Lỗi ghi file", str(e))
+        return
+
+    # Reset edit state, tải lại từ file đã lưu
+    _set_edit_state(window, None)
+    _reload_viewer(window, save_path)
+    window.status.showMessage(
+        f"Đã lưu: {os.path.basename(save_path)}", 5000
     )
 
-    _begin_edit_mode(window, "edit", "Bấm vào nội dung đã chèn để chọn, rồi kéo trực tiếp khung để sửa.")
-    try:
-        state = _ensure_edit_state(window)
-        if not state or not state.get("ops"):
-            from app.dialogs import show_warning
-            show_warning(window, "Chưa có nội dung", "Chưa có text/ảnh nào được chèn để chỉnh sửa.")
-            return
 
-        picked_object = _pick_pdf_area(window)
-        if not picked_object:
-            return
+@require_document(show_message=True)
+def save_edits_as(window):
+    """Lưu bản chỉnh sửa thành file mới (Save As)."""
+    state = _get_edit_state(window)
+    src = state.get("working_file") if state else window.current_path
+    if not src:
+        return
 
-        target_op = _find_op_at_pick(state, picked_object)
-        if not target_op:
-            from app.dialogs import show_warning
-            show_warning(window, "Không tìm thấy", "Không xác định được nội dung đã chèn tại vị trí bạn bấm.")
-            return
+    save_path = _pick_save_pdf_path(window, "document_copy.pdf")
+    if not save_path:
+        return
 
-        web_view = _get_web_view(window)
-        if web_view is None:
-            from app.dialogs import show_warning
-            show_warning(window, "Chưa sẵn sàng", "Trình xem PDF chưa sẵn sàng.")
-            return
-
-        placement = {
-            "page_number": int(target_op["page_number"]),
-            "box": tuple(target_op["box"]),
-        }
-        label = "Chỉnh text" if target_op.get("type") == "text" else "Chỉnh ảnh"
-        if target_op.get("type") == "text":
-            confirm_dialog = _TextPlacementDialog(
-                window,
-                initial_text=str(target_op.get("text", "")),
-                initial_font_size=int(target_op.get("font_size", 12)),
-                initial_rotation=int(target_op.get("rotation", 0)),
-                initial_bold=bool(target_op.get("bold", False)),
-                initial_underline=bool(target_op.get("underline", False)),
-                initial_color=target_op.get("font_color", (0.0, 0.0, 0.0)),
-            )
-        else:
-            confirm_dialog = _ObjectPlacementDialog(
-                window,
-                title="Chỉnh nội dung đã chèn",
-                note="Kéo trực tiếp khung trên PDF để di chuyển hoặc đổi kích thước, rồi bấm OK để lưu.",
-                initial_rotation=int(target_op.get("rotation", 0)),
-            )
-        preview_bridge = SignaturePreviewAdjustBridge(confirm_dialog)
-        _setup_webchannel(web_view, confirm_dialog, "sigPreviewBridge", preview_bridge)
-
-        def _apply_adjustment(page_number, left, bottom, right, top):
-            nonlocal placement
-            placement = {
-                "page_number": max(1, int(page_number)),
-                "box": (left, bottom, right, top),
-            }
-            _set_object_preview(window, placement, label=label)
-
-        preview_bridge.adjusted.connect(_apply_adjustment)
-        _set_object_preview(window, placement, label=label)
-
-        from packages.qt_compat.QtCore import QEventLoop
-        from packages.qt_compat.QtWidgets import QDialog
+    if state:
+        base = state.get("base_snapshot", "")
         try:
-            loop = QEventLoop(confirm_dialog)
-            confirm_dialog.finished.connect(lambda _code: loop.quit() if loop.isRunning() else None)
-            confirm_dialog.show()
-            confirm_dialog.raise_()
-            confirm_dialog.activateWindow()
-            loop.exec()
-            if confirm_dialog.result() != QDialog.DialogCode.Accepted:
-                return
-        finally:
-            _set_object_preview(window, None)
-            _teardown_webchannel(web_view)
-
-        target_op["page_number"] = int(placement["page_number"])
-        target_op["box"] = tuple(placement["box"])
-        target_op["rotation"] = confirm_dialog.rotation_value()
-        if target_op.get("type") == "text":
-            text_value = confirm_dialog.text_value()
-            if not text_value:
-                from app.dialogs import show_warning
-                show_warning(window, "Thiếu nội dung text", "Nội dung text không được để trống.")
-                return
-            target_op["text"] = text_value
-            target_op["font_size"] = confirm_dialog.font_size_value()
-            target_op["font_color"] = confirm_dialog.color_value()
-            target_op["bold"] = confirm_dialog.bold_value()
-            target_op["underline"] = confirm_dialog.underline_value()
-        state["redo_ops"] = []
-        _render_edit_state(window, state, "Đã cập nhật vị trí/kích thước nội dung")
-        _set_selected_object(window, target_op)
-    finally:
-        _end_edit_mode(window)
-
-
-@require_document(show_message=True)
-def apply_selected_object_changes(window):
-    state = _ensure_edit_state(window)
-    if not state:
-        return
-    selected_id = window._active_selected_op_id() if hasattr(window, "_active_selected_op_id") else None
-    if selected_id is None:
-        from app.dialogs import show_warning
-        show_warning(window, "Chưa chọn đối tượng", "Hãy dùng 'Sửa' hoặc chèn mới để chọn một đối tượng trước.")
-        return
-    target_op = next((op for op in state.get("ops", []) if op.get("id") == selected_id), None)
-    if not target_op:
-        from app.dialogs import show_warning
-        show_warning(window, "Không tìm thấy", "Đối tượng đang chọn không còn tồn tại.")
-        _set_selected_object(window, None)
-        return
-    if target_op.get("type") == "text":
-        text_value = window.inspector_text.toPlainText().strip() if hasattr(window, "inspector_text") else ""
-        if not text_value:
-            from app.dialogs import show_warning
-            show_warning(window, "Thiếu nội dung text", "Nội dung text không được để trống.")
+            get_pdf_engine().rebuild_pdf_with_ops(base, src, state.get("ops", []))
+        except Exception as e:
+            show_warning(window, "Lỗi khi dựng file", str(e))
             return
-        target_op["text"] = text_value
-        if hasattr(window, "inspector_font_size"):
-            target_op["font_size"] = int(window.inspector_font_size.value())
-        if hasattr(window, "inspector_bold"):
-            target_op["bold"] = window.inspector_bold.isChecked()
-        if hasattr(window, "inspector_underline"):
-            target_op["underline"] = window.inspector_underline.isChecked()
-        if hasattr(window, "_inspector_color"):
-            target_op["font_color"] = window._inspector_color
-    if hasattr(window, "inspector_rotation"):
-        target_op["rotation"] = [0, 90, 180, 270][window.inspector_rotation.currentIndex()]
-    state["redo_ops"] = []
-    _render_edit_state(window, state, "Đã áp dụng thay đổi cho đối tượng")
-    _set_selected_object(window, target_op)
+
+    try:
+        shutil.copy2(src, save_path)
+    except Exception as e:
+        show_warning(window, "Lỗi ghi file", str(e))
+        return
+
+    window.status.showMessage(f"Đã lưu bản sao: {os.path.basename(save_path)}", 4000)
 
 
 @require_document(show_message=True)
-def delete_selected_object_via_selection(window):
+def delete_inserted_object(window):
+    """Xóa một text/ảnh đã chèn — click vào đối tượng muốn xóa."""
     state = _ensure_edit_state(window)
-    if not state:
+    if not state or not state.get("ops"):
+        show_warning(window, "Chưa có đối tượng", "Chưa có text/ảnh nào được chèn để xóa.")
         return
-    selected_id = window._active_selected_op_id() if hasattr(window, "_active_selected_op_id") else None
-    if selected_id is None:
-        from app.dialogs import show_warning
-        show_warning(window, "Chưa chọn đối tượng", "Hãy chọn một đối tượng rồi mới xóa.")
+
+    if hasattr(window, "status"):
+        window.status.showMessage("Click vào text/ảnh muốn xóa... (Esc để hủy)", 0)
+
+    picked = _pick_pdf_area(window)
+
+    if hasattr(window, "status"):
+        window.status.showMessage("", 0)
+
+    if not picked:
         return
-    target_op = next((op for op in state.get("ops", []) if op.get("id") == selected_id), None)
+
+    target_op = _find_op_at_pick(state, picked)
     if not target_op:
-        _set_selected_object(window, None)
-        from app.dialogs import show_warning
-        show_warning(window, "Không tìm thấy", "Đối tượng đang chọn không còn tồn tại.")
+        show_warning(window, "Không tìm thấy", "Không xác định được đối tượng tại vị trí đó.")
         return
-    state["ops"] = [op for op in state.get("ops", []) if op.get("id") != selected_id]
-    state.setdefault("redo_ops", []).clear()
+
+    op_type = "văn bản" if target_op.get("type") == "text" else "ảnh"
+    state["ops"].remove(target_op)
+
     if not state["ops"]:
         base = state.get("base_snapshot")
         working = state.get("working_file")
         if base and os.path.exists(base) and working:
             shutil.copy2(base, working)
             _reload_viewer(window, working)
+        window.status.showMessage(f"Đã xóa {op_type} — tài liệu về trạng thái gốc", 3000)
     else:
-        _render_edit_state(window, state, "Đã xóa đối tượng đang chọn")
-    _set_selected_object(window, None)
+        _render_edit_state(window, state, f"Đã xóa {op_type}")
 
 
 @require_document(show_message=True)
-def repick_selected_object_placement(window):
+def redact_area(window):
+    """Che/tẩy vùng nội dung bằng hộp màu trắng."""
+    if hasattr(window, "status"):
+        window.status.showMessage("Kéo để chọn vùng cần che... (Esc để hủy)", 0)
+
+    placement = _pick_pdf_area(window)
+
+    if hasattr(window, "status"):
+        window.status.showMessage("", 0)
+
+    if not placement:
+        return
+
+    page_number = int(placement["page_number"])
+    left, bottom, right, top = placement["box"]
+
+    if abs(right - left) < 4 or abs(top - bottom) < 4:
+        show_warning(window, "Vùng quá nhỏ", "Hãy kéo để chọn vùng rộng hơn.")
+        return
+
     state = _ensure_edit_state(window)
     if not state:
         return
-    selected_id = window._active_selected_op_id() if hasattr(window, "_active_selected_op_id") else None
-    if selected_id is None:
-        from app.dialogs import show_warning
-        show_warning(window, "Chưa chọn đối tượng", "Hãy chọn một đối tượng trước.")
-        return
-    target_op = next((op for op in state.get("ops", []) if op.get("id") == selected_id), None)
-    if not target_op:
-        _set_selected_object(window, None)
-        from app.dialogs import show_warning
-        show_warning(window, "Không tìm thấy", "Đối tượng đang chọn không còn tồn tại.")
-        return
-    _begin_edit_mode(window, "edit", "Kéo vùng mới trên PDF để đặt lại vị trí/kích thước.")
-    try:
-        new_area = _pick_pdf_area(window)
-        if not new_area:
-            return
-        l, b, r, t = new_area["box"]
-        if abs(r - l) < 6 and abs(t - b) < 6:
-            w = target_op["box"][2] - target_op["box"][0]
-            h = target_op["box"][3] - target_op["box"][1]
-            r = l + max(20, w)
-            t = b + max(20, h)
-        target_op["page_number"] = int(new_area["page_number"])
-        target_op["box"] = (l, b, r, t)
-        state["redo_ops"] = []
-        _render_edit_state(window, state, "Đã cập nhật vị trí/kích thước đối tượng")
-        _set_selected_object(window, target_op)
-    finally:
-        _end_edit_mode(window)
+
+    op = {
+        "id": state["next_id"],
+        "type": "rect",
+        "page_number": page_number,
+        "box": (left, bottom, right, top),
+        "fill_color": (1.0, 1.0, 1.0),
+        "stroke_color": (1.0, 1.0, 1.0),
+    }
+    state["next_id"] += 1
+    state["ops"].append(op)
+    _render_edit_state(window, state, "Đã che vùng nội dung")
 
 
 @require_document(show_message=True)
-def delete_inserted_object(window):
-    _begin_edit_mode(window, "delete", "Bấm vào nội dung đã chèn trên PDF để xóa.")
-    try:
-        state = _ensure_edit_state(window)
-        if not state or not state.get("ops"):
-            from app.dialogs import show_warning
-            show_warning(window, "Chưa có nội dung", "Chưa có text/ảnh nào được chèn để xóa.")
-            return
+def draw_on_pdf(window):
+    """Vẽ tự do lên vùng PDF đã chọn."""
+    from app.signature_pad import DrawOnPdfDialog
 
-        picked_object = _pick_pdf_area(window)
-        if not picked_object:
-            return
+    if hasattr(window, "status"):
+        window.status.showMessage("Kéo để chọn vùng muốn vẽ trên PDF... (Esc để hủy)", 0)
 
-        target_op = _find_op_at_pick(state, picked_object)
-        if not target_op:
-            from app.dialogs import show_warning
-            show_warning(window, "Không tìm thấy", "Không xác định được nội dung đã chèn để xóa.")
-            return
+    placement = _pick_pdf_area(window)
 
-        from app.actions.sign import _get_web_view, _set_object_preview, _teardown_webchannel
-        from packages.qt_compat.QtCore import QEventLoop
-        from packages.qt_compat.QtWidgets import QDialog
-        web_view = _get_web_view(window)
-        placement = {
-            "page_number": int(target_op["page_number"]),
-            "box": tuple(target_op["box"]),
-        }
-        confirm_dialog = _ObjectPlacementDialog(
-            window,
-            title="Xóa nội dung đã chèn",
-            note="Khung đang chọn sẽ bị xóa khỏi tài liệu. Bấm OK để xác nhận xóa.",
-        )
-        if web_view is not None:
-            _set_object_preview(window, placement, label="Sắp xóa")
-        try:
-            loop = QEventLoop(confirm_dialog)
-            confirm_dialog.finished.connect(lambda _code: loop.quit() if loop.isRunning() else None)
-            confirm_dialog.show()
-            confirm_dialog.raise_()
-            confirm_dialog.activateWindow()
-            loop.exec()
-            if confirm_dialog.result() != QDialog.DialogCode.Accepted:
-                return
-        finally:
-            if web_view is not None:
-                _set_object_preview(window, None)
-                _teardown_webchannel(web_view)
+    if hasattr(window, "status"):
+        window.status.showMessage("", 0)
 
-        state["ops"] = [op for op in state["ops"] if op.get("id") != target_op.get("id")]
-        state.setdefault("redo_ops", []).clear()
+    if not placement:
+        return
 
-        if not state["ops"]:
-            base = state.get("base_snapshot")
-            working = state.get("working_file")
-            if base and os.path.exists(base) and working:
-                shutil.copy2(base, working)
-                _reload_viewer(window, working)
-            window.status.showMessage("Đã xóa nội dung — về trạng thái ban đầu", 3000)
-            _set_selected_object(window, None)
-            return
+    page_number = int(placement["page_number"])
+    left, bottom, right, top = placement["box"]
 
-        _render_edit_state(window, state, "Đã xóa nội dung")
-        _set_selected_object(window, None)
-    finally:
-        _end_edit_mode(window)
+    # Tính kích thước canvas theo tỉ lệ vùng đã chọn
+    w_pt = max(right - left, 20.0)
+    h_pt = max(top - bottom, 20.0)
+    aspect = w_pt / h_pt
+    canvas_w = 560
+    canvas_h = max(80, int(canvas_w / aspect))
+    if canvas_h > 480:
+        canvas_h = 480
+        canvas_w = int(canvas_h * aspect)
+
+    dlg = DrawOnPdfDialog(window, canvas_w=canvas_w, canvas_h=canvas_h)
+    if dlg.exec() != dlg.DialogCode.Accepted:
+        return
+
+    pixmap = dlg.get_pixmap()
+    if pixmap is None:
+        return
+
+    # Lưu ra file PNG tạm (ARGB — giữ trong suốt)
+    edit_dir = os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
+    os.makedirs(edit_dir, exist_ok=True)
+    img_path = os.path.join(edit_dir, f"draw_{uuid.uuid4().hex[:8]}.png")
+    pixmap.save(img_path, "PNG")
+
+    state = _ensure_edit_state(window)
+    if not state:
+        return
+
+    op = {
+        "id": state["next_id"],
+        "type": "image",
+        "page_number": page_number,
+        "box": (left, bottom, right, top),
+        "image_path": img_path,
+    }
+    state["next_id"] += 1
+    state["ops"].append(op)
+    _render_edit_state(window, state, "Đã vẽ lên PDF")
 
 
+@require_document(show_message=True)
+def select_inserted_object(window):
 
+    state = _ensure_edit_state(window)
+    if not state or not state.get("ops"):
+        show_warning(window, "Chưa có đối tượng", "Chưa có text/ảnh nào được chèn để chỉnh sửa.")
+        return
+
+    show_warning(
+        window,
+        "Chọn đối tượng",
+        "Bước 1: Bấm vào text/ảnh muốn chỉnh.\n"
+        "Bước 2: Kéo vùng mới để di chuyển/đổi kích thước.",
+    )
+
+    picked_object = _pick_pdf_area(window)
+    if not picked_object:
+        return
+
+    target_op = _find_op_at_pick(state, picked_object)
+    if not target_op:
+        show_warning(window, "Không tìm thấy", "Không xác định được đối tượng tại vị trí đã chọn.")
+        return
+
+    new_area = _pick_pdf_area(window)
+    if not new_area:
+        return
+
+    l, b, r, t = new_area["box"]
+    if abs(r - l) < 6 and abs(t - b) < 6:
+        w = target_op["box"][2] - target_op["box"][0]
+        h = target_op["box"][3] - target_op["box"][1]
+        r = l + max(20, w)
+        t = b + max(20, h)
+
+    target_op["page_number"] = int(new_area["page_number"])
+    target_op["box"] = (l, b, r, t)
+
+    _render_edit_state(window, state, "Đã cập nhật vị trí/kích thước đối tượng")
+
+
+@require_document(show_message=True)
+def edit_text_object(window):
+    """Click vào text đã chèn để sửa nội dung hoặc định dạng."""
+    state = _ensure_edit_state(window)
+    if not state:
+        return
+
+    text_ops = [op for op in state.get("ops", []) if op.get("type") == "text"]
+    if not text_ops:
+        show_warning(window, "Chưa có văn bản", "Chưa có văn bản nào được chèn để sửa.")
+        return
+
+    if hasattr(window, "status"):
+        window.status.showMessage("Click vào văn bản muốn sửa... (Esc để hủy)", 0)
+
+    picked = _pick_pdf_area(window)
+
+    if hasattr(window, "status"):
+        window.status.showMessage("", 0)
+
+    if not picked:
+        return
+
+    target_op = _find_op_at_pick(state, picked)
+    if not target_op or target_op.get("type") != "text":
+        show_warning(window, "Không tìm thấy", "Không tìm thấy văn bản tại vị trí đó.")
+        return
+
+    color_tuple = target_op.get("font_color", (0.0, 0.0, 0.0))
+    prefill = {
+        "text":      target_op.get("text", ""),
+        "font_size": target_op.get("font_size", 14),
+        "color_hex": "#{:02x}{:02x}{:02x}".format(
+            int(color_tuple[0] * 255),
+            int(color_tuple[1] * 255),
+            int(color_tuple[2] * 255),
+        ),
+        "bold":      target_op.get("bold", False),
+        "underline": target_op.get("underline", False),
+    }
+
+    from app.pdf_inline_editor import run_inline_text
+    result = run_inline_text(window, prefill=prefill)
+
+    if not result:
+        return
+
+    page_number = result["page_number"]
+    left, bottom, right, top = result["box"]
+    if abs(right - left) < 20:
+        right = left + 180
+    if abs(top - bottom) < 12:
+        top = bottom + 44
+
+    target_op["page_number"] = page_number
+    target_op["box"]         = (left, bottom, right, top)
+    target_op["text"]        = result["text"]
+    target_op["font_size"]   = result.get("font_size", target_op.get("font_size", 14))
+    target_op["font_color"]  = result.get("color_tuple", target_op.get("font_color", (0, 0, 0)))
+    target_op["bold"]        = result.get("bold", False)
+    target_op["underline"]   = result.get("underline", False)
+
+    _render_edit_state(window, state, "Đã cập nhật văn bản", focus_page=page_number)

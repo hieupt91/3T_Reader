@@ -5,7 +5,6 @@ import os
 import shutil
 
 from .base import RenderedPage
-from packages.platform.fonts import get_vietnamese_font_path
 
 
 class PdfiumDocument:
@@ -116,58 +115,39 @@ def _page_size(page) -> tuple[float, float]:
 
 def _build_overlay_pdf(width: float, height: float, ops: list[dict]) -> bytes:
     from reportlab.lib.utils import ImageReader
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.pdfgen import canvas
 
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=(width, height))
     drew_anything = False
-    vietnamese_font = get_vietnamese_font_path()
-    font_name = "Helvetica"
-    if vietnamese_font:
-        try:
-            pdfmetrics.registerFont(TTFont("THREETReaderVnFont", vietnamese_font))
-            font_name = "THREETReaderVnFont"
-        except Exception:
-            font_name = "Helvetica"
 
     for op in ops:
         left, bottom, right, top = [float(v) for v in op.get("box", (0, 0, 0, 0))]
         box_width = max(1.0, right - left)
         box_height = max(1.0, top - bottom)
-        rotation = int(op.get("rotation", 0)) % 360
 
         if op.get("type") == "text":
             text = op.get("text", "")
             if not text:
                 continue
             font_size = float(op.get("font_size", 12))
-            font_color = op.get("font_color", (0.0, 0.0, 0.0))
-            try:
-                r, g, b = [float(v) for v in font_color]
-            except Exception:
-                r, g, b = (0.0, 0.0, 0.0)
-            c.setFillColorRGB(r, g, b)
-            c.setFont(font_name, font_size)
-            _draw_rotated_text_box(
-                c,
-                text,
-                left,
-                bottom,
-                box_width,
-                box_height,
-                font_size,
-                rotation,
-                bold=bool(op.get("bold", False)),
-                underline=bool(op.get("underline", False)),
-            )
+            c.setFont("Helvetica", font_size)
+            _draw_text_box(c, text, left, bottom, box_width, box_height, font_size)
             drew_anything = True
         elif op.get("type") == "image":
             image_path = op.get("image_path")
             if not image_path or not os.path.exists(image_path):
                 continue
-            _draw_rotated_image(c, ImageReader(image_path), left, bottom, box_width, box_height, rotation)
+            c.drawImage(
+                ImageReader(image_path),
+                left,
+                bottom,
+                width=box_width,
+                height=box_height,
+                preserveAspectRatio=True,
+                anchor="c",
+                mask="auto",
+            )
             drew_anything = True
 
     if not drew_anything:
@@ -177,26 +157,14 @@ def _build_overlay_pdf(width: float, height: float, ops: list[dict]) -> bytes:
     return buffer.getvalue()
 
 
-def _draw_text_box(
-    c,
-    text: str,
-    left: float,
-    bottom: float,
-    width: float,
-    height: float,
-    font_size: float,
-    *,
-    bold: bool = False,
-    underline: bool = False,
-) -> None:
+def _draw_text_box(c, text: str, left: float, bottom: float, width: float, height: float, font_size: float) -> None:
     leading = max(font_size * 1.2, font_size + 2)
     y = bottom + height - font_size
     min_y = bottom
     max_chars = max(1, int(width / max(font_size * 0.55, 1)))
 
-    lines = text.split("\n") if text else [text]
-    for raw_line in lines:
-        line = raw_line.rstrip("\r")
+    for raw_line in text.splitlines() or [text]:
+        line = raw_line.strip()
         while line:
             if y < min_y:
                 return
@@ -205,79 +173,7 @@ def _draw_text_box(
                 split_at = chunk.rfind(" ")
                 chunk = chunk[:split_at]
             c.drawString(left, y, chunk)
-            if bold:
-                c.drawString(left + 0.5, y, chunk)
-            if underline:
-                underline_y = y - max(1.0, font_size * 0.12)
-                c.setLineWidth(max(0.8, font_size * 0.06))
-                c.line(left, underline_y, left + min(width, max(font_size, len(chunk) * font_size * 0.55)), underline_y)
             line = line[len(chunk):].lstrip()
             y -= leading
         if raw_line == "":
             y -= leading
-
-
-def _draw_rotated_text_box(
-    c,
-    text: str,
-    left: float,
-    bottom: float,
-    width: float,
-    height: float,
-    font_size: float,
-    rotation: int,
-    *,
-    bold: bool = False,
-    underline: bool = False,
-) -> None:
-    if rotation == 0:
-        _draw_text_box(c, text, left, bottom, width, height, font_size, bold=bold, underline=underline)
-        return
-    cx = left + (width / 2.0)
-    cy = bottom + (height / 2.0)
-    c.saveState()
-    c.translate(cx, cy)
-    c.rotate(rotation)
-    _draw_text_box(
-        c,
-        text,
-        -(width / 2.0),
-        -(height / 2.0),
-        width,
-        height,
-        font_size,
-        bold=bold,
-        underline=underline,
-    )
-    c.restoreState()
-
-
-def _draw_rotated_image(c, image_reader, left: float, bottom: float, width: float, height: float, rotation: int) -> None:
-    if rotation == 0:
-        c.drawImage(
-            image_reader,
-            left,
-            bottom,
-            width=width,
-            height=height,
-            preserveAspectRatio=True,
-            anchor="c",
-            mask="auto",
-        )
-        return
-    cx = left + (width / 2.0)
-    cy = bottom + (height / 2.0)
-    c.saveState()
-    c.translate(cx, cy)
-    c.rotate(rotation)
-    c.drawImage(
-        image_reader,
-        -(width / 2.0),
-        -(height / 2.0),
-        width=width,
-        height=height,
-        preserveAspectRatio=True,
-        anchor="c",
-        mask="auto",
-    )
-    c.restoreState()

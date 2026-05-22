@@ -1,0 +1,34 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0.5" y2="1">
+    <stop offset="0" stop-color="#6d28d9"/>
+    <stop offset="1" stop-color="#4c1d95"/>
+  </linearGradient>
+  <linearGradient id="bgHL" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#fff" stop-opacity="0.14"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="cloud" x1="0" y1="0" x2="0.4" y2="1">
+    <stop offset="0" stop-color="#c4b5fd"/>
+    <stop offset="1" stop-color="#ede9fe"/>
+  </linearGradient>
+  <linearGradient id="arrow" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#ff9800"/>
+    <stop offset="1" stop-color="#f05a28"/>
+  </linearGradient>
+  <filter id="s"><feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#000" flood-opacity="0.35"/></filter>
+  <filter id="cs"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#2d006d" flood-opacity="0.3"/></filter>
+</defs>
+<!-- Card -->
+<rect width="64" height="64" rx="16" fill="url(#bg)" filter="url(#s)"/>
+<rect width="64" height="64" rx="16" fill="url(#bgHL)"/>
+<!-- Cloud -->
+<path d="M48 30 C48 24 43 20 37 20 C35 15 30 12 24 12 C16 12 9 18 9 26
+         C5 27 2 31 2 35 C2 40 6 44 11 44 L47 44 C52 44 56 40 56 35
+         C56 32 52 30 48 30 Z"
+      transform="translate(4 4)" fill="url(#cloud)" filter="url(#cs)"/>
+<!-- Down arrow -->
+<path d="M32 40 L32 56" stroke="url(#arrow)" stroke-width="3" stroke-linecap="round"/>
+<path d="M24 49 L32 57 L40 49" stroke="url(#arrow)" stroke-width="3"
+      stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

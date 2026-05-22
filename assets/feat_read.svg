@@ -1,0 +1,33 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0.6" y2="1">
+    <stop offset="0" stop-color="#1d4ed8"/>
+    <stop offset="1" stop-color="#1e3a8a"/>
+  </linearGradient>
+  <linearGradient id="bgHL" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#fff" stop-opacity="0.14"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="bkL" x1="0" y1="0" x2="0.5" y2="1">
+    <stop offset="0" stop-color="#ffd96a"/>
+    <stop offset="1" stop-color="#ff8c00"/>
+  </linearGradient>
+  <linearGradient id="bkR" x1="0.5" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#93c5fd"/>
+    <stop offset="1" stop-color="#dbeafe"/>
+  </linearGradient>
+  <filter id="s"><feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#000" flood-opacity="0.35"/></filter>
+</defs>
+<!-- Card background -->
+<rect width="64" height="64" rx="16" fill="url(#bg)" filter="url(#s)"/>
+<rect width="64" height="64" rx="16" fill="url(#bgHL)"/>
+<!-- Left page (amber) -->
+<path d="M32 13 C24 13 14 15 11 18 L11 50 C14 48 22 46 32 46 Z" fill="url(#bkL)"/>
+<!-- Right page (light blue) -->
+<path d="M32 13 C40 13 50 15 53 18 L53 50 C50 48 42 46 32 46 Z" fill="url(#bkR)"/>
+<!-- Spine -->
+<rect x="30.5" y="11" width="3" height="37" rx="1.5" fill="rgba(255,255,255,0.6)"/>
+<!-- Bottom spread -->
+<path d="M13 52 Q32 48 51 52" stroke="rgba(255,200,80,0.9)" stroke-width="2" fill="none" stroke-linecap="round"/>
+<path d="M15 55 Q32 52 49 55" stroke="rgba(255,200,80,0.5)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+</svg>

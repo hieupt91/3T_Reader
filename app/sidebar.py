@@ -1,4 +1,7 @@
-from packages.qt_compat.QtWidgets import QDockWidget, QListWidget, QListWidgetItem
+from packages.qt_compat.QtWidgets import (
+    QDockWidget, QListWidget, QListWidgetItem,
+    QTreeWidget, QTreeWidgetItem, QWidget, QVBoxLayout, QLabel,
+)
 from packages.qt_compat.QtGui import QPixmap, QImage, QIcon
 from packages.qt_compat.QtCore import Qt, QSize, QThread, QTimer, pyqtSignal
 
@@ -50,52 +53,6 @@ class ThumbnailSidebar(QDockWidget):
         self.list.setIconSize(QSize(132, 176))
         self.list.setSpacing(8)
         self.list.setUniformItemSizes(True)
-        self.setWidget(self.list)
-        self.apply_theme("dark")
-        self._on_click = None
-        self._pdf_path = None
-        self._page_count = 0
-        self._loaded_pages = set()
-        self._requested_pages = []
-        self._pending_pages = []
-        self._loader = None
-        self._load_timer = QTimer(self)
-        self._load_timer.setSingleShot(True)
-        self._load_timer.setInterval(80)
-        self._load_timer.timeout.connect(self._load_visible_thumbnails)
-        self.list.itemClicked.connect(self._handle_click)
-        self.list.verticalScrollBar().valueChanged.connect(self._schedule_visible_load)
-
-    def apply_theme(self, theme_mode: str):
-        if theme_mode == "light":
-            self.list.setStyleSheet("""
-                QListWidget {
-                    background-color: #f8f9fd;
-                    border: none;
-                    padding: 10px 6px;
-                }
-                QListWidget::item {
-                    background-color: transparent;
-                    border-radius: 8px;
-                    padding: 6px 4px;
-                    color: #475569;
-                    font-size: 11px;
-                    text-align: center;
-                }
-                QListWidget::item:selected {
-                    background-color: #e8edf9;
-                    color: #0f172a;
-                    border: 1px solid #3b82f6;
-                }
-                QListWidget::item:hover {
-                    background-color: #eef2ff;
-                }
-                QListWidget:focus {
-                    outline: none;
-                }
-            """)
-            return
-
         self.list.setStyleSheet("""
             QListWidget {
                 background-color: #0d0d12;
@@ -122,6 +79,20 @@ class ThumbnailSidebar(QDockWidget):
                 outline: none;
             }
         """)
+        self.setWidget(self.list)
+        self._on_click = None
+        self._pdf_path = None
+        self._page_count = 0
+        self._loaded_pages = set()
+        self._requested_pages = []
+        self._pending_pages = []
+        self._loader = None
+        self._load_timer = QTimer(self)
+        self._load_timer.setSingleShot(True)
+        self._load_timer.setInterval(80)
+        self._load_timer.timeout.connect(self._load_visible_thumbnails)
+        self.list.itemClicked.connect(self._handle_click)
+        self.list.verticalScrollBar().valueChanged.connect(self._schedule_visible_load)
 
     def _handle_click(self, item):
         if self._on_click:
@@ -225,3 +196,110 @@ class ThumbnailSidebar(QDockWidget):
                 QListWidget.ScrollHint.PositionAtCenter
             )
             self._schedule_visible_load()
+
+
+class BookmarkSidebar(QDockWidget):
+    """Hiển thị mục lục (Table of Contents / Outline) của PDF."""
+
+    def __init__(self, parent=None):
+        super().__init__("Mục lục", parent)
+        self.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        self.setFixedWidth(220)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self._empty_label = QLabel("Tệp PDF này\nkhông có mục lục.")
+        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_label.setStyleSheet("color: #6a6a8a; font-size: 12px; padding: 20px;")
+
+        self._tree = QTreeWidget()
+        self._tree.setHeaderHidden(True)
+        self._tree.setColumnCount(1)
+        self._tree.setIndentation(16)
+        self._tree.setAnimated(True)
+        self._tree.setStyleSheet("""
+            QTreeWidget {
+                background-color: #0d0d12;
+                border: none;
+                padding: 6px 4px;
+                color: #c8c8e0;
+                font-size: 12px;
+            }
+            QTreeWidget::item {
+                padding: 5px 4px;
+                border-radius: 4px;
+            }
+            QTreeWidget::item:selected {
+                background-color: #1f1f38;
+                color: #ffffff;
+            }
+            QTreeWidget::item:hover {
+                background-color: #181830;
+            }
+            QTreeWidget:focus { outline: none; }
+        """)
+
+        layout.addWidget(self._empty_label)
+        layout.addWidget(self._tree)
+        self.setWidget(container)
+
+        self._on_navigate = None
+        self._tree.itemClicked.connect(self._handle_click)
+        self._tree.setVisible(False)
+
+    def _handle_click(self, item: QTreeWidgetItem, _col: int):
+        page = item.data(0, Qt.ItemDataRole.UserRole)
+        if page and self._on_navigate:
+            self._on_navigate(page)
+
+    def load_outline(self, pdf_path: str, on_navigate):
+        self._on_navigate = on_navigate
+        self._tree.clear()
+        outline = self._read_outline(pdf_path)
+
+        if not outline:
+            self._tree.setVisible(False)
+            self._empty_label.setVisible(True)
+            return
+
+        self._empty_label.setVisible(False)
+        self._tree.setVisible(True)
+
+        stack: list[tuple[int, QTreeWidgetItem]] = []
+        for level, title, page in outline:
+            item = QTreeWidgetItem([title.strip() or f"Trang {page}"])
+            item.setData(0, Qt.ItemDataRole.UserRole, page)
+            item.setToolTip(0, f"Trang {page}  —  {title.strip()}")
+
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+
+            if stack:
+                stack[-1][1].addChild(item)
+            else:
+                self._tree.addTopLevelItem(item)
+
+            stack.append((level, item))
+
+        self._tree.expandAll()
+
+    def clear(self):
+        self._tree.clear()
+        self._tree.setVisible(False)
+        self._empty_label.setVisible(True)
+
+    def _read_outline(self, pdf_path: str) -> list[tuple[int, str, int]]:
+        try:
+            import fitz
+            doc = fitz.open(pdf_path)
+            toc = doc.get_toc()
+            doc.close()
+            return toc  # [(level, title, page), ...]
+        except Exception:
+            return []

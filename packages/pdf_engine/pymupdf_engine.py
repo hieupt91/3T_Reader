@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from .base import RenderedPage
-from packages.platform.fonts import get_vietnamese_font_path
 
 
 class PyMuPdfDocument:
@@ -69,13 +68,10 @@ class PyMuPdfEngine:
 
     def rebuild_pdf_with_ops(self, base_path: str, output_path: str, ops: list[dict]) -> None:
         import fitz
+        import os as _os
 
         doc = fitz.open(base_path)
         try:
-            vietnamese_font = get_vietnamese_font_path()
-            font_kwargs = {"fontname": "helv"}
-            if vietnamese_font:
-                font_kwargs = {"fontfile": vietnamese_font}
             for op in ops:
                 page_no = int(op.get("page_number", 1))
                 if page_no < 1 or page_no > doc.page_count:
@@ -86,26 +82,65 @@ class PyMuPdfEngine:
                 page_h = page.rect.height
                 rect = fitz.Rect(pdf_left, page_h - pdf_top, pdf_right, page_h - pdf_bottom)
 
-                if op.get("type") == "text":
-                    page.insert_textbox(
-                        rect,
-                        op.get("text", ""),
-                        fontsize=op.get("font_size", 12),
-                        color=op.get("font_color", (0, 0, 0)),
-                        align=0,
-                        rotate=int(op.get("rotation", 0)),
-                        **font_kwargs,
-                    )
-                elif op.get("type") == "image":
-                    image_path = op.get("image_path")
-                    if image_path:
-                        page.insert_image(
-                            rect,
-                            filename=image_path,
-                            keep_proportion=True,
-                            rotate=int(op.get("rotation", 0)),
-                        )
+                try:
+                    op_type = op.get("type")
 
-            doc.save(output_path)
+                    if op_type == "text":
+                        text = op.get("text", "").strip()
+                        if not text:
+                            continue
+                        from packages.platform.fonts import get_vietnamese_font_path
+                        is_bold = bool(op.get("bold"))
+                        font_path = get_vietnamese_font_path(bold=is_bold)
+                        fontname = "vifont_bd" if is_bold else "vifont"
+                        color = op.get("font_color", (0, 0, 0))
+                        fs = max(6, op.get("font_size", 12))
+                        if font_path:
+                            page.insert_textbox(
+                                rect,
+                                text,
+                                fontsize=fs,
+                                fontfile=font_path,
+                                fontname=fontname,
+                                color=color,
+                                align=0,
+                            )
+                        else:
+                            page.insert_textbox(
+                                rect,
+                                text,
+                                fontsize=fs,
+                                fontname="helv",
+                                color=color,
+                                align=0,
+                            )
+                        if op.get("underline"):
+                            ul_y = rect.y0 + fs * 1.15
+                            if ul_y <= rect.y1:
+                                page.draw_line(
+                                    fitz.Point(rect.x0, ul_y),
+                                    fitz.Point(rect.x1, ul_y),
+                                    color=color,
+                                    width=max(0.5, fs * 0.07),
+                                )
+
+                    elif op_type == "image":
+                        image_path = op.get("image_path", "")
+                        if not image_path or not _os.path.exists(image_path):
+                            continue
+                        page.insert_image(rect, filename=image_path, keep_proportion=True)
+
+                    elif op_type == "rect":
+                        fill = op.get("fill_color", (1.0, 1.0, 1.0))
+                        stroke = op.get("stroke_color", fill)
+                        page.draw_rect(rect, color=stroke, fill=fill, width=0)
+
+                except Exception:
+                    continue  # skip bad op, không crash toàn bộ rebuild
+
+            try:
+                doc.save(output_path)
+            except Exception as e:
+                raise RuntimeError(f"Không lưu được file PDF: {e}") from e
         finally:
             doc.close()
