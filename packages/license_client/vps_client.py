@@ -15,7 +15,7 @@ from .fingerprint import get_device_fingerprint
 from .keychain import keychain_delete, keychain_load, keychain_save
 from .models import ActivationResult, LicenseStatus
 
-_TIMEOUT = 20  # seconds — VPS may cold-start up to ~12s
+_TIMEOUT = 55  # seconds — allow up to 55s for slow connections
 _USE_KEYCHAIN = platform.system() == "Darwin"
 _USE_CREDENTIAL_MANAGER = platform.system() == "Windows"
 
