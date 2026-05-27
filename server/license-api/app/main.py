@@ -7,8 +7,9 @@ from pathlib import Path
 
 _KEY_PATTERN = re.compile(r'^3TR-[BPE]-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -37,10 +38,10 @@ from .services.update_service import UpdateService
 token_service = TokenService(settings.signing_secret)
 state_store = FileStateStore(f"{settings.data_dir}/{settings.state_file}")
 license_service = LicenseService(token_service, state_store=state_store)
-update_service = UpdateService(token_service)
 order_store = OrderStore(f"{settings.data_dir}/orders.json")
 admin_config = AdminConfig(f"{settings.data_dir}/admin-config.json")
 staff_service = StaffService(f"{settings.data_dir}/staff.json")
+update_service = UpdateService(token_service, admin_config=admin_config)
 
 _ADMIN_PASSWORD = os.environ.get("THREET_ADMIN_PASSWORD", "3tAdmin2026")
 _STATIC = Path(__file__).parent / "static"
@@ -49,6 +50,11 @@ _staff_tokens: dict[str, dict] = {}  # token → {username, permissions}
 _bearer = HTTPBearer(auto_error=False)
 
 app = FastAPI(title=settings.app_name, version="0.3.0")
+
+# Serve download files (DMG/EXE)
+_DOWNLOADS = os.environ.get("THREET_DOWNLOADS_DIR", "/downloads")
+if os.path.isdir(_DOWNLOADS):
+    app.mount("/downloads", StaticFiles(directory=_DOWNLOADS), name="downloads")
 
 
 # ── Sales page & admin ────────────────────────────────────────────
@@ -60,7 +66,17 @@ def index():
 
 @app.get("/admin", response_class=FileResponse)
 def admin_page():
-    return FileResponse(_STATIC / "admin.html", media_type="text/html")
+    from fastapi.responses import Response
+    with open(_STATIC / "admin.html", "rb") as f:
+        html = f.read()
+    return Response(
+        content=html,
+        media_type="text/html",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/support", response_class=FileResponse)
@@ -84,7 +100,7 @@ class LoginRequest(BaseModel):
 
 @app.post("/api/admin/login")
 def admin_login(req: LoginRequest):
-    if req.password != admin_config.get_password():
+    if not admin_config.verify_password(req.password):
         raise HTTPException(status_code=401, detail="Mật khẩu không đúng")
     tok = _secrets.token_hex(32)
     _active_tokens.add(tok)
@@ -146,7 +162,7 @@ class ChangePasswordRequest(BaseModel):
 
 @app.post("/api/admin/change-password")
 def change_password(req: ChangePasswordRequest, _=Depends(_require_admin)):
-    if req.current_password != admin_config.get_password():
+    if not admin_config.verify_password(req.current_password):
         raise HTTPException(status_code=400, detail="Mật khẩu hiện tại không đúng")
     if len(req.new_password) < 6:
         raise HTTPException(status_code=400, detail="Mật khẩu mới phải có ít nhất 6 ký tự")
@@ -387,6 +403,87 @@ def release_manifest(platform: str, version: str) -> ReleaseManifestResponse:
 def release_manifest_v1(platform: str, version: str) -> ReleaseManifestResponse:
     return release_manifest(platform, version)
 
+
+
+
+
+# ── Upload release file (admin only) ──────────────────────────────
+
+@app.post("/api/admin/upload-release")
+async def upload_release(
+    file: UploadFile = File(...),
+    platform: str = "mac",
+    version: str = "1.0.0",
+    _=Depends(_require_admin),
+):
+    import hashlib
+    import shutil
+
+    target = "mac" if platform.lower() in ("mac", "darwin", "macos") else "win"
+    safe_version = re.sub(r"[^0-9A-Za-z._-]", "", version).strip() or "1.0.0"
+    ext = ".dmg" if target == "mac" else ".exe"
+    downloads_dir = os.environ.get("THREET_DOWNLOADS_DIR", "/downloads")
+    os.makedirs(downloads_dir, exist_ok=True)
+
+    filename = f"3TReader-{safe_version}-{target}{ext}"
+    dest = os.path.join(downloads_dir, filename)
+
+    with open(dest, "wb") as f_out:
+        shutil.copyfileobj(file.file, f_out)
+
+    size = os.path.getsize(dest)
+    sha256 = hashlib.sha256(Path(dest).read_bytes()).hexdigest()
+
+    # Build URL — use host from settings or env
+    base_url = os.environ.get("THREET_PUBLIC_BASE_URL", "https://reader.3tcomputer.com")
+    download_url = f"{base_url}/downloads/{filename}"
+
+    # Auto-update config
+    cfg = admin_config.get_update_config()
+    if target == "mac":
+        cfg["mac_version"] = safe_version
+        cfg["mac_url"] = download_url
+        cfg["mac_sha256"] = sha256
+    else:
+        cfg["win_version"] = safe_version
+        cfg["win_url"] = download_url
+        cfg["win_sha256"] = sha256
+    admin_config.set_update_config(cfg)
+    update_service.admin_config = admin_config
+
+    return {
+        "ok": True,
+        "filename": filename,
+        "size": size,
+        "download_url": download_url,
+        "version": safe_version,
+        "platform": target,
+        "sha256": sha256,
+    }
+
+
+# ── Update config (admin only) ────────────────────────────────────
+
+@app.get("/api/admin/update-config")
+def get_update_config(_=Depends(_require_admin)) -> dict:
+    return admin_config.get_update_config()
+
+
+class UpdateConfigRequest(BaseModel):
+    mac_version: str = ""
+    mac_url: str = ""
+    win_version: str = ""
+    win_url: str = ""
+    release_notes: str = ""
+    mandatory: bool = False
+
+
+@app.post("/api/admin/update-config")
+def set_update_config(req: UpdateConfigRequest, _=Depends(_require_admin)) -> dict:
+    admin_config.set_update_config(req.model_dump())
+    # Inject updated config into update_service so next check picks it up
+    update_service.admin_config = admin_config
+    return {"ok": True}
 
 @app.get("/api/admin/licenses")
 def admin_licenses() -> dict:

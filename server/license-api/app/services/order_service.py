@@ -18,11 +18,22 @@ def _parse_dt(s: str):
         return datetime.min.replace(tzinfo=timezone.utc)
 
 
-PLAN_META = {
-    "basic":      {"name": "Gói Cơ Bản",       "amount": 300_000, "seat_limit": 1},
-    "personal":   {"name": "Gói Cá Nhân",      "amount": 500_000, "seat_limit": 1},
-    "enterprise": {"name": "Gói Doanh Nghiệp", "amount": 800_000, "seat_limit": 1},
-}
+_DEFAULT_PRICES = {"basic": 300_000, "personal": 500_000, "enterprise": 800_000}
+_PLAN_NAMES = {"basic": "Gói Cơ Bản", "personal": "Gói Cá Nhân", "enterprise": "Gói Doanh Nghiệp"}
+
+def _get_plan_meta(admin_cfg=None):
+    prices = dict(_DEFAULT_PRICES)
+    if admin_cfg is not None:
+        try:
+            prices.update(admin_cfg.get_prices())
+        except Exception:
+            pass
+    return {k: {"name": _PLAN_NAMES[k], "amount": prices.get(k, _DEFAULT_PRICES[k]), "seat_limit": 1}
+            for k in _PLAN_NAMES}
+
+# Backward-compat alias (no admin_cfg = use defaults)
+PLAN_META = _get_plan_meta()
+PLAN_META_OVERRIDE = True
 
 _ADMIN_EMAIL = os.environ.get("THREET_ADMIN_EMAIL", "3t.hotro@gmail.com")
 _SMTP_USER   = os.environ.get("THREET_SMTP_USER", "3t.hotro@gmail.com")

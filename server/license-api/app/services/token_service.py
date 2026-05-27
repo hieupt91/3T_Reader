@@ -57,21 +57,30 @@ class TokenService:
 
     def verify(self, token: str) -> dict:
         parts = token.split(".")
+        if len(parts) not in (2, 4):
+            raise ValueError("Malformed token")
+
         body_b64 = parts[0]
         sig_part = parts[1]
 
-        if len(parts) == 4 and parts[2] == "ed":
-            # Ed25519 token: body.sig.ed.pubkey
-            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-            pub_b64 = parts[3]
-            pub_key = Ed25519PublicKey.from_public_bytes(base64.b64decode(pub_b64 + "=="))
-            sig_bytes = _b64url_decode(sig_part)
-            pub_key.verify(sig_bytes, body_b64.encode("ascii"))  # raises on bad sig
-        else:
-            # HMAC fallback
-            expected = hmac.new(self.secret.encode("utf-8"), body_b64.encode("ascii"), hashlib.sha256).hexdigest()
-            if not hmac.compare_digest(sig_part, expected):
-                raise ValueError("Invalid token signature")
+        try:
+            if len(parts) == 4 and parts[2] == "ed":
+                # Ed25519 token: body.sig.ed.pubkey
+                from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+                pub_key = Ed25519PublicKey.from_public_bytes(_b64url_decode(parts[3]))
+                sig_bytes = _b64url_decode(sig_part)
+                pub_key.verify(sig_bytes, body_b64.encode("ascii"))
+            elif len(parts) == 2:
+                # HMAC fallback
+                expected = hmac.new(self.secret.encode("utf-8"), body_b64.encode("ascii"), hashlib.sha256).hexdigest()
+                if not hmac.compare_digest(sig_part, expected):
+                    raise ValueError("Invalid token signature")
+            else:
+                raise ValueError("Unsupported token algorithm")
 
-        body = _b64url_decode(body_b64)
-        return json.loads(body.decode("utf-8"))
+            body = _b64url_decode(body_b64)
+            return json.loads(body.decode("utf-8"))
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError("Invalid token") from exc
