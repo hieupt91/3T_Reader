@@ -180,6 +180,15 @@ sudo systemctl reload nginx
 
 Khi có build mới (ví dụ `1.2.0`), làm theo 3 bước:
 
+### Lưu ý triển khai hiện tại
+
+- Backend deployment hiện đang ở branch `phase1-backend`.
+- Commit hardening gần nhất: `ccbe90c` (`hardening license backend deployment`).
+- Upload release .dmg/.exe giờ tự tính `sha256`.
+- Token lỗi hoặc sai format không còn làm API 500; server trả JSON `{"ok": false, "message": "Invalid token."}`.
+- Admin/staff password được hash bằng PBKDF2.
+- Không commit `.env`; repo chỉ nên giữ `.env.example`, còn secret thật ở VPS runtime file.
+
 ### Bước 1 — Upload file DMG/EXE lên VPS
 
 ```bash
@@ -188,8 +197,8 @@ sudo mkdir -p /data/downloads
 sudo chown threet:threet /data/downloads
 
 # Upload từ máy dev
-scp 3TReader-1.2.0-mac.dmg user@reader.3tcomputer.com:/data/downloads/
-scp 3TReader-1.2.0-win.exe user@reader.3tcomputer.com:/data/downloads/
+scp 3TReader-<version>-mac.dmg user@reader.3tcomputer.com:/data/downloads/
+scp 3TReader-<version>-win.exe user@reader.3tcomputer.com:/data/downloads/
 ```
 
 ### Bước 2 — Cập nhật biến môi trường
@@ -201,8 +210,20 @@ THREET_DEFAULT_UPDATE_VERSION=1.2.0
 THREET_DEFAULT_UPDATE_URL=https://reader.3tcomputer.com/downloads/3TReader-1.2.0-mac.dmg
 ```
 
-> **Lưu ý:** Hiện tại server trả cùng 1 URL cho cả mac và win.  
-> Nếu cần tách: sửa `update_service.py` để đọc URL theo `platform`.
+> **Lưu ý:** Release file nên đặt theo convention:
+> - `3TReader-<version>-mac.dmg`
+> - `3TReader-<version>-win.exe`
+>
+> Nếu cần tách URL theo platform thì sửa `update_service.py` để trả đúng file cho từng `platform`.
+
+### 7.1 Language pack cho UI
+
+Neu ban muon host goi ngon ngu cho app desktop, lam theo:
+
+- doc [VPS_LANGUAGE_PACK_GUIDE.md](VPS_LANGUAGE_PACK_GUIDE.md)
+- dung URL static: `/downloads/language/{code}.json`
+- `code` thuong la `vi` hoac `en`
+- file pack nen luu trong `/data/downloads/language/`
 
 ### Bước 3 — Restart service
 

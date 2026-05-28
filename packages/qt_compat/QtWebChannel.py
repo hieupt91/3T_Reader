@@ -1,4 +1,4 @@
-from . import _QTWEBCHANNEL
+﻿from . import _QTWEBCHANNEL
 
 
 def __getattr__(name):

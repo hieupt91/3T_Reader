@@ -1,11 +1,4 @@
-"""PDF conversion utilities — PDF → Word (.docx) and PDF → Excel (.xlsx).
-
-Windows-optimised: pdf2docx for layout-preserving Word export;
-pdfplumber + openpyxl for table-aware Excel export with text fallback.
-
-Install dependencies:
-    pip install pdf2docx pdfplumber openpyxl
-"""
+"""PDF conversion utilities - PDF -> Word (.docx) and PDF -> Excel (.xlsx)."""
 from __future__ import annotations
 
 import os
@@ -18,23 +11,18 @@ def convert_pdf_to_docx(
     *,
     progress_cb: Callable[[str], None] | None = None,
 ) -> None:
-    """Convert PDF to Word (.docx) using pdf2docx.
-
-    Raises ImportError if pdf2docx is not installed.
-    Raises RuntimeError on conversion failure.
-    """
+    """Convert PDF to Word (.docx) using pdf2docx."""
     try:
         from pdf2docx import Converter
     except ImportError:
         raise ImportError(
-            "Thiếu thư viện pdf2docx.\n"
-            "Cài bằng lệnh: pip install pdf2docx"
+            "Thieu thu vien pdf2docx.\n"
+            "Cai bang lenh: pip install pdf2docx"
         )
 
     if progress_cb:
-        progress_cb("Đang mở file PDF…")
+        progress_cb("Dang mo file PDF...")
 
-    # Count pages for progress reporting
     try:
         import pypdfium2 as _pdfium
         _d = _pdfium.PdfDocument(pdf_path)
@@ -44,9 +32,9 @@ def convert_pdf_to_docx(
         total_pages = 0
 
     if progress_cb and total_pages:
-        progress_cb(f"Đang chuyển đổi {total_pages} trang sang Word…")
+        progress_cb(f"Dang chuyen doi {total_pages} trang sang Word...")
     elif progress_cb:
-        progress_cb("Đang chuyển đổi PDF sang Word…")
+        progress_cb("Dang chuyen doi PDF sang Word...")
 
     cv = Converter(pdf_path)
     try:
@@ -54,19 +42,79 @@ def convert_pdf_to_docx(
             output_path,
             start=0,
             end=None,
-            # multi_processing=False prevents Windows process-spawn issues
             multi_processing=False,
         )
     except Exception as e:
-        raise RuntimeError(f"Không thể chuyển đổi sang Word: {e}") from e
+        raise RuntimeError(f"Khong the chuyen doi sang Word: {e}") from e
     finally:
         cv.close()
 
     if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-        raise RuntimeError("File Word không được tạo ra — chuyển đổi thất bại.")
+        raise RuntimeError("File Word khong duoc tao ra - chuyen doi that bai.")
 
     if progress_cb:
-        progress_cb("Hoàn tất xuất Word!")
+        progress_cb("Hoan tat xuat Word!")
+
+
+def _build_rows_from_words(words: list[dict]) -> list[list[str]]:
+    if not words:
+        return []
+
+    rows: list[dict] = []
+    for word in sorted(words, key=lambda w: (float(w.get("top", 0.0)), float(w.get("x0", 0.0)))):
+        top = float(word.get("top", 0.0))
+        bottom = float(word.get("bottom", top + 10.0))
+        size = float(word.get("size") or max(1.0, bottom - top))
+        mid = (top + bottom) / 2.0
+
+        placed = False
+        for row in rows:
+            tol = max(3.0, row["avg_size"] * 0.6)
+            if abs(mid - row["mid"]) <= tol:
+                row["words"].append(word)
+                count = len(row["words"])
+                row["mid"] = ((row["mid"] * (count - 1)) + mid) / count
+                row["avg_size"] = ((row["avg_size"] * (count - 1)) + size) / count
+                placed = True
+                break
+
+        if not placed:
+            rows.append({"mid": mid, "avg_size": size, "words": [word]})
+
+    result: list[list[str]] = []
+    for row in rows:
+        sorted_words = sorted(row["words"], key=lambda w: float(w.get("x0", 0.0)))
+        if not sorted_words:
+            continue
+
+        gap_threshold = max(12.0, row["avg_size"] * 1.8)
+        cells: list[str] = []
+        current: list[dict] = []
+        prev = None
+        for word in sorted_words:
+            if prev is None:
+                current.append(word)
+            else:
+                gap = float(word.get("x0", 0.0)) - float(prev.get("x1", word.get("x0", 0.0)))
+                if gap > gap_threshold and current:
+                    cells.append(
+                        " ".join(str(part.get("text", "")).strip() for part in current if part.get("text")).strip()
+                    )
+                    current = [word]
+                else:
+                    current.append(word)
+            prev = word
+
+        if current:
+            cells.append(
+                " ".join(str(part.get("text", "")).strip() for part in current if part.get("text")).strip()
+            )
+
+        cleaned = [cell for cell in cells if cell]
+        if cleaned:
+            result.append(cleaned)
+
+    return result
 
 
 def convert_pdf_to_xlsx(
@@ -75,159 +123,135 @@ def convert_pdf_to_xlsx(
     *,
     progress_cb: Callable[[str], None] | None = None,
 ) -> int:
-    """Convert PDF tables to Excel (.xlsx) using pdfplumber + openpyxl.
-
-    Strategy:
-      1. Try to extract structured tables via pdfplumber.
-      2. If no tables found, fall back to text extraction (one row per line).
-
-    Returns number of sheets written (>= 1 on success).
-    Raises ImportError / RuntimeError on failure.
-    """
+    """Export PDF pages to worksheets with best-effort layout reconstruction."""
     try:
         import pdfplumber
     except ImportError:
         raise ImportError(
-            "Thiếu thư viện pdfplumber.\n"
-            "Cài bằng lệnh: pip install pdfplumber openpyxl"
+            "Thieu thu vien pdfplumber.\n"
+            "Cai bang lenh: pip install pdfplumber openpyxl"
         )
     try:
         import openpyxl
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
         from openpyxl.utils import get_column_letter
     except ImportError:
         raise ImportError(
-            "Thiếu thư viện openpyxl.\n"
-            "Cài bằng lệnh: pip install openpyxl"
+            "Thieu thu vien openpyxl.\n"
+            "Cai bang lenh: pip install openpyxl"
         )
 
     if progress_cb:
-        progress_cb("Đang mở file PDF…")
+        progress_cb("Dang mo file PDF...")
 
-    # ── header style helpers ──────────────────────────────────────────────
-    _HEADER_FONT   = Font(bold=True, color="FFFFFF", size=10)
-    _HEADER_FILL   = PatternFill("solid", fgColor="2B4F9E")
-    _HEADER_ALIGN  = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    _BORDER_SIDE   = Side(style="thin", color="AAAAAA")
-    _CELL_BORDER   = Border(
-        left=_BORDER_SIDE, right=_BORDER_SIDE,
-        top=_BORDER_SIDE, bottom=_BORDER_SIDE,
+    header_font = Font(bold=True, color="FFFFFF", size=10)
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    border_side = Side(style="thin", color="AAAAAA")
+    cell_border = Border(
+        left=border_side, right=border_side,
+        top=border_side, bottom=border_side,
     )
-    _DATA_ALIGN    = Alignment(vertical="top", wrap_text=True)
+    data_align = Alignment(vertical="top", wrap_text=True)
 
-    def _style_sheet(ws, has_header: bool):
-        """Apply alternating row colours and column auto-widths."""
+    def style_row(ws, row_idx: int, fill_color: str = "2B4F9E") -> None:
+        fill = PatternFill("solid", fgColor=fill_color)
+        for cell in ws[row_idx]:
+            cell.font = header_font
+            cell.fill = fill
+            cell.alignment = header_align
+
+    def finalize_sheet(ws) -> None:
         col_widths: dict[int, int] = {}
         for r_idx, row in enumerate(ws.iter_rows(), start=1):
             for cell in row:
-                # Border on all cells
-                cell.border = _CELL_BORDER
-                if has_header and r_idx == 1:
-                    cell.font   = _HEADER_FONT
-                    cell.fill   = _HEADER_FILL
-                    cell.alignment = _HEADER_ALIGN
-                else:
-                    cell.alignment = _DATA_ALIGN
+                cell.border = cell_border
+                if r_idx != 1:
+                    cell.alignment = data_align
                     if r_idx % 2 == 0:
                         cell.fill = PatternFill("solid", fgColor="EEF2FA")
-                # Track max content width per column
                 val_len = len(str(cell.value or ""))
                 col_widths[cell.column] = max(col_widths.get(cell.column, 0), val_len)
 
         for col_idx, max_len in col_widths.items():
-            letter = get_column_letter(col_idx)
-            ws.column_dimensions[letter].width = min(max_len + 4, 60)
-
-        # Freeze the header row
-        if has_header and ws.max_row > 1:
+            ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 4, 80)
+        if ws.max_row > 1:
             ws.freeze_panes = "A2"
 
     wb = openpyxl.Workbook()
-    wb.remove(wb.active)  # remove the default empty sheet
-
+    wb.remove(wb.active)
     total_tables = 0
 
     with pdfplumber.open(pdf_path) as pdf:
         n_pages = len(pdf.pages)
         for page_idx, page in enumerate(pdf.pages, start=1):
             if progress_cb:
-                progress_cb(f"Đang xử lý trang {page_idx}/{n_pages}…")
+                progress_cb(f"Dang xuat trang {page_idx}/{n_pages}...")
 
-            # Use aggressive table settings to catch borderless tables
-            tables = page.extract_tables({
-                "vertical_strategy":   "lines_strict",
-                "horizontal_strategy": "lines_strict",
-            })
-            if not tables:
-                # Fallback: looser detection
+            ws = wb.create_sheet(title=f"Trang {page_idx}"[:31])
+            ws.append([f"Trang {page_idx}"])
+
+            words = page.extract_words(
+                use_text_flow=False,
+                keep_blank_chars=False,
+                extra_attrs=["size"],
+            ) or []
+
+            rows = _build_rows_from_words(words)
+            tables = []
+            if not rows:
                 tables = page.extract_tables({
-                    "vertical_strategy":   "text",
-                    "horizontal_strategy": "text",
-                    "snap_tolerance":      5,
-                    "join_tolerance":      3,
-                })
+                    "vertical_strategy": "lines_strict",
+                    "horizontal_strategy": "lines_strict",
+                }) or []
+                if not tables:
+                    tables = page.extract_tables({
+                        "vertical_strategy": "text",
+                        "horizontal_strategy": "text",
+                        "snap_tolerance": 5,
+                        "join_tolerance": 3,
+                    }) or []
 
-            if not tables:
-                continue
-
-            for tbl_idx, table in enumerate(tables, start=1):
-                if not table:
-                    continue
-                total_tables += 1
-                raw_name = f"Trang{page_idx}" if len(tables) == 1 else f"T{page_idx}_B{tbl_idx}"
-                sheet_name = raw_name[:31]
-
-                ws = wb.create_sheet(title=sheet_name)
-                for row in table:
-                    ws.append([str(cell).strip() if cell is not None else "" for cell in row])
-
-                _style_sheet(ws, has_header=ws.max_row > 1)
-
-    if total_tables == 0:
-        # ── Text fallback: one sheet per page ────────────────────────────
-        if progress_cb:
-            progress_cb("Không có bảng — xuất nội dung văn bản từng trang…")
-
-        with pdfplumber.open(pdf_path) as pdf:
-            n_pages = len(pdf.pages)
-            for page_idx, page in enumerate(pdf.pages, start=1):
-                if progress_cb:
-                    progress_cb(f"Đang xuất trang {page_idx}/{n_pages}…")
-
+            if rows:
+                ws.append(["Noi dung va bo cuc trang"])
+                for row in rows:
+                    ws.append(row)
+            elif tables:
+                for tbl_idx, table in enumerate(tables, start=1):
+                    if not table:
+                        continue
+                    total_tables += 1
+                    ws.append([f"Bang {tbl_idx}"])
+                    for row in table:
+                        ws.append([str(cell).strip() if cell is not None else "" for cell in row])
+                    ws.append([""])
+            else:
                 text = (page.extract_text() or "").strip()
-                if not text:
-                    continue
+                if text:
+                    ws.append(["Noi dung van ban trang nay"])
+                    for line in text.splitlines():
+                        ws.append([line])
+                else:
+                    ws.append(["Khong trich xuat duoc noi dung trang nay."])
 
-                sheet_name = f"Trang {page_idx}"[:31]
-                ws = wb.create_sheet(title=sheet_name)
-                # Header row
-                ws.append([f"Nội dung trang {page_idx}"])
-                ws["A1"].font  = _HEADER_FONT
-                ws["A1"].fill  = _HEADER_FILL
-                ws["A1"].alignment = _HEADER_ALIGN
-
-                for line in text.splitlines():
-                    ws.append([line])
-
-                # Auto width
-                max_len = max((len(r[0].value or "") for r in ws.iter_rows(min_row=2)), default=20)
-                ws.column_dimensions["A"].width = min(max_len + 4, 120)
-                ws.freeze_panes = "A2"
-
-        total_tables = wb.sheetnames.__len__()
+            finalize_sheet(ws)
+            style_row(ws, 1)
+            for row_idx in range(1, ws.max_row + 1):
+                first_value = ws.cell(row=row_idx, column=1).value
+                if isinstance(first_value, str) and first_value.startswith("Bang "):
+                    style_row(ws, row_idx, fill_color="4C6EA9")
 
     if not wb.sheetnames:
-        raise RuntimeError("Không có nội dung để xuất ra Excel.")
+        raise RuntimeError("Khong co noi dung de xuat ra Excel.")
 
     if progress_cb:
-        progress_cb("Đang lưu file Excel…")
+        progress_cb("Dang luu file Excel...")
 
     wb.save(output_path)
 
     if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-        raise RuntimeError("File Excel không được tạo ra — lưu thất bại.")
+        raise RuntimeError("File Excel khong duoc tao ra - luu that bai.")
 
     if progress_cb:
-        progress_cb("Hoàn tất xuất Excel!")
+        progress_cb("Hoan tat xuat Excel!")
 
-    return max(total_tables, 1)
+    return max(total_tables, len(wb.sheetnames))

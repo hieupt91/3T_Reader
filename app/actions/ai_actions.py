@@ -74,45 +74,71 @@ def open_ai_settings(window):
     from packages.ai.provider import is_ai_available, get_active_provider, is_ollama_available
 
     _STYLE = """
-    QDialog { background: #16162A; }
-    QLabel#title   { color: #E8EEFF; font-size: 15px; font-weight: 700; }
-    QLabel#lbl     { color: #C0C8F0; font-size: 13px; }
-    QLabel#hint    { color: #7070A8; font-size: 11px; }
-    QLabel#status  { font-size: 12px; }
+    QDialog {
+        background: #F8FAFC;
+    }
+    QLabel#title {
+        color: #0F172A;
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: 0.2px;
+    }
+    QLabel#lbl {
+        color: #111827;
+        font-size: 13px;
+        font-weight: 600;
+    }
+    QLabel#hint {
+        color: #475569;
+        font-size: 11px;
+    }
+    QLabel#status {
+        color: #0F172A;
+        font-size: 12px;
+        font-weight: 600;
+    }
     QLineEdit {
-        background: #1E1E38;
-        color: #E0E8FF;
-        border: 1px solid #3A3A60;
-        border-radius: 7px;
-        padding: 8px 12px;
+        background: #FFFFFF;
+        color: #0F172A;
+        border: 1px solid #CBD5E1;
+        border-radius: 8px;
+        padding: 9px 12px;
         font-size: 13px;
         font-family: monospace;
     }
-    QLineEdit:focus { border-color: #6060C0; }
+    QLineEdit::placeholder {
+        color: #94A3B8;
+    }
+    QLineEdit:focus {
+        border-color: #2563EB;
+    }
     QPushButton {
-        background: #1E1E38;
-        color: #B0B8E0;
-        border: 1px solid #3A3A60;
-        border-radius: 7px;
+        background: #E2E8F0;
+        color: #0F172A;
+        border: 1px solid #CBD5E1;
+        border-radius: 8px;
         padding: 8px 18px;
         font-size: 12px;
         font-weight: 600;
     }
-    QPushButton:hover  { background: #2A2A50; border-color: #6060C0; }
+    QPushButton:hover {
+        background: #CBD5E1;
+        border-color: #94A3B8;
+    }
     QPushButton#btn_save {
-        background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #3b6fd4,stop:1 #5b4fd4);
+        background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2563EB,stop:1 #1D4ED8);
         color: white; border: none;
     }
-    QPushButton#btn_save:hover { background: #4b7fe4; }
+    QPushButton#btn_save:hover { background: #3B82F6; }
     QPushButton#btn_test { min-width: 80px; }
-    QFrame#divider { background: #2A2A4A; }
+    QFrame#divider { background: #CBD5E1; }
     """
 
     dlg = QDialog(window)
     dlg.setWindowTitle("Cài đặt AI")
     dlg.setModal(True)
-    dlg.setMinimumWidth(640)
-    dlg.resize(660, 500)
+    dlg.setMinimumWidth(680)
+    dlg.resize(720, 520)
     dlg.setStyleSheet(_STYLE)
 
     root = QVBoxLayout(dlg)
@@ -129,10 +155,10 @@ def open_ai_settings(window):
     if is_ai_available():
         provider = get_active_provider()
         lbl_status.setText(f"Trạng thái: Đang dùng {provider}")
-        lbl_status.setStyleSheet("color:#4fc080;font-size:12px;")
+        lbl_status.setStyleSheet("color:#166534;font-size:12px;")
     else:
         lbl_status.setText("Trạng thái: Chưa cấu hình AI.")
-        lbl_status.setStyleSheet("color:#f59e0b;font-size:12px;")
+        lbl_status.setStyleSheet("color:#b45309;font-size:12px;")
     root.addWidget(lbl_status)
 
     div1 = QFrame(); div1.setObjectName("divider"); div1.setFixedHeight(1)
@@ -186,7 +212,7 @@ def open_ai_settings(window):
     btn_test_ollama.setObjectName("btn_test")
 
     ollama_ok = is_ollama_available()
-    _ollama_status_color = "#4fc080" if ollama_ok else "#7070A8"
+    _ollama_status_color = "#166534" if ollama_ok else "#64748B"
     _ollama_status_text  = "Đang chạy" if ollama_ok else "Không kết nối"
     lbl_ollama_status = QLabel(_ollama_status_text)
     lbl_ollama_status.setStyleSheet(f"color:{_ollama_status_color};font-size:11px;min-width:90px;")
@@ -199,10 +225,10 @@ def open_ai_settings(window):
         ok = _check()
         if ok:
             lbl_ollama_status.setText("Đang chạy")
-            lbl_ollama_status.setStyleSheet("color:#4fc080;font-size:11px;")
+            lbl_ollama_status.setStyleSheet("color:#166534;font-size:11px;")
         else:
             lbl_ollama_status.setText("Không kết nối")
-            lbl_ollama_status.setStyleSheet("color:#E05050;font-size:11px;")
+            lbl_ollama_status.setStyleSheet("color:#B91C1C;font-size:11px;")
 
     btn_test_ollama.clicked.connect(_test_ollama)
     row_ollama.addWidget(btn_test_ollama)
@@ -259,10 +285,10 @@ def open_ai_settings(window):
         from packages.ai.provider import is_ai_available, get_active_provider
         if is_ai_available():
             lbl_status.setText(f"Đã lưu. Đang dùng: {get_active_provider()}")
-            lbl_status.setStyleSheet("color:#4fc080;font-size:12px;")
+            lbl_status.setStyleSheet("color:#166534;font-size:12px;")
         else:
             lbl_status.setText("Đã xóa cấu hình AI.")
-            lbl_status.setStyleSheet("color:#f59e0b;font-size:12px;")
+            lbl_status.setStyleSheet("color:#b45309;font-size:12px;")
 
         orig = btn_save.text()
         btn_save.setText("Đã lưu!")

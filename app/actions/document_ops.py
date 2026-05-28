@@ -187,74 +187,8 @@ def add_watermark(window):
                     p["color"], p["angle"], p["opacity"]
                 )
 
-                wm_pdf = pikepdf.open(io.BytesIO(wm_data))
-                wm_page = wm_pdf.pages[0]
-
-                # Nhúng watermark page như form XObject rồi vẽ lên trang gốc
-                form = pdf.make_indirect(
-                    pikepdf.Dictionary(
-                        Type=pikepdf.Name("/XObject"),
-                        Subtype=pikepdf.Name("/Form"),
-                        BBox=pikepdf.Array([
-                            pikepdf.Real(0), pikepdf.Real(0),
-                            pikepdf.Real(w), pikepdf.Real(h)
-                        ]),
-                        Resources=wm_page.get("/Resources", pikepdf.Dictionary()),
-                        **{"/Stream": wm_page.obj.get("/Contents", pikepdf.Stream(pdf, b""))}
-                    )
-                )
-
-                # Lấy content stream của watermark page
-                wm_contents = wm_page.obj.get("/Contents")
-                if wm_contents is not None:
-                    if isinstance(wm_contents, pikepdf.Array):
-                        wm_stream_data = b""
-                        for s in wm_contents:
-                            wm_stream_data += s.read_bytes()
-                    else:
-                        wm_stream_data = wm_contents.read_bytes()
-                else:
-                    wm_stream_data = b""
-
-                # Tạo form XObject hợp lệ
-                form_xobj = pikepdf.Stream(pdf, wm_stream_data)
-                form_xobj.stream_dict["/Type"] = pikepdf.Name("/XObject")
-                form_xobj.stream_dict["/Subtype"] = pikepdf.Name("/Form")
-                form_xobj.stream_dict["/BBox"] = pikepdf.Array([
-                    pikepdf.Real(0), pikepdf.Real(0),
-                    pikepdf.Real(w), pikepdf.Real(h)
-                ])
-                wm_res = wm_page.obj.get("/Resources")
-                if wm_res is not None:
-                    form_xobj.stream_dict["/Resources"] = wm_res
-
-                form_ref = pdf.make_indirect(form_xobj)
-
-                # Đưa XObject vào Resources của trang
-                if "/Resources" not in page.obj:
-                    page.obj["/Resources"] = pikepdf.Dictionary()
-                res = page.obj["/Resources"]
-                if "/XObject" not in res:
-                    res["/XObject"] = pikepdf.Dictionary()
-                xobj_name = f"/WM{i}"
-                res["/XObject"][xobj_name] = form_ref
-
-                # Thêm lệnh vẽ XObject vào cuối content stream
-                draw_cmd = f"q {xobj_name} Do Q\n".encode()
-                existing = page.obj.get("/Contents")
-                if existing is None:
-                    new_stream = pikepdf.Stream(pdf, draw_cmd)
-                    page.obj["/Contents"] = pdf.make_indirect(new_stream)
-                elif isinstance(existing, pikepdf.Array):
-                    new_stream = pikepdf.Stream(pdf, draw_cmd)
-                    existing.append(pdf.make_indirect(new_stream))
-                else:
-                    new_stream = pikepdf.Stream(pdf, draw_cmd)
-                    page.obj["/Contents"] = pikepdf.Array([
-                        existing, pdf.make_indirect(new_stream)
-                    ])
-
-                wm_pdf.close()
+                with pikepdf.open(io.BytesIO(wm_data)) as wm_pdf:
+                    page.add_overlay(wm_pdf.pages[0])
 
             pdf.save(out)
 
@@ -354,7 +288,13 @@ def set_pdf_password(window):
 
 @require_document(show_message=True)
 def remove_pdf_password(window):
-    src = window.current_path
+    state = {}
+    try:
+        state = window._state_or_global()
+    except Exception:
+        pass
+
+    src = window.get_display_path() or window.current_path
 
     try:
         import pikepdf
@@ -388,6 +328,12 @@ def remove_pdf_password(window):
         shutil.copy2(out, src)
         os.remove(out)
         _reload(window, src)
+        temp_path = state.get("temp_path")
+        if temp_path and os.path.exists(temp_path) and temp_path != src:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
         window.status.showMessage("Đã xóa mật khẩu PDF", 4000)
     except Exception as e:
         show_warning(window, "Lỗi xóa mật khẩu", str(e))
@@ -711,58 +657,8 @@ def add_page_numbers(window):
                     w, h, label, font_size, margin, position
                 )
 
-                ol_pdf  = pikepdf.open(io.BytesIO(overlay_data))
-                ol_page = ol_pdf.pages[0]
-
-                # Lấy content stream của overlay
-                ol_contents = ol_page.obj.get("/Contents")
-                if ol_contents is not None:
-                    if isinstance(ol_contents, pikepdf.Array):
-                        ol_stream_data = b""
-                        for s in ol_contents:
-                            ol_stream_data += s.read_bytes()
-                    else:
-                        ol_stream_data = ol_contents.read_bytes()
-                else:
-                    ol_stream_data = b""
-
-                # Tạo form XObject từ overlay page
-                form_xobj = pikepdf.Stream(pdf, ol_stream_data)
-                form_xobj.stream_dict["/Type"]    = pikepdf.Name("/XObject")
-                form_xobj.stream_dict["/Subtype"] = pikepdf.Name("/Form")
-                form_xobj.stream_dict["/BBox"]    = pikepdf.Array([
-                    pikepdf.Real(0), pikepdf.Real(0),
-                    pikepdf.Real(w), pikepdf.Real(h)
-                ])
-                ol_res = ol_page.obj.get("/Resources")
-                if ol_res is not None:
-                    form_xobj.stream_dict["/Resources"] = ol_res
-
-                form_ref = pdf.make_indirect(form_xobj)
-
-                # Tambahkan XObject ke Resources halaman
-                if "/Resources" not in page.obj:
-                    page.obj["/Resources"] = pikepdf.Dictionary()
-                res = page.obj["/Resources"]
-                if "/XObject" not in res:
-                    res["/XObject"] = pikepdf.Dictionary()
-                xobj_name = f"/PN{i}"
-                res["/XObject"][xobj_name] = form_ref
-
-                # Thêm lệnh vẽ vào cuối content stream
-                draw_cmd   = f"q {xobj_name} Do Q\n".encode()
-                new_stream = pikepdf.Stream(pdf, draw_cmd)
-                existing   = page.obj.get("/Contents")
-                if existing is None:
-                    page.obj["/Contents"] = pdf.make_indirect(new_stream)
-                elif isinstance(existing, pikepdf.Array):
-                    existing.append(pdf.make_indirect(new_stream))
-                else:
-                    page.obj["/Contents"] = pikepdf.Array([
-                        existing, pdf.make_indirect(new_stream)
-                    ])
-
-                ol_pdf.close()
+                with pikepdf.open(io.BytesIO(overlay_data)) as ol_pdf:
+                    page.add_overlay(ol_pdf.pages[0])
 
             pdf.save(tmp)
 

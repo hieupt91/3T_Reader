@@ -9,6 +9,14 @@ class TokenInfo:
     driver: str
     signer_name: str = ""
     tax_code: str = ""
+    driver_path: str = ""
+    token_index: int = 0
+    token_label: str = ""
+    serial: str = ""
+    manufacturer: str = ""
+    model: str = ""
+    issuer_name: str = ""
+    cert_serial: str = ""
 
 
 class SigningProvider(Protocol):
@@ -16,6 +24,12 @@ class SigningProvider(Protocol):
         ...
 
     def detect_driver(self) -> str | None:
+        ...
+
+    def list_tokens(self, pin: str | None = None) -> list[TokenInfo]:
+        ...
+
+    def select_token(self, token_info: TokenInfo | None) -> None:
         ...
 
     def get_token_info(self, pin: str | None = None) -> TokenInfo | None:

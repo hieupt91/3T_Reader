@@ -107,8 +107,11 @@ class TestSigningProviderSelection:
         from packages.signing import get_signing_provider
         provider = get_signing_provider()
         result = provider.detect_driver()
-        # Without a physical USB token, result must be None
-        assert result is None
+        # On developer machines with real token middleware installed, this can
+        # return the active PKCS#11 driver. Headless CI usually returns None.
+        assert result is None or isinstance(result, str)
+        if result is not None:
+            assert os.path.exists(result)
 
     def test_get_last_error_is_string_after_detect(self):
         from packages.signing import get_signing_provider

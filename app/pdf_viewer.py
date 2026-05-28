@@ -2,9 +2,14 @@ import os
 
 from packages.pdf_engine import get_pdf_engine
 from packages.qt_compat import QtCore, QtWebEngineWidgets, QtWidgets, pyqtSignal
-from PySide6.QtWebEngineCore import QWebEngineSettings, QWebEngineScript
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings, QWebEngineScript
 
 from app.local_server import LocalPDFJSServer
+
+
+class _DebugPage(QWebEnginePage):
+    def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
+        print(f"[JS:{level.name}:{lineNumber}] {message}", flush=True)
 
 # Polyfill for Map methods added in V8 13.6+ (Chrome 136+).
 # Qt WebEngine 6.11 reports Chrome/140 but ships a build without these methods.
@@ -93,6 +98,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
 
     pdf_loaded = pyqtSignal(dict)
     page_changed = pyqtSignal(int, int)
+    page_ready = pyqtSignal()
     error_occurred = pyqtSignal(str)
     find_not_found = pyqtSignal(str)   # emitted with the query when PDF.js reports notFound
 
@@ -105,6 +111,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
         self._zoom = "page-width"
 
         self._web_view = QtWebEngineWidgets.QWebEngineView(self)
+        self._web_view.setPage(_DebugPage(self._web_view))
 
         settings = self._web_view.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
@@ -129,6 +136,8 @@ class PDFViewerWidget(QtWidgets.QWidget):
         page_scripts = self._web_view.page().scripts()
         page_scripts.insert(polyfill)
         page_scripts.insert(ui_hooks)
+
+        self._web_view.loadFinished.connect(lambda ok: self.page_ready.emit() if ok else None)
 
         # Timer: polls current page from PDF.js every 400 ms while a PDF is open
         self._page_timer = QtCore.QTimer(self)

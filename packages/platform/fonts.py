@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -59,6 +60,24 @@ def _windows_font_path(bold: bool = False) -> str | None:
         if path.exists():
             return str(path)
     return None
+
+
+def get_system_font_path(name: str = "", *, bold: bool = False) -> str | None:
+    """Return a matching system font path when available.
+
+    Kept for smoke-test/backward compatibility; feature code should prefer
+    get_vietnamese_font_path() when text may contain Vietnamese.
+    """
+    wanted = (name or "").strip().lower()
+    if sys.platform == "win32":
+        if wanted:
+            fonts_dir = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "Fonts"
+            for path in fonts_dir.glob("*.ttf"):
+                stem = path.stem.lower()
+                if wanted in stem:
+                    return str(path)
+        return _windows_font_path(bold)
+    return get_vietnamese_font_path(bold=bold)
 
 
 def _macos_font_path() -> str | None:

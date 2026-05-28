@@ -25,6 +25,12 @@ recent_files.json
 *.log
 *.tmp
 *.bak
+pytest_tmp/
+app_log.txt
+doc_content.txt
+read_doc.py
+make_icon.py
+tai_lieu_moi.pdf
 
 # IDE / OS
 .DS_Store

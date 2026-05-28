@@ -1,4 +1,4 @@
-from . import _QTGUI
+﻿from . import _QTGUI
 
 
 def __getattr__(name):

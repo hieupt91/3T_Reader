@@ -7,7 +7,7 @@ from packages.qt_compat.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
 )
 from packages.qt_compat.QtCore import Qt, QSize, QEvent
-from PySide6.QtSvgWidgets import QSvgWidget
+from packages.qt_compat.QtSvgWidgets import QSvgWidget
 
 _ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 
@@ -41,23 +41,23 @@ class WelcomeWidget(QWidget):
     def _apply_theme_styles(self):
         dark = self._is_dark()
         if dark:
-            card_bg    = "#1A1A2E"
-            card_border = "#2A2A45"
+            card_bg     = "#1A1A2E"
+            card_border = "#2A2A48"
             title_color = "#C8D8F8"
-            desc_color  = "#6688AA"
-            hint_color  = "#445566"
-            tag_color   = "#6688BB"
+            desc_color  = "#5577AA"
+            hint_color  = "#3A4F6A"
+            tag_color   = "#5577BB"
         else:
-            card_bg    = "#F2F4FB"
-            card_border = "#D8DCEE"
+            card_bg     = "#F0F2FA"
+            card_border = "#D0D5EC"
             title_color = "#0D1E6A"
-            desc_color  = "#5566AA"
-            hint_color  = "#9AABCC"
-            tag_color   = "#5566AA"
+            desc_color  = "#4466AA"
+            hint_color  = "#8899BB"
+            tag_color   = "#4466AA"
 
         card_style = (
             f"QFrame {{ background:{card_bg}; border:1px solid {card_border};"
-            f"  border-radius:10px; }}"
+            f"  border-radius:12px; }}"
         )
         for card in self._cards:
             card.setStyleSheet(card_style)
@@ -76,6 +76,15 @@ class WelcomeWidget(QWidget):
             self._tag_lbl.setStyleSheet(
                 f"color:{tag_color}; font-size:12px; letter-spacing:3px; font-weight:600;"
             )
+        # WelcomeTitle (READER)
+        from packages.qt_compat.QtWidgets import QApplication
+        for w in self.findChildren(type(self._tag_lbl)):
+            if w.objectName() == "WelcomeTitle":
+                reader_color = "#E8F0FF" if dark else "#1A2880"
+                w.setStyleSheet(
+                    f"font-size:46px; font-weight:700; color:{reader_color};"
+                    "background:transparent; border:none; letter-spacing:2px;"
+                )
 
     # ── UI build ───────────────────────────────────────────────────────────
 
@@ -85,33 +94,36 @@ class WelcomeWidget(QWidget):
         root.setSpacing(0)
         root.setContentsMargins(40, 48, 40, 40)
 
-        # Logo
-        logo_path = os.path.join(_ASSETS, "logo_full.svg")
-        if os.path.exists(logo_path):
-            logo = QSvgWidget(logo_path)
-            logo.setFixedSize(QSize(380, 100))
-            logo.setStyleSheet("background: transparent;")
-            logo_wrap = QHBoxLayout()
-            logo_wrap.addStretch()
-            logo_wrap.addWidget(logo)
-            logo_wrap.addStretch()
-            root.addLayout(logo_wrap)
-        else:
-            title = QLabel("3T READER")
-            title.setStyleSheet(
-                "font-size:38px; font-weight:900; color:#4A80E8; letter-spacing:4px;"
-            )
-            title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            root.addWidget(title)
+        # Tiêu đề text thuần
+        self._logo_widget = None
+        title_row = QHBoxLayout()
+        title_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        root.addSpacing(28)
+        lbl_3t = QLabel("3T")
+        lbl_3t.setStyleSheet(
+            "font-size:46px; font-weight:900; color:#FF7700;"
+            "background:transparent; border:none; letter-spacing:2px;"
+        )
+        lbl_3t.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        lbl_reader = QLabel(" READER")
+        lbl_reader.setObjectName("WelcomeTitle")
+        lbl_reader.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        title_row.addStretch()
+        title_row.addWidget(lbl_3t)
+        title_row.addWidget(lbl_reader)
+        title_row.addStretch()
+        root.addLayout(title_row)
+
+        root.addSpacing(10)
 
         # Tagline
-        self._tag_lbl = QLabel("ĐỌC MỌI LÚC – HIỂU MỌI NƠI")
+        self._tag_lbl = QLabel("ĐỌC MỌI LÚC  ·  HIỂU MỌI NƠI")
         self._tag_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(self._tag_lbl)
 
-        root.addSpacing(44)
+        root.addSpacing(40)
 
         # Feature cards
         features = [

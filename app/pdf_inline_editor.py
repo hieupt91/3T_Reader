@@ -15,11 +15,13 @@ import base64
 import os
 
 from packages.qt_compat.QtCore import QObject, QEventLoop, Qt, pyqtSignal, pyqtSlot
-from packages.qt_compat.QtGui import QColor
+from packages.qt_compat.QtGui import QColor, QImage
 from packages.qt_compat.QtWidgets import (
     QColorDialog, QFrame, QHBoxLayout, QLabel,
-    QPushButton, QSpinBox, QToolButton, QVBoxLayout,
+    QPushButton, QSlider, QSpinBox, QToolButton, QVBoxLayout,
 )
+
+from app.dialogs import show_warning
 
 
 # ── Bridges (JS ↔ Python via QWebChannel) ────────────────────────────────────
@@ -62,6 +64,7 @@ class InlineEditPanel(QFrame):
     committed = pyqtSignal()
     cancelled = pyqtSignal()
     font_changed = pyqtSignal(int, str, bool, bool)   # size, hex color, bold, underline
+    rotation_changed = pyqtSignal(int)
 
     def __init__(self, parent=None, *, mode: str = "text"):
         super().__init__(parent, Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
@@ -131,10 +134,43 @@ class InlineEditPanel(QFrame):
             row.addWidget(self._under_btn)
 
             root.addLayout(row)
+        row = QHBoxLayout(); row.setSpacing(8)
+        row.addWidget(QLabel("Xoay:"))
+        self._rotation_slider = QSlider(Qt.Orientation.Horizontal)
+        self._rotation_slider.setRange(-180, 180)
+        self._rotation_slider.setSingleStep(1)
+        self._rotation_slider.setPageStep(15)
+        self._rotation_slider.setValue(0)
+        self._rotation_slider.setFixedWidth(160)
+        row.addWidget(self._rotation_slider)
+        self._rotation_spin = QSpinBox()
+        self._rotation_spin.setRange(-180, 180)
+        self._rotation_spin.setSingleStep(1)
+        self._rotation_spin.setSuffix("°")
+        self._rotation_spin.setFixedWidth(72)
+        row.addWidget(self._rotation_spin)
+        row.addStretch()
+        root.addLayout(row)
 
-            hint = QLabel("Gõ trực tiếp trên PDF  ·  Ctrl+Enter để chèn  ·  Esc để hủy")
-        else:
-            hint = QLabel("Kéo di chuyển  ·  Kéo góc resize  ·  Enter xác nhận  ·  Esc hủy")
+        def _set_rotation(value: int):
+            if hasattr(self, "_rotation_slider") and self._rotation_slider.value() != value:
+                self._rotation_slider.blockSignals(True)
+                self._rotation_slider.setValue(value)
+                self._rotation_slider.blockSignals(False)
+            if hasattr(self, "_rotation_spin") and self._rotation_spin.value() != value:
+                self._rotation_spin.blockSignals(True)
+                self._rotation_spin.setValue(value)
+                self._rotation_spin.blockSignals(False)
+            self.rotation_changed.emit(value)
+
+        self._rotation_slider.valueChanged.connect(_set_rotation)
+        self._rotation_spin.valueChanged.connect(_set_rotation)
+
+        hint = (
+            QLabel("Gõ trực tiếp trên PDF  ·  Ctrl+Enter để chèn  ·  Esc để hủy")
+            if self._mode == "text"
+            else QLabel("Kéo di chuyển  ·  Kéo góc resize  ·  Enter xác nhận  ·  Esc hủy")
+        )
 
         hint.setStyleSheet("color:#3A4E6A; font-size:10px; background:transparent; border:none;")
         root.addWidget(hint)
@@ -210,6 +246,13 @@ class InlineEditPanel(QFrame):
         c = self._color
         return (c.redF(), c.greenF(), c.blueF())
 
+    def get_rotation(self) -> int:
+        return self._rotation_spin.value() if hasattr(self, "_rotation_spin") else 0
+
+    def set_rotation(self, value: int):
+        if hasattr(self, "_rotation_spin"):
+            self._rotation_spin.setValue(int(value))
+
     def position_near(self, window):
         self.adjustSize()
         geo = window.frameGeometry()
@@ -276,6 +319,13 @@ INLINE_TEXT_JS = r"""
         }
     };
 
+    window.__3TTextUpdateRotation = function (angle) {
+        if (S.overlay) {
+            S.overlay.style.transformOrigin = 'center center';
+            S.overlay.style.transform = 'rotate(' + angle + 'deg)';
+        }
+    };
+
     function startListen() {
         document.body.style.cursor = 'text';
 
@@ -300,7 +350,8 @@ INLINE_TEXT_JS = r"""
                 if (br) br.cancelEdit();
                 return;
             }
-            var pr  = page.getBoundingClientRect();
+            var canvas = page.querySelector('canvas') || page;
+            var pr  = canvas.getBoundingClientRect();
             var cx  = e.clientX - pr.left;
             var cy  = e.clientY - pr.top;
 
@@ -311,7 +362,7 @@ INLINE_TEXT_JS = r"""
             var ov = document.createElement('div');
             ov.style.cssText =
                 'position:absolute;left:' + cx + 'px;top:' + cy + 'px;' +
-                'width:220px;min-height:48px;' +
+                'width:260px;min-height:56px;' +
                 'border:2px solid #1A7AFF;' +
                 'background:rgba(255,255,255,0.97);' +
                 'z-index:9999;box-sizing:border-box;border-radius:4px;' +
@@ -334,7 +385,7 @@ INLINE_TEXT_JS = r"""
                 'display:block;width:calc(100% - 10px);min-height:36px;' +
                 'margin:5px;border:none;outline:none;background:transparent;' +
                 'resize:none;font-family:Arial,sans-serif;font-size:14px;' +
-                'color:#000;line-height:1.5;overflow:hidden;cursor:text;';
+                'color:#000;line-height:1.6;overflow:hidden;cursor:text;';
             ta.addEventListener('input', function () {
                 ta.style.height = 'auto';
                 ta.style.height = ta.scrollHeight + 'px';
@@ -411,6 +462,8 @@ INLINE_TEXT_JS = r"""
                 ta.style.fontWeight     = pf.bold ? 'bold' : 'normal';
                 ta.style.textDecoration = pf.underline ? 'underline' : 'none';
                 ta.dispatchEvent(new Event('input'));
+                if (typeof pf.rotation === 'number')
+                    window.__3TTextUpdateRotation(pf.rotation);
                 window.__3TTextPrefill = null;
             }
 
@@ -490,6 +543,32 @@ INLINE_IMAGE_JS = r"""
     function startListen(imgUrl) {
         document.body.style.cursor = 'crosshair';
 
+        function getInitialSize() {
+            var info = window.__3TInlineImageInfo || {};
+            var nw = parseFloat(info.width || 0);
+            var nh = parseFloat(info.height || 0);
+            if (!(nw > 0 && nh > 0)) {
+                return { width: 200, height: 150 };
+            }
+
+            var maxW = 240;
+            var maxH = 180;
+            var width = nw;
+            var height = nh;
+            var ratio = nw / nh;
+            if (width > maxW) {
+                width = maxW;
+                height = width / ratio;
+            }
+            if (height > maxH) {
+                height = maxH;
+                width = height * ratio;
+            }
+            width = Math.max(80, Math.round(width));
+            height = Math.max(60, Math.round(height));
+            return { width: width, height: height };
+        }
+
         function clickHandler(e) {
             var page = e.target.closest('.page');
             if (!page) return;
@@ -511,17 +590,22 @@ INLINE_IMAGE_JS = r"""
                 if (br) br.cancelEdit();
                 return;
             }
-            var pr  = page.getBoundingClientRect();
+            var canvas = page.querySelector('canvas') || page;
+            var pr  = canvas.getBoundingClientRect();
             var cx  = e.clientX - pr.left;
             var cy  = e.clientY - pr.top;
 
             S.pageNumber = pn;
             S.pageView   = pgv;
 
+            var initial = getInitialSize();
+            var left = Math.max(0, Math.round(cx - (initial.width / 2)));
+            var top = Math.max(0, Math.round(cy - (initial.height / 2)));
+
             var ov = document.createElement('div');
             ov.style.cssText =
-                'position:absolute;left:' + (cx - 100) + 'px;top:' + (cy - 75) + 'px;' +
-                'width:200px;height:150px;' +
+                'position:absolute;left:' + left + 'px;top:' + top + 'px;' +
+                'width:' + initial.width + 'px;height:' + initial.height + 'px;' +
                 'border:2px solid #1A7AFF;z-index:9999;' +
                 'box-sizing:border-box;border-radius:4px;' +
                 'box-shadow:0 4px 20px rgba(26,122,255,0.4);' +
@@ -531,6 +615,13 @@ INLINE_IMAGE_JS = r"""
             img.src = imgUrl;
             img.style.cssText = 'width:100%;height:100%;object-fit:contain;pointer-events:none;display:block;';
             ov.appendChild(img);
+
+            window.__3TImgUpdateRotation = function (angle) {
+                if (S.overlay) {
+                    S.overlay.style.transformOrigin = 'center center';
+                    S.overlay.style.transform = 'rotate(' + angle + 'deg)';
+                }
+            };
 
             var badge = document.createElement('div');
             badge.textContent = '🖼️ Ảnh — kéo di chuyển · kéo góc resize · Enter xác nhận';
@@ -656,6 +747,8 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
             prefill.get("bold", False),
             prefill.get("underline", False),
         )
+        if "rotation" in prefill:
+            panel.set_rotation(prefill.get("rotation", 0))
     panel.position_near(window)
     result: dict = {}
     loop   = QEventLoop(window)
@@ -670,12 +763,20 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
         )
     panel.font_changed.connect(_on_font)
 
+    def _on_rotation(angle):
+        web_view.page().runJavaScript(
+            f"typeof window.__3TTextUpdateRotation === 'function' && "
+            f"window.__3TTextUpdateRotation({int(angle)});"
+        )
+    panel.rotation_changed.connect(_on_rotation)
+
     # Panel "Chèn" → capture font settings then trigger JS commit
     def _on_commit():
         result["font_size"]   = panel.get_font_size()
         result["color_tuple"] = panel.get_color_tuple()
         result["bold"]        = panel.get_bold()
         result["underline"]   = panel.get_underline()
+        result["rotation"]    = panel.get_rotation()
         panel.hide()
         web_view.page().runJavaScript(
             "typeof window.__3TTextCommit === 'function' && window.__3TTextCommit();"
@@ -704,6 +805,7 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
                 "color_tuple":  result.get("color_tuple", panel.get_color_tuple()),
                 "bold":         result.get("bold", panel.get_bold()),
                 "underline":    result.get("underline", panel.get_underline()),
+                "rotation":     result.get("rotation", panel.get_rotation()),
             })
         if loop.isRunning(): loop.quit()
 
@@ -713,6 +815,7 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
 
     def _ready(page):
         panel.show(); panel.raise_(); panel.activateWindow()
+        _on_rotation(panel.get_rotation())
 
     bridge.ready.connect(_ready)
     bridge.confirmed.connect(_confirmed)
@@ -731,6 +834,7 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
                 "color_hex": prefill.get("color_hex", "#000000"),
                 "bold":      bool(prefill.get("bold", False)),
                 "underline": bool(prefill.get("underline", False)),
+                "rotation":  int(prefill.get("rotation", 0)),
             })
             web_view.page().runJavaScript(f"window.__3TTextPrefill = {pf_js};")
         web_view.page().runJavaScript(INLINE_TEXT_JS)
@@ -758,9 +862,15 @@ def run_inline_image(window, image_path: str) -> dict | None:
         ext  = os.path.splitext(image_path)[1].lower().lstrip(".")
         mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png",
                 "bmp": "bmp", "webp": "webp"}.get(ext, "png")
+        image = QImage.fromData(raw)
+        if image.isNull():
+            show_warning(window, "Không đọc được ảnh", "Không thể mở file ảnh đã chọn. Vui lòng chọn file khác.")
+            return None
+        image_info = {"width": int(image.width()), "height": int(image.height())}
         data_url = f"data:image/{mime};base64,{base64.b64encode(raw).decode()}"
     except Exception:
-        data_url = ""
+        show_warning(window, "Không đọc được ảnh", "Không thể mở file ảnh đã chọn. Vui lòng chọn file khác.")
+        return None
 
     bridge = InlineImageBridge(window)
     _setup_webchannel(web_view, window, "inlineImageBridge", bridge)
@@ -783,8 +893,19 @@ def run_inline_image(window, image_path: str) -> dict | None:
     panel.committed.connect(_on_commit)
     panel.cancelled.connect(_on_cancel)
 
+    def _on_rotation(angle):
+        web_view.page().runJavaScript(
+            f"typeof window.__3TImgUpdateRotation === 'function' && "
+            f"window.__3TImgUpdateRotation({int(angle)});"
+        )
+    panel.rotation_changed.connect(_on_rotation)
+
     def _confirmed(page, l, b, r, t):
-        result.update({"page_number": max(1, int(page)), "box": (l, b, r, t)})
+        result.update({
+            "page_number": max(1, int(page)),
+            "box": (l, b, r, t),
+            "rotation": panel.get_rotation(),
+        })
         if loop.isRunning(): loop.quit()
 
     def _cancelled():
@@ -793,6 +914,7 @@ def run_inline_image(window, image_path: str) -> dict | None:
 
     def _ready(page):
         panel.show(); panel.raise_(); panel.activateWindow()
+        _on_rotation(panel.get_rotation())
 
     bridge.ready.connect(_ready)
     bridge.confirmed.connect(_confirmed)
@@ -805,6 +927,7 @@ def run_inline_image(window, image_path: str) -> dict | None:
     try:
         # Set image URL before injecting the script
         web_view.page().runJavaScript(f"window.__3TInlineImageUrl = {repr(data_url)};")
+        web_view.page().runJavaScript(f"window.__3TInlineImageInfo = {repr(image_info)};")
         web_view.page().runJavaScript(INLINE_IMAGE_JS)
         loop.exec()
     finally:

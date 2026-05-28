@@ -146,6 +146,26 @@ Base URL: `https://license.3tcomputer.com`
 | POST | `/api/v1/license/deactivate` | Hủy kích hoạt thiết bị |
 | GET | `/api/v1/update/check` | Kiểm tra phiên bản mới |
 
+### 6.1 Backend contract snapshot 2026-05-28
+
+Current backend deployment note for Win/Mac:
+
+- Backend branch: `phase1-backend`
+- Current hardening commit: `ccbe90c` (`hardening license backend deployment`)
+- Desktop app contract does not need to change for this backend update.
+- Treat the returned `token` as an opaque string. Store/cache it as-is and do not parse internal fields in the app.
+- Keep `device_id` stable per machine across `activate`, `validate`, `heartbeat`, and `deactivate`.
+- Offline grace still follows `expires_at + grace_days`.
+- Update checks remain `GET /api/v1/update/check?platform=mac|win&current_version=...`.
+- Release file naming should follow:
+  - `3TReader-<version>-mac.dmg`
+  - `3TReader-<version>-win.exe`
+- Language packs are separate static files:
+  - `GET /downloads/language/vi.json`
+  - `GET /downloads/language/en.json`
+  - app will fallback to built-in labels if the pack is missing
+- Do not commit `.env`; keep secrets in the VPS runtime file and share only `.env.example` in the repo.
+
 ### Request / Response mẫu
 
 **Activate:**

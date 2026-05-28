@@ -1,9 +1,14 @@
+import os
+
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QWidget,
-    QColorDialog, QSlider, QSizePolicy, QMessageBox,
+    QColorDialog, QSlider, QSizePolicy, QMessageBox, QInputDialog,
 )
 from packages.qt_compat.QtGui import QPainter, QPen, QColor, QImage, QPixmap
 from packages.qt_compat.QtCore import Qt, QPoint
+
+from app.dialogs import show_info, show_warning
+from app.signature_templates import save_signature_template
 
 
 class DrawingCanvas(QWidget):
@@ -97,12 +102,15 @@ class SignaturePadDialog(QDialog):
         btns = QHBoxLayout()
         btn_clear = QPushButton("Xóa lại")
         btn_clear.clicked.connect(self.canvas.clear)
+        btn_save_template = QPushButton("Lưu mẫu")
+        btn_save_template.clicked.connect(self._save_template)
         btn_cancel = QPushButton("Hủy")
         btn_cancel.clicked.connect(self.reject)
         btn_ok = QPushButton("Đặt chữ ký lên PDF")
         btn_ok.setDefault(True)
         btn_ok.clicked.connect(self._on_accept)
         btns.addWidget(btn_clear)
+        btns.addWidget(btn_save_template)
         btns.addStretch()
         btns.addWidget(btn_cancel)
         btns.addWidget(btn_ok)
@@ -114,6 +122,32 @@ class SignaturePadDialog(QDialog):
             return
         self._pixmap = self.canvas.get_pixmap()
         self.accept()
+
+    def _save_template(self):
+        if self.canvas.is_empty():
+            show_warning(self, "Chưa vẽ", "Hãy vẽ chữ ký trước khi lưu mẫu.")
+            return
+        name, ok = QInputDialog.getText(
+            self,
+            "Lưu mẫu chữ ký",
+            "Nhập mã mẫu chữ ký (vd: ky1, chu_ky_giam_doc):",
+        )
+        if not ok:
+            return
+        name = name.strip()
+        if not name:
+            show_warning(self, "Thiếu mã", "Vui lòng nhập mã mẫu chữ ký.")
+            return
+        try:
+            path = save_signature_template(name, self.canvas.get_pixmap())
+            saved_code = os.path.splitext(os.path.basename(path))[0]
+            show_info(
+                self,
+                "Đã lưu mẫu",
+                f"Đã lưu mẫu chữ ký với mã:\n{saved_code}\n\nĐường dẫn:\n{path}",
+            )
+        except Exception as exc:
+            show_warning(self, "Không lưu được mẫu", str(exc))
 
     def get_pixmap(self) -> QPixmap | None:
         return self._pixmap

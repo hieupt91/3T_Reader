@@ -1,4 +1,4 @@
-from . import _QTWIDGETS
+﻿from . import _QTWIDGETS
 
 
 def __getattr__(name):

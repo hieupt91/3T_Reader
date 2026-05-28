@@ -172,6 +172,28 @@ class TestBuildOverlayPdf:
         assert result[:4] == b"%PDF"
 
 
+class TestAnnotateMultilineSearch:
+    def test_search_text_on_page_handles_selection_spanning_lines(self, tmp_path):
+        _skip_if_missing("reportlab", "pdfplumber", "pypdfium2")
+        from reportlab.pdfgen import canvas
+        from app.actions.annotate import _search_text_on_page
+
+        out = str(tmp_path / "multiline.pdf")
+        c = canvas.Canvas(out, pagesize=(595, 842))
+        c.drawString(50, 760, "Doan van ban nay co")
+        c.drawString(50, 740, "nhieu dong de kiem tra")
+        c.save()
+
+        rects = _search_text_on_page(
+            out,
+            1,
+            "Doan van ban nay co\nnhieu dong de kiem tra",
+        )
+
+        assert len(rects) >= 2
+        assert all(len(rect) == 4 for rect in rects)
+
+
 # ---------------------------------------------------------------------------
 # PdfiumEngine.rebuild_pdf_with_ops — requires pikepdf
 # ---------------------------------------------------------------------------
@@ -213,6 +235,20 @@ class TestRebuildPdfWithOps:
         with open(out, "rb") as f:
             assert f.read(5) == b"%PDF-"
 
+    def test_rotated_text_overlay_produces_valid_pdf(self, tmp_path):
+        _skip_if_missing("pypdfium2", "pikepdf", "reportlab")
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+
+        base = self._make_blank_pdf(tmp_path)
+        out = str(tmp_path / "rotated.pdf")
+        ops = [{"type": "text", "text": "Rotate me", "box": (50, 700, 300, 750),
+                "page_number": 1, "font_size": 12, "rotation": 90}]
+        PdfiumEngine().rebuild_pdf_with_ops(base, out, ops)
+
+        assert os.path.exists(out)
+        with open(out, "rb") as f:
+            assert f.read(5) == b"%PDF-"
+
 
 # ---------------------------------------------------------------------------
 # Verify PyMuPDF / fitz NOT imported by non-AGPL path
@@ -234,3 +270,10 @@ class TestNoPyMuPdfInDefaultPath:
         engine = get_pdf_engine()
         assert not isinstance(engine, PyMuPdfEngine), \
             "Default engine must be PdfiumEngine, not PyMuPdfEngine (AGPL)"
+
+    def test_package_wildcard_import_does_not_import_pymupdf(self):
+        namespace = {}
+        exec("from packages.pdf_engine import *", namespace)
+        assert "PyMuPdfEngine" not in namespace
+        assert "fitz" not in sys.modules
+        assert "pymupdf" not in sys.modules

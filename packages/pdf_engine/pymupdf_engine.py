@@ -92,25 +92,30 @@ class PyMuPdfEngine:
                         from packages.platform.fonts import get_vietnamese_font_path
                         is_bold = bool(op.get("bold"))
                         font_path = get_vietnamese_font_path(bold=is_bold)
-                        fontname = "vifont_bd" if is_bold else "vifont"
                         color = op.get("font_color", (0, 0, 0))
                         fs = max(6, op.get("font_size", 12))
-                        if font_path:
+                        rotation = int(op.get("rotation", 0))
+
+                        # insert_textbox nhận fontfile= (không nhận font= object trong 1.27.x)
+                        font_kwargs = {"fontfile": font_path} if font_path else {"fontname": "helv"}
+
+                        if rotation != 0:
+                            cx = (rect.x0 + rect.x1) / 2
+                            cy = (rect.y0 + rect.y1) / 2
+                            mat = fitz.Matrix(1, 0, 0, 1, 0, 0).prerotate(rotation)
                             page.insert_textbox(
-                                rect,
-                                text,
+                                rect, text,
                                 fontsize=fs,
-                                fontfile=font_path,
-                                fontname=fontname,
+                                **font_kwargs,
                                 color=color,
                                 align=0,
+                                morph=(fitz.Point(cx, cy), mat),
                             )
                         else:
                             page.insert_textbox(
-                                rect,
-                                text,
+                                rect, text,
                                 fontsize=fs,
-                                fontname="helv",
+                                **font_kwargs,
                                 color=color,
                                 align=0,
                             )
@@ -128,7 +133,9 @@ class PyMuPdfEngine:
                         image_path = op.get("image_path", "")
                         if not image_path or not _os.path.exists(image_path):
                             continue
-                        page.insert_image(rect, filename=image_path, keep_proportion=True)
+                        rotation = int(op.get("rotation", 0))
+                        page.insert_image(rect, filename=image_path,
+                                          keep_proportion=True, rotate=rotation)
 
                     elif op_type == "rect":
                         fill = op.get("fill_color", (1.0, 1.0, 1.0))
