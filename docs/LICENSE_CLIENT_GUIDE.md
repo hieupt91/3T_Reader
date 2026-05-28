@@ -164,6 +164,8 @@ Current backend deployment note for Win/Mac:
   - `GET /downloads/language/vi.json`
   - `GET /downloads/language/en.json`
   - app will fallback to built-in labels if the pack is missing
+- Internal commercial validation guide:
+  - `docs/INTERNAL_COMMERCIAL_VPS_GUIDE.md`
 - Do not commit `.env`; keep secrets in the VPS runtime file and share only `.env.example` in the repo.
 
 ### Request / Response mẫu
