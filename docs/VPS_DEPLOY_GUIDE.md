@@ -1,320 +1,138 @@
-# Hướng dẫn triển khai VPS — 3T Reader License & Update API
+# VPS Deploy Guide - 3T Reader License & Update API
 
-> Domain mục tiêu: `reader.3tcomputer.com`  
-> Stack: FastAPI + uvicorn + Nginx + Let's Encrypt  
-> OS khuyến nghị: Ubuntu 22.04 LTS  
+This guide reflects the live backend layout verified on the VPS.
 
----
+## Live Snapshot
 
-## 1. Yêu cầu VPS
+- Backend repo path on VPS: `/home/hieupt/projects/3T_Reader/phase1-backend`
+- Backend branch: `phase1-backend`
+- Latest observed backend commit: `ccbe90c` (`hardening license backend deployment`)
+- Container name: `backend-license-api-1`
+- Container image: `backend-license-api`
+- Runtime command: `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+- Compose file: `infra/backend/docker-compose.yml`
+- Public endpoints via Cloudflare Tunnel:
+  - `https://reader.3tcomputer.com`
+  - `https://license.3tcomputer.com`
+  - `ssh.dev3tcomputer.com` for SSH access
+- Host Nginx is separate and serves `3tcomputer.com`, `www.3tcomputer.com`, `test.3tcomputer.com`, and other non-reader services.
 
-| Thông số | Tối thiểu | Khuyến nghị |
-|---|---|---|
-| CPU | 1 vCPU | 2 vCPU |
-| RAM | 512 MB | 1 GB |
-| Disk | 10 GB | 20 GB |
-| OS | Ubuntu 22.04 | Ubuntu 22.04 |
-| Cổng mở | 80, 443, 22 | 80, 443, 22 |
+## Actual storage layout
 
----
+The live backend project uses local folders inside the repo:
 
-## 2. Cài đặt môi trường
+- `/home/hieupt/projects/3T_Reader/phase1-backend/data`
+- `/home/hieupt/projects/3T_Reader/phase1-backend/downloads`
 
-```bash
-# Cập nhật hệ thống
-sudo apt update && sudo apt upgrade -y
+The Docker Compose file mounts them as:
 
-# Cài Python 3.11, pip, nginx, certbot
-sudo apt install -y python3.11 python3.11-venv python3-pip nginx certbot python3-certbot-nginx git
+- `../../data:/data`
+- `../../downloads:/downloads`
 
-# Tạo user riêng chạy service (không dùng root)
-sudo useradd -m -s /bin/bash threet
-sudo mkdir -p /opt/threet /data
-sudo chown threet:threet /opt/threet /data
-```
+The current `data` directory contains:
 
----
+- `admin-config.json`
+- `license-api-state.json`
+- `orders.json`
 
-## 3. Deploy code server
+The `downloads` directory is the public static release root for:
 
-```bash
-# Chuyển sang user threet
-sudo -u threet -i
+- update artifacts
+- language packs
+- other downloadable files
 
-# Clone hoặc copy code server vào /opt/threet
-cd /opt/threet
-git clone <repo_url> .           # hoặc scp/rsync thư mục server/license-api
+Language packs are currently published at:
 
-# Tạo virtualenv và cài dependencies
-python3.11 -m venv venv
-source venv/bin/activate
-pip install -r server/license-api/requirements.txt
-```
+- `https://reader.3tcomputer.com/downloads/language/vi.json`
+- `https://reader.3tcomputer.com/downloads/language/en.json`
 
----
+## Backend compose file
 
-## 4. Biến môi trường (bắt buộc)
+The live backend is defined in:
 
-Tạo file `/opt/threet/.env`:
+`/home/hieupt/projects/3T_Reader/phase1-backend/infra/backend/docker-compose.yml`
 
-```dotenv
-# ── Môi trường ──────────────────────────────────────────────────
-THREET_ENV=production
+Important env values from that file:
 
-# ── Bảo mật — THAY ĐỔI ngay, KHÔNG để mặc định ────────────────
-THREET_LICENSE_SIGNING_SECRET=<chuỗi ngẫu nhiên 64 ký tự>
-THREET_ADMIN_PASSWORD=<mật_khẩu_admin_mạnh>
+- `THREET_ENV=production`
+- `THREET_DEFAULT_UPDATE_VERSION`
+- `THREET_DEFAULT_UPDATE_URL`
+- `THREET_UPDATE_URL_MAC`
+- `THREET_UPDATE_URL_WIN`
+- `THREET_DATA_DIR=/data`
+- `THREET_STATE_FILE=license-api-state.json`
+- `THREET_DOWNLOADS_DIR=/downloads`
+- `THREET_PUBLIC_BASE_URL=https://reader.3tcomputer.com`
 
-# ── Thư mục dữ liệu (license state, orders, staff) ──────────────
-THREET_DATA_DIR=/data
-THREET_STATE_FILE=license-api-state.json
+## Secret env template
 
-# ── Cấu hình license ────────────────────────────────────────────
-THREET_GRACE_DAYS=7
-THREET_LICENSE_DURATION_DAYS=365
+Use `infra/backend/.env.example` as the template for secrets.
 
-# ── Thông tin bản cập nhật MỚI NHẤT (cập nhật khi phát hành) ───
-THREET_DEFAULT_UPDATE_VERSION=1.0.0
-THREET_DEFAULT_UPDATE_URL=https://reader.3tcomputer.com/downloads/3TReader-1.0.0-mac.dmg
-```
+Do not commit the real `.env`.
 
-> **Tạo signing secret ngẫu nhiên:**
-> ```bash
-> python3 -c "import secrets; print(secrets.token_hex(32))"
-> ```
+The template currently includes:
 
----
+- `THREET_LICENSE_SIGNING_SECRET`
+- `THREET_LICENSE_ED25519_PRIVATE`
+- `THREET_ADMIN_PASSWORD`
+- `THREET_ADMIN_EMAIL`
+- `THREET_SMTP_USER`
+- `THREET_SMTP_PASS`
 
-## 5. Systemd service
+## Deploy flow
 
-Tạo `/etc/systemd/system/threet-api.service`:
+1. Update code in `/home/hieupt/projects/3T_Reader/phase1-backend`.
+2. Update `infra/backend/.env`.
+3. Place release files in `downloads/`.
+4. Rebuild and restart the container.
 
-```ini
-[Unit]
-Description=3T Reader License & Update API
-After=network.target
-
-[Service]
-Type=simple
-User=threet
-WorkingDirectory=/opt/threet/server/license-api
-EnvironmentFile=/opt/threet/.env
-ExecStart=/opt/threet/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-```
+Typical commands:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable threet-api
-sudo systemctl start threet-api
-sudo systemctl status threet-api   # kiểm tra running
+cd /home/hieupt/projects/3T_Reader/phase1-backend
+git checkout phase1-backend
+docker compose -f infra/backend/docker-compose.yml up -d --build
 ```
 
----
+## Release files
 
-## 6. Nginx + SSL
+When publishing a new version, place files under `downloads/` and update the compose env.
 
-### 6.1. Cấu hình Nginx
+Recommended names:
 
-Tạo `/etc/nginx/sites-available/threet`:
+- `3TReader-<version>-mac.dmg`
+- `3TReader-<version>-win.exe`
 
-```nginx
-server {
-    listen 80;
-    server_name reader.3tcomputer.com;
-    return 301 https://$host$request_uri;
-}
+Then update:
 
-server {
-    listen 443 ssl http2;
-    server_name reader.3tcomputer.com;
+- `THREET_DEFAULT_UPDATE_VERSION`
+- `THREET_DEFAULT_UPDATE_URL`
+- `THREET_UPDATE_URL_MAC`
+- `THREET_UPDATE_URL_WIN`
 
-    # SSL — certbot sẽ tự điền sau
-    ssl_certificate     /etc/letsencrypt/live/reader.3tcomputer.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/reader.3tcomputer.com/privkey.pem;
-    ssl_protocols       TLSv1.2 TLSv1.3;
-    ssl_ciphers         HIGH:!aNULL:!MD5;
+## Language packs
 
-    # Thư mục chứa file DMG / EXE để tải về
-    location /downloads/ {
-        root /data;
-        autoindex off;
-        add_header Content-Disposition "attachment";
-    }
+Language packs are served from the same backend through the public `downloads` path.
 
-    # API proxy
-    location / {
-        proxy_pass         http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header   Host $host;
-        proxy_set_header   X-Real-IP $remote_addr;
-        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
-        proxy_read_timeout 30;
-    }
-}
-```
+Expected URLs:
 
-```bash
-sudo ln -s /etc/nginx/sites-available/threet /etc/nginx/sites-enabled/
-sudo nginx -t
-```
+- `https://reader.3tcomputer.com/downloads/language/vi.json`
+- `https://reader.3tcomputer.com/downloads/language/en.json`
+- `https://license.3tcomputer.com/downloads/language/vi.json`
+- `https://license.3tcomputer.com/downloads/language/en.json`
 
-### 6.2. Cấp SSL (Let's Encrypt)
+## Verification
 
-```bash
-sudo certbot --nginx -d reader.3tcomputer.com
-# Nhập email, đồng ý điều khoản → certbot tự cấu hình Nginx
-sudo systemctl reload nginx
-```
+Read-only checks that matched the live VPS:
 
----
+- `docker logs backend-license-api-1`
+- `curl https://reader.3tcomputer.com/api/v1/update/check?platform=windows&current_version=1.0.2`
+- `curl https://license.3tcomputer.com/api/v1/license/validate`
 
-## 7. Phát hành bản cập nhật mới
+The container logs already show successful `POST /api/v1/license/validate` and `GET /api/v1/update/check` requests from Windows clients.
 
-Khi có build mới (ví dụ `1.2.0`), làm theo 3 bước:
+## Important correction
 
-### Lưu ý triển khai hiện tại
+The old placeholder layout that used `/opt/threet`, a systemd unit named `threet-api`, and `/data/downloads` is not the live deployment on this VPS.
 
-- Backend deployment hiện đang ở branch `phase1-backend`.
-- Commit hardening gần nhất: `ccbe90c` (`hardening license backend deployment`).
-- Upload release .dmg/.exe giờ tự tính `sha256`.
-- Token lỗi hoặc sai format không còn làm API 500; server trả JSON `{"ok": false, "message": "Invalid token."}`.
-- Admin/staff password được hash bằng PBKDF2.
-- Không commit `.env`; repo chỉ nên giữ `.env.example`, còn secret thật ở VPS runtime file.
-
-### Bước 1 — Upload file DMG/EXE lên VPS
-
-```bash
-# Tạo thư mục downloads nếu chưa có
-sudo mkdir -p /data/downloads
-sudo chown threet:threet /data/downloads
-
-# Upload từ máy dev
-scp 3TReader-<version>-mac.dmg user@reader.3tcomputer.com:/data/downloads/
-scp 3TReader-<version>-win.exe user@reader.3tcomputer.com:/data/downloads/
-```
-
-### Bước 2 — Cập nhật biến môi trường
-
-Sửa `/opt/threet/.env`:
-
-```dotenv
-THREET_DEFAULT_UPDATE_VERSION=1.2.0
-THREET_DEFAULT_UPDATE_URL=https://reader.3tcomputer.com/downloads/3TReader-1.2.0-mac.dmg
-```
-
-> **Lưu ý:** Release file nên đặt theo convention:
-> - `3TReader-<version>-mac.dmg`
-> - `3TReader-<version>-win.exe`
->
-> Nếu cần tách URL theo platform thì sửa `update_service.py` để trả đúng file cho từng `platform`.
-
-### 7.1 Language pack cho UI
-
-Neu ban muon host goi ngon ngu cho app desktop, lam theo:
-
-- doc [VPS_LANGUAGE_PACK_GUIDE.md](VPS_LANGUAGE_PACK_GUIDE.md)
-- dung URL static: `/downloads/language/{code}.json`
-- `code` thuong la `vi` hoac `en`
-- file pack nen luu trong `/data/downloads/language/`
-
-### Bước 3 — Restart service
-
-```bash
-sudo systemctl restart threet-api
-```
-
-Ngay lập tức, khi app 3T Reader < 1.2.0 khởi động sau 15 giây, nó sẽ hỏi người dùng muốn cập nhật không.
-
----
-
-## 8. Kiểm tra endpoint cập nhật
-
-```bash
-# Kiểm tra từ máy local
-curl "https://reader.3tcomputer.com/api/v1/update/check?platform=mac&current_version=1.0.0"
-
-# Kết quả mong đợi (khi có bản mới 1.2.0):
-{
-  "platform": "mac",
-  "current_version": "1.0.0",
-  "latest_version": "1.2.0",
-  "download_url": "https://reader.3tcomputer.com/downloads/3TReader-1.2.0-mac.dmg",
-  "sha256": "",
-  "mandatory": false,
-  "release_notes": ""
-}
-
-# Kiểm tra khi đã dùng bản mới nhất:
-curl "https://reader.3tcomputer.com/api/v1/update/check?platform=mac&current_version=1.2.0"
-# → latest_version == current_version → app hiểu là "đã mới nhất"
-```
-
----
-
-## 9. Tất cả endpoints API
-
-| Endpoint | Method | Mô tả |
-|---|---|---|
-| `/api/v1/update/check` | GET | Kiểm tra bản cập nhật |
-| `/api/v1/license/activate` | POST | Kích hoạt license key |
-| `/api/v1/license/validate` | POST | Xác thực token license |
-| `/api/v1/license/heartbeat` | POST | Giữ phiên license online |
-| `/api/v1/license/deactivate` | POST | Hủy kích hoạt thiết bị |
-| `/admin` | GET | Trang admin (cần password) |
-| `/api/admin/config` | GET/POST | Cấu hình hệ thống |
-| `/api/admin/orders` | GET/POST | Quản lý đơn hàng |
-| `/api/admin/staff` | GET/POST | Quản lý tài khoản nhân viên |
-
-**Tài liệu Swagger UI tự động:**  
-`https://reader.3tcomputer.com/docs`
-
----
-
-## 10. Quy trình thêm release notes
-
-Hiện tại server dùng `release_notes: ""`. Để thêm nội dung:
-
-**Cách nhanh** — thêm biến env:
-```dotenv
-THREET_DEFAULT_RELEASE_NOTES=- Sửa lỗi hiển thị PDF scan\n- Tăng tốc OCR tiếng Việt\n- Cải thiện ribbon bar
-```
-
-Sau đó sửa `update_service.py` đọc biến này:
-```python
-"release_notes": os.getenv("THREET_DEFAULT_RELEASE_NOTES", "").replace("\\n", "\n"),
-```
-
----
-
-## 11. Backup dữ liệu
-
-```bash
-# Backup thủ công state file + orders
-sudo cp /data/license-api-state.json /data/backup-$(date +%Y%m%d).json
-sudo cp /data/orders.json /data/orders-backup-$(date +%Y%m%d).json
-
-# Cron tự động backup mỗi ngày 2h sáng
-echo "0 2 * * * root tar -czf /data/backup-\$(date +\%Y\%m\%d).tar.gz /data/*.json" \
-  | sudo tee /etc/cron.d/threet-backup
-```
-
----
-
-## 12. Checklist trước khi go-live
-
-- [ ] Đổi `THREET_LICENSE_SIGNING_SECRET` khỏi giá trị mặc định
-- [ ] Đổi `THREET_ADMIN_PASSWORD` khỏi giá trị mặc định
-- [ ] SSL certbot đã cấp và nginx reload thành công
-- [ ] `curl https://reader.3tcomputer.com/api/v1/update/check?platform=mac&current_version=0.0.0` trả JSON đúng
-- [ ] Upload ít nhất 1 file DMG/EXE vào `/data/downloads/`
-- [ ] `THREET_DEFAULT_UPDATE_VERSION` và `THREET_DEFAULT_UPDATE_URL` đã cập nhật
-- [ ] Systemd service enabled và running
-- [ ] Cron backup đã bật
+Use the Docker Compose layout above when updating the docs or publishing releases.

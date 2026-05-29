@@ -24,6 +24,29 @@ from packages.qt_compat.QtWidgets import (
 from app.dialogs import show_warning
 
 
+def _place_near_parent(parent, width: int, height: int, *, dx: int = 24, dy: int = 80):
+    if parent is None:
+        return 0, 0
+    try:
+        screen = parent.windowHandle().screen() if parent.windowHandle() else None
+    except Exception:
+        screen = None
+    if screen is None:
+        from packages.qt_compat.QtWidgets import QApplication
+        screen = QApplication.primaryScreen()
+    if screen is None:
+        return 0, 0
+    geo = screen.availableGeometry()
+    parent_geo = parent.frameGeometry()
+    target_x = parent_geo.right() - width - dx
+    target_y = parent_geo.top() + dy
+    max_x = max(geo.left(), geo.right() - width)
+    max_y = max(geo.top(), geo.bottom() - height)
+    x = min(max(geo.left(), target_x), max_x)
+    y = min(max(geo.top(), target_y), max_y)
+    return int(x), int(y)
+
+
 # ── Bridges (JS ↔ Python via QWebChannel) ────────────────────────────────────
 
 class InlineTextBridge(QObject):
@@ -255,8 +278,8 @@ class InlineEditPanel(QFrame):
 
     def position_near(self, window):
         self.adjustSize()
-        geo = window.frameGeometry()
-        self.move(max(0, geo.right() - self.width() - 24), max(0, geo.top() + 80))
+        x, y = _place_near_parent(window, self.width(), self.height(), dx=24, dy=80)
+        self.move(x, y)
 
 
 # ── JavaScript: inline text overlay ──────────────────────────────────────────

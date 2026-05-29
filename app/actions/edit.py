@@ -612,6 +612,29 @@ def _reset_edit_state(window):
     _set_edit_state(window, None)
 
 
+def _place_dialog_near_parent(parent, width: int, height: int, *, dx: int = 16, dy: int = 72):
+    if parent is None:
+        return 0, 0
+    try:
+        screen = parent.windowHandle().screen() if parent.windowHandle() else None
+    except Exception:
+        screen = None
+    if screen is None:
+        from packages.qt_compat.QtWidgets import QApplication
+        screen = QApplication.primaryScreen()
+    if screen is None:
+        return 0, 0
+    geo = screen.availableGeometry()
+    parent_geo = parent.frameGeometry()
+    target_x = parent_geo.right() - width - dx
+    target_y = parent_geo.top() + dy
+    max_x = max(geo.left(), geo.right() - width)
+    max_y = max(geo.top(), geo.bottom() - height)
+    x = min(max(geo.left(), target_x), max_x)
+    y = min(max(geo.top(), target_y), max_y)
+    return int(x), int(y)
+
+
 def _ensure_edit_state(window):
     current = window.current_path
     if not current:
@@ -658,7 +681,15 @@ def _reload_viewer(window, pdf_path: str, page: int | None = None):
     page = max(1, page)
 
     window.current_path = pdf_path
-    window.viewer.load_pdf(pdf_path, page=page, zoom="page-width")
+    from packages.qt_compat.QtCore import QTimer
+
+    def _load():
+        try:
+            window.viewer.load_pdf(pdf_path, page=page, zoom="page-width")
+        except Exception as exc:
+            show_warning(window, "Không thể mở file vừa lưu", str(exc))
+
+    QTimer.singleShot(0, _load)
 
 
 def _navigate_viewer(window, page_no: int):
@@ -675,7 +706,13 @@ def _navigate_viewer(window, page_no: int):
         pass
 
 
-def _render_edit_state(window, state, status_message: str, focus_page: int | None = None):
+def _render_edit_state(
+    window,
+    state,
+    status_message: str,
+    focus_page: int | None = None,
+    auto_select_op: dict | None = None,
+):
     """Rebuild working file from base + all ops, then reload viewer in-place."""
     base_snapshot = state.get("base_snapshot")
     ops = state.get("ops") or []
@@ -702,6 +739,22 @@ def _render_edit_state(window, state, status_message: str, focus_page: int | Non
         return None
 
     _reload_viewer(window, working_file, page=current_page)
+
+    if auto_select_op is not None:
+        viewer = getattr(window, "viewer", None)
+        if viewer is not None:
+            def _auto_open():
+                try:
+                    viewer.page_ready.disconnect(_auto_open)
+                except Exception:
+                    pass
+                from packages.qt_compat.QtCore import QTimer
+                QTimer.singleShot(0, lambda: _run_object_action_session(window, state, auto_select_op))
+
+            try:
+                viewer.page_ready.connect(_auto_open)
+            except Exception:
+                pass
 
     # Điều hướng đến trang đã chèn sau khi viewer load xong (delay nhỏ)
     if focus_page is not None:
@@ -825,6 +878,130 @@ def _find_op_at_pick(state, pick):
     return min(candidates, key=dist2)
 
 
+def _run_object_action_session(window, state, target_op, web_view=None):
+    from app.actions.sign import _get_web_view, _setup_webchannel, _teardown_webchannel
+
+    if web_view is None:
+        web_view = _get_web_view(window)
+    if web_view is None:
+        return
+
+    op_type = target_op.get("type", "text")
+    current_rot = int(target_op.get("rotation", 0))
+    page_num = int(target_op.get("page_number", 1))
+    left, bottom, right, top = target_op.get("box", (0, 0, 0, 0))
+
+    _show_object_overlay(window, target_op)
+
+    # Poll window.__3tPendingAction every 80 ms â€” no QWebChannel needed.
+    action_result = {}
+    loop = QEventLoop(window)
+    poll_timer = QTimer(window)
+    poll_timer.setInterval(80)
+
+    def _poll_action(js_result):
+        if js_result is None:
+            return
+        action_result.update(js_result)
+        poll_timer.stop()
+        if loop.isRunning():
+            loop.quit()
+
+    def _do_poll():
+        web_view.page().runJavaScript("window.__3tPendingAction", _poll_action)
+
+    poll_timer.timeout.connect(_do_poll)
+
+    def _js_ran(_result):
+        pass
+
+    try:
+        js = _SHOW_OBJECT_WITH_HANDLES_JS % (
+            page_num, left, bottom, right, top,
+            current_rot, "true" if op_type == "text" else "false",
+        )
+        web_view.page().runJavaScript(js, _js_ran)
+        poll_timer.start()
+        loop.exec()
+    finally:
+        poll_timer.stop()
+        web_view.page().runJavaScript(_CLEAR_OBJECT_HANDLES_JS)
+        _clear_object_overlay(window)
+
+    action = action_result.get("type", "dismiss")
+
+    if action == "dismiss":
+        return
+
+    if action == "rotate":
+        angle = int(action_result.get("angle", 0)) % 360
+        target_op["rotation"] = angle
+        _render_edit_state(window, state, f"Đã xoay {angle}°", focus_page=page_num)
+        return
+
+    if action == "delete":
+        op_label = "văn bản" if op_type == "text" else "ảnh"
+        state["ops"].remove(target_op)
+        if not state["ops"]:
+            original = state.get("original_path")
+            _reset_edit_state(window)
+            if original and os.path.exists(original):
+                _reload_viewer(window, original)
+            window.status.showMessage(f"Đã xóa {op_label} — tài liệu về trạng thái gốc", 3000)
+        else:
+            _render_edit_state(window, state, f"Đã xóa {op_label}")
+        return
+
+    if action == "edit" and op_type == "text":
+        color_tuple = target_op.get("font_color", (0.0, 0.0, 0.0))
+        dlg_edit = _TextEditDialog(
+            window,
+            text=target_op.get("text", ""),
+            font_size=target_op.get("font_size", 14),
+            color_tuple=color_tuple,
+            bold=target_op.get("bold", False),
+            underline=target_op.get("underline", False),
+        )
+        if dlg_edit.exec() != QDialog.DialogCode.Accepted:
+            return
+        new_text = dlg_edit.get_text()
+        if not new_text:
+            return
+
+        target_op["text"] = new_text
+        target_op["font_size"] = dlg_edit.get_font_size()
+        target_op["font_color"] = dlg_edit.get_color_tuple()
+        target_op["bold"] = dlg_edit.get_bold()
+        target_op["underline"] = dlg_edit.get_underline()
+        _render_edit_state(window, state, "Đã cập nhật văn bản", focus_page=page_num)
+        return
+
+    if action == "move":
+        pick_bridge2 = AreaPickBridge(window)
+        _setup_webchannel(web_view, window, "areaPickBridge", pick_bridge2)
+        try:
+            if hasattr(window, "status"):
+                window.status.showMessage("Kéo để chọn vị trí/kích thước mới... (Esc để hủy)", 0)
+            new_area = _do_area_pick(web_view, pick_bridge2, window)
+            if hasattr(window, "status"):
+                window.status.showMessage("", 0)
+        finally:
+            web_view.page().runJavaScript(_CLEAR_BRIDGE_CACHE_JS)
+            _teardown_webchannel(web_view)
+
+        if not new_area:
+            return
+        l, b, r, t = new_area["box"]
+        if abs(r - l) < 6 or abs(t - b) < 6:
+            w = target_op["box"][2] - target_op["box"][0]
+            h = target_op["box"][3] - target_op["box"][1]
+            r = l + max(20, w)
+            t = b + max(20, h)
+        target_op["page_number"] = int(new_area["page_number"])
+        target_op["box"] = (l, b, r, t)
+        _render_edit_state(window, state, "Đã cập nhật vị trí/kích thước đối tượng")
+
+
 def _pick_save_pdf_path(window, default_name: str) -> str | None:
     path, _ = QFileDialog.getSaveFileName(
         window,
@@ -874,12 +1051,8 @@ class _ObjectPlacementDialog(QDialog):
         self._position_near_parent(parent)
 
     def _position_near_parent(self, parent):
-        if parent is None:
-            return
-        geo = parent.frameGeometry()
-        x = geo.right() - self.width() - 16
-        y = geo.top() + 72
-        self.move(max(0, x), max(0, y))
+        x, y = _place_dialog_near_parent(parent, self.width(), self.height())
+        self.move(x, y)
 
 
 class _TextEditDialog(QDialog):
@@ -1032,12 +1205,8 @@ class _TextEditDialog(QDialog):
         return self._under_btn.isChecked()
 
     def _position_near_parent(self, parent):
-        if parent is None:
-            return
-        geo = parent.frameGeometry()
-        x = geo.right() - self.width() - 16
-        y = geo.top() + 72
-        self.move(max(0, x), max(0, y))
+        x, y = _place_dialog_near_parent(parent, self.width(), self.height())
+        self.move(x, y)
 
 
 class _ObjectEditDialog(QDialog):
@@ -1124,12 +1293,8 @@ class _ObjectEditDialog(QDialog):
         return self._action
 
     def _position_near_parent(self, parent):
-        if parent is None:
-            return
-        geo = parent.frameGeometry()
-        x = geo.right() - self.width() - 16
-        y = geo.top() + 72
-        self.move(max(0, x), max(0, y))
+        x, y = _place_dialog_near_parent(parent, self.width(), self.height())
+        self.move(x, y)
 
 
 def create_new_pdf(window):
@@ -1181,7 +1346,8 @@ def insert_text_to_pdf(window):
 
     _render_edit_state(window, state,
         "Đã chèn văn bản  ·  Dùng nút 'Chọn & Xoay' để xoay/di chuyển/sửa",
-        focus_page=page_number)
+        focus_page=page_number,
+        auto_select_op=op)
 
 
 @require_document(show_message=True)
@@ -1239,12 +1405,13 @@ def insert_image_to_pdf(window):
 
     _render_edit_state(window, state,
         "Đã chèn ảnh  ·  Dùng nút 'Chọn & Xoay' để xoay/di chuyển",
-        focus_page=page_number)
+        focus_page=page_number,
+        auto_select_op=op)
 
 
 
 @require_document(show_message=True)
-def save_edits(window):
+def save_edits(window, *, reload_viewer: bool = True) -> bool:
     """Lưu các thay đổi (text/ảnh đã chèn) vào file gốc."""
     state = _get_edit_state(window)
     if not state:
@@ -1252,8 +1419,8 @@ def save_edits(window):
         try:
             window.viewer.save_pdf()
         except Exception:
-            pass
-        return
+            return False
+        return True
 
     working = state.get("working_file")
     base = state.get("base_snapshot")
@@ -1261,27 +1428,27 @@ def save_edits(window):
 
     if not working or not base or not os.path.exists(base):
         show_warning(window, "Không lưu được", "Không tìm thấy file làm việc.")
-        return
+        return False
 
     # Rebuild lần cuối vào working file
     try:
         get_pdf_engine().rebuild_pdf_with_ops(base, working, state.get("ops", []))
     except Exception as e:
         show_warning(window, "Lỗi khi dựng file", str(e))
-        return
+        return False
 
     # Xác định đường dẫn lưu
     save_path = original
     if not save_path or not os.path.exists(os.path.dirname(save_path) or "."):
         save_path = _pick_save_pdf_path(window, "document.pdf")
     if not save_path:
-        return
+        return False
 
     try:
         shutil.copy2(working, save_path)
     except Exception as e:
         show_warning(window, "Lỗi ghi file", str(e))
-        return
+        return False
 
     # Reset edit state, tải lại từ file đã lưu
     _set_edit_state(window, None)
@@ -1289,6 +1456,45 @@ def save_edits(window):
     window.status.showMessage(
         f"Đã lưu: {os.path.basename(save_path)}", 5000
     )
+
+
+def save_edits_quiet(window) -> bool:
+    """Save current edit session without reloading the viewer."""
+    state = _get_edit_state(window)
+    if not state:
+        try:
+            window.viewer.save_pdf()
+        except Exception:
+            return False
+        return True
+
+    working = state.get("working_file")
+    base = state.get("base_snapshot")
+    original = state.get("original_path")
+
+    if not working or not base or not os.path.exists(base):
+        return False
+
+    try:
+        get_pdf_engine().rebuild_pdf_with_ops(base, working, state.get("ops", []))
+    except Exception:
+        return False
+
+    save_path = original
+    if not save_path or not os.path.exists(os.path.dirname(save_path) or "."):
+        save_path = _pick_save_pdf_path(window, "document.pdf")
+    if not save_path:
+        return False
+
+    try:
+        shutil.copy2(working, save_path)
+    except Exception:
+        return False
+
+    window.current_path = save_path
+    _set_edit_state(window, None)
+    window.status.showMessage(f"ÄÃ£ lÆ°u: {os.path.basename(save_path)}", 5000)
+    return True
 
 
 @require_document(show_message=True)

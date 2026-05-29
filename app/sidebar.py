@@ -87,10 +87,18 @@ class ThumbnailSidebar(QDockWidget):
         self._requested_pages = []
         self._pending_pages = []
         self._loader = None
+        self._load_token = 0
+        self._populate_token = 0
+        self._populate_index = 1
+        self._populate_batch_size = 40
         self._load_timer = QTimer(self)
         self._load_timer.setSingleShot(True)
         self._load_timer.setInterval(80)
         self._load_timer.timeout.connect(self._load_visible_thumbnails)
+        self._populate_timer = QTimer(self)
+        self._populate_timer.setSingleShot(True)
+        self._populate_timer.setInterval(0)
+        self._populate_timer.timeout.connect(self._populate_next_batch)
         self.list.itemClicked.connect(self._handle_click)
         self.list.verticalScrollBar().valueChanged.connect(self._schedule_visible_load)
 
@@ -99,25 +107,44 @@ class ThumbnailSidebar(QDockWidget):
             self._on_click(self.list.row(item) + 1)
 
     def load_thumbnails(self, pdf_path: str, on_click):
+        self._load_token += 1
+        self._populate_token = self._load_token
         self.list.clear()
         self._on_click = on_click
         self._pdf_path = pdf_path
         self._loaded_pages.clear()
         self._requested_pages = []
         self._pending_pages = []
+        self._populate_timer.stop()
+        self._populate_index = 1
 
         if self._loader and self._loader.isRunning():
             self._loader.requestInterruption()
-            self._loader.wait()
 
         self._page_count = self._read_page_count(pdf_path)
-        for page_number in range(1, self._page_count + 1):
+        if self._page_count <= 0:
+            return
+
+        self._populate_next_batch()
+
+    def _populate_next_batch(self):
+        if self._populate_token != self._load_token:
+            return
+        if self._page_count <= 0 or self._populate_index > self._page_count:
+            return
+
+        end_page = min(self._page_count, self._populate_index + self._populate_batch_size - 1)
+        for page_number in range(self._populate_index, end_page + 1):
             item = QListWidgetItem()
             item.setText(f"Trang {page_number}")
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.list.addItem(item)
 
+        self._populate_index = end_page + 1
         self._schedule_visible_load()
+
+        if self._populate_index <= self._page_count:
+            self._populate_timer.start(0)
 
     def _read_page_count(self, pdf_path: str) -> int:
         try:
@@ -166,12 +193,19 @@ class ThumbnailSidebar(QDockWidget):
             self._loader.requestInterruption()
             return
 
+        current_token = self._load_token
+        pdf_path = self._pdf_path
         self._loader = ThumbnailLoader(self._pdf_path, page_numbers)
-        self._loader.thumbnailReady.connect(self._append_thumbnail)
-        self._loader.finishedLoading.connect(self._finish_loading)
+        self._loader.thumbnailReady.connect(
+            lambda page_number, image, token=current_token, path=pdf_path: self._append_thumbnail(token, path, page_number, image)
+        )
+        self._loader.finishedLoading.connect(lambda token=current_token: self._finish_loading(token))
         self._loader.start()
 
-    def _append_thumbnail(self, page_number: int, image: QImage):
+    def _append_thumbnail(self, token: int, pdf_path: str, page_number: int, image: QImage):
+        if token != self._load_token or pdf_path != self._pdf_path:
+            return
+
         index = page_number - 1
         if not (0 <= index < self.list.count()):
             return
@@ -180,7 +214,9 @@ class ThumbnailSidebar(QDockWidget):
         item = self.list.item(index)
         item.setIcon(QIcon(QPixmap.fromImage(image)))
 
-    def _finish_loading(self):
+    def _finish_loading(self, token: int):
+        if token != self._load_token:
+            return
         if self._pending_pages:
             pending_pages = [page_number for page_number in self._pending_pages if page_number not in self._loaded_pages]
             self._pending_pages = []

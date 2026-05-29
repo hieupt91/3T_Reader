@@ -2,7 +2,7 @@
 ; Kịch bản tạo bộ cài đặt chuyên nghiệp cho 3T Reader
 ; ================================================================
 #define MyAppName      "3T Reader"
-#define MyAppVersion   "1.0.2"
+#define MyAppVersion   "1.0.7"
 #define MyAppPublisher "3T Company"
 #define MyAppExeName   "3T_Reader.exe"
 
@@ -43,7 +43,6 @@ SolidCompression=yes
 ; Giao diện
 WizardStyle=modern
 SetupIconFile=assets\app.ico
-UninstallDisplayIcon={app}\{#MyAppExeName}
 
 ; Yêu cầu Admin
 PrivilegesRequired=admin

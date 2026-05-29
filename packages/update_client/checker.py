@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import platform
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -32,6 +31,24 @@ def _is_newer(latest: str, current: str) -> bool:
     return _parse_version(latest) > _parse_version(current)
 
 
+def _pick_manifest_version(data: dict) -> str:
+    return (
+        data.get("version")
+        or data.get("latest_version")
+        or data.get("tag_name")
+        or ""
+    )
+
+
+def _pick_manifest_url(data: dict) -> str:
+    return (
+        data.get("download_url")
+        or data.get("url")
+        or data.get("browser_download_url")
+        or ""
+    )
+
+
 @dataclass
 class UpdateInfo:
     available: bool
@@ -49,19 +66,27 @@ class UpdateResult:
     error: Optional[str] = None
 
 
+def _direct_requests_session():
+    import requests
+
+    session = requests.Session()
+    session.trust_env = False
+    return session
+
+
 def check_for_update(base_url: str, current_version: str, channel: str = "stable") -> UpdateInfo:
     try:
-        import requests
+        session = _direct_requests_session()
         plat = _current_platform()
         url = (
             f"{base_url.rstrip('/')}/api/v1/update/check"
             f"?platform={plat}&current_version={current_version}"
         )
-        resp = requests.get(url, timeout=_TIMEOUT, headers={"User-Agent": "3T-Reader/1.0"})
+        resp = session.get(url, timeout=_TIMEOUT, headers={"User-Agent": "3T-Reader/1.0"})
         resp.raise_for_status()
         data = resp.json()
 
-        latest = data.get("version", "")
+        latest = _pick_manifest_version(data)
         if not latest or not _is_newer(latest, current_version):
             return UpdateInfo(available=False, current_version=current_version, latest_version=latest)
 
@@ -69,8 +94,8 @@ def check_for_update(base_url: str, current_version: str, channel: str = "stable
             available=True,
             current_version=current_version,
             latest_version=latest,
-            download_url=data.get("download_url", ""),
-            release_notes=data.get("release_notes", ""),
+            download_url=_pick_manifest_url(data),
+            release_notes=data.get("release_notes", "") or data.get("changelog", ""),
         )
     except Exception as e:
         return UpdateInfo(available=False, current_version=current_version, error=str(e))
@@ -78,10 +103,10 @@ def check_for_update(base_url: str, current_version: str, channel: str = "stable
 
 def download_update(info: UpdateInfo) -> UpdateResult:
     if not info.available or not info.download_url:
-        return UpdateResult(success=False, error="Không có bản cập nhật để tải.")
+        return UpdateResult(success=False, error="KhÃ´ng cÃ³ báº£n cáº­p nháº­t Ä‘á»ƒ táº£i.")
     try:
-        import requests
-        resp = requests.get(info.download_url, timeout=120, stream=True, headers={"User-Agent": "3T-Reader/1.0"})
+        session = _direct_requests_session()
+        resp = session.get(info.download_url, timeout=120, stream=True, headers={"User-Agent": "3T-Reader/1.0"})
         resp.raise_for_status()
 
         default_suffix = ".exe" if sys.platform == "win32" else ".dmg"

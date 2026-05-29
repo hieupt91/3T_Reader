@@ -50,6 +50,7 @@ def _extract_words_with_pdfplumber(pdf_path: str, page_no: int) -> list[dict]:
     words: list[dict] = []
     with pdfplumber.open(pdf_path) as pdf:
         page = pdf.pages[page_no - 1]
+        page_height = float(getattr(page, "height", 0.0) or 0.0)
         raw_words = page.extract_words(
             use_text_flow=False,
             keep_blank_chars=False,
@@ -61,8 +62,16 @@ def _extract_words_with_pdfplumber(pdf_path: str, page_no: int) -> list[dict]:
                 continue
             left = float(item.get("x0", 0.0))
             right = float(item.get("x1", left))
-            top = float(item.get("top", 0.0))
-            bottom = float(item.get("bottom", top))
+            top_from_top = float(item.get("top", 0.0))
+            bottom_from_top = float(item.get("bottom", top_from_top))
+            if page_height > 0:
+                top = page_height - top_from_top
+                bottom = page_height - bottom_from_top
+                if bottom > top:
+                    bottom, top = top, bottom
+            else:
+                top = top_from_top
+                bottom = bottom_from_top
             words.append({
                 "text": text,
                 "text_key": text.casefold(),
@@ -199,6 +208,8 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
                 left, top,    right, top,
                 left, bottom, right, bottom,
             ])
+        elif subtype == "Text":
+            d["/Name"] = pikepdf.Name("/Note")
         if content:
             d["/Contents"] = pikepdf.String(content)
         if subtype == "Text":
@@ -512,21 +523,24 @@ def _do_add_comment(window, content: str, anchor_text: str = ""):
             page_w = float(mb[2]) - float(mb[0])
             page_h = float(mb[3]) - float(mb[1])
 
-            # Vị trí mặc định: góc trên phải, sát lề
-            note_x = page_w - 30
-            note_y = page_h - 20  # PDF Y tính từ dưới lên, nên đây là gần đỉnh trang
+            icon_w = 18.0
+            icon_h = 18.0
+            margin = 8.0
+
+            # Vị trí mặc định: góc trên phải, sát lề nhưng vẫn nằm trong trang
+            note_x = max(margin, page_w - icon_w - margin)
+            note_y = max(icon_h + margin, page_h - margin)
 
             # Nếu có text được chọn, đặt note bên phải dòng đầu tiên của text đó
             if anchor_text:
                 rects = _search_text_on_page(path, page_no, anchor_text)
                 if rects:
-                    # Lấy rect đầu tiên, đặt note bên phải, cùng chiều cao
                     first = rects[0]  # (left, bottom, right, top)
-                    note_x = min(page_w - 30, first[2] + 5)   # ngay bên phải text
-                    note_y = first[3] - 5                       # cùng cạnh trên của text
+                    note_x = min(page_w - icon_w - margin, max(margin, first[2] + 6))
+                    note_y = min(page_h - margin, max(icon_h + margin, first[3] + 6))
 
-            x0, y0 = note_x, note_y - 20
-            x1, y1 = note_x + 20, note_y
+            x0, y0 = note_x, max(0.0, note_y - icon_h)
+            x1, y1 = note_x + icon_w, note_y
 
             _add_pdf_annotation(pdf, page_no - 1, "Text",
                                  [(x0, y0, x1, y1)], [1.0, 1.0, 0.0],

@@ -23,7 +23,7 @@ from packages.qt_compat.QtWidgets import (
     QVBoxLayout,
     QStyle,
 )
-from packages.qt_compat.QtCore import QObject, QEventLoop, Qt, pyqtSignal, pyqtSlot
+from packages.qt_compat.QtCore import QObject, QEventLoop, Qt, QTimer, pyqtSignal, pyqtSlot
 from packages.qt_compat.QtWebChannel import QWebChannel
 
 from packages.signing import get_signing_provider
@@ -55,6 +55,39 @@ def _teardown_webchannel(web_view):
         web_view.page().setWebChannel(None)
     except RuntimeError:
         pass
+
+
+def _refresh_document_view(window, output_path: str, *, page_number: int = 1):
+    """Update the active document paths and reopen the rendered PDF on the next tick."""
+    try:
+        state = window._state_or_global() if hasattr(window, "_state_or_global") else None
+    except Exception:
+        state = None
+
+    if state is not None:
+        state["source_path"] = output_path
+        state["display_path"] = output_path
+
+    try:
+        window.current_path = output_path
+    except Exception:
+        pass
+
+    def _load():
+        viewer = getattr(window, "viewer", None)
+        if not viewer:
+            return
+        try:
+            viewer.load_pdf(
+                output_path,
+                page=max(1, int(page_number or 1)),
+                zoom="page-width",
+            )
+        except Exception:
+            traceback.print_exc()
+            show_warning(window, "Lỗi mở file đã ký", "Không thể hiển thị file vừa ký.")
+
+    QTimer.singleShot(0, _load)
 
 
 def _format_signature_report(report: dict, path: str | None = None) -> str:
@@ -1122,12 +1155,7 @@ def create_signature_field(window):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            window.current_path = output_path
-            window.viewer.load_pdf(
-                output_path,
-                page=placement["page_number"],
-                zoom="page-width",
-            )
+            _refresh_document_view(window, output_path, page_number=placement["page_number"])
         window.status.showMessage(validation["message"], 3000)
     except Exception:
         traceback.print_exc()
@@ -1324,12 +1352,7 @@ def sign_with_pfx(window):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            window.current_path = output_path
-            window.viewer.load_pdf(
-                output_path,
-                page=placement["page_number"],
-                zoom="page-width",
-            )
+            _refresh_document_view(window, output_path, page_number=placement["page_number"])
 
     except Exception:
         traceback.print_exc()
@@ -1529,12 +1552,7 @@ def sign_document(window):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
-            window.current_path = output_path
-            window.viewer.load_pdf(
-                output_path,
-                page=placement["page_number"],
-                zoom="page-width",
-            )
+            _refresh_document_view(window, output_path, page_number=placement["page_number"])
 
     except Exception as exc:
         exc_type_name = type(exc).__name__
@@ -1831,8 +1849,7 @@ def sign_handwritten(window):
         doc.save(out_path)
         doc.close()
 
-        window.current_path = out_path
-        window.viewer.load_pdf(out_path, page=page_no, zoom="page-width")
+        _refresh_document_view(window, out_path, page_number=page_no)
         if hasattr(window, "status"):
             window.status.showMessage("Đã đặt chữ ký tay lên PDF", 3000)
     except Exception as exc:

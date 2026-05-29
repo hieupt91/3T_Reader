@@ -9,8 +9,12 @@ from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QFrame, QSizePolicy,
 )
+from styles.theme import is_dark
 
-_STYLE = """
+
+def _build_style(dark: bool) -> str:
+    if dark:
+        return """
 QDialog { background: #16162A; }
 QLabel#title  { color: #E8EEFF; font-size: 15px; font-weight: 700; }
 QLabel#status { color: #8080B0; font-size: 11px; }
@@ -69,6 +73,65 @@ QListWidget::item:hover {
 }
 QFrame#divider { background: #2A2A4A; }
 """
+    return """
+QDialog { background: #F8FAFF; }
+QLabel#title  { color: #0F172A; font-size: 15px; font-weight: 700; }
+QLabel#status { color: #475569; font-size: 11px; }
+QLineEdit {
+    background: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 7px;
+    padding: 8px 12px;
+    font-size: 13px;
+}
+QLineEdit:focus { border-color: #2563EB; }
+QPushButton {
+    background: #E2E8F0;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 7px;
+    padding: 8px 18px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QPushButton:hover  { background: #CBD5E1; border-color: #94A3B8; }
+QPushButton:disabled { color: #94A3B8; border-color: #CBD5E1; }
+QPushButton#btn_search {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2563EB,stop:1 #7C3AED);
+    color: white; border: none;
+    min-width: 90px;
+}
+QPushButton#btn_search:hover { background: #3B82F6; }
+QPushButton#btn_build {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #3b6fd4,stop:1 #5b4fd4);
+    color: white; border: none;
+}
+QPushButton#btn_build:hover { background: #4b7fe4; }
+QListWidget {
+    background: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 8px;
+    font-size: 13px;
+    padding: 4px;
+    outline: none;
+}
+QListWidget::item {
+    padding: 10px 12px;
+    border-bottom: 1px solid #E2E8F0;
+    border-radius: 6px;
+}
+QListWidget::item:selected {
+    background: #E0F2FE;
+    color: #0F172A;
+    border-left: 3px solid #2563EB;
+}
+QListWidget::item:hover {
+    background: #F1F5F9;
+}
+QFrame#divider { background: #CBD5E1; }
+"""
 
 
 def _get_search_cache_dir() -> str:
@@ -90,7 +153,7 @@ class AISearchDialog(QDialog):
         self.setMinimumWidth(700)
         self.setMinimumHeight(500)
         self.resize(750, 580)
-        self.setStyleSheet(_STYLE)
+        self.setStyleSheet(_build_style(is_dark()))
         self.setWindowFlags(
             self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint
         )

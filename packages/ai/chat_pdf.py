@@ -44,6 +44,7 @@ class PDFChatSession:
     def _load_text(self) -> str:
         if self._pdf_text is not None:
             return self._pdf_text
+        text = ""
         try:
             import pdfplumber
             parts = []
@@ -53,11 +54,28 @@ class PDFChatSession:
                     if t:
                         parts.append(f"[Trang {i+1}]\n{t}")
             text = "\n\n".join(parts)
-            if len(text) > self.max_context_chars:
-                text = text[:self.max_context_chars] + "\n\n[... tài liệu bị cắt bớt ...]"
-            self._pdf_text = text
-        except Exception as e:
-            self._pdf_text = f"[Không đọc được tài liệu: {e}]"
+        except Exception:
+            text = ""
+
+        if not text.strip():
+            try:
+                import fitz
+                parts = []
+                doc = fitz.open(self.pdf_path)
+                try:
+                    for i in range(doc.page_count):
+                        t = (doc.load_page(i).get_text("text") or "").strip()
+                        if t:
+                            parts.append(f"[Trang {i+1}]\n{t}")
+                finally:
+                    doc.close()
+                text = "\n\n".join(parts)
+            except Exception as e:
+                text = f"[Không đọc được tài liệu: {e}]"
+
+        if len(text) > self.max_context_chars:
+            text = text[:self.max_context_chars] + "\n\n[... tài liệu bị cắt bớt ...]"
+        self._pdf_text = text
         return self._pdf_text
 
     def ask(self, question: str) -> ChatResult:
@@ -65,8 +83,8 @@ class PDFChatSession:
             return ChatResult(answer="", error="Câu hỏi rỗng.")
 
         pdf_text = self._load_text()
-        if not pdf_text.strip():
-            return ChatResult(answer="", error="Tài liệu không có văn bản.")
+        if not pdf_text.strip() or pdf_text.startswith("[Không đọc được tài liệu:"):
+            return ChatResult(answer="", error="Tài liệu không có văn bản hoặc không đọc được nội dung.")
 
         # Xây dựng prompt với context PDF + lịch sử
         history_text = ""

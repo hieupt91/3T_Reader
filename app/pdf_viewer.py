@@ -1,4 +1,5 @@
 import os
+import threading
 
 from packages.pdf_engine import get_pdf_engine
 from packages.qt_compat import QtCore, QtWebEngineWidgets, QtWidgets, pyqtSignal
@@ -101,6 +102,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
     page_ready = pyqtSignal()
     error_occurred = pyqtSignal(str)
     find_not_found = pyqtSignal(str)   # emitted with the query when PDF.js reports notFound
+    page_count_ready = pyqtSignal(int, str, int, str)  # token, path, page_count, error
 
     def __init__(self, preset: str | None = None, parent=None):
         super().__init__(parent)
@@ -109,6 +111,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
         self._page_count = 0
         self._current_page = 1
         self._zoom = "page-width"
+        self._load_token = 0
 
         self._web_view = QtWebEngineWidgets.QWebEngineView(self)
         self._web_view.setPage(_DebugPage(self._web_view))
@@ -138,6 +141,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
         page_scripts.insert(ui_hooks)
 
         self._web_view.loadFinished.connect(lambda ok: self.page_ready.emit() if ok else None)
+        self.page_count_ready.connect(self._on_page_count_ready)
 
         # Timer: polls current page from PDF.js every 400 ms while a PDF is open
         self._page_timer = QtCore.QTimer(self)
@@ -154,20 +158,18 @@ class PDFViewerWidget(QtWidgets.QWidget):
     # ------------------------------------------------------------------ #
 
     def load_pdf(self, path: str, zoom: str = "page-width", page: int | None = None, pagemode: str | None = None):
+        self._load_token += 1
+        token = self._load_token
         self._path = path
         self._zoom = zoom
         self._current_page = max(1, int(page or 1))
-
-        try:
-            self._page_count = get_pdf_engine().page_count(path)
-        except Exception as exc:
-            self._page_count = 0
-            self.error_occurred.emit(str(exc))
+        self._page_count = 0
 
         self._load_web_view(path, zoom=zoom, page=self._current_page, pagemode=pagemode)
         self.pdf_loaded.emit({"filename": os.path.basename(path), "path": path})
         self.page_changed.emit(self._current_page, self._page_count)
         self._page_timer.start()
+        self._load_page_count_async(token, path)
 
     def save_pdf(self):
         if not self._path:
@@ -214,10 +216,31 @@ class PDFViewerWidget(QtWidgets.QWidget):
             return
         self._web_view.page().runJavaScript(_JS_GET_PAGE, self._on_page_polled)
 
+    def _load_page_count_async(self, token: int, path: str):
+        def _worker():
+            try:
+                count = get_pdf_engine().page_count(path)
+                err = ""
+            except Exception as exc:
+                count = 0
+                err = str(exc)
+            self.page_count_ready.emit(token, path, count, err)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def _on_page_polled(self, page_num):
         if not page_num or page_num == self._current_page:
             return
         self._current_page = int(page_num)
+        self.page_changed.emit(self._current_page, self._page_count)
+
+    def _on_page_count_ready(self, token: int, path: str, page_count: int, error: str):
+        if token != self._load_token or path != self._path:
+            return
+        if error:
+            self.error_occurred.emit(error)
+            return
+        self._page_count = max(0, int(page_count))
         self.page_changed.emit(self._current_page, self._page_count)
 
     def _load_web_view(self, path: str, *, zoom: str, page: int, pagemode: str | None):

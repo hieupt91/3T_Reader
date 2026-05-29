@@ -10,8 +10,12 @@ from packages.qt_compat.QtWidgets import (
     QPushButton, QFrame, QFileDialog, QComboBox, QCheckBox,
     QSizePolicy,
 )
+from styles.theme import is_dark
 
-_STYLE = """
+
+def _build_style(dark: bool) -> str:
+    if dark:
+        return """
 QDialog { background: #16162A; }
 QLabel#title  { color: #E8EEFF; font-size: 15px; font-weight: 700; }
 QLabel#status { color: #8080B0; font-size: 11px; }
@@ -60,6 +64,56 @@ QPushButton#btn_summarize {
 }
 QPushButton#btn_summarize:hover { background: #3dd882; }
 QFrame#divider { background: #2A2A4A; }
+"""
+    return """
+QDialog { background: #F8FAFF; }
+QLabel#title  { color: #0F172A; font-size: 15px; font-weight: 700; }
+QLabel#status { color: #475569; font-size: 11px; }
+QLabel#lbl_type { color: #334155; font-size: 13px; }
+QComboBox {
+    background: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    min-width: 220px;
+}
+QComboBox::drop-down { border: none; width: 24px; }
+QComboBox QAbstractItemView {
+    background: #FFFFFF;
+    color: #0F172A;
+    selection-background-color: #DBEAFE;
+    border: 1px solid #CBD5E1;
+}
+QCheckBox { color: #334155; font-size: 13px; }
+QCheckBox::indicator { width: 15px; height: 15px; }
+QTextEdit {
+    background: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 8px;
+    font-size: 13px;
+    padding: 10px;
+    line-height: 1.5;
+}
+QPushButton {
+    background: #E2E8F0;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 7px;
+    padding: 8px 18px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QPushButton:hover  { background: #CBD5E1; border-color: #94A3B8; }
+QPushButton:disabled { color: #94A3B8; border-color: #CBD5E1; }
+QPushButton#btn_summarize {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2563EB,stop:1 #16A34A);
+    color: white; border: none;
+}
+QPushButton#btn_summarize:hover { background: #3B82F6; }
+QFrame#divider { background: #CBD5E1; }
 """
 
 _DOC_TYPES = [
@@ -125,7 +179,7 @@ class AISummarizeDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(600)
         self.resize(660, 540)
-        self.setStyleSheet(_STYLE)
+        self.setStyleSheet(_build_style(is_dark()))
 
         self._pdf_path   = pdf_path
         self._result_text = ""

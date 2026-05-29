@@ -34,6 +34,24 @@ def _parse_version(v: str) -> tuple:
         return (0,)
 
 
+def _pick_manifest_version(data: dict) -> str:
+    return (
+        data.get("version")
+        or data.get("latest_version")
+        or data.get("tag_name")
+        or ""
+    )
+
+
+def _pick_manifest_url(data: dict) -> str:
+    return (
+        data.get("url")
+        or data.get("download_url")
+        or data.get("browser_download_url")
+        or ""
+    )
+
+
 def check_and_prompt_update(parent_window):
     """
     Chạy trong thread riêng để không block UI.
@@ -44,15 +62,15 @@ def check_and_prompt_update(parent_window):
         if not data:
             return
 
-        latest_version = data.get("version") or data.get("tag_name", "")
+        latest_version = _pick_manifest_version(data)
         if not latest_version:
             return
 
         if _parse_version(latest_version) <= _parse_version(APP_VERSION):
             return  # Đang dùng bản mới nhất rồi
 
-        installer_url = data.get("url")
-        installer_name = data.get("filename")
+        installer_url = _pick_manifest_url(data)
+        installer_name = data.get("filename") or data.get("name") or ""
 
         if not installer_url:
             assets = data.get("assets", [])
@@ -62,6 +80,9 @@ def check_and_prompt_update(parent_window):
                     installer_url = asset.get("browser_download_url")
                     installer_name = name
                     break
+
+        if not installer_name and installer_url:
+            installer_name = os.path.basename(installer_url.split("?", 1)[0]) or "3T_Reader_Update.exe"
 
         if not installer_url:
             return

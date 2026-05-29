@@ -9,4 +9,4 @@ VPS_LICENSE_BASE_URL = "https://reader.3tcomputer.com"
 
 UPDATE_MANIFEST_URL = f"{VPS_LICENSE_BASE_URL}/api/v1/update/check"
 UPDATE_CHANNEL = "stable"
-LANGUAGE_PACK_BASE_URL = f"{VPS_LICENSE_BASE_URL}/downloads/language"
+LANGUAGE_PACK_BASE_URL = f"{VPS_LICENSE_BASE_URL}/api/v1/language"

@@ -18,6 +18,7 @@ from packages.qt_compat.QtWidgets import (
     QTabWidget,
     QMenu,
     QSizePolicy,
+    QMessageBox,
 )
 from packages.qt_compat.QtGui import QAction, QKeySequence, QCloseEvent, QImage, QPainter
 from packages.qt_compat.QtCore import Qt, QSize, QPoint, QTimer, QThread, QObject, pyqtSignal, QRect
@@ -35,6 +36,7 @@ from app.actions.edit import (
     redact_area,
     save_edits,
     save_edits_as,
+    save_edits_quiet,
     select_inserted_object,
     undo_last_edit,
 )
@@ -208,6 +210,7 @@ class _PrintWorker(QObject):
             to_page   = self._printer.toPage()
             total     = pdf.page_count
             pages     = range(total) if from_page == 0 else range(from_page - 1, to_page)
+            render_scale = 2.0 if total <= 120 else 1.4 if total <= 300 else 1.2
 
             for i, page_num in enumerate(pages):
                 if i > 0:
@@ -215,7 +218,7 @@ class _PrintWorker(QObject):
 
                 self.progress.emit(f"Đang in trang {page_num + 1} / {total}...")
 
-                rendered = pdf.render_page_rgb(page_num + 1, scale=2.0)
+                rendered = pdf.render_page_rgb(page_num + 1, scale=render_scale)
 
                 img = QImage(
                     rendered.samples,
@@ -250,6 +253,40 @@ class _PrintWorker(QObject):
             self.finished.emit()
 
 
+class _UpdateCheckWorker(QObject):
+    finished = pyqtSignal()
+    available = pyqtSignal(object)
+    up_to_date = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, base_url: str, current_version: str, channel: str):
+        super().__init__()
+        self._base_url = base_url
+        self._current_version = current_version
+        self._channel = channel
+
+    def run(self):
+        try:
+            from app.config import VPS_LICENSE_BASE_URL, UPDATE_CHANNEL
+            from app.version import APP_VERSION
+            from packages.update_client import check_for_update
+
+            base_url = self._base_url or VPS_LICENSE_BASE_URL
+            current_version = self._current_version or APP_VERSION
+            channel = self._channel or UPDATE_CHANNEL
+            info = check_for_update(base_url, current_version, channel)
+            if info.error:
+                self.error.emit(info.error)
+            elif info.available:
+                self.available.emit(info)
+            else:
+                self.up_to_date.emit(info)
+        except Exception as exc:
+            self.error.emit(str(exc))
+        finally:
+            self.finished.emit()
+
+
 class PDFReaderApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -264,6 +301,9 @@ class PDFReaderApp(QMainWindow):
         self._brightness = 100
         self._action_icons: dict = {}   # {QAction: svg_filename} for theme refresh
         self._tabs_data = {}
+        self._update_check_thread = None
+        self._update_check_worker = None
+        self._pending_manual_update_check = False
         self._global_state = {
             "source_path": None,
             "display_path": None,
@@ -749,10 +789,18 @@ class PDFReaderApp(QMainWindow):
         self._lang_toolbar_button.setMenu(lang_menu)
         self.act_lang_vi_tb = lang_menu.addAction(self._t("lang.vietnamese", "Tiếng Việt"))
         self.act_lang_en_tb = lang_menu.addAction(self._t("lang.english", "English"))
+        self.act_lang_fr_tb = lang_menu.addAction(self._t("lang.french", "Français"))
+        self.act_lang_zh_tb = lang_menu.addAction(self._t("lang.chinese", "中文"))
+        self.act_lang_ko_tb = lang_menu.addAction(self._t("lang.korean", "한국어"))
+        self.act_lang_th_tb = lang_menu.addAction(self._t("lang.thai", "ไทย"))
         lang_menu.addSeparator()
         self.act_lang_refresh_tb = lang_menu.addAction(self._t("lang.download", "Tải gói ngôn ngữ..."))
         self.act_lang_vi_tb.triggered.connect(lambda: self._set_language("vi"))
         self.act_lang_en_tb.triggered.connect(lambda: self._set_language("en"))
+        self.act_lang_fr_tb.triggered.connect(lambda: self._set_language("fr"))
+        self.act_lang_zh_tb.triggered.connect(lambda: self._set_language("zh"))
+        self.act_lang_ko_tb.triggered.connect(lambda: self._set_language("ko"))
+        self.act_lang_th_tb.triggered.connect(lambda: self._set_language("th"))
         self.act_lang_refresh_tb.triggered.connect(lambda: self._refresh_language_pack())
         g_view.add(self._lang_toolbar_button)
         p0.add_group(g_view, add_sep=False)
@@ -947,13 +995,14 @@ class PDFReaderApp(QMainWindow):
             to_page   = printer.toPage()
             total     = pdf.page_count
             pages = range(total) if from_page == 0 else range(from_page - 1, to_page)
+            render_scale = 2.0 if total <= 120 else 1.4 if total <= 300 else 1.2
 
             for i, page_num in enumerate(pages):
                 if i > 0:
                     printer.newPage()
                 self.status.showMessage(f"Đang in trang {page_num + 1} / {total}…", 2000)
 
-                rendered = pdf.render_page_rgb(page_num + 1, scale=2.0)
+                rendered = pdf.render_page_rgb(page_num + 1, scale=render_scale)
                 img = QImage(
                     rendered.samples,
                     rendered.width,
@@ -1229,10 +1278,18 @@ class PDFReaderApp(QMainWindow):
         self.menu_language = bar.addMenu(self._t("menu.language", "Ngôn ngữ"))
         self.act_lang_vi = self.menu_language.addAction(self._t("lang.vietnamese", "Tiếng Việt"))
         self.act_lang_en = self.menu_language.addAction(self._t("lang.english", "English"))
+        self.act_lang_fr = self.menu_language.addAction(self._t("lang.french", "Français"))
+        self.act_lang_zh = self.menu_language.addAction(self._t("lang.chinese", "中文"))
+        self.act_lang_ko = self.menu_language.addAction(self._t("lang.korean", "한국어"))
+        self.act_lang_th = self.menu_language.addAction(self._t("lang.thai", "ไทย"))
         self.menu_language.addSeparator()
         self.act_lang_refresh = self.menu_language.addAction(self._t("lang.download", "Tải gói ngôn ngữ..."))
         self.act_lang_vi.triggered.connect(lambda: self._set_language("vi"))
         self.act_lang_en.triggered.connect(lambda: self._set_language("en"))
+        self.act_lang_fr.triggered.connect(lambda: self._set_language("fr"))
+        self.act_lang_zh.triggered.connect(lambda: self._set_language("zh"))
+        self.act_lang_ko.triggered.connect(lambda: self._set_language("ko"))
+        self.act_lang_th.triggered.connect(lambda: self._set_language("th"))
         self.act_lang_refresh.triggered.connect(lambda: self._refresh_language_pack())
         act_activate = menu_license.addAction("🔑  Kích hoạt / Nhập key...")
         act_activate.setShortcut(QKeySequence("Ctrl+Shift+L"))
@@ -1309,8 +1366,8 @@ class PDFReaderApp(QMainWindow):
 
         if viewer is self.viewer:
             self.search_input.clear()
-            self._update_chrome_for_active_tab()
-            self._load_toc_for_active()
+            QTimer.singleShot(0, self._update_chrome_for_active_tab)
+            QTimer.singleShot(0, self._load_toc_for_active)
 
     def _on_page_ready(self, viewer):
         if viewer is not self.viewer:
@@ -1322,9 +1379,15 @@ class PDFReaderApp(QMainWindow):
     def _on_page_changed(self, viewer, cur, total):
         if viewer is not self.viewer:
             return
-        self.page_label.setText(f"Trang {cur} / {total}")
+        if total and total > 0:
+            self.page_label.setText(f"Trang {cur} / {total}")
+            self.total_label.setText(f" / {total}")
+            self.page_spin.setMaximum(max(1, total))
+        else:
+            self.page_label.setText(f"Trang {cur} / -")
+            self.total_label.setText(" / -")
+            self.page_spin.setMaximum(max(1, cur))
         self.page_spin.setValue(cur)
-        self.total_label.setText(f" / {total}")
         self.sidebar.highlight_page(cur)
 
     def _load_toc_for_active(self):
@@ -1382,8 +1445,12 @@ class PDFReaderApp(QMainWindow):
 
         self.page_spin.setMaximum(max(1, total))
         self.page_spin.setValue(max(1, cur))
-        self.total_label.setText(f" / {total if total else '-'}")
-        self.page_label.setText(f"Trang {cur} / {total}")
+        if total and total > 0:
+            self.total_label.setText(f" / {total}")
+            self.page_label.setText(f"Trang {cur} / {total}")
+        else:
+            self.total_label.setText(" / -")
+            self.page_label.setText(f"Trang {cur} / -")
         self.search_input.setText(state.get("search_query", ""))
 
         self.sidebar.load_thumbnails(
@@ -1400,10 +1467,35 @@ class PDFReaderApp(QMainWindow):
         if index >= 0:
             self._close_tab(index)
 
-    def _close_tab(self, index):
+    def _close_tab(self, index) -> bool:
         tab = self.tab_widget.widget(index)
         if not tab:
-            return
+            return True
+
+        state = self._tabs_data.get(tab)
+        edit_state = state.get("_pdf_edit_state") if state else None
+        if edit_state and edit_state.get("ops"):
+            title = self.tab_widget.tabText(index) or "tài liệu"
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("Chưa lưu thay đổi")
+            box.setText(f"Tệp '{title}' có thay đổi chưa lưu.")
+            box.setInformativeText("Bạn muốn lưu trước khi đóng không?")
+
+            save_btn = box.addButton("Lưu", QMessageBox.ButtonRole.AcceptRole)
+            box.addButton("Không lưu", QMessageBox.ButtonRole.DestructiveRole)
+            cancel_btn = box.addButton("Hủy", QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(save_btn)
+            box.exec()
+
+            clicked = box.clickedButton()
+            if clicked == cancel_btn:
+                return False
+            if clicked == save_btn:
+                self.tab_widget.setCurrentIndex(index)
+                if not save_edits_quiet(self):
+                    return False
+
         state = self._tabs_data.pop(tab, None)
         self._dispose_tab_resources(state)
         self.tab_widget.removeTab(index)
@@ -1412,6 +1504,7 @@ class PDFReaderApp(QMainWindow):
             self.hide_search_panel()
             self._update_chrome_for_active_tab()
             self.toc_sidebar.clear()
+        return True
 
     def _activate_next_tab(self):
         count = self.tab_widget.count()
@@ -1424,6 +1517,11 @@ class PDFReaderApp(QMainWindow):
         if count <= 1:
             return
         self.tab_widget.setCurrentIndex((self.tab_widget.currentIndex() - 1) % count)
+
+    def _tab_has_unsaved_edits(self, tab) -> bool:
+        state = self._tabs_data.get(tab)
+        edit_state = state.get("_pdf_edit_state") if state else None
+        return bool(edit_state and edit_state.get("ops"))
 
     def _focus_page_input(self):
         self.page_spin.setFocus()
@@ -1451,57 +1549,75 @@ class PDFReaderApp(QMainWindow):
         dlg = AboutDialog(self)
         dlg.exec()
 
-    def _auto_check_update(self):
-        """Silent check lúc khởi động — chỉ hiện dialog nếu có bản mới."""
-        import threading
+    def _cleanup_update_check_worker(self):
+        self._update_check_worker = None
+        self._update_check_thread = None
+        if self._pending_manual_update_check:
+            self._pending_manual_update_check = False
+            QTimer.singleShot(0, lambda: self._start_update_check(show_up_to_date=True, show_errors=True))
+
+    def _start_update_check(self, *, show_up_to_date: bool, show_errors: bool):
         from app.config import VPS_LICENSE_BASE_URL, UPDATE_CHANNEL
         from app.version import APP_VERSION
-        from packages.update_client import check_for_update
-        from packages.qt_compat.QtCore import QTimer
 
-        def _worker():
-            try:
-                info = check_for_update(VPS_LICENSE_BASE_URL, APP_VERSION, UPDATE_CHANNEL)
-                if info.available:
-                    QTimer.singleShot(0, lambda: self._show_update_dialog(info))
-            except Exception:
-                pass
+        if self._update_check_thread is not None and self._update_check_thread.isRunning():
+            if show_errors:
+                self._pending_manual_update_check = True
+                self.status.showMessage("Đang kiểm tra cập nhật nền, sẽ kiểm tra lại ngay sau đó...", 5000)
+            return
 
-        threading.Thread(target=_worker, daemon=True).start()
+        self._pending_manual_update_check = False
+
+        self.status.showMessage("Đang kiểm tra cập nhật...", 0 if show_errors else 3000)
+
+        worker = _UpdateCheckWorker(VPS_LICENSE_BASE_URL, APP_VERSION, UPDATE_CHANNEL)
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        worker.available.connect(self._show_update_dialog)
+        if show_up_to_date:
+            worker.up_to_date.connect(self._on_update_up_to_date)
+        worker.error.connect(lambda msg: self._on_update_check_error(msg, show_errors))
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._cleanup_update_check_worker)
+        thread.started.connect(worker.run)
+
+        self._update_check_worker = worker
+        self._update_check_thread = thread
+        thread.start()
+
+    def _auto_check_update(self):
+        """Silent check lúc khởi động — chỉ hiện dialog nếu có bản mới."""
+        self._start_update_check(show_up_to_date=False, show_errors=False)
 
     def _check_for_update(self):
         """Check thủ công từ menu — luôn hiện kết quả."""
-        import threading
-        from app.dialogs import show_info
-        from app.version import APP_VERSION
-        from app.config import VPS_LICENSE_BASE_URL, UPDATE_CHANNEL
-        from packages.update_client import check_for_update
-        from packages.qt_compat.QtCore import QTimer
-
-        self.status.showMessage("Đang kiểm tra cập nhật...", 0)
-
-        def _worker():
-            info = check_for_update(VPS_LICENSE_BASE_URL, APP_VERSION, UPDATE_CHANNEL)
-            if info.available:
-                QTimer.singleShot(0, lambda: (
-                    self.status.showMessage("Có bản cập nhật mới!", 5000),
-                    self._show_update_dialog(info),
-                ))
-            else:
-                QTimer.singleShot(0, lambda: (
-                    self.status.showMessage("Bạn đang dùng phiên bản mới nhất.", 4000),
-                    show_info(self, "Đã cập nhật", f"Phiên bản {APP_VERSION} là mới nhất."),
-                ))
-
-        threading.Thread(target=_worker, daemon=True).start()
+        self._start_update_check(show_up_to_date=True, show_errors=True)
 
     def _show_update_dialog(self, info):
         from app.update_dialog import UpdateDialog
         dlg = UpdateDialog(self, info)
         dlg.exec()
 
+    def _on_update_up_to_date(self, info):
+        from app.dialogs import show_info
+        from app.version import APP_VERSION
+
+        latest = getattr(info, "latest_version", "") or APP_VERSION
+        self.status.showMessage("Bạn đang dùng phiên bản mới nhất.", 4000)
+        show_info(self, "Đã cập nhật", f"Phiên bản {APP_VERSION} là mới nhất.\nLatest server: {latest}")
+
+    def _on_update_check_error(self, message: str, show_warning_dialog: bool):
+        safe_message = message or "Không thể kiểm tra cập nhật."
+        self.status.showMessage(f"Không kiểm tra được cập nhật: {safe_message}", 7000)
+        if show_warning_dialog:
+            self.raise_()
+            self.activateWindow()
+            QMessageBox.warning(self, "Không kiểm tra được cập nhật", safe_message)
+
     def _set_language(self, code: str):
-        code = code if code in ("vi", "en") else "vi"
+        code = code if code in ("vi", "en", "fr", "zh", "ko", "th") else "vi"
         set_selected_language(code)
         self._language_code = code
         ok, detail = download_language_pack(code, self)
@@ -1509,15 +1625,71 @@ class PDFReaderApp(QMainWindow):
         if ok:
             self.status.showMessage(f"Da chuyen sang ngon ngu: {code}", 3000)
         else:
-            self.status.showMessage(f"Da chuyen sang ngon ngu: {code} (bo qua goi server)", 5000)
-            show_warning(
-                self,
-                "Khong tai duoc goi ngon ngu",
-                f"Da chuyen ngon ngu sang '{code}', nhung khong tai duoc goi tu server.\n\n{detail}",
+            self.status.showMessage(
+                f"Da chuyen sang ngon ngu: {code} (ban tich hop; tai server loi)",
+                7000,
             )
+            self.raise_()
+            self.activateWindow()
+            QMessageBox.warning(
+                self,
+                "Không tải được ngôn ngữ",
+                f"Đã chuyển sang '{code}' nhưng không tải được gói từ server.\n{detail}",
+            )
+            print(f"[lang] failed to download language pack for {code}: {detail}", flush=True)
 
     def _refresh_language_pack(self):
-        self._set_language(self._language_code)
+        self._open_language_pack_dialog()
+
+    def _open_language_pack_dialog(self):
+        from app.language_pack_dialog import LanguagePackDialog
+
+        dialog = LanguagePackDialog(self)
+        if dialog.exec() != 1:
+            return
+
+        selected_codes = dialog.selected_codes()
+        if not selected_codes:
+            QMessageBox.information(
+                self,
+                "Tải gói ngôn ngữ",
+                "Chưa chọn gói ngôn ngữ nào để tải.",
+            )
+            return
+
+        self._download_selected_language_packs(selected_codes)
+
+    def _download_selected_language_packs(self, codes: list[str]):
+        label_map = {item["code"]: item["label"] for item in available_languages()}
+        successes: list[str] = []
+        failures: list[str] = []
+
+        for code in codes:
+            ok, detail = download_language_pack(code, self)
+            label = label_map.get(code, code)
+            if ok:
+                successes.append(label)
+            else:
+                failures.append(f"{label}: {detail}")
+
+        if successes and not failures:
+            self.status.showMessage(f"Đã tải xong gói ngôn ngữ: {', '.join(successes)}", 5000)
+            QMessageBox.information(
+                self,
+                "Tải gói ngôn ngữ",
+                "Đã tải xong:\n" + "\n".join(f"• {name}" for name in successes),
+            )
+            return
+
+        if successes or failures:
+            message = []
+            if successes:
+                message.append("Đã tải:\n" + "\n".join(f"• {name}" for name in successes))
+            if failures:
+                message.append("Không tải được:\n" + "\n".join(f"• {name}" for name in failures))
+            self.raise_()
+            self.activateWindow()
+            QMessageBox.warning(self, "Tải gói ngôn ngữ", "\n\n".join(message))
 
     def _apply_language_texts(self):
         if hasattr(self, "menu_file"):
@@ -1546,6 +1718,14 @@ class PDFReaderApp(QMainWindow):
             self.act_lang_vi.setText(self._t("lang.vietnamese", "Tiếng Việt"))
         if hasattr(self, "act_lang_en"):
             self.act_lang_en.setText(self._t("lang.english", "English"))
+        if hasattr(self, "act_lang_fr"):
+            self.act_lang_fr.setText(self._t("lang.french", "Français"))
+        if hasattr(self, "act_lang_zh"):
+            self.act_lang_zh.setText(self._t("lang.chinese", "中文"))
+        if hasattr(self, "act_lang_ko"):
+            self.act_lang_ko.setText(self._t("lang.korean", "한국어"))
+        if hasattr(self, "act_lang_th"):
+            self.act_lang_th.setText(self._t("lang.thai", "ไทย"))
         if hasattr(self, "act_lang_refresh"):
             self.act_lang_refresh.setText(self._t("lang.download", "Tải gói ngôn ngữ..."))
         if hasattr(self, "_lang_toolbar_button"):
@@ -1555,6 +1735,14 @@ class PDFReaderApp(QMainWindow):
             self.act_lang_vi_tb.setText(self._t("lang.vietnamese", "Tiếng Việt"))
         if hasattr(self, "act_lang_en_tb"):
             self.act_lang_en_tb.setText(self._t("lang.english", "English"))
+        if hasattr(self, "act_lang_fr_tb"):
+            self.act_lang_fr_tb.setText(self._t("lang.french", "Français"))
+        if hasattr(self, "act_lang_zh_tb"):
+            self.act_lang_zh_tb.setText(self._t("lang.chinese", "中文"))
+        if hasattr(self, "act_lang_ko_tb"):
+            self.act_lang_ko_tb.setText(self._t("lang.korean", "한국어"))
+        if hasattr(self, "act_lang_th_tb"):
+            self.act_lang_th_tb.setText(self._t("lang.thai", "ไทย"))
         if hasattr(self, "act_lang_refresh_tb"):
             self.act_lang_refresh_tb.setText(self._t("lang.download", "Tải gói ngôn ngữ..."))
         if hasattr(self, "menu_help"):
@@ -1615,11 +1803,13 @@ class PDFReaderApp(QMainWindow):
     def _close_other_tabs(self, keep_index: int):
         for idx in range(self.tab_widget.count() - 1, -1, -1):
             if idx != keep_index:
-                self._close_tab(idx)
+                if not self._close_tab(idx):
+                    break
 
     def _close_tabs_right(self, index: int):
         for idx in range(self.tab_widget.count() - 1, index, -1):
-            self._close_tab(idx)
+            if not self._close_tab(idx):
+                break
 
     # ------------------------------------------------------------------ #
     #  Fullscreen / keys / close                                           #
@@ -1778,7 +1968,9 @@ class PDFReaderApp(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent):
         for idx in range(self.tab_widget.count() - 1, -1, -1):
-            self._close_tab(idx)
+            if not self._close_tab(idx):
+                event.ignore()
+                return
         self._tabs_data.clear()
         self._global_state["web_view"] = None
         super().closeEvent(event)

@@ -1,81 +1,74 @@
 # Internal Commercial Validation via VPS
 
-Muc tieu:
-- Chay app nhu ban thuong mai, nhung chi phat noi bo.
-- Kiem tra do on dinh cua ket noi license / update qua VPS.
-- Test day du activate / validate / heartbeat / update / revoke.
+This guide matches the live backend that is already running on the VPS.
 
-## 1. Nguyen tac
+## Goal
 
-- Giu `VPS_LICENSE_BASE_URL` tro ve VPS that.
-- Khong dung che do bypass local.
-- License key la key that tren VPS, khong la key mock.
-- Release noi bo van phai co sha256 va update manifest nhu ban chinh thuc.
+- Run the app as a commercial build, but only for internal validation.
+- Check the stability of license and update traffic through the real VPS backend.
+- Test activate / validate / heartbeat / update / revoke against the live service.
 
-## 2. Phia client
+## Live backend layout
 
-File can giu on dinh:
+- Backend repo: `/home/hieupt/projects/3T_Reader/phase1-backend`
+- Branch: `phase1-backend`
+- Latest observed backend commit: `ccbe90c`
+- Container: `backend-license-api-1`
+- Image: `backend-license-api`
+- Runtime command: `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+- Public hostnames:
+  - `reader.3tcomputer.com`
+  - `license.3tcomputer.com`
+- Cloudflare Tunnel routes both hostnames to the same backend container on port `8000`
+
+## Client side
+
+Keep these files stable:
+
 - `app/config.py`
 - `packages/license_client/*`
 - `app/license_dialog.py`
 
-Kiem tra tren client:
-- Mo app va nhap key.
-- Neu key hop le thi app luu token cache.
-- Dong mo lai app de verify cached token.
-- Tat mang mot luc de xem offline grace co giu app hay khong.
-- Bat mang lai de xem heartbeat co hoi phuc duoc khong.
+Validation steps on the client:
 
-## 3. Phia VPS
+- Open the app and enter a real test key.
+- Confirm the token cache is saved.
+- Close and reopen the app to verify cached token validation.
+- Disconnect the network briefly and check offline grace behavior.
+- Reconnect and confirm heartbeat recovery.
 
-Can co:
-- customer noi bo
-- product
-- plan test
-- license key test
-- release file test
-- update manifest
-- language pack neu can
+## Server side
 
-Nen dat:
-- so may gioi han theo kich ban test
-- han dung ngan neu chi muon test nhanh
-- release version ro rang de tiep tuc test update
+The live backend uses the repo-mounted storage:
 
-## 4. Luong test ket noi on dinh
+- `/home/hieupt/projects/3T_Reader/phase1-backend/data`
+- `/home/hieupt/projects/3T_Reader/phase1-backend/downloads`
 
-### Test 1 - Activate
+The `data` directory currently contains:
 
-- Mo app tren may noi bo.
-- Nhap key.
-- Kich hoat qua VPS.
-- Xac nhan khong co loi timeout / retry / 500.
+- `admin-config.json`
+- `license-api-state.json`
+- `orders.json`
 
-### Test 2 - Validate cached token
+The `downloads` directory is the public static root for:
 
-- Dong app.
-- Mo lai app.
-- Xac nhan app doc token cache va vao duoc ma khong can nhap lai key.
+- release artifacts
+- language packs
+- other downloadable files
 
-### Test 3 - Heartbeat
+Live language pack URLs:
 
-- De app chay mot khoang thoi gian.
-- Xac nhan heartbeat gui len VPS thanh cong.
-- Kiem tra truong hop mat mang tam thoi va khoi phuc lai ket noi.
+- `https://reader.3tcomputer.com/downloads/language/vi.json`
+- `https://reader.3tcomputer.com/downloads/language/en.json`
 
-### Test 4 - Update check
+## Stable API flow
 
-- Goi `GET /api/v1/update/check?platform=win|mac&current_version=...`
-- Xac nhan app nhan dung version / url / sha256.
-- Thu tai release va verify hash.
+The live logs already show successful calls to:
 
-### Test 5 - Deactivate / revoke
+- `POST /api/v1/license/validate`
+- `GET /api/v1/update/check?platform=windows&current_version=1.0.2`
 
-- Huy kich hoat tren 1 may.
-- Kiem tra may do mat quyen dung sau khi validate lai.
-- Test doi may neu plan cho phep.
-
-## 5. Luong can on dinh trong app
+Keep these endpoints stable:
 
 - `POST /api/v1/license/activate`
 - `POST /api/v1/license/validate`
@@ -84,9 +77,8 @@ Nen dat:
 - `GET /api/v1/update/check?platform=mac|win&current_version=...`
 - `GET /downloads/language/{code}.json`
 
-## 6. Ket luan
+## Important correction
 
-- Day la cach test gan nhat voi ban thuong mai.
-- Khong can ra cong chung, chi phat noi bo.
-- Neu cac test tren on dinh thi sau nay chi can thay key / plan / branding / release policy de chuyen sang ban chinh thuc.
+Do not use the old placeholder deployment notes that mention `/opt/threet`, a `threet-api.service` unit, or `/data/downloads`.
 
+Those paths do not match the live VPS.

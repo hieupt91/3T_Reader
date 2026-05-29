@@ -1,9 +1,9 @@
-"""AI provider adapter — hỗ trợ Claude API, OpenAI, Ollama, và 3T AI."""
+"""AI provider adapter — hỗ trợ nhiều backend AI và fallback tự động."""
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 # Env var cho Ollama base URL (mặc định localhost)
 _OLLAMA_URL_ENV = "OLLAMA_BASE_URL"
@@ -12,6 +12,18 @@ _OLLAMA_DEFAULT_MODEL = "llama3"
 
 # 3T AI server — bạn cấu hình sau khi có server
 _3T_AI_BASE_URL = "https://ai.3treader.vn/v1"
+
+_OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
+_AI_PROVIDER_ORDER = ("claude", "openai", "groq", "openrouter", "gemini", "huggingface", "ollama")
+_GEMINI_MODEL_FALLBACKS = (
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+)
+_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+_HF_DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 
 
 @dataclass
@@ -32,6 +44,78 @@ def _get_ollama_url() -> str:
 
 def _get_ollama_model() -> str:
     return os.environ.get("OLLAMA_MODEL", _OLLAMA_DEFAULT_MODEL)
+
+
+def _normalize_provider_name(name: str) -> str:
+    name = (name or "").strip().lower()
+    aliases = {
+        "anthropic": "claude",
+        "claude": "claude",
+        "openai": "openai",
+        "groq": "groq",
+        "openrouter": "openrouter",
+        "gemini": "gemini",
+        "google": "gemini",
+        "huggingface": "huggingface",
+        "hf": "huggingface",
+        "ollama": "ollama",
+        "auto": "auto",
+        "default": "auto",
+        "": "auto",
+    }
+    return aliases.get(name, name)
+
+
+def _provider_attempts() -> list[tuple[str, str, Callable[[str, str, int], AIResponse]]]:
+    return [
+        ("Claude", "ANTHROPIC_API_KEY", ask_claude),
+        ("OpenAI", "OPENAI_API_KEY", ask_openai),
+        ("Groq", "GROQ_API_KEY", ask_groq),
+        ("OpenRouter", "OPENROUTER_API_KEY", ask_openrouter),
+        ("Gemini", "GEMINI_API_KEY", ask_gemini),
+        ("HuggingFace", "HF_API_KEY", ask_huggingface),
+        ("Ollama", "", ask_ollama),
+    ]
+
+
+def _preferred_provider() -> str:
+    return _normalize_provider_name(os.environ.get("AI_PROVIDER", "auto"))
+
+
+def _openai_compatible_request(
+    *,
+    api_key: str,
+    base_url: str,
+    model: str,
+    prompt: str,
+    system: str = "",
+    max_tokens: int = 2048,
+    extra_headers: Optional[dict] = None,
+) -> AIResponse:
+    try:
+        import openai
+
+        client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        kwargs = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+        }
+        if extra_headers:
+            kwargs["extra_headers"] = extra_headers
+
+        resp = client.chat.completions.create(**kwargs)
+        text = resp.choices[0].message.content or ""
+        return AIResponse(text=text, model=resp.model)
+    except ImportError:
+        return AIResponse(text="", error="Chưa cài openai: pip install openai", success=False)
+    except Exception as e:
+        return AIResponse(text="", error=str(e), success=False)
 
 
 def ask_claude(prompt: str, system: str = "", max_tokens: int = 2048) -> AIResponse:
@@ -59,27 +143,76 @@ def ask_claude(prompt: str, system: str = "", max_tokens: int = 2048) -> AIRespo
 
 def ask_openai(prompt: str, system: str = "", max_tokens: int = 2048) -> AIResponse:
     """Gọi OpenAI API. Cần OPENAI_API_KEY."""
-    try:
-        import openai
-        key = _get_api_key("OPENAI_API_KEY")
-        if not key:
-            return AIResponse(text="", error="Thiếu OPENAI_API_KEY.", success=False)
+    key = _get_api_key("OPENAI_API_KEY")
+    if not key:
+        return AIResponse(text="", error="Thiếu OPENAI_API_KEY.", success=False)
+    return _openai_compatible_request(
+        api_key=key,
+        base_url="https://api.openai.com/v1",
+        model=os.environ.get("OPENAI_MODEL", _OPENAI_DEFAULT_MODEL),
+        prompt=prompt,
+        system=system,
+        max_tokens=max_tokens,
+    )
 
-        client = openai.OpenAI(api_key=key)
+
+def ask_groq(prompt: str, system: str = "", max_tokens: int = 2048) -> AIResponse:
+    """Gọi Groq OpenAI-compatible API."""
+    key = _get_api_key("GROQ_API_KEY")
+    if not key:
+        return AIResponse(text="", error="Thiếu GROQ_API_KEY.", success=False)
+    return _openai_compatible_request(
+        api_key=key,
+        base_url=os.environ.get("GROQ_BASE_URL", _GROQ_BASE_URL),
+        model=os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        prompt=prompt,
+        system=system,
+        max_tokens=max_tokens,
+    )
+
+
+def ask_openrouter(prompt: str, system: str = "", max_tokens: int = 2048) -> AIResponse:
+    """Gọi OpenRouter OpenAI-compatible API."""
+    key = _get_api_key("OPENROUTER_API_KEY")
+    if not key:
+        return AIResponse(text="", error="Thiếu OPENROUTER_API_KEY.", success=False)
+    return _openai_compatible_request(
+        api_key=key,
+        base_url=os.environ.get("OPENROUTER_BASE_URL", _OPENROUTER_BASE_URL),
+        model=os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini"),
+        prompt=prompt,
+        system=system,
+        max_tokens=max_tokens,
+        extra_headers={
+            "HTTP-Referer": os.environ.get("OPENROUTER_HTTP_REFERER", "https://reader.3tcomputer.com"),
+            "X-Title": os.environ.get("OPENROUTER_APP_NAME", "3T Reader"),
+        },
+    )
+
+
+def ask_huggingface(prompt: str, system: str = "", max_tokens: int = 2048) -> AIResponse:
+    """Gọi HuggingFace Inference API."""
+    try:
+        from huggingface_hub import InferenceClient
+
+        token = _get_api_key("HF_API_KEY")
+        if not token:
+            return AIResponse(text="", error="Thiếu HF_API_KEY.", success=False)
+
+        model = os.environ.get("HF_MODEL", _HF_DEFAULT_MODEL)
+        client = InferenceClient(model=model, token=token)
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
             messages=messages,
             max_tokens=max_tokens,
         )
         text = resp.choices[0].message.content or ""
-        return AIResponse(text=text, model=resp.model)
+        return AIResponse(text=text, model=model)
     except ImportError:
-        return AIResponse(text="", error="Chưa cài openai: pip install openai", success=False)
+        return AIResponse(text="", error="Chưa cài huggingface_hub: pip install huggingface_hub", success=False)
     except Exception as e:
         return AIResponse(text="", error=str(e), success=False)
 
@@ -207,7 +340,8 @@ def ask_gemini(prompt: str, system: str = "", max_tokens: int = 2048) -> AIRespo
             max_output_tokens=max_tokens,
             system_instruction=system if system else None,
         )
-        for model_name in ("gemini-2.0-flash-lite", "gemini-1.5-flash-8b", "gemini-2.0-flash", "gemini-1.5-flash"):
+        last_err = ""
+        for model_name in _GEMINI_MODEL_FALLBACKS:
             try:
                 resp = client.models.generate_content(
                     model=model_name,
@@ -218,9 +352,8 @@ def ask_gemini(prompt: str, system: str = "", max_tokens: int = 2048) -> AIRespo
                 return AIResponse(text=text, model=model_name)
             except Exception as e:
                 last_err = str(e)
-                if "429" not in last_err and "quota" not in last_err.lower() and "not found" not in last_err.lower():
-                    raise
-        return AIResponse(text="", error=f"Gemini quota hết: {last_err}", success=False)
+                continue
+        return AIResponse(text="", error=f"Gemini lỗi hoặc quota hết: {last_err}", success=False)
     except ImportError:
         return AIResponse(text="", error="Chưa cài google-genai: pip install google-genai", success=False)
     except Exception as e:
@@ -228,21 +361,42 @@ def ask_gemini(prompt: str, system: str = "", max_tokens: int = 2048) -> AIRespo
 
 
 def ask_ai(prompt: str, system: str = "", max_tokens: int = 2048) -> AIResponse:
-    """Tự động chọn provider. Ưu tiên: 3T AI → Claude → OpenAI → Gemini → Ollama → lỗi."""
+    """Tự động chọn provider. Ưu tiên theo cấu hình và fallback cho tới khi thành công."""
     mode = os.environ.get("AI_MODE", "personal")
     if mode == "3t_ai":
         return ask_3t_ai(prompt, system, max_tokens)
-    if _get_api_key("ANTHROPIC_API_KEY"):
-        return ask_claude(prompt, system, max_tokens)
-    if _get_api_key("OPENAI_API_KEY"):
-        return ask_openai(prompt, system, max_tokens)
-    if _get_api_key("GEMINI_API_KEY"):
-        return ask_gemini(prompt, system, max_tokens)
-    if is_ollama_available():
-        return ask_ollama(prompt, system, max_tokens)
+    preferred = _preferred_provider()
+    attempts: list[tuple[str, Callable[[str, str, int], AIResponse]]] = []
+    for provider_name, key_name, fn in _provider_attempts():
+        if key_name and not _get_api_key(key_name):
+            continue
+        if provider_name == "Ollama" and not is_ollama_available():
+            continue
+        attempts.append((provider_name, fn))
+
+    if preferred != "auto" and attempts:
+        idx = next((i for i, (name, _) in enumerate(attempts) if _normalize_provider_name(name) == preferred), None)
+        if idx is not None and idx > 0:
+            attempts = [attempts[idx]] + attempts[:idx] + attempts[idx + 1 :]
+
+    if not attempts:
+        return AIResponse(
+            text="",
+            error="Chưa cấu hình API key AI. Vào Settings để cài đặt.",
+            success=False,
+        )
+
+    errors = []
+    for provider_name, fn in attempts:
+        resp = fn(prompt, system, max_tokens)
+        if resp.success and resp.text.strip():
+            return resp
+        if resp.error:
+            errors.append(f"{provider_name}: {resp.error}")
+
     return AIResponse(
         text="",
-        error="Chưa cấu hình API key AI. Vào Settings để cài đặt.",
+        error=" | ".join(errors[-3:]) if errors else "Không có provider AI khả dụng.",
         success=False,
     )
 
@@ -253,7 +407,10 @@ def is_ai_available() -> bool:
     return bool(
         _get_api_key("ANTHROPIC_API_KEY")
         or _get_api_key("OPENAI_API_KEY")
+        or _get_api_key("GROQ_API_KEY")
+        or _get_api_key("OPENROUTER_API_KEY")
         or _get_api_key("GEMINI_API_KEY")
+        or _get_api_key("HF_API_KEY")
         or is_ollama_available()
     )
 
@@ -262,12 +419,44 @@ def get_active_provider() -> str:
     if os.environ.get("AI_MODE") == "3t_ai":
         email = os.environ.get("3T_AI_EMAIL", "")
         return f"3T AI ({email})" if email else "3T AI"
+    preferred = _preferred_provider()
+    if preferred != "auto":
+        preferred_label = {
+            "claude": "Claude (Anthropic)",
+            "openai": "OpenAI GPT",
+            "groq": f"Groq ({os.environ.get('GROQ_MODEL', 'llama-3.3-70b-versatile')})",
+            "openrouter": f"OpenRouter ({os.environ.get('OPENROUTER_MODEL', 'openai/gpt-4o-mini')})",
+            "gemini": "Google Gemini 2.5 Flash",
+            "huggingface": f"HuggingFace ({os.environ.get('HF_MODEL', _HF_DEFAULT_MODEL)})",
+            "ollama": f"Ollama local ({_get_ollama_model()})",
+        }.get(preferred, "")
+        if preferred_label:
+            if preferred == "claude" and _get_api_key("ANTHROPIC_API_KEY"):
+                return preferred_label
+            if preferred == "openai" and _get_api_key("OPENAI_API_KEY"):
+                return preferred_label
+            if preferred == "groq" and _get_api_key("GROQ_API_KEY"):
+                return preferred_label
+            if preferred == "openrouter" and _get_api_key("OPENROUTER_API_KEY"):
+                return preferred_label
+            if preferred == "gemini" and _get_api_key("GEMINI_API_KEY"):
+                return preferred_label
+            if preferred == "huggingface" and _get_api_key("HF_API_KEY"):
+                return preferred_label
+            if preferred == "ollama" and is_ollama_available():
+                return preferred_label
     if _get_api_key("ANTHROPIC_API_KEY"):
         return "Claude (Anthropic)"
     if _get_api_key("OPENAI_API_KEY"):
         return "OpenAI GPT"
+    if _get_api_key("GROQ_API_KEY"):
+        return f"Groq ({os.environ.get('GROQ_MODEL', 'llama-3.3-70b-versatile')})"
+    if _get_api_key("OPENROUTER_API_KEY"):
+        return f"OpenRouter ({os.environ.get('OPENROUTER_MODEL', 'openai/gpt-4o-mini')})"
     if _get_api_key("GEMINI_API_KEY"):
-        return "Google Gemini"
+        return "Google Gemini 2.5 Flash"
+    if _get_api_key("HF_API_KEY"):
+        return f"HuggingFace ({os.environ.get('HF_MODEL', _HF_DEFAULT_MODEL)})"
     if is_ollama_available():
         model = _get_ollama_model()
         return f"Ollama local ({model})"

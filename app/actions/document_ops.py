@@ -34,6 +34,25 @@ def _reload(window, path: str):
     window.viewer.load_pdf(path, page=max(1, cur), zoom="page-width")
 
 
+def _resolve_reportlab_font(bold: bool = False) -> str:
+    fallback = "Helvetica-Bold" if bold else "Helvetica"
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from packages.platform.fonts import get_vietnamese_font_path
+
+        font_path = get_vietnamese_font_path(bold=bold)
+        if not font_path:
+            return fallback
+
+        font_name = "ThreeTUnicodeBold" if bold else "ThreeTUnicode"
+        if font_name not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont(font_name, font_path))
+        return font_name
+    except Exception:
+        return fallback
+
+
 # ─── Watermark ───────────────────────────────────────────────────────────────
 
 class _WatermarkDialog(QDialog):
@@ -140,7 +159,7 @@ def _watermark_page_bytes(w: float, h: float, text: str, size: int,
     c = rlcanvas.Canvas(buf, pagesize=(w, h))
     r, g, b = color
     c.setFillColorRGB(r, g, b, alpha=opacity)
-    c.setFont("Helvetica", int(size))
+    c.setFont(_resolve_reportlab_font(True), int(size))
     c.saveState()
     c.translate(w / 2, h / 2)
     c.rotate(angle)

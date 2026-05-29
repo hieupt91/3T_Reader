@@ -67,7 +67,7 @@ class AboutDialog(QDialog):
             row.addWidget(val, 1)
             body.addLayout(row)
 
-        _row("Phiên bản:",  "1.0.0 Beta")
+        _row("Phiên bản:",  "1.0.7")
         _row("Nền tảng:",   "macOS · Windows")
         _row("Chức năng:",  "Đọc, chỉnh sửa và ký số tài liệu PDF")
         _row("Công nghệ:",  "Python · PySide6 · pypdfium2 · pikepdf · PDF.js")
