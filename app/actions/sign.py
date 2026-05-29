@@ -1633,7 +1633,7 @@ def verify_signed_document(window):
 @require_document(show_message=True)
 def sign_handwritten(window):
     """Draw or import a signature image and place it on the current PDF."""
-    import fitz
+    
     import shutil
     import tempfile
     import uuid
@@ -1818,18 +1818,21 @@ def sign_handwritten(window):
     box = placement["box"]
 
     try:
-        doc = fitz.open(window.current_path)
-        page = doc[page_no - 1]
-        page_h = page.rect.height
-        left, bottom, right, top_pt = box
-        rect = fitz.Rect(left, page_h - top_pt, right, page_h - bottom)
-        page.insert_image(rect, filename=sig_img_path, keep_proportion=True)
-
         tmp_dir2 = _os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
         _os.makedirs(tmp_dir2, exist_ok=True)
         out_path = _os.path.join(tmp_dir2, f"signed_{uuid.uuid4().hex[:8]}.pdf")
-        doc.save(out_path)
-        doc.close()
+
+        from packages.pdf_engine import get_pdf_engine
+        engine = get_pdf_engine()
+        ops = [
+            {
+                "type": "image",
+                "page_number": page_no,
+                "box": box,
+                "image_path": sig_img_path,
+            }
+        ]
+        engine.rebuild_pdf_with_ops(window.current_path, out_path, ops)
 
         window.current_path = out_path
         window.viewer.load_pdf(out_path, page=page_no, zoom="page-width")
