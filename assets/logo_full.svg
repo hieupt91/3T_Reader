@@ -1,38 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 110" width="420" height="110">
+<svg width="960" height="320" viewBox="0 0 960 320" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="og" x1="0%" y1="0%" x2="40%" y2="100%">
-      <stop offset="0%" stop-color="#FFD000"/>
-      <stop offset="55%" stop-color="#FF7700"/>
-      <stop offset="100%" stop-color="#FF4400"/>
+    <linearGradient id="orange" x1="84" y1="74" x2="242" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffcf3a"/>
+      <stop offset="0.48" stop-color="#ff9800"/>
+      <stop offset="1" stop-color="#f05a28"/>
     </linearGradient>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1E4FCC"/>
-      <stop offset="100%" stop-color="#0D1E6A"/>
+    <linearGradient id="blue" x1="188" y1="58" x2="362" y2="236" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2c8cff"/>
+      <stop offset="1" stop-color="#1548b7"/>
+    </linearGradient>
+    <linearGradient id="whiteFold" x1="188" y1="84" x2="256" y2="220" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dfe9f8"/>
     </linearGradient>
   </defs>
-  <!-- 3T mark -->
-  <text x="2" y="86" font-family="Arial Black, Helvetica, sans-serif" font-weight="900"
-        font-size="90" fill="url(#og)" letter-spacing="-3">3</text>
-  <text x="55" y="86" font-family="Arial Black, Helvetica, sans-serif" font-weight="900"
-        font-size="90" fill="url(#bg)" letter-spacing="-3">T</text>
-  <!-- Pixel dots -->
-  <rect x="118" y="8"  width="9"  height="9"  rx="2" fill="#2B6AE8" opacity="0.9"/>
-  <rect x="132" y="16" width="8"  height="8"  rx="2" fill="#2B6AE8" opacity="0.8"/>
-  <rect x="121" y="22" width="6"  height="6"  rx="1" fill="#5090F0" opacity="0.7"/>
-  <rect x="131" y="5"  width="6"  height="6"  rx="1" fill="#5090F0" opacity="0.6"/>
-  <rect x="128" y="30" width="5"  height="5"  rx="1" fill="#2B6AE8" opacity="0.5"/>
-  <!-- Book arc -->
-  <path d="M 8 102 Q 77 112 145 102" stroke="#0D1E6A" stroke-width="3.5"
-        fill="none" stroke-linecap="round"/>
-  <!-- Divider -->
-  <line x1="162" y1="12" x2="162" y2="98" stroke="#D0D0E0" stroke-width="1.5"/>
-  <!-- READER text -->
-  <text x="178" y="72" font-family="Arial Black, Helvetica, sans-serif" font-weight="900"
-        font-size="46" fill="#0D1E6A" letter-spacing="5">READER</text>
-  <!-- Orange accent dashes -->
-  <rect x="178" y="82" width="28" height="3" rx="1.5" fill="#FF6600"/>
-  <rect x="360" y="82" width="28" height="3" rx="1.5" fill="#FF6600"/>
-  <!-- Tagline -->
-  <text x="180" y="100" font-family="Arial, Helvetica, sans-serif" font-size="11.5"
-        fill="#6677AA" letter-spacing="2.5" font-weight="600">ĐỌC MỌI LÚC – HIỂU MỌI NƠI</text>
+  <rect width="960" height="320" rx="40" fill="transparent"/>
+  <g transform="translate(44 42)">
+    <rect x="0" y="0" width="252" height="236" rx="54" fill="#ffffff" stroke="#dfe7f3" stroke-width="2"/>
+    <path d="M48 76c0-20 16-36 36-36h130c-6 12-10 30-13 46h-52c-31 0-44 9-44 26 0 14 11 24 32 24h34c22 0 36 8 43 20 6 10 7 23 2 36-9 29-34 44-78 44H40v-41h97c17 0 29-8 32-20 4-10-4-18-22-18h-37c-46 0-70-25-62-81z" fill="url(#orange)"/>
+    <path d="M200 36h152l-18 46h-54l-46 154h-53l44-154h-44l19-46z" fill="url(#blue)"/>
+    <path d="M176 36h37c14 0 26 9 31 22 4 11 3 24-3 37l-36 84c-6 16-19 31-36 43h-40l44-68c16-25 29-65 3-118z" fill="url(#whiteFold)"/>
+    <rect x="224" y="98" width="14" height="14" rx="3" fill="#2d86ff"/>
+    <rect x="242" y="112" width="14" height="14" rx="3" fill="#2d86ff"/>
+    <rect x="224" y="130" width="14" height="14" rx="3" fill="#2d86ff"/>
+    <rect x="242" y="148" width="14" height="14" rx="3" fill="#2d86ff"/>
+    <rect x="224" y="164" width="14" height="14" rx="3" fill="#2d86ff"/>
+  </g>
+  <g transform="translate(344 72)">
+    <text x="0" y="70" fill="#f5821f" font-family="Segoe UI, Arial, sans-serif" font-size="72" font-weight="900" letter-spacing="1">3T</text>
+    <text x="122" y="70" fill="#1d2b59" font-family="Segoe UI, Arial, sans-serif" font-size="72" font-weight="700" letter-spacing="12">READER</text>
+    <text x="0" y="128" fill="#4e5d78" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="500" letter-spacing="4">ĐỌC MỌI LÚC · HIỂU MỌI NƠI</text>
+    <line x1="0" y1="144" x2="72" y2="144" stroke="#f5821f" stroke-width="7" stroke-linecap="round"/>
+    <line x1="372" y1="144" x2="440" y2="144" stroke="#f5821f" stroke-width="7" stroke-linecap="round"/>
+  </g>
 </svg>

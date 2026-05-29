@@ -10,6 +10,10 @@ def get_app_data_dir():
 RECENT_FILE = os.path.join(get_app_data_dir(), "recent_files.json")
 MAX_RECENT = 5
 
+def _recent_path() -> str:
+    """Backward-compatible path helper used by platform smoke tests."""
+    return RECENT_FILE
+
 def load_recent() -> list:
     if os.path.exists(RECENT_FILE):
         try:

@@ -46,3 +46,21 @@ class PdfEngine(Protocol):
 
     def rebuild_pdf_with_ops(self, base_path: str, output_path: str, ops: list[dict]) -> None:
         ...
+
+    def watermark_pdf(self, input_path: str, output_path: str, text: str,
+                      color: tuple = (0.6, 0.6, 0.6), angle: float = 45.0,
+                      apply_to_pages: list[int] | None = None) -> None:
+        ...
+
+    def delete_pages(self, input_path: str, output_path: str, page_numbers: list[int]) -> None:
+        ...
+
+    def rotate_pages(self, input_path: str, output_path: str, page_rotations: dict) -> None:
+        ...
+
+    def merge_pdfs(self, input_paths: list[str], output_path: str) -> None:
+        ...
+
+    def split_pdf(self, input_path: str, output_dir: str,
+                  page_ranges: list[tuple]) -> list[str]:
+        ...

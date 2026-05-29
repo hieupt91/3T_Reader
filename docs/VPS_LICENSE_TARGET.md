@@ -6,11 +6,11 @@ Phase 0 only prepares client and server placeholders. Real implementation starts
 
 Minimum backend scope:
 
-- `POST /v1/activate`
-- `POST /v1/deactivate`
-- `POST /v1/heartbeat`
-- `GET /v1/license/status`
-- `GET /v1/updates/manifest`
+- `POST /api/v1/license/activate`
+- `POST /api/v1/license/validate`
+- `POST /api/v1/license/heartbeat`
+- `POST /api/v1/license/deactivate`
+- `GET /api/v1/update/check?platform=mac|win&current_version=...`
 - Admin APIs for customers, licenses, devices, releases, and audit logs.
 
 Minimum data model:
@@ -32,7 +32,9 @@ Security baseline:
 - Server signs license tokens with a private key.
 - Desktop app verifies signed license tokens offline with a public key.
 - Offline grace period is controlled by plan policy.
-- Update manifest includes URL, version, platform, channel, SHA-256, and signature.
+- Update response includes URL, version, platform, channel, SHA-256, and signature.
+- The returned token is opaque to the desktop app; Win/Mac should store/cache it without parsing internal fields.
+- `device_id` must stay stable per machine so activate/validate/heartbeat/deactivate stay consistent.
 
 Client baseline:
 
@@ -40,3 +42,4 @@ Client baseline:
 - macOS stores license token in Keychain.
 - Cache files must be signed or encrypted.
 - No server secret is embedded in the desktop app.
+- Keep the desktop API contract aligned across Win and Mac.

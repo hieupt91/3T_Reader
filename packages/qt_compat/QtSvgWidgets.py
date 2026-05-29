@@ -1,4 +1,4 @@
-from PySide6 import QtSvgWidgets as _mod
+﻿from PySide6 import QtSvgWidgets as _mod
 
 
 def __getattr__(name):

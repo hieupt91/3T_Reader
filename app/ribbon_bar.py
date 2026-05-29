@@ -5,8 +5,17 @@ from packages.qt_compat.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame,
     QToolButton, QSizePolicy,
 )
-from packages.qt_compat.QtCore import Qt, QSize, Signal
+from packages.qt_compat.QtCore import Qt, QSize, Signal, QEvent
 from packages.qt_compat.QtGui import QAction
+
+
+class _RibbonTabButton(QToolButton):
+    """Tab button bắt double-click để collapse ribbon."""
+    double_clicked = Signal()
+
+    def mouseDoubleClickEvent(self, event):
+        self.double_clicked.emit()
+        # Không gọi super để tránh trigger single-click lần hai
 
 
 def _make_styles(dark: bool) -> dict:
@@ -327,13 +336,15 @@ class RibbonBar(QWidget):
         idx = len(self._tabs)
         self._panels.append(panel)
 
-        btn = QToolButton()
+        btn = _RibbonTabButton()
         btn.setText(label)
         btn.setCheckable(False)
         btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         btn.setFixedHeight(30)
         btn.setProperty("sel", "0")
+        btn.setToolTip(f"{label}  (double-click để ẩn/hiện ribbon)")
         btn.clicked.connect(lambda _checked=False, i=idx: self._select_tab(i))
+        btn.double_clicked.connect(self._toggle_collapse)
         self._tabs.append(btn)
         self._tab_btn_container.addWidget(btn)
 
@@ -348,6 +359,10 @@ class RibbonBar(QWidget):
 
     def select_tab(self, idx: int):
         self._select_tab(idx)
+
+    def set_tab_text(self, idx: int, label: str):
+        if 0 <= idx < len(self._tabs):
+            self._tabs[idx].setText(label)
 
     @property
     def current_tab(self) -> int:

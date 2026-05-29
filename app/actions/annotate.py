@@ -1,6 +1,7 @@
 import os
 import tempfile
 import uuid
+import re
 
 import pikepdf
 
@@ -29,20 +30,143 @@ def _save_pikepdf_reload(window, pdf: pikepdf.Pdf, *, keep_page: bool = True):
     window.viewer.load_pdf(out_path, page=page, zoom="page-width")
 
 
+def _normalize_text(value: str) -> str:
+    return " ".join((value or "").replace("\u00a0", " ").split())
+
+
+def _tokenize_text(value: str) -> list[str]:
+    normalized = _normalize_text(value)
+    if not normalized:
+        return []
+    return [part for part in re.split(r"\s+", normalized) if part]
+
+
+def _extract_words_with_pdfplumber(pdf_path: str, page_no: int) -> list[dict]:
+    try:
+        import pdfplumber
+    except ImportError:
+        return []
+
+    words: list[dict] = []
+    with pdfplumber.open(pdf_path) as pdf:
+        page = pdf.pages[page_no - 1]
+        raw_words = page.extract_words(
+            use_text_flow=False,
+            keep_blank_chars=False,
+            extra_attrs=["size"],
+        ) or []
+        for item in raw_words:
+            text = str(item.get("text") or "").strip()
+            if not text:
+                continue
+            left = float(item.get("x0", 0.0))
+            right = float(item.get("x1", left))
+            top = float(item.get("top", 0.0))
+            bottom = float(item.get("bottom", top))
+            words.append({
+                "text": text,
+                "text_key": text.casefold(),
+                "x0": left,
+                "x1": right,
+                "top": top,
+                "bottom": bottom,
+                "mid": (top + bottom) / 2.0,
+                "size": float(item.get("size") or max(1.0, bottom - top)),
+            })
+    return words
+
+
+def _line_rect_from_words(words: list[dict]) -> tuple[float, float, float, float]:
+    left = min(float(word["x0"]) for word in words)
+    right = max(float(word["x1"]) for word in words)
+    bottom = min(float(word["bottom"]) for word in words)
+    top = max(float(word["top"]) for word in words)
+    return left, bottom, right, top
+
+
+def _search_words_across_lines(words: list[dict], query_tokens: list[str]) -> list[tuple]:
+    if not words or not query_tokens:
+        return []
+
+    normalized_words = [str(word["text_key"]) for word in words]
+    matches: list[list[dict]] = []
+    qlen = len(query_tokens)
+    i = 0
+    while i <= len(normalized_words) - qlen:
+        if normalized_words[i:i + qlen] == query_tokens:
+            matches.append(words[i:i + qlen])
+            i += qlen
+        else:
+            i += 1
+
+    rects: list[tuple] = []
+    for match in matches:
+        line_groups: list[list[dict]] = []
+        current_group: list[dict] = []
+        current_mid = None
+        current_tol = 3.0
+
+        for word in match:
+            mid = float(word["mid"])
+            tol = max(3.0, float(word["size"]) * 0.7)
+            if current_group and current_mid is not None and abs(mid - current_mid) > max(current_tol, tol):
+                line_groups.append(current_group)
+                current_group = [word]
+                current_mid = mid
+                current_tol = tol
+                continue
+
+            current_group.append(word)
+            if current_mid is None:
+                current_mid = mid
+                current_tol = tol
+            else:
+                count = len(current_group)
+                current_mid = ((current_mid * (count - 1)) + mid) / count
+                current_tol = max(current_tol, tol)
+
+        if current_group:
+            line_groups.append(current_group)
+
+        for group in line_groups:
+            if group:
+                rects.append(_line_rect_from_words(group))
+
+    return rects
+
+
 def _search_text_on_page(pdf_path: str, page_no: int, text: str) -> list[tuple]:
     """Search text with pypdfium2. Returns [(left, bottom, right, top)] in PDF points."""
     import pypdfium2 as pdfium
+    query_tokens = [token.casefold() for token in _tokenize_text(text)]
+    if not query_tokens:
+        return []
+
+    words = _extract_words_with_pdfplumber(pdf_path, page_no)
+    if words:
+        rects = _search_words_across_lines(words, query_tokens)
+        if rects:
+            return rects
+
     rects = []
     doc = pdfium.PdfDocument(pdf_path)
     try:
         page = doc[page_no - 1]
         textpage = page.get_textpage()
-        searcher = textpage.search(text, match_case=False, match_whole_word=False)
+        search_text = _normalize_text(text)
+        if not search_text:
+            return []
+        searcher = textpage.search(search_text, match_case=False, match_whole_word=False)
         while True:
             res = searcher.get_next()
             if res is None:
                 break
-            for r in res:
+            # pypdfium2 v5+: get_next() returns (start_index, char_count)
+            # Use count_rects + get_rect to get bounding boxes
+            start, count = res
+            n = textpage.count_rects(start, count)
+            for i in range(n):
+                r = textpage.get_rect(i)
                 rects.append((float(r[0]), float(r[1]), float(r[2]), float(r[3])))
     finally:
         doc.close()
@@ -358,13 +482,27 @@ def strikeout_text(window):
 
 @require_document(show_message=True)
 def add_comment(window):
-    """Thêm ghi chú (sticky note) vào trang hiện tại."""
-    content, ok = QInputDialog.getMultiLineText(
-        window, "Thêm ghi chú", "Nội dung ghi chú:"
-    )
-    if not ok or not content.strip():
-        return
+    """Thêm ghi chú (sticky note) — bám theo text đang chọn hoặc dòng đầu trang."""
+    wv = window._get_webview()
 
+    def _apply(sel_text):
+        sel_text = (sel_text or "").strip()
+
+        content, ok = QInputDialog.getMultiLineText(
+            window, "Thêm ghi chú",
+            f"Ghi chú cho: \"{sel_text[:60]}…\"" if sel_text else "Nội dung ghi chú:",
+        )
+        if not ok or not content.strip():
+            return
+        _do_add_comment(window, content.strip(), sel_text)
+
+    if wv:
+        wv.page().runJavaScript("window.getSelection().toString()", _apply)
+    else:
+        _apply("")
+
+
+def _do_add_comment(window, content: str, anchor_text: str = ""):
     path = window.current_path
     page_no = _get_current_page(window)
     try:
@@ -373,12 +511,26 @@ def add_comment(window):
             mb = page.mediabox
             page_w = float(mb[2]) - float(mb[0])
             page_h = float(mb[3]) - float(mb[1])
-            # Đặt note góc trên phải
-            x0, y0 = page_w - 40, page_h - 40
-            x1, y1 = page_w - 10, page_h - 10
+
+            # Vị trí mặc định: góc trên phải, sát lề
+            note_x = page_w - 30
+            note_y = page_h - 20  # PDF Y tính từ dưới lên, nên đây là gần đỉnh trang
+
+            # Nếu có text được chọn, đặt note bên phải dòng đầu tiên của text đó
+            if anchor_text:
+                rects = _search_text_on_page(path, page_no, anchor_text)
+                if rects:
+                    # Lấy rect đầu tiên, đặt note bên phải, cùng chiều cao
+                    first = rects[0]  # (left, bottom, right, top)
+                    note_x = min(page_w - 30, first[2] + 5)   # ngay bên phải text
+                    note_y = first[3] - 5                       # cùng cạnh trên của text
+
+            x0, y0 = note_x, note_y - 20
+            x1, y1 = note_x + 20, note_y
+
             _add_pdf_annotation(pdf, page_no - 1, "Text",
                                  [(x0, y0, x1, y1)], [1.0, 1.0, 0.0],
-                                 content=content.strip())
+                                 content=content)
             _save_pikepdf_reload(window, pdf)
         if hasattr(window, "status"):
             window.status.showMessage("Đã thêm ghi chú vào trang", 3000)

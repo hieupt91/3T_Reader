@@ -84,7 +84,8 @@ def download_update(info: UpdateInfo) -> UpdateResult:
         resp = requests.get(info.download_url, timeout=120, stream=True, headers={"User-Agent": "3T-Reader/1.0"})
         resp.raise_for_status()
 
-        suffix = Path(info.download_url).suffix or ".dmg"
+        default_suffix = ".exe" if sys.platform == "win32" else ".dmg"
+        suffix = Path(info.download_url).suffix or default_suffix
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="3TReader_update_")
         hasher = hashlib.sha256()
         for chunk in resp.iter_content(chunk_size=65536):

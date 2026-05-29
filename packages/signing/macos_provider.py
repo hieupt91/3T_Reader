@@ -25,6 +25,10 @@ MACOS_PKCS11_CANDIDATES = [
     "BkavCAPKCS11.dylib",
     # SafeNet eToken (một số CA VN dùng)
     "eTPKCS11.dylib",
+    "bit4xpki.dylib",
+    "bit4ipki.dylib",
+    "libbit4xpki.dylib",
+    "libbit4ipki.dylib",
     # OpenSC — driver mã nguồn mở phổ biến trên macOS
     "opensc-pkcs11.so",
     "opensc-pkcs11.dylib",

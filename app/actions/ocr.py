@@ -4,27 +4,61 @@ from __future__ import annotations
 
 def _check_ocr_available(window) -> bool:
     """Kiểm tra Tesseract có sẵn không. Nếu không → hướng dẫn cài."""
-    from packages.ocr.engine import is_available, has_vietnamese, get_installed_langs
-    if not is_available():
+    import sys
+    try:
+        from packages.ocr.engine import is_available, has_vietnamese, get_installed_langs
+    except ImportError:
         from app.dialogs import show_warning
         show_warning(
-            window, "Cần cài thêm Tesseract OCR",
-            "OCR cần Tesseract — một công cụ miễn phí của Google.\n\n"
-            "Cài đặt trên macOS:\n"
-            "  brew install tesseract tesseract-lang\n\n"
-            "Sau khi cài xong, khởi động lại 3T Reader."
+            window, "Cần cài thêm thư viện OCR",
+            "Thiếu thư viện pytesseract.\n\n"
+            "Cài bằng lệnh:\n"
+            "  pip install pytesseract\n\n"
+            "Sau đó cài Tesseract OCR (xem SETUP_WINDOWS.md)."
         )
         return False
+
+    if not is_available():
+        from app.dialogs import show_warning
+        if sys.platform == "win32":
+            show_warning(
+                window, "Cần cài thêm Tesseract OCR",
+                "OCR cần Tesseract — một công cụ miễn phí của Google.\n\n"
+                "Tải và cài đặt trên Windows:\n"
+                "  https://github.com/UB-Mannheim/tesseract/wiki\n\n"
+                "Sau khi cài xong, khởi động lại 3T Reader."
+            )
+        else:
+            show_warning(
+                window, "Cần cài thêm Tesseract OCR",
+                "OCR cần Tesseract — một công cụ miễn phí của Google.\n\n"
+                "macOS:  brew install tesseract tesseract-lang\n"
+                "Linux:  sudo apt install tesseract-ocr tesseract-ocr-vie\n\n"
+                "Sau khi cài xong, khởi động lại 3T Reader."
+            )
+        return False
+
     if not has_vietnamese():
         langs = get_installed_langs()
         from app.dialogs import show_warning
-        show_warning(
-            window, "Chưa có gói tiếng Việt",
-            "Tesseract đã được cài nhưng chưa có gói ngôn ngữ tiếng Việt.\n\n"
-            "Cài thêm:\n"
-            "  brew install tesseract-lang\n\n"
-            f"Ngôn ngữ đã có: {', '.join(langs) or '(không có)'}"
-        )
+        if sys.platform == "win32":
+            show_warning(
+                window, "Chưa có gói tiếng Việt",
+                "Tesseract đã được cài nhưng chưa có gói ngôn ngữ tiếng Việt.\n\n"
+                "Tải file vie.traineddata từ:\n"
+                "  https://github.com/tesseract-ocr/tessdata\n"
+                "Đặt vào thư mục tessdata của Tesseract.\n\n"
+                f"Ngôn ngữ đã có: {', '.join(langs) or '(không có)'}\n"
+                "(App vẫn chạy OCR bằng tiếng Anh)"
+            )
+        else:
+            show_warning(
+                window, "Chưa có gói tiếng Việt",
+                "Tesseract đã được cài nhưng chưa có gói ngôn ngữ tiếng Việt.\n\n"
+                "macOS:  brew install tesseract-lang\n"
+                "Linux:  sudo apt install tesseract-ocr-vie\n\n"
+                f"Ngôn ngữ đã có: {', '.join(langs) or '(không có)'}"
+            )
     return True  # vẫn cho chạy dù chỉ có eng
 
 

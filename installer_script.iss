@@ -7,20 +7,33 @@
 #define MyAppExeName   "3T_Reader.exe"
 
 [Setup]
-AppId={{D37F8E9A-24C6-4B9A-B1C2-3E4F5D6A7B8C}
+; Stable AppId keeps upgrades aligned across installer versions.
+AppId={{D37F8E9A-24C6-4B9A-B1C2-3E4F5D6A7B8C}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-AppPublisherURL=https://3tcompany.vn
-AppSupportURL=https://3tcompany.vn
-AppUpdatesURL=https://3tcompany.vn
+AppPublisherURL=https://3tcomputer.com
+AppSupportURL=https://3tcomputer.com
+AppUpdatesURL=https://3tcomputer.com
 
 ; Thư mục cài mặc định: C:\Program Files\3T Reader
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
+UsePreviousAppDir=yes
+UsePreviousGroup=yes
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+AppMutex=Local\3T_Reader_SingleInstance_v1
+UninstallDisplayIcon={app}\{#MyAppExeName}
+VersionInfoVersion={#MyAppVersion}
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoDescription=3T Reader Windows Installer
+VersionInfoProductName={#MyAppName}
+SetupLogging=yes
 
 ; Output
-OutputDir=D:\reader_pdf\dist
+OutputDir=build\installer
 OutputBaseFilename=Setup_3T_Reader_v{#MyAppVersion}
 
 ; Nén tốt nhất
@@ -29,6 +42,8 @@ SolidCompression=yes
 
 ; Giao diện
 WizardStyle=modern
+SetupIconFile=assets\app.ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
 
 ; Yêu cầu Admin
 PrivilegesRequired=admin
@@ -41,6 +56,7 @@ ChangesAssociations=no
 ; Cho phép nâng cấp không cần gỡ bản cũ
 CloseApplications=yes
 RestartApplications=no
+RestartIfNeededByRun=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

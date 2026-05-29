@@ -1,4 +1,4 @@
-from . import _QTSVG
+﻿from . import _QTSVG
 
 
 def __getattr__(name):

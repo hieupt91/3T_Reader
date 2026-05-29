@@ -11,6 +11,7 @@ import urllib.parse
 import http.server
 import mimetypes
 import sys
+import io
 from pathlib import Path
 
 
@@ -45,6 +46,7 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
     """
 
     pdfjs_root: Path = Path(".")  # set by factory
+    display_cache: dict[tuple[str, int, int], bytes] = {}
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -69,16 +71,32 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
             return
         try:
-            with open(pdf_path, "rb") as f:
-                data = f.read()
+            data = self._read_pdf_for_display(pdf_path)
             self.send_response(200)
             self.send_header("Content-Type", "application/pdf")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1")
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+            self.send_header("Pragma", "no-cache")
             self.end_headers()
             self.wfile.write(data)
         except OSError:
             self.send_error(500)
+
+    def _read_pdf_for_display(self, pdf_path: str) -> bytes:
+        stat = os.stat(pdf_path)
+        cache_key = (pdf_path, stat.st_mtime_ns, stat.st_size)
+        cached = self.display_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        with open(pdf_path, "rb") as f:
+            data = f.read()
+
+        display_data = _normalise_pdfjs_appearance_boxes(pdf_path, data)
+        self.display_cache.clear()
+        self.display_cache[cache_key] = display_data
+        return display_data
 
     def _serve_static(self, url_path: str):
         rel = url_path.lstrip("/")
@@ -89,7 +107,10 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
             return
         mime, _ = mimetypes.guess_type(str(file_path))
-        if not mime:
+        # Windows registry may map .mjs/.js to text/plain — force correct MIME
+        if file_path.suffix.lower() in {".mjs", ".js"}:
+            mime = "text/javascript"
+        elif not mime:
             mime = "application/octet-stream"
         try:
             data = file_path.read_bytes()
@@ -139,8 +160,13 @@ class LocalPDFJSServer:
     def viewer_url(self, pdf_path: str, *, page: int = 1, zoom: str = "page-width", pagemode: str | None = None) -> str | None:
         if not self._server or not self._root:
             return None
-        encoded_path = urllib.parse.quote(os.path.abspath(pdf_path))
-        pdf_url = f"http://127.0.0.1:{self._port}/pdf?p={encoded_path}"
+        abs_path = os.path.abspath(pdf_path)
+        encoded_path = urllib.parse.quote(abs_path)
+        try:
+            cache_key = str(os.stat(abs_path).st_mtime_ns)
+        except OSError:
+            cache_key = "0"
+        pdf_url = f"http://127.0.0.1:{self._port}/pdf?p={encoded_path}&v={cache_key}"
         encoded_pdf_url = urllib.parse.quote(pdf_url, safe="")
         url = f"http://127.0.0.1:{self._port}/web/viewer.html?file={encoded_pdf_url}#page={page}"
         if zoom:
@@ -160,3 +186,204 @@ class LocalPDFJSServer:
             cls._instance = cls()
             cls._instance.start()
         return cls._instance
+
+
+def _normalise_pdfjs_appearance_boxes(pdf_path: str, original_data: bytes) -> bytes:
+    """Serve a display-only copy that avoids PDF.js signature widget issues."""
+    try:
+        import pikepdf
+
+        changed = False
+        with pikepdf.Pdf.open(pdf_path) as pdf:
+            signature_overlays: dict[int, list[dict]] = {}
+            for page_index, page in enumerate(pdf.pages, start=1):
+                annots = page.obj.get("/Annots")
+                if not annots:
+                    continue
+                kept_annots = []
+                for annot in annots:
+                    annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
+                    if _is_signature_widget(annot_obj):
+                        overlay = _signature_overlay_from_annot(annot_obj)
+                        if overlay:
+                            signature_overlays.setdefault(page_index, []).append(overlay)
+                        changed = True
+                        continue
+                    kept_annots.append(annot)
+                    ap = annot_obj.get("/AP")
+                    if not ap:
+                        continue
+                    normal = ap.get("/N")
+                    if normal is None:
+                        continue
+                    streams = []
+                    if isinstance(normal, pikepdf.Stream):
+                        streams.append(normal)
+                    elif isinstance(normal, pikepdf.Dictionary):
+                        streams.extend(
+                            value
+                            for value in normal.values()
+                            if isinstance(value, pikepdf.Stream)
+                        )
+                    for stream in streams:
+                        bbox = stream.get("/BBox")
+                        if not bbox or len(bbox) != 4:
+                            continue
+                        x1, y1, x2, y2 = [float(v) for v in bbox]
+                        if x1 <= x2 and y1 <= y2:
+                            continue
+                        stream["/BBox"] = pikepdf.Array(
+                            [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
+                        )
+                        changed = True
+                if kept_annots:
+                    page.obj["/Annots"] = pikepdf.Array(kept_annots)
+                elif "/Annots" in page.obj:
+                    del page.obj["/Annots"]
+
+            for page_index, overlays in signature_overlays.items():
+                page = pdf.pages[page_index - 1]
+                width, height = _page_size(page)
+                overlay_pdf_bytes = _build_signature_display_overlay(width, height, overlays)
+                if not overlay_pdf_bytes:
+                    continue
+                with pikepdf.Pdf.open(io.BytesIO(overlay_pdf_bytes)) as overlay_pdf:
+                    page.add_overlay(overlay_pdf.pages[0])
+
+            if not changed:
+                return original_data
+            out = io.BytesIO()
+            pdf.save(out)
+            return out.getvalue()
+    except Exception:
+        return original_data
+
+
+def _is_signature_widget(annot) -> bool:
+    try:
+        return annot.get("/Subtype") == "/Widget" and (
+            annot.get("/FT") == "/Sig" or annot.get("/V") is not None
+        )
+    except Exception:
+        return False
+
+
+def _signature_overlay_from_annot(annot) -> dict | None:
+    try:
+        rect = [float(v) for v in annot.get("/Rect")]
+        if len(rect) != 4:
+            return None
+        left, bottom, right, top = (
+            min(rect[0], rect[2]),
+            min(rect[1], rect[3]),
+            max(rect[0], rect[2]),
+            max(rect[1], rect[3]),
+        )
+        if right - left < 1 or top - bottom < 1:
+            return None
+        return {
+            "box": (left, bottom, right, top),
+            "lines": _extract_signature_text_lines(annot) or ["DA KY SO"],
+        }
+    except Exception:
+        return None
+
+
+def _extract_signature_text_lines(annot) -> list[str]:
+    try:
+        ap = annot.get("/AP")
+        normal = ap.get("/N") if ap else None
+        if normal is None:
+            return []
+        stream = normal
+        if not hasattr(stream, "read_bytes") and hasattr(normal, "values"):
+            stream = next((v for v in normal.values() if hasattr(v, "read_bytes")), None)
+        if stream is None or not hasattr(stream, "read_bytes"):
+            return []
+        data = bytes(stream.read_bytes())
+    except Exception:
+        return []
+
+    import re
+
+    lines: list[str] = []
+    for match in re.finditer(rb"\(((?:\\.|[^\\)])*)\)\s*Tj", data):
+        text = _decode_pdf_literal(match.group(1)).strip()
+        if text:
+            lines.append(text)
+    return lines[:6]
+
+
+def _decode_pdf_literal(data: bytes) -> str:
+    out = bytearray()
+    i = 0
+    while i < len(data):
+        ch = data[i]
+        if ch != 0x5C:
+            out.append(ch)
+            i += 1
+            continue
+        i += 1
+        if i >= len(data):
+            break
+        esc = data[i]
+        if esc in b"nrtbf":
+            out.append({ord("n"): 10, ord("r"): 13, ord("t"): 9, ord("b"): 8, ord("f"): 12}[esc])
+            i += 1
+        elif esc in b"()\\":
+            out.append(esc)
+            i += 1
+        elif 48 <= esc <= 55:
+            octal = bytes([esc])
+            i += 1
+            for _ in range(2):
+                if i < len(data) and 48 <= data[i] <= 55:
+                    octal += bytes([data[i]])
+                    i += 1
+                else:
+                    break
+            out.append(int(octal, 8))
+        else:
+            out.append(esc)
+            i += 1
+    return out.decode("latin-1", errors="replace")
+
+
+def _page_size(page) -> tuple[float, float]:
+    media_box = [float(v) for v in page.MediaBox]
+    return (media_box[2] - media_box[0], media_box[3] - media_box[1])
+
+
+def _build_signature_display_overlay(width: float, height: float, overlays: list[dict]) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.pdfgen import canvas
+    except Exception:
+        return b""
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(width, height))
+    for overlay in overlays:
+        left, bottom, right, top = overlay["box"]
+        box_width = max(1.0, right - left)
+        box_height = max(1.0, top - bottom)
+        lines = overlay.get("lines") or ["DA KY SO"]
+
+        c.saveState()
+        c.setFillColor(colors.Color(0.96, 0.99, 1.0, alpha=0.85))
+        c.setStrokeColorRGB(0.0, 0.36, 0.72)
+        c.setLineWidth(1.0)
+        c.rect(left, bottom, box_width, box_height, stroke=1, fill=1)
+        c.setFillColorRGB(0.02, 0.18, 0.32)
+        font_size = max(7.0, min(10.0, box_height / max(4.5, len(lines) + 1)))
+        leading = font_size + 2
+        c.setFont("Helvetica-Bold", font_size)
+        y = top - font_size - 5
+        for line in lines:
+            if y < bottom + 3:
+                break
+            c.drawString(left + 5, y, str(line)[:70])
+            y -= leading
+        c.restoreState()
+    c.save()
+    return buf.getvalue()

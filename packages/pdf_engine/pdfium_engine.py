@@ -14,34 +14,69 @@ class PdfiumDocument:
         self._path = path
         self._pdfium = pdfium
         self._password = None
-        self._doc = pdfium.PdfDocument(path)
+        self._doc = None
+        self._needs_password = False
+
+        try:
+            self._doc = pdfium.PdfDocument(path)
+        except Exception as exc:
+            if self._is_password_protected(path):
+                self._needs_password = True
+            else:
+                raise exc
 
     @property
     def page_count(self) -> int:
+        if self._doc is None:
+            raise RuntimeError("PDF can mat khau de mo.")
         return len(self._doc)
 
     @property
     def needs_password(self) -> bool:
-        # pypdfium2 raises while opening password-protected documents. If the
-        # document opened successfully, treat it as usable without a password.
-        return False
+        return self._needs_password
+
+    def _is_password_protected(self, path: str) -> bool:
+        try:
+            import pikepdf
+        except Exception:
+            return False
+        try:
+            with pikepdf.Pdf.open(path):
+                return False
+        except pikepdf.PasswordError:
+            return True
+        except Exception:
+            return False
 
     def authenticate(self, password: str) -> bool:
         try:
-            doc = self._pdfium.PdfDocument(self._path, password=password)
+            import pikepdf
+            with pikepdf.Pdf.open(self._path, password=password):
+                pass
         except Exception:
             return False
+
         self.close()
-        self._doc = doc
+        try:
+            self._doc = self._pdfium.PdfDocument(self._path, password=password)
+        except Exception:
+            self._doc = None
         self._password = password
+        self._needs_password = False
         return True
 
     def save_without_encryption(self, output_path: str) -> None:
-        # Phase 0.5 fallback: pypdfium2 is used for reading/rendering. For
-        # decrypted output support we need a dedicated pikepdf implementation.
-        shutil.copy2(self._path, output_path)
+        if self._password:
+            import pikepdf
+
+            with pikepdf.Pdf.open(self._path, password=self._password) as pdf:
+                pdf.save(output_path)
+        else:
+            shutil.copy2(self._path, output_path)
 
     def render_page_rgb(self, page_number: int, scale: float = 1.0) -> RenderedPage:
+        if self._doc is None:
+            raise RuntimeError("PDF cần mật khẩu để mở.")
         page = self._doc[page_number - 1]
         bitmap = page.render(scale=scale)
         pil_image = bitmap.to_pil().convert("RGB")
@@ -55,7 +90,9 @@ class PdfiumDocument:
         )
 
     def close(self) -> None:
-        self._doc.close()
+        if self._doc is not None:
+            self._doc.close()
+            self._doc = None
 
 
 class PdfiumEngine:
@@ -78,6 +115,72 @@ class PdfiumEngine:
         doc.new_page(width_pt, height_pt)
         doc.save(output_path)
         doc.close()
+
+    def watermark_pdf(self, input_path: str, output_path: str, text: str,
+                      color: tuple = (0.6, 0.6, 0.6), angle: float = 45.0,
+                      apply_to_pages: list[int] | None = None) -> None:
+        import pikepdf
+        with pikepdf.Pdf.open(input_path) as pdf:
+            n = len(pdf.pages)
+            targets = apply_to_pages if apply_to_pages else list(range(1, n + 1))
+            for pn in targets:
+                if pn < 1 or pn > n:
+                    continue
+                page = pdf.pages[pn - 1]
+                w, h = _page_size(page)
+                wm_bytes = _build_watermark_overlay(w, h, text, color, angle)
+                with pikepdf.Pdf.open(io.BytesIO(wm_bytes)) as wm_pdf:
+                    page.add_overlay(wm_pdf.pages[0])
+            pdf.save(output_path)
+
+    def delete_pages(self, input_path: str, output_path: str, page_numbers: list[int]) -> None:
+        import pikepdf
+        with pikepdf.Pdf.open(input_path) as pdf:
+            for pn in sorted(set(page_numbers), reverse=True):
+                if 1 <= pn <= len(pdf.pages):
+                    del pdf.pages[pn - 1]
+            pdf.save(output_path)
+
+    def rotate_pages(self, input_path: str, output_path: str, page_rotations: dict) -> None:
+        import pikepdf
+        with pikepdf.Pdf.open(input_path) as pdf:
+            for pn, degrees in page_rotations.items():
+                if 1 <= pn <= len(pdf.pages):
+                    page = pdf.pages[pn - 1]
+                    current = int(page.get("/Rotate", 0))
+                    page["/Rotate"] = (current + int(degrees)) % 360
+            pdf.save(output_path)
+
+    def merge_pdfs(self, input_paths: list[str], output_path: str) -> None:
+        import pikepdf
+        out = pikepdf.Pdf.new()
+        try:
+            for path in input_paths:
+                with pikepdf.Pdf.open(path) as src:
+                    out.pages.extend(src.pages)
+            out.save(output_path)
+        finally:
+            out.close()
+
+    def split_pdf(self, input_path: str, output_dir: str,
+                  page_ranges: list[tuple]) -> list[str]:
+        import pikepdf
+        base = os.path.splitext(os.path.basename(input_path))[0]
+        out_paths: list[str] = []
+        with pikepdf.Pdf.open(input_path) as src:
+            n = len(src.pages)
+            for i, (start, end) in enumerate(page_ranges, start=1):
+                part = pikepdf.Pdf.new()
+                try:
+                    for pn in range(max(1, start), min(end, n) + 1):
+                        part.pages.append(src.pages[pn - 1])
+                    fname = f"{base}_p{start}-{end}.pdf" if start != end else f"{base}_p{start}.pdf"
+                    fpath = os.path.join(output_dir, fname)
+                    part.save(fpath)
+                    out_paths.append(fpath)
+                finally:
+                    part.close()
+        return out_paths
 
     def rebuild_pdf_with_ops(self, base_path: str, output_path: str, ops: list[dict]) -> None:
         import pikepdf
@@ -125,29 +228,69 @@ def _build_overlay_pdf(width: float, height: float, ops: list[dict]) -> bytes:
         left, bottom, right, top = [float(v) for v in op.get("box", (0, 0, 0, 0))]
         box_width = max(1.0, right - left)
         box_height = max(1.0, top - bottom)
+        # UI rotation is expressed in the browser/CSS direction.
+        # ReportLab uses PDF coordinates, so invert the angle here to keep
+        # saved output visually aligned with the on-screen preview.
+        rotation = -float(op.get("rotation", 0) or 0)
 
         if op.get("type") == "text":
             text = op.get("text", "")
             if not text:
                 continue
             font_size = float(op.get("font_size", 12))
-            c.setFont("Helvetica", font_size)
-            _draw_text_box(c, text, left, bottom, box_width, box_height, font_size)
+            font_name = _resolve_reportlab_font(bool(op.get("bold")))
+            color = _rgb_tuple(op.get("font_color", (0, 0, 0)))
+            _with_optional_rotation(
+                c,
+                left,
+                bottom,
+                box_width,
+                box_height,
+                rotation,
+                lambda: _draw_text_box(
+                    c,
+                    text,
+                    left if not rotation else -box_width / 2,
+                    bottom if not rotation else -box_height / 2,
+                    box_width,
+                    box_height,
+                    font_size,
+                    font_name=font_name,
+                    color=color,
+                    underline=bool(op.get("underline")),
+                ),
+            )
             drew_anything = True
         elif op.get("type") == "image":
             image_path = op.get("image_path")
             if not image_path or not os.path.exists(image_path):
                 continue
-            c.drawImage(
-                ImageReader(image_path),
+            image = ImageReader(image_path)
+            _with_optional_rotation(
+                c,
                 left,
                 bottom,
-                width=box_width,
-                height=box_height,
-                preserveAspectRatio=True,
-                anchor="c",
-                mask="auto",
+                box_width,
+                box_height,
+                rotation,
+                lambda: c.drawImage(
+                    image,
+                    left if not rotation else -box_width / 2,
+                    bottom if not rotation else -box_height / 2,
+                    width=box_width,
+                    height=box_height,
+                    preserveAspectRatio=True,
+                    anchor="c",
+                    mask="auto",
+                ),
             )
+            drew_anything = True
+        elif op.get("type") == "rect":
+            fill = _rgb_tuple(op.get("fill_color", (1, 1, 1)))
+            stroke = _rgb_tuple(op.get("stroke_color", fill))
+            c.setFillColorRGB(*fill)
+            c.setStrokeColorRGB(*stroke)
+            c.rect(left, bottom, box_width, box_height, stroke=1, fill=1)
             drew_anything = True
 
     if not drew_anything:
@@ -157,11 +300,77 @@ def _build_overlay_pdf(width: float, height: float, ops: list[dict]) -> bytes:
     return buffer.getvalue()
 
 
-def _draw_text_box(c, text: str, left: float, bottom: float, width: float, height: float, font_size: float) -> None:
+def _build_watermark_overlay(width: float, height: float, text: str,
+                              color: tuple, angle: float) -> bytes:
+    from reportlab.lib import colors as rl_colors
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=(width, height))
+    r, g, b = (color + (0.6, 0.6, 0.6))[:3]
+    c.setFillColor(rl_colors.Color(r, g, b, alpha=0.30))
+    font_size = max(18.0, min(width, height) / 6)
+    c.setFont(_resolve_reportlab_font(True), font_size)
+    c.saveState()
+    c.translate(width / 2, height / 2)
+    c.rotate(angle)
+    c.drawCentredString(0, 0, text)
+    c.restoreState()
+    c.save()
+    return buf.getvalue()
+
+
+def _rgb_tuple(value) -> tuple[float, float, float]:
+    try:
+        r, g, b = value[:3]
+    except Exception:
+        return (0.0, 0.0, 0.0)
+    return tuple(max(0.0, min(1.0, float(v))) for v in (r, g, b))
+
+
+def _resolve_reportlab_font(bold: bool = False) -> str:
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    fallback = "Helvetica-Bold" if bold else "Helvetica"
+    try:
+        from packages.platform.fonts import get_vietnamese_font_path
+        font_path = get_vietnamese_font_path(bold=bold)
+        if not font_path:
+            return fallback
+        font_name = "ThreeTUnicodeBold" if bold else "ThreeTUnicode"
+        if font_name not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont(font_name, font_path))
+        return font_name
+    except Exception:
+        return fallback
+
+
+def _with_optional_rotation(c, left: float, bottom: float, width: float, height: float,
+                            rotation: float, draw_fn) -> None:
+    if not rotation:
+        draw_fn()
+        return
+    c.saveState()
+    try:
+        c.translate(left + width / 2, bottom + height / 2)
+        c.rotate(rotation)
+        draw_fn()
+    finally:
+        c.restoreState()
+
+
+def _draw_text_box(c, text: str, left: float, bottom: float, width: float, height: float,
+                   font_size: float, *, font_name: str = "Helvetica",
+                   color: tuple[float, float, float] = (0, 0, 0),
+                   underline: bool = False) -> None:
     leading = max(font_size * 1.2, font_size + 2)
     y = bottom + height - font_size
     min_y = bottom
     max_chars = max(1, int(width / max(font_size * 0.55, 1)))
+    c.setFillColorRGB(*color)
+    c.setStrokeColorRGB(*color)
+    c.setFont(font_name, font_size)
 
     for raw_line in text.splitlines() or [text]:
         line = raw_line.strip()
@@ -173,6 +382,9 @@ def _draw_text_box(c, text: str, left: float, bottom: float, width: float, heigh
                 split_at = chunk.rfind(" ")
                 chunk = chunk[:split_at]
             c.drawString(left, y, chunk)
+            if underline:
+                text_width = c.stringWidth(chunk, font_name, font_size)
+                c.line(left, y - max(1.0, font_size * 0.12), left + text_width, y - max(1.0, font_size * 0.12))
             line = line[len(chunk):].lstrip()
             y -= leading
         if raw_line == "":

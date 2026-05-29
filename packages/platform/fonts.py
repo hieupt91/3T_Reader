@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -8,6 +9,15 @@ _WINDOWS_CANDIDATES = [
     "arial.ttf",
     "segoeui.ttf",
     "times.ttf",
+]
+
+_WINDOWS_BOLD_CANDIDATES = [
+    "arialbd.ttf",
+    "tahomabd.ttf",
+    "segoeuib.ttf",
+    "tahoma.ttf",   # fallback to regular if bold variant missing
+    "arial.ttf",
+    "segoeui.ttf",
 ]
 
 _MACOS_CANDIDATES = [
@@ -41,14 +51,33 @@ _LINUX_SEARCH_DIRS = [
 ]
 
 
-def _windows_font_path() -> str | None:
+def _windows_font_path(bold: bool = False) -> str | None:
     import os
     fonts_dir = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "Fonts"
-    for name in _WINDOWS_CANDIDATES:
+    candidates = _WINDOWS_BOLD_CANDIDATES if bold else _WINDOWS_CANDIDATES
+    for name in candidates:
         path = fonts_dir / name
         if path.exists():
             return str(path)
     return None
+
+
+def get_system_font_path(name: str = "", *, bold: bool = False) -> str | None:
+    """Return a matching system font path when available.
+
+    Kept for smoke-test/backward compatibility; feature code should prefer
+    get_vietnamese_font_path() when text may contain Vietnamese.
+    """
+    wanted = (name or "").strip().lower()
+    if sys.platform == "win32":
+        if wanted:
+            fonts_dir = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "Fonts"
+            for path in fonts_dir.glob("*.ttf"):
+                stem = path.stem.lower()
+                if wanted in stem:
+                    return str(path)
+        return _windows_font_path(bold)
+    return get_vietnamese_font_path(bold=bold)
 
 
 def _macos_font_path() -> str | None:
@@ -70,10 +99,10 @@ def _linux_font_path() -> str | None:
     return None
 
 
-def get_vietnamese_font_path() -> str | None:
+def get_vietnamese_font_path(bold: bool = False) -> str | None:
     """Return path to a Vietnamese-compatible font installed on this OS, or None."""
     if sys.platform == "win32":
-        return _windows_font_path()
+        return _windows_font_path(bold)
     if sys.platform == "darwin":
         return _macos_font_path()
     return _linux_font_path()

@@ -6,7 +6,7 @@ from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
 )
 from packages.qt_compat.QtCore import Qt, QSize
-from PySide6.QtSvgWidgets import QSvgWidget
+from packages.qt_compat.QtSvgWidgets import QSvgWidget
 
 _ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 
@@ -34,10 +34,12 @@ class AboutDialog(QDialog):
         h_layout = QHBoxLayout(header)
         h_layout.setContentsMargins(28, 12, 28, 12)
 
-        logo_path = os.path.join(_ASSETS, "logo_full.svg")
+        logo_path = os.path.join(_ASSETS, "brand_logo_dark.svg")
+        if not os.path.exists(logo_path):
+            logo_path = os.path.join(_ASSETS, "logo_full.svg")
         if os.path.exists(logo_path):
             logo_widget = QSvgWidget(logo_path)
-            logo_widget.setFixedSize(QSize(310, 82))
+            logo_widget.setFixedSize(QSize(320, 91))
             logo_widget.setStyleSheet("background: transparent;")
             h_layout.addWidget(logo_widget)
         else:

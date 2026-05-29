@@ -1,4 +1,4 @@
-"""Qt binding compatibility layer.
+﻿"""Qt binding compatibility layer.
 
 Commercial target is PySide6. Application code imports Qt through this module
 so Windows and macOS can share the same UI code without depending on PyQt.
