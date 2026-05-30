@@ -73,6 +73,10 @@ def open_ai_settings(window):
     from packages.qt_compat.QtCore import Qt, QTimer
     from styles.theme import is_dark
     from packages.ai.provider import is_ai_available, get_active_provider, is_ollama_available
+    from app.language_manager import get_selected_language, get_translation
+
+    lang = get_selected_language()
+    _t = lambda key, fallback: get_translation(lang, key, fallback)
 
     if is_dark():
         _STYLE = """
@@ -148,7 +152,7 @@ def open_ai_settings(window):
         """
 
     dlg = QDialog(window)
-    dlg.setWindowTitle("Cài đặt AI")
+    dlg.setWindowTitle(_t("ai.settings.title", "Cài đặt AI"))
     dlg.setModal(True)
     dlg.setMinimumWidth(680)
     dlg.resize(720, 520)
@@ -158,7 +162,7 @@ def open_ai_settings(window):
     root.setContentsMargins(24, 20, 24, 20)
     root.setSpacing(10)
 
-    title = QLabel("Cài đặt AI")
+    title = QLabel(_t("ai.settings.title", "Cài đặt AI"))
     title.setObjectName("title")
     root.addWidget(title)
 
@@ -167,22 +171,22 @@ def open_ai_settings(window):
     lbl_status.setObjectName("status")
     if is_ai_available():
         provider = get_active_provider()
-        lbl_status.setText(f"Trạng thái: Đang dùng {provider}")
+        lbl_status.setText(_t("ai.settings.status.using", "Trạng thái: Đang dùng {provider}").format(provider=provider))
         lbl_status.setStyleSheet("color:#166534;font-size:12px;")
     else:
-        lbl_status.setText("Trạng thái: Chưa cấu hình AI.")
+        lbl_status.setText(_t("ai.settings.status.none", "Trạng thái: Chưa cấu hình AI."))
         lbl_status.setStyleSheet("color:#b45309;font-size:12px;")
     root.addWidget(lbl_status)
 
     div1 = QFrame(); div1.setObjectName("divider"); div1.setFixedHeight(1)
     root.addWidget(div1)
 
-    lbl_provider = QLabel("AI provider ưu tiên:")
+    lbl_provider = QLabel(_t("ai.settings.provider", "AI provider ưu tiên:"))
     lbl_provider.setObjectName("lbl")
     root.addWidget(lbl_provider)
 
     combo_provider = QComboBox()
-    combo_provider.addItem("Tự động", "auto")
+    combo_provider.addItem(_t("ai.settings.auto", "Tự động"), "auto")
     combo_provider.addItem("Claude (Anthropic)", "claude")
     combo_provider.addItem("OpenAI GPT", "openai")
     combo_provider.addItem("Groq", "groq")
@@ -197,12 +201,12 @@ def open_ai_settings(window):
             break
     root.addWidget(combo_provider)
 
-    hint_provider = QLabel("Nếu provider ưu tiên lỗi, app sẽ tự thử provider khác đang có key.")
+    hint_provider = QLabel(_t("ai.settings.provider_hint", "Nếu provider ưu tiên lỗi, app sẽ tự thử provider khác đang có key."))
     hint_provider.setObjectName("hint")
     root.addWidget(hint_provider)
 
     # Anthropic API key
-    lbl_anthropic = QLabel("Anthropic API Key (Claude — ưu tiên 1):")
+    lbl_anthropic = QLabel(_t("ai.settings.anthropic", "Anthropic API Key (Claude — ưu tiên 1):"))
     lbl_anthropic.setObjectName("lbl")
     root.addWidget(lbl_anthropic)
 
@@ -212,12 +216,12 @@ def open_ai_settings(window):
     edit_anthropic.setText(os.environ.get("ANTHROPIC_API_KEY", ""))
     root.addWidget(edit_anthropic)
 
-    hint_anthropic = QLabel("Lấy key tại: console.anthropic.com")
+    hint_anthropic = QLabel(_t("ai.settings.anthropic_hint", "Lấy key tại: console.anthropic.com"))
     hint_anthropic.setObjectName("hint")
     root.addWidget(hint_anthropic)
 
     # OpenAI API key
-    lbl_openai = QLabel("OpenAI API Key (GPT-4o — ưu tiên 2):")
+    lbl_openai = QLabel(_t("ai.settings.openai", "OpenAI API Key (GPT — ưu tiên 2):"))
     lbl_openai.setObjectName("lbl")
     root.addWidget(lbl_openai)
 
@@ -227,12 +231,12 @@ def open_ai_settings(window):
     edit_openai.setText(os.environ.get("OPENAI_API_KEY", ""))
     root.addWidget(edit_openai)
 
-    hint_openai = QLabel("Lấy key tại: platform.openai.com")
+    hint_openai = QLabel(_t("ai.settings.openai_hint", "Lấy key tại: platform.openai.com"))
     hint_openai.setObjectName("hint")
     root.addWidget(hint_openai)
 
     # Gemini
-    lbl_gemini = QLabel("Google Gemini API Key:")
+    lbl_gemini = QLabel(_t("ai.settings.gemini", "Google Gemini API Key:"))
     lbl_gemini.setObjectName("lbl")
     root.addWidget(lbl_gemini)
 
@@ -242,12 +246,12 @@ def open_ai_settings(window):
     edit_gemini.setText(os.environ.get("GEMINI_API_KEY", ""))
     root.addWidget(edit_gemini)
 
-    hint_gemini = QLabel("Lấy key tại: ai.google.dev")
+    hint_gemini = QLabel(_t("ai.settings.gemini_hint", "Lấy key tại: ai.google.dev"))
     hint_gemini.setObjectName("hint")
     root.addWidget(hint_gemini)
 
     # Groq
-    lbl_groq = QLabel("Groq API Key:")
+    lbl_groq = QLabel(_t("ai.settings.groq", "Groq API Key:"))
     lbl_groq.setObjectName("lbl")
     root.addWidget(lbl_groq)
 
@@ -268,12 +272,12 @@ def open_ai_settings(window):
     row_groq.addWidget(edit_groq_base, 1)
     root.addLayout(row_groq)
 
-    hint_groq = QLabel("Groq dùng OpenAI-compatible API, có thể đổi model/base URL nếu cần.")
+    hint_groq = QLabel(_t("ai.settings.groq_hint", "Groq dùng OpenAI-compatible API, có thể đổi model/base URL nếu cần."))
     hint_groq.setObjectName("hint")
     root.addWidget(hint_groq)
 
     # OpenRouter
-    lbl_openrouter = QLabel("OpenRouter API Key:")
+    lbl_openrouter = QLabel(_t("ai.settings.openrouter", "OpenRouter API Key:"))
     lbl_openrouter.setObjectName("lbl")
     root.addWidget(lbl_openrouter)
 
@@ -305,12 +309,12 @@ def open_ai_settings(window):
     row_openrouter_meta.addWidget(edit_openrouter_name, 1)
     root.addLayout(row_openrouter_meta)
 
-    hint_openrouter = QLabel("OpenRouter cần key + model; nên giữ referer/app name để tránh bị chặn.")
+    hint_openrouter = QLabel(_t("ai.settings.openrouter_hint", "OpenRouter cần key + model; nên giữ referer/app name để tránh bị chặn."))
     hint_openrouter.setObjectName("hint")
     root.addWidget(hint_openrouter)
 
     # HuggingFace
-    lbl_hf = QLabel("HuggingFace API Token:")
+    lbl_hf = QLabel(_t("ai.settings.hf", "HuggingFace API Token:"))
     lbl_hf.setObjectName("lbl")
     root.addWidget(lbl_hf)
 
@@ -327,7 +331,7 @@ def open_ai_settings(window):
     row_hf.addWidget(edit_hf_model, 1)
     root.addLayout(row_hf)
 
-    hint_hf = QLabel("HuggingFace Inference API có thể dùng khi cần thêm fallback miễn phí.")
+    hint_hf = QLabel(_t("ai.settings.hf_hint", "HuggingFace Inference API có thể dùng khi cần thêm fallback miễn phí."))
     hint_hf.setObjectName("hint")
     root.addWidget(hint_hf)
 
@@ -335,7 +339,7 @@ def open_ai_settings(window):
     root.addWidget(div2)
 
     # Ollama (offline local LLM)
-    lbl_ollama = QLabel("Ollama — AI offline/nội bộ (ưu tiên 3, không cần internet):")
+    lbl_ollama = QLabel(_t("ai.settings.ollama", "Ollama — AI offline/nội bộ (ưu tiên 3, không cần internet):"))
     lbl_ollama.setObjectName("lbl")
     root.addWidget(lbl_ollama)
 
@@ -345,12 +349,12 @@ def open_ai_settings(window):
     edit_ollama_url.setText(os.environ.get("OLLAMA_BASE_URL", ""))
     row_ollama.addWidget(edit_ollama_url, 1)
 
-    btn_test_ollama = QPushButton("Kiểm tra")
+    btn_test_ollama = QPushButton(_t("ai.settings.ollama_test", "Kiểm tra"))
     btn_test_ollama.setObjectName("btn_test")
 
     ollama_ok = is_ollama_available()
     _ollama_status_color = "#166534" if ollama_ok else "#64748B"
-    _ollama_status_text  = "Đang chạy" if ollama_ok else "Không kết nối"
+    _ollama_status_text  = _t("ai.settings.ollama_running", "Đang chạy") if ollama_ok else _t("ai.settings.ollama_down", "Không kết nối")
     lbl_ollama_status = QLabel(_ollama_status_text)
     lbl_ollama_status.setStyleSheet(f"color:{_ollama_status_color};font-size:11px;min-width:90px;")
 
@@ -361,10 +365,10 @@ def open_ai_settings(window):
             os.environ["OLLAMA_BASE_URL"] = url
         ok = _check()
         if ok:
-            lbl_ollama_status.setText("Đang chạy")
+            lbl_ollama_status.setText(_t("ai.settings.ollama_running", "Đang chạy"))
             lbl_ollama_status.setStyleSheet("color:#166534;font-size:11px;")
         else:
-            lbl_ollama_status.setText("Không kết nối")
+            lbl_ollama_status.setText(_t("ai.settings.ollama_down", "Không kết nối"))
             lbl_ollama_status.setStyleSheet("color:#B91C1C;font-size:11px;")
 
     btn_test_ollama.clicked.connect(_test_ollama)
@@ -372,7 +376,7 @@ def open_ai_settings(window):
     row_ollama.addWidget(lbl_ollama_status)
     root.addLayout(row_ollama)
 
-    lbl_ollama_model = QLabel("Model Ollama:")
+    lbl_ollama_model = QLabel(_t("ai.settings.ollama_model", "Model Ollama:"))
     lbl_ollama_model.setObjectName("lbl")
     root.addWidget(lbl_ollama_model)
 
@@ -381,7 +385,7 @@ def open_ai_settings(window):
     edit_ollama_model.setText(os.environ.get("OLLAMA_MODEL", ""))
     root.addWidget(edit_ollama_model)
 
-    hint_ollama = QLabel("Cài Ollama tại ollama.com  •  Gõ: ollama pull llama3  •  Tự động phát hiện khi khởi động app")
+    hint_ollama = QLabel(_t("ai.settings.ollama_hint", "Cài Ollama tại ollama.com  •  Gõ: ollama pull llama3  •  Tự động phát hiện khi khởi động app"))
     hint_ollama.setObjectName("hint")
     root.addWidget(hint_ollama)
 
@@ -390,11 +394,78 @@ def open_ai_settings(window):
 
     btn_row = QHBoxLayout(); btn_row.setSpacing(10)
 
-    btn_cancel = QPushButton("Hủy")
+    btn_reset = QPushButton(_t("ai.settings.reset", "Xóa cấu hình AI local"))
+    btn_reset.setObjectName("btn_test")
+    btn_reset.setToolTip(_t("ai.settings.reset_tip", "Xóa toàn bộ key/cấu hình AI đã lưu trên máy này."))
+
+    btn_cancel = QPushButton(_t("dialog.cancel", "Hủy"))
     btn_cancel.clicked.connect(dlg.reject)
 
-    btn_save = QPushButton("Lưu")
+    btn_save = QPushButton(_t("ai.settings.save", "Lưu"))
     btn_save.setObjectName("btn_save")
+
+    def _reset_local_ai_config():
+        from packages.qt_compat.QtWidgets import QMessageBox
+        from packages.platform import get_app_data_dir
+
+        reply = QMessageBox.question(
+            dlg,
+            _t("ai.settings.reset", "Xóa cấu hình AI local"),
+            _t("ai.settings.reset_tip", "Xóa toàn bộ cấu hình AI đã lưu trên máy này?\nThao tác này chỉ ảnh hưởng máy hiện tại."),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            import json
+            config_path = os.path.join(get_app_data_dir(), "ai_config.json")
+            if os.path.exists(config_path):
+                os.remove(config_path)
+        except Exception:
+            pass
+
+        for key in (
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "GROQ_API_KEY",
+            "GROQ_MODEL",
+            "GROQ_BASE_URL",
+            "OPENROUTER_API_KEY",
+            "OPENROUTER_MODEL",
+            "OPENROUTER_BASE_URL",
+            "OPENROUTER_HTTP_REFERER",
+            "OPENROUTER_APP_NAME",
+            "HF_API_KEY",
+            "HF_MODEL",
+            "OLLAMA_BASE_URL",
+            "OLLAMA_MODEL",
+            "AI_PROVIDER",
+        ):
+            os.environ.pop(key, None)
+
+        lbl_status.setText(_t("ai.settings.status.none", "Trạng thái: Chưa cấu hình AI."))
+        lbl_status.setStyleSheet("color:#b45309;font-size:12px;")
+        edit_anthropic.clear()
+        edit_openai.clear()
+        edit_gemini.clear()
+        edit_groq_key.clear()
+        edit_groq_model.clear()
+        edit_groq_base.clear()
+        edit_openrouter_key.clear()
+        edit_openrouter_model.clear()
+        edit_openrouter_base.clear()
+        edit_openrouter_ref.clear()
+        edit_openrouter_name.clear()
+        edit_hf_key.clear()
+        edit_hf_model.clear()
+        edit_ollama_url.clear()
+        edit_ollama_model.clear()
+        combo_provider.setCurrentIndex(0)
+
+    btn_reset.clicked.connect(_reset_local_ai_config)
 
     def _save():
         ai_provider  = combo_provider.currentData() or "auto"
@@ -435,8 +506,12 @@ def open_ai_settings(window):
             del os.environ["GROQ_API_KEY"]
         if groq_model:
             os.environ["GROQ_MODEL"] = groq_model
+        else:
+            os.environ.pop("GROQ_MODEL", None)
         if groq_base:
             os.environ["GROQ_BASE_URL"] = groq_base
+        else:
+            os.environ.pop("GROQ_BASE_URL", None)
 
         if openrouter_key:
             os.environ["OPENROUTER_API_KEY"] = openrouter_key
@@ -444,12 +519,20 @@ def open_ai_settings(window):
             del os.environ["OPENROUTER_API_KEY"]
         if openrouter_model:
             os.environ["OPENROUTER_MODEL"] = openrouter_model
+        else:
+            os.environ.pop("OPENROUTER_MODEL", None)
         if openrouter_base:
             os.environ["OPENROUTER_BASE_URL"] = openrouter_base
+        else:
+            os.environ.pop("OPENROUTER_BASE_URL", None)
         if openrouter_ref:
             os.environ["OPENROUTER_HTTP_REFERER"] = openrouter_ref
+        else:
+            os.environ.pop("OPENROUTER_HTTP_REFERER", None)
         if openrouter_name:
             os.environ["OPENROUTER_APP_NAME"] = openrouter_name
+        else:
+            os.environ.pop("OPENROUTER_APP_NAME", None)
 
         if hf_key:
             os.environ["HF_API_KEY"] = hf_key
@@ -457,11 +540,17 @@ def open_ai_settings(window):
             del os.environ["HF_API_KEY"]
         if hf_model:
             os.environ["HF_MODEL"] = hf_model
+        else:
+            os.environ.pop("HF_MODEL", None)
 
         if ollama_url:
             os.environ["OLLAMA_BASE_URL"] = ollama_url
+        else:
+            os.environ.pop("OLLAMA_BASE_URL", None)
         if ollama_model:
             os.environ["OLLAMA_MODEL"] = ollama_model
+        else:
+            os.environ.pop("OLLAMA_MODEL", None)
 
         os.environ["AI_PROVIDER"] = ai_provider
 
@@ -486,19 +575,20 @@ def open_ai_settings(window):
 
         from packages.ai.provider import is_ai_available, get_active_provider
         if is_ai_available():
-            lbl_status.setText(f"Đã lưu. Đang dùng: {get_active_provider()}")
+            lbl_status.setText(_t("ai.settings.saved_status", "Đã lưu. Đang dùng: {provider}").format(provider=get_active_provider()))
             lbl_status.setStyleSheet("color:#166534;font-size:12px;")
         else:
-            lbl_status.setText("Đã xóa cấu hình AI.")
+            lbl_status.setText(_t("ai.settings.deleted_status", "Đã xóa cấu hình AI."))
             lbl_status.setStyleSheet("color:#b45309;font-size:12px;")
 
         orig = btn_save.text()
-        btn_save.setText("Đã lưu!")
+        btn_save.setText(_t("ai.settings.saved", "Đã lưu!"))
         QTimer.singleShot(1500, lambda: btn_save.setText(orig))
 
     btn_save.clicked.connect(_save)
 
     btn_row.addWidget(btn_cancel)
+    btn_row.addWidget(btn_reset)
     btn_row.addStretch()
     btn_row.addWidget(btn_save)
     root.addLayout(btn_row)

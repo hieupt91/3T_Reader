@@ -38,6 +38,69 @@ def _get_api_key(env_var: str) -> str:
     return os.environ.get(env_var, "")
 
 
+def _is_auth_error_text(text: str) -> bool:
+    """Return True when an error message looks like an auth/key failure."""
+    text = (text or "").lower()
+    return (
+        "invalid x-api-key" in text
+        or "invalid api key" in text
+        or "api_key_invalid" in text
+        or "authentication_error" in text
+        or "unauthorized" in text
+        or "401" in text
+        or "permission denied" in text
+        or "invalid_api_key" in text
+        or "không hợp lệ" in text
+        or "khong hop le" in text
+    )
+
+
+def _is_quota_error_text(text: str) -> bool:
+    text = (text or "").lower()
+    return (
+        "quota" in text
+        or "rate limit" in text
+        or "rate_limit" in text
+        or "too many requests" in text
+        or "429" in text
+        or "insufficient_quota" in text
+        or "resource_exhausted" in text
+        or "hết quota" in text
+        or "het quota" in text
+    )
+
+
+def _friendly_error(provider: str, error: str) -> str:
+    if _is_auth_error_text(error):
+        return f"{provider}: API key không hợp lệ hoặc đã hết quyền truy cập."
+    if _is_quota_error_text(error):
+        return f"{provider}: hết quota hoặc bị giới hạn tốc độ, app đã thử provider fallback nếu có."
+    return f"{provider}: {error}"
+
+
+def _clear_ai_key(env_var: str) -> None:
+    """Remove a stale AI key from the process and persisted config."""
+    os.environ.pop(env_var, None)
+    try:
+        from packages.platform import get_app_data_dir
+        import json
+
+        config_path = os.path.join(get_app_data_dir(), "ai_config.json")
+        if not os.path.exists(config_path):
+            return
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            return
+        if env_var in data:
+            data.pop(env_var, None)
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
 def _get_ollama_url() -> str:
     return os.environ.get(_OLLAMA_URL_ENV, _OLLAMA_DEFAULT_URL).rstrip("/")
 
@@ -115,7 +178,12 @@ def _openai_compatible_request(
     except ImportError:
         return AIResponse(text="", error="Chưa cài openai: pip install openai", success=False)
     except Exception as e:
-        return AIResponse(text="", error=str(e), success=False)
+        msg = str(e)
+        if _is_auth_error_text(msg):
+            return AIResponse(text="", error="API key không hợp lệ hoặc chưa có quyền truy cập provider này.", success=False)
+        if _is_quota_error_text(msg):
+            return AIResponse(text="", error="Provider hết quota hoặc bị giới hạn tốc độ.", success=False)
+        return AIResponse(text="", error=msg, success=False)
 
 
 def ask_claude(prompt: str, system: str = "", max_tokens: int = 2048) -> AIResponse:
@@ -138,7 +206,16 @@ def ask_claude(prompt: str, system: str = "", max_tokens: int = 2048) -> AIRespo
     except ImportError:
         return AIResponse(text="", error="Chưa cài anthropic: pip install anthropic", success=False)
     except Exception as e:
-        return AIResponse(text="", error=str(e), success=False)
+        msg = str(e)
+        if _is_auth_error_text(msg):
+            return AIResponse(
+                text="",
+                error="Claude API key không hợp lệ hoặc đã bị thu hồi. Hãy mở Cài đặt AI để nhập lại.",
+                success=False,
+            )
+        if _is_quota_error_text(msg):
+            return AIResponse(text="", error="Claude hết quota hoặc bị giới hạn tốc độ.", success=False)
+        return AIResponse(text="", error=msg, success=False)
 
 
 def ask_openai(prompt: str, system: str = "", max_tokens: int = 2048) -> AIResponse:
@@ -352,8 +429,16 @@ def ask_gemini(prompt: str, system: str = "", max_tokens: int = 2048) -> AIRespo
                 return AIResponse(text=text, model=model_name)
             except Exception as e:
                 last_err = str(e)
+                if _is_auth_error_text(last_err):
+                    return AIResponse(
+                        text="",
+                        error="Gemini API key không hợp lệ hoặc chưa bật quyền Generative Language API.",
+                        success=False,
+                    )
                 continue
-        return AIResponse(text="", error=f"Gemini lỗi hoặc quota hết: {last_err}", success=False)
+        if _is_quota_error_text(last_err):
+            return AIResponse(text="", error=f"Gemini hết quota hoặc bị giới hạn tốc độ: {last_err}", success=False)
+        return AIResponse(text="", error=f"Gemini lỗi: {last_err}", success=False)
     except ImportError:
         return AIResponse(text="", error="Chưa cài google-genai: pip install google-genai", success=False)
     except Exception as e:
@@ -366,16 +451,16 @@ def ask_ai(prompt: str, system: str = "", max_tokens: int = 2048) -> AIResponse:
     if mode == "3t_ai":
         return ask_3t_ai(prompt, system, max_tokens)
     preferred = _preferred_provider()
-    attempts: list[tuple[str, Callable[[str, str, int], AIResponse]]] = []
+    attempts: list[tuple[str, str, Callable[[str, str, int], AIResponse]]] = []
     for provider_name, key_name, fn in _provider_attempts():
         if key_name and not _get_api_key(key_name):
             continue
         if provider_name == "Ollama" and not is_ollama_available():
             continue
-        attempts.append((provider_name, fn))
+        attempts.append((provider_name, key_name, fn))
 
     if preferred != "auto" and attempts:
-        idx = next((i for i, (name, _) in enumerate(attempts) if _normalize_provider_name(name) == preferred), None)
+        idx = next((i for i, (name, _, _) in enumerate(attempts) if _normalize_provider_name(name) == preferred), None)
         if idx is not None and idx > 0:
             attempts = [attempts[idx]] + attempts[:idx] + attempts[idx + 1 :]
 
@@ -387,13 +472,33 @@ def ask_ai(prompt: str, system: str = "", max_tokens: int = 2048) -> AIResponse:
         )
 
     errors = []
-    for provider_name, fn in attempts:
+    auth_errors = []
+    quota_errors = []
+    for provider_name, key_name, fn in attempts:
         resp = fn(prompt, system, max_tokens)
         if resp.success and resp.text.strip():
             return resp
         if resp.error:
-            errors.append(f"{provider_name}: {resp.error}")
+            if key_name and _is_auth_error_text(resp.error):
+                auth_errors.append(provider_name)
+                _clear_ai_key(key_name)
+                continue
+            if _is_quota_error_text(resp.error):
+                quota_errors.append(provider_name)
+            errors.append(_friendly_error(provider_name, resp.error))
 
+    if auth_errors and not errors:
+        return AIResponse(
+            text="",
+            error="API key AI không hợp lệ. Mở Cài đặt AI để cập nhật key hoặc chọn provider khác.",
+            success=False,
+        )
+    if quota_errors and not errors:
+        return AIResponse(
+            text="",
+            error="Các provider AI đang hết quota hoặc bị giới hạn tốc độ. Hãy cấu hình thêm Gemini/Groq/OpenRouter/Ollama để fallback.",
+            success=False,
+        )
     return AIResponse(
         text="",
         error=" | ".join(errors[-3:]) if errors else "Không có provider AI khả dụng.",

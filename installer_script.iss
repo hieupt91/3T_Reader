@@ -69,6 +69,9 @@ Source: "dist\3T_Reader\*"; \
   DestDir: "{app}"; \
   Flags: ignoreversion recursesubdirs createallsubdirs
 
+; OCR runtime is packaged by PyInstaller into _internal\Tesseract-OCR so
+; installer and portable builds use the same bundled files.
+
 [Icons]
 ; Start Menu
 Name: "{group}\{#MyAppName}"; \

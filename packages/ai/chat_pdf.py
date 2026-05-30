@@ -35,9 +35,10 @@ _SYSTEM = (
 class PDFChatSession:
     """Session chat với một file PDF. Giữ lịch sử hội thoại."""
 
-    def __init__(self, pdf_path: str, max_context_chars: int = 6000):
+    def __init__(self, pdf_path: str, max_context_chars: int = 6000, max_history_messages: int = 20):
         self.pdf_path = pdf_path
         self.max_context_chars = max_context_chars
+        self.max_history_messages = max(2, int(max_history_messages))
         self.history: list[ChatMessage] = []
         self._pdf_text: Optional[str] = None
 
@@ -90,7 +91,7 @@ class PDFChatSession:
         history_text = ""
         if self.history:
             lines = []
-            for msg in self.history[-6:]:  # Giữ 6 tin nhắn gần nhất
+            for msg in self.history[-self.max_history_messages:]:
                 prefix = "Người dùng" if msg.role == "user" else "Trợ lý"
                 lines.append(f"{prefix}: {msg.content}")
             history_text = "\n".join(lines) + "\n\n"
