@@ -182,77 +182,6 @@ _ICON_COLORS_LIGHT = {
 }
 
 
-class _PrintWorker(QObject):
-    """Chạy việc in trong thread riêng để không block UI."""
-    finished = pyqtSignal()
-    error    = pyqtSignal(str)
-    progress = pyqtSignal(str)
-
-    def __init__(self, pdf_path: str, printer: QPrinter):
-        super().__init__()
-        self._pdf_path = pdf_path
-        self._printer  = printer
-
-    def run(self):
-        try:
-            pdf = get_pdf_engine().open(self._pdf_path)
-            painter = QPainter()
-
-            if not painter.begin(self._printer):
-                self.error.emit("Không thể khởi động máy in.")
-                return
-
-            page_rect = self._printer.pageRect(QPrinter.Unit.DevicePixel)
-            w = int(page_rect.width())
-            h = int(page_rect.height())
-
-            from_page = self._printer.fromPage()
-            to_page   = self._printer.toPage()
-            total     = pdf.page_count
-            pages     = range(total) if from_page == 0 else range(from_page - 1, to_page)
-            render_scale = 2.0 if total <= 120 else 1.4 if total <= 300 else 1.2
-
-            for i, page_num in enumerate(pages):
-                if i > 0:
-                    self._printer.newPage()
-
-                self.progress.emit(f"Đang in trang {page_num + 1} / {total}...")
-
-                rendered = pdf.render_page_rgb(page_num + 1, scale=render_scale)
-
-                img = QImage(
-                    rendered.samples,
-                    rendered.width,
-                    rendered.height,
-                    rendered.stride,
-                    QImage.Format.Format_RGB888,
-                )
-
-                scaled = img.scaled(
-                    QSize(w, h),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-
-                x = (w - scaled.width())  // 2
-                y = (h - scaled.height()) // 2
-                painter.drawImage(QRect(x, y, scaled.width(), scaled.height()), scaled)
-
-            painter.end()
-            pdf.close()
-
-        except ImportError:
-            self.error.emit(
-                "Thiếu thư viện PDF engine.\n"
-                "Vui lòng kiểm tra dependency trong requirements/pyproject\n"
-                "rồi build lại bộ cài."
-            )
-        except Exception as e:
-            self.error.emit(f"Lỗi in: {str(e)}")
-        finally:
-            self.finished.emit()
-
-
 class _UpdateCheckWorker(QObject):
     finished = pyqtSignal()
     available = pyqtSignal(object)
@@ -263,21 +192,19 @@ class _UpdateCheckWorker(QObject):
         super().__init__()
         self._base_url = base_url
         self._current_version = current_version
-        self._channel = channel
+        self._channel = channel  # reserved — check_for_update reads channel from module const
 
     def run(self):
         try:
-            from app.config import VPS_LICENSE_BASE_URL, UPDATE_CHANNEL
+            from app.config import VPS_LICENSE_BASE_URL
             from app.version import APP_VERSION
-            from packages.update_client import check_for_update
+            from packages.updater.update_client import check_for_update
 
             base_url = self._base_url or VPS_LICENSE_BASE_URL
             current_version = self._current_version or APP_VERSION
-            channel = self._channel or UPDATE_CHANNEL
-            info = check_for_update(base_url, current_version, channel)
-            if info.error:
-                self.error.emit(info.error)
-            elif info.available:
+            platform = "win" if sys.platform == "win32" else "mac"
+            info = check_for_update(base_url, current_version, platform=platform)
+            if info.available:
                 self.available.emit(info)
             else:
                 self.up_to_date.emit(info)
@@ -981,14 +908,21 @@ class PDFReaderApp(QMainWindow):
         preview.exec()
 
     def _do_print_pages(self, printer: QPrinter, pdf_path: str):
-        """Vẽ từng trang PDF lên printer — chạy trên main thread qua paintRequested."""
+        """Vẽ từng trang PDF lên printer — chạy trên main thread qua paintRequested.
+
+        Tiến độ xử lý qua QProgressDialog (hiện sau 1s nếu vẫn đang chạy) cho
+        phép user hủy. processEvents() giữa các trang để UI vẫn phản hồi
+        cho file dày.
+        """
+        from packages.qt_compat.QtWidgets import QProgressDialog, QApplication
+
         try:
             pdf = get_pdf_engine().open(pdf_path)
-            painter = QPainter()
-            if not painter.begin(printer):
-                show_warning(self, "Lỗi in", "Không thể khởi động máy in.")
-                return
+        except Exception as e:
+            show_warning(self, "Lỗi in", f"Không mở được tài liệu: {e}")
+            return
 
+        try:
             page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
             w = int(page_rect.width())
             h = int(page_rect.height())
@@ -996,13 +930,34 @@ class PDFReaderApp(QMainWindow):
             from_page = printer.fromPage()
             to_page   = printer.toPage()
             total     = pdf.page_count
-            pages = range(total) if from_page == 0 else range(from_page - 1, to_page)
+            page_list = list(range(total) if from_page == 0 else range(from_page - 1, to_page))
+            count     = len(page_list)
             render_scale = 2.0 if total <= 120 else 1.4 if total <= 300 else 1.2
 
-            for i, page_num in enumerate(pages):
+            progress = QProgressDialog("Đang chuẩn bị in…", "Hủy", 0, count, self)
+            progress.setWindowTitle("In tài liệu")
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setMinimumDuration(1000)
+            progress.setAutoClose(True)
+            progress.setAutoReset(False)
+
+            painter = QPainter()
+            if not painter.begin(printer):
+                progress.cancel()
+                show_warning(self, "Lỗi in", "Không thể khởi động máy in.")
+                return
+
+            cancelled = False
+            for i, page_num in enumerate(page_list):
+                if progress.wasCanceled():
+                    cancelled = True
+                    break
+                progress.setValue(i)
+                progress.setLabelText(f"Đang in trang {page_num + 1} / {total}…")
+                QApplication.processEvents()
+
                 if i > 0:
                     printer.newPage()
-                self.status.showMessage(f"Đang in trang {page_num + 1} / {total}…", 2000)
 
                 rendered = pdf.render_page_rgb(page_num + 1, scale=render_scale)
                 img = QImage(
@@ -1022,10 +977,19 @@ class PDFReaderApp(QMainWindow):
                 painter.drawImage(QRect(x, y, scaled.width(), scaled.height()), scaled)
 
             painter.end()
-            pdf.close()
-            self.status.showMessage("✓ In hoàn tất", 4000)
+            progress.setValue(count)
+
+            if cancelled:
+                self.status.showMessage("Đã hủy in", 4000)
+            else:
+                self.status.showMessage("✓ In hoàn tất", 4000)
         except Exception as e:
             show_warning(self, "Lỗi in", str(e))
+        finally:
+            try:
+                pdf.close()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------ #
     #  Menubar                                                             #
