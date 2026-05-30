@@ -10,7 +10,7 @@ from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QDialogButtonBox, QSpinBox, QSlider,
     QComboBox, QCheckBox, QFileDialog, QInputDialog,
-    QColorDialog,
+    QColorDialog, QMessageBox,
 )
 from packages.qt_compat.QtCore import Qt
 from packages.qt_compat.QtGui import QColor
@@ -170,6 +170,48 @@ def _watermark_page_bytes(w: float, h: float, text: str, size: int,
     return buf.read()
 
 
+def _remove_last_overlay_draw(pdf, page) -> bool:
+    import pikepdf
+
+    contents = page.obj.get("/Contents")
+    if contents is None:
+        return False
+    if isinstance(contents, pikepdf.Array):
+        if len(contents) > 1:
+            del contents[-1]
+            return True
+        if len(contents) != 1:
+            return False
+        content_obj = contents[0]
+    else:
+        content_obj = contents
+
+    # pikepdf.Page.add_overlay() can merge the overlay into one content stream:
+    #   q ...original... Q
+    #   q ... /SomeXObject Do Q
+    # Remove the final XObject draw block, which is how the current app adds watermarks.
+    try:
+        raw = bytes(content_obj)
+    except Exception:
+        return False
+    if not raw:
+        return False
+
+    stripped = raw.rstrip()
+    start = stripped.rfind(b"\nq")
+    if start < 0 and stripped.startswith(b"q"):
+        start = 0
+    tail = stripped[start:] if start >= 0 else b""
+    if start >= 0 and b" Do" in tail and tail.endswith(b"Q"):
+        new_stream = pikepdf.Stream(pdf, raw[:start].rstrip() + b"\n")
+        if isinstance(contents, pikepdf.Array):
+            contents[0] = new_stream
+        else:
+            page.obj["/Contents"] = new_stream
+        return True
+    return False
+
+
 @require_document(show_message=True)
 def add_watermark(window):
     dlg = _WatermarkDialog(window)
@@ -219,6 +261,76 @@ def add_watermark(window):
 
     except Exception as e:
         show_warning(window, "Lỗi watermark", str(e))
+        if os.path.exists(out):
+            os.remove(out)
+
+
+@require_document(show_message=True)
+def remove_watermark(window):
+    """Remove the last overlay content stream, matching watermarks created by this app."""
+    reply = QMessageBox.question(
+        window,
+        "Xóa watermark",
+        "Tính năng này chỉ gỡ lớp overlay cuối cùng trên trang.\n\n"
+        "Cách này phù hợp với watermark vừa được 3T Reader thêm vào. "
+        "Nếu PDF gốc có lớp nội dung đặc biệt, hãy lưu bản sao trước khi tiếp tục.\n\n"
+        "Tiếp tục xóa watermark?",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+    )
+    if reply != QMessageBox.StandardButton.Yes:
+        return
+
+    scope, ok = QInputDialog.getItem(
+        window,
+        "Phạm vi xóa watermark",
+        "Áp dụng:",
+        ["Tất cả trang", "Trang hiện tại"],
+        0,
+        False,
+    )
+    if not ok:
+        return
+
+    src = window.current_path
+    out = _tmp_pdf()
+
+    try:
+        import pikepdf
+
+        cur_page = 0
+        try:
+            cur_page = max(0, window.viewer.get_current_page() - 1)
+        except Exception:
+            pass
+
+        removed = 0
+        with pikepdf.open(src) as pdf:
+            total = len(pdf.pages)
+            target_pages = range(total) if scope == "Tất cả trang" else [cur_page]
+
+            for i in target_pages:
+                page = pdf.pages[i]
+                if _remove_last_overlay_draw(pdf, page):
+                    removed += 1
+
+            if removed <= 0:
+                show_warning(
+                    window,
+                    "Không tìm thấy lớp watermark",
+                    "Không thấy lớp overlay có thể gỡ an toàn. "
+                    "Watermark cũ hoặc watermark từ phần mềm khác có thể đã được trộn vào nội dung gốc.",
+                )
+                return
+
+            pdf.save(out)
+
+        shutil.copy2(out, src)
+        os.remove(out)
+        _reload(window, src)
+        window.status.showMessage(f"Đã xóa watermark trên {removed} trang", 4000)
+
+    except Exception as e:
+        show_warning(window, "Lỗi xóa watermark", str(e))
         if os.path.exists(out):
             os.remove(out)
 

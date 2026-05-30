@@ -53,7 +53,7 @@ QFrame#divider { background: #2A2A4A; }
 
 
 class _Worker(QObject):
-    progress  = pyqtSignal(int, str)   # (page_done, text_so_far)
+    progress  = pyqtSignal(int, str)   # (page_done, latest_text_block)
     finished  = pyqtSignal(str, int)   # (full_text, total_pages)
     error     = pyqtSignal(str)
 
@@ -80,8 +80,7 @@ class _Worker(QObject):
             header = f"{'─'*40}\n📄 Trang {pn}\n{'─'*40}\n"
             block = header + (result.text or "(không nhận dạng được văn bản)")
             all_text.append(block)
-            combined = "\n\n".join(all_text)
-            self.progress.emit(i, combined)
+            self.progress.emit(i, block)
         self.finished.emit("\n\n".join(all_text), len(self._pages))
 
 
@@ -102,6 +101,7 @@ class OCRDialog(QDialog):
         self._worker: _Worker | None = None
         self._thread = None
         self._final_text = ""
+        self._live_preview = len(pages) <= 3
 
         self._build_ui(current_page)
         self._start()
@@ -139,6 +139,12 @@ class OCRDialog(QDialog):
         self._text_edit.setPlaceholderText("Văn bản sẽ xuất hiện ở đây…")
         self._text_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         root.addWidget(self._text_edit)
+        if not self._live_preview:
+            self._text_edit.setPlainText(
+                "Đang OCR toàn bộ tài liệu...\n\n"
+                "3T Reader chỉ cập nhật tiến độ và sẽ hiển thị kết quả sau khi xử lý xong "
+                "để tránh UI bị giật/chồng overlay."
+            )
 
         # Divider
         div = QFrame(); div.setObjectName("divider"); div.setFixedHeight(1)
@@ -174,10 +180,15 @@ class OCRDialog(QDialog):
         self._thread = threading.Thread(target=self._worker.run, daemon=True)
         self._thread.start()
 
-    def _on_progress(self, done: int, text_so_far: str):
+    def _on_progress(self, done: int, latest_text_block: str):
         self._progress.setValue(done)
         self._lbl_info.setText(f"Đang xử lý trang {done}/{len(self._pages)}…")
-        self._text_edit.setPlainText(text_so_far)
+        if not self._live_preview:
+            return
+        if done == 1:
+            self._text_edit.setPlainText(latest_text_block)
+        else:
+            self._text_edit.append("\n\n" + latest_text_block)
         # Auto-scroll xuống
         sb = self._text_edit.verticalScrollBar()
         sb.setValue(sb.maximum())

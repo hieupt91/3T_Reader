@@ -233,6 +233,16 @@ def _check_ocr_available(window) -> bool:
 
 def ocr_current_page(window):
     """OCR current page."""
+    existing = getattr(window, "_active_ocr_dialog", None)
+    if existing is not None:
+        try:
+            existing.raise_()
+            existing.activateWindow()
+            window.status.showMessage("OCR đang chạy, vui lòng chờ hoặc đóng cửa sổ OCR hiện tại.", 4000)
+            return
+        except RuntimeError:
+            window._active_ocr_dialog = None
+
     if not _check_ocr_available(window):
         return
 
@@ -252,7 +262,11 @@ def ocr_current_page(window):
 
     from app.ocr_dialog import OCRDialog
     dlg = OCRDialog(window, pdf_path, pages=[current_page], current_page=current_page, high_quality=False)
-    dlg.exec()
+    window._active_ocr_dialog = dlg
+    try:
+        dlg.exec()
+    finally:
+        window._active_ocr_dialog = None
     try:
         from packages.audit import log_action, ACT_OCR
         log_action(ACT_OCR, pdf_path, f"page={current_page}")
@@ -262,6 +276,16 @@ def ocr_current_page(window):
 
 def ocr_full_document(window):
     """OCR whole document (enterprise flow)."""
+    existing = getattr(window, "_active_ocr_dialog", None)
+    if existing is not None:
+        try:
+            existing.raise_()
+            existing.activateWindow()
+            window.status.showMessage("OCR đang chạy, vui lòng chờ hoặc đóng cửa sổ OCR hiện tại.", 4000)
+            return
+        except RuntimeError:
+            window._active_ocr_dialog = None
+
     if not _check_ocr_available(window):
         return
 
@@ -301,4 +325,9 @@ def ocr_full_document(window):
 
     from app.ocr_dialog import OCRDialog
     dlg = OCRDialog(window, pdf_path, pages=pages, current_page=current_page, high_quality=True)
-    dlg.exec()
+    dlg.setModal(False)
+    dlg.finished.connect(lambda _code: setattr(window, "_active_ocr_dialog", None))
+    window._active_ocr_dialog = dlg
+    dlg.show()
+    dlg.raise_()
+    dlg.activateWindow()

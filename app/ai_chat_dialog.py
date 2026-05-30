@@ -6,7 +6,7 @@ import threading
 from packages.qt_compat.QtCore import Qt, QTimer, QObject, pyqtSignal
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
-    QPushButton, QFrame, QLineEdit, QSizePolicy,
+    QPushButton, QFrame, QLineEdit, QSizePolicy, QApplication,
 )
 from styles.theme import is_dark
 
@@ -255,7 +255,8 @@ class AIChatDialog(QDialog):
 
         self._busy = True
         self._btn_send.setEnabled(False)
-        self._lbl_status.setText("AI đang trả lời…")
+        self._lbl_status.setText("Đã gửi câu hỏi. AI đang đọc tài liệu và trả lời…")
+        QApplication.processEvents()
 
         self._worker = _ChatWorker(self._session, question)
         self._worker.finished.connect(self._on_finished)

@@ -63,7 +63,7 @@ from app.actions.ai_actions import (
 )
 from app.actions.export import export_pdf_to_word, export_pdf_to_excel
 from app.actions.document_ops import (
-    add_watermark, set_pdf_password, remove_pdf_password,
+    add_watermark, remove_watermark, set_pdf_password, remove_pdf_password,
     compress_pdf, export_pages_to_images,
     export_pdf_to_text, add_page_numbers,
 )
@@ -870,10 +870,12 @@ class PDFReaderApp(QMainWindow):
 
         g_sec = RibbonGroup("Bảo mật")
         _act_wm   = make("Watermark",   "pen.svg",      "Thêm watermark",     None, lambda: add_watermark(self))
+        _act_rmwm = make("Xóa watermark","trash.svg",   "Xóa watermark vừa thêm", None, lambda: remove_watermark(self))
         _act_setpw= make("Đặt mật khẩu","save.svg",     "Đặt mật khẩu PDF",  None, lambda: set_pdf_password(self))
         _act_rmpw = make("Xóa mật khẩu","trash.svg",    "Xóa mật khẩu PDF",  None, lambda: remove_pdf_password(self))
         _act_comp = make("Nén PDF",     "save.svg",     "Nén / tối ưu PDF",   None, lambda: compress_pdf(self))
         g_sec.add(make_action_btn(_act_wm,    "Watermark"))
+        g_sec.add(make_action_btn(_act_rmwm,  "Xóa watermark"))
         g_sec.add(make_action_btn(_act_setpw, "Đặt mật khẩu"))
         g_sec.add(make_action_btn(_act_rmpw,  "Xóa mật khẩu"))
         g_sec.add(make_action_btn(_act_comp,  "Nén PDF"))
@@ -1210,6 +1212,10 @@ class PDFReaderApp(QMainWindow):
         act_watermark = menu_security.addAction("Thêm watermark…")
         act_watermark.setIcon(svg_icon("pen.svg", size=16, color="#f0c050"))
         act_watermark.triggered.connect(lambda: add_watermark(self))
+
+        act_remove_watermark = menu_security.addAction("Xóa watermark…")
+        act_remove_watermark.setIcon(svg_icon("trash.svg", size=16, color="#e05050"))
+        act_remove_watermark.triggered.connect(lambda: remove_watermark(self))
 
         menu_security.addSeparator()
 
@@ -1620,23 +1626,8 @@ class PDFReaderApp(QMainWindow):
         code = code if code in ("vi", "en", "fr", "zh", "ko", "th") else "vi"
         set_selected_language(code)
         self._language_code = code
-        ok, detail = download_language_pack(code, self)
         self._apply_language_texts()
-        if ok:
-            self.status.showMessage(f"Da chuyen sang ngon ngu: {code}", 3000)
-        else:
-            self.status.showMessage(
-                f"Da chuyen sang ngon ngu: {code} (ban tich hop; tai server loi)",
-                7000,
-            )
-            self.raise_()
-            self.activateWindow()
-            QMessageBox.warning(
-                self,
-                "Không tải được ngôn ngữ",
-                f"Đã chuyển sang '{code}' nhưng không tải được gói từ server.\n{detail}",
-            )
-            print(f"[lang] failed to download language pack for {code}: {detail}", flush=True)
+        self.status.showMessage(f"Đã chuyển sang ngôn ngữ: {code}", 3000)
 
     def _refresh_language_pack(self):
         self._open_language_pack_dialog()
@@ -1692,6 +1683,11 @@ class PDFReaderApp(QMainWindow):
             QMessageBox.warning(self, "Tải gói ngôn ngữ", "\n\n".join(message))
 
     def _apply_language_texts(self):
+        def _set_action(attr: str, key: str, fallback: str):
+            action = getattr(self, attr, None)
+            if action is not None:
+                action.setText(self._t(key, fallback))
+
         if hasattr(self, "menu_file"):
             self.menu_file.setTitle(self._t("menu.file", "Tệp"))
         if hasattr(self, "menu_nav"):
@@ -1747,6 +1743,30 @@ class PDFReaderApp(QMainWindow):
             self.act_lang_refresh_tb.setText(self._t("lang.download", "Tải gói ngôn ngữ..."))
         if hasattr(self, "menu_help"):
             self.menu_help.setTitle(self._t("menu.help", "Trợ giúp"))
+        _set_action("act_open", "action.open", "Mở tệp")
+        _set_action("act_new_pdf", "action.new_pdf", "PDF mới")
+        _set_action("act_recent", "action.recent", "Gần đây")
+        _set_action("act_save", "action.save", "Lưu")
+        _set_action("act_save_as", "action.save_as", "Lưu mới")
+        _set_action("act_print", "action.print", "In")
+        _set_action("act_prev", "action.prev", "Trang trước")
+        _set_action("act_next", "action.next", "Trang sau")
+        _set_action("act_zoom_in", "action.zoom_in", "Phóng to")
+        _set_action("act_zoom_out", "action.zoom_out", "Thu nhỏ")
+        _set_action("act_fit", "action.fit", "Vừa trang")
+        _set_action("act_theme_toggle", "action.theme", "Giao diện")
+        _set_action("act_fullscreen", "action.fullscreen", "Toàn màn")
+        _set_action("act_highlight", "action.highlight", "Tô sáng")
+        _set_action("act_insert_text", "action.insert_text", "Chèn chữ")
+        _set_action("act_insert_image", "action.insert_image", "Chèn ảnh")
+        _set_action("act_draw", "action.draw", "Vẽ tự do")
+        _set_action("act_redact", "action.redact", "Xóa trắng")
+        _set_action("act_delete_object", "action.delete_object", "Xóa obj")
+        _set_action("act_select_inserted", "action.select_object", "Chọn & Xoay")
+        _set_action("act_undo", "action.undo", "Hoàn tác")
+        _set_action("act_sign", "action.sign", "Ký số")
+        _set_action("act_signature_field", "action.signature_field", "Ô ký")
+        _set_action("act_verify_signature", "action.verify", "Kiểm tra")
         if hasattr(self, "ribbon"):
             self.ribbon.set_tab_text(0, self._t("tab.file_view", "Tệp & Xem"))
             self.ribbon.set_tab_text(1, self._t("tab.annotate", "Chú thích"))

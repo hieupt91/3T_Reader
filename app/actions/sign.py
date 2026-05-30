@@ -598,6 +598,93 @@ def _set_signature_preview(window, placement: dict | None):
 }})({payload_json});
 """
     web_view.page().runJavaScript(script)
+
+
+def _set_signature_field_marks(window, placements: list[dict]) -> None:
+    """Show already selected signature fields as fixed overlays while adding more fields."""
+    web_view = _get_web_view(window)
+    if web_view is None:
+        return
+
+    payload = json.dumps(placements or [])
+    script = f"""
+(function(items) {{
+    if (!window.PDFViewerApplication || !PDFViewerApplication.pdfViewer) {{
+        return;
+    }}
+    const viewer = PDFViewerApplication.pdfViewer;
+    const markerClass = 'reader-pdf-sigfield-marker';
+
+    document.querySelectorAll('.' + markerClass).forEach(function(el) {{
+        el.remove();
+    }});
+
+    items.forEach(function(item, index) {{
+        const pageNumber = item.page_number;
+        const box = item.box;
+        if (!pageNumber || !box || box.length !== 4) {{
+            return;
+        }}
+        const pageView = viewer.getPageView
+            ? viewer.getPageView(pageNumber - 1)
+            : (viewer._pages && viewer._pages[pageNumber - 1]);
+        if (!pageView || !pageView.viewport || !pageView.div) {{
+            return;
+        }}
+
+        const rect = pageView.viewport.convertToViewportRectangle([box[0], box[1], box[2], box[3]]);
+        const left = Math.min(rect[0], rect[2]);
+        const top = Math.min(rect[1], rect[3]);
+        const width = Math.abs(rect[2] - rect[0]);
+        const height = Math.abs(rect[3] - rect[1]);
+
+        const marker = document.createElement('div');
+        marker.className = markerClass;
+        marker.style.position = 'absolute';
+        marker.style.left = `${{left}}px`;
+        marker.style.top = `${{top}}px`;
+        marker.style.width = `${{Math.max(1, width)}}px`;
+        marker.style.height = `${{Math.max(1, height)}}px`;
+        marker.style.zIndex = '39';
+        marker.style.boxSizing = 'border-box';
+        marker.style.border = '2px solid #16a34a';
+        marker.style.background = 'rgba(22, 163, 74, 0.16)';
+        marker.style.pointerEvents = 'none';
+        marker.style.borderRadius = '2px';
+
+        const badge = document.createElement('div');
+        badge.textContent = item.display_name || item.field_name || `Ô ký ${{index + 1}}`;
+        badge.style.position = 'absolute';
+        badge.style.left = '0';
+        badge.style.top = '-20px';
+        badge.style.maxWidth = '220px';
+        badge.style.overflow = 'hidden';
+        badge.style.textOverflow = 'ellipsis';
+        badge.style.whiteSpace = 'nowrap';
+        badge.style.padding = '1px 6px';
+        badge.style.fontSize = '11px';
+        badge.style.fontWeight = '700';
+        badge.style.color = '#ffffff';
+        badge.style.background = '#16a34a';
+        badge.style.borderRadius = '10px';
+        marker.appendChild(badge);
+
+        pageView.div.appendChild(marker);
+    }});
+}})({payload});
+"""
+    web_view.page().runJavaScript(script)
+
+
+def _clear_signature_field_marks(window) -> None:
+    web_view = _get_web_view(window)
+    if web_view is None:
+        return
+    web_view.page().runJavaScript(
+        "document.querySelectorAll('.reader-pdf-sigfield-marker').forEach(function(el){el.remove();});"
+    )
+
+
 def _set_object_preview(window, placement: dict | None, *, label: str = "Preview"):
     """
     Wrapper của _set_signature_preview dùng cho chèn ảnh/văn bản.
@@ -1094,70 +1181,114 @@ def check_token(window):
 
 @require_document(show_message=True)
 def create_signature_field(window):
-    """Create a reusable empty signature field on the current PDF."""
+    """Create one or more reusable empty signature fields on the current PDF."""
     from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
     from pyhanko.sign import fields
+    import tempfile
+    import shutil
+    import re
+    import unicodedata
 
-    placement = _pick_signature_placement(window)
-    if not placement:
-        return
+    def _safe_signature_field_name(value: str, fallback: str) -> str:
+        raw = (value or "").strip() or fallback
+        ascii_name = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+        ascii_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", ascii_name).strip("_")
+        return (ascii_name or fallback)[:96]
 
-    default_name = f"Signature_{os.path.splitext(os.path.basename(window.current_path))[0]}"
-    field_name, ok = QInputDialog.getText(
-        window,
-        "Tạo ô ký số",
-        "Tên ô ký số:",
-        QLineEdit.EchoMode.Normal,
-        default_name,
+    placements: list[dict] = []
+    base_name = _safe_signature_field_name(
+        os.path.splitext(os.path.basename(window.current_path))[0],
+        "Document",
     )
-    if not ok:
-        return
 
-    field_name = (field_name or "").strip()
-    if not field_name:
-        show_warning(window, "Thiếu tên ô ký", "Vui lòng nhập tên ô ký số.")
-        return
+    while True:
+        placement = _pick_signature_placement(window)
+        if not placement:
+            break
 
-    field_name = field_name.replace(" ", "_")
+        default_name = f"Signature_{base_name}_{len(placements) + 1}"
+        field_name, ok = QInputDialog.getText(
+            window,
+            "Tạo ô ký số",
+            "Tên ô ký số:",
+            QLineEdit.EchoMode.Normal,
+            default_name,
+        )
+        if not ok:
+            break
 
-    default_output = f"{os.path.splitext(window.current_path)[0]}_sigfield.pdf"
-    output_path, _ = QFileDialog.getSaveFileName(
-        window,
-        "Lưu file có ô ký số",
-        default_output,
-        "PDF Files (*.pdf)",
-    )
-    if not output_path:
+        display_name = (field_name or "").strip()
+        field_name = _safe_signature_field_name(display_name, default_name)
+        if not field_name:
+            show_warning(window, "Thiếu tên ô ký", "Vui lòng nhập tên ô ký số.")
+            continue
+
+        placements.append(
+            {
+                "field_name": field_name,
+                "display_name": display_name or field_name,
+                "box": placement["box"],
+                "page_number": placement["page_number"],
+            }
+        )
+        _set_signature_field_marks(window, placements)
+
+        reply = QMessageBox.question(
+            window,
+            "Thêm ô ký",
+            "Đã ghi nhận ô ký tạm.\n\nBạn có muốn đặt thêm ô ký khác trên tài liệu này không?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            break
+
+    if not placements:
+        _clear_signature_field_marks(window)
         return
 
     try:
+        output_path = os.path.join(tempfile.gettempdir(), f"3t_sigfields_{os.getpid()}.pdf")
         with open(window.current_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
-            fields.append_signature_field(
-                writer,
-                sig_field_spec=fields.SigFieldSpec(
-                    sig_field_name=field_name,
-                    box=placement["box"],
-                    on_page=max(0, placement["page_number"] - 1),
-                ),
-            )
+            used_names: set[str] = {
+                str(name)
+                for name, _value, _ref in fields.enumerate_sig_fields(writer)
+                if name
+            }
+
+            def _unique_field_name(base: str) -> str:
+                candidate = base
+                idx = 2
+                while candidate in used_names:
+                    candidate = f"{base}_{idx}"
+                    idx += 1
+                used_names.add(candidate)
+                return candidate
+
+            for item in placements:
+                field_name = _unique_field_name(item["field_name"])
+                fields.append_signature_field(
+                    writer,
+                    sig_field_spec=fields.SigFieldSpec(
+                        sig_field_name=field_name,
+                        box=item["box"],
+                        on_page=max(0, item["page_number"] - 1),
+                    ),
+                )
             with open(output_path, "wb") as out:
                 writer.write(out)
 
-        validation = {"ok": True, "message": "Đã tạo ô ký số thành công."}
-        reply = QMessageBox.question(
-            window,
-            "Đã tạo ô ký số",
-            "Đã tạo ô ký số thành công.\n\n"
-            f"Tên ô: {field_name}\n"
-            f"File lưu tại:\n{output_path}\n\n"
-            "Mở file vừa tạo ngay?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            _refresh_document_view(window, output_path, page_number=placement["page_number"])
-        window.status.showMessage(validation["message"], 3000)
+        shutil.copy2(output_path, window.current_path)
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
+
+        _refresh_document_view(window, window.current_path, page_number=placements[-1]["page_number"])
+        _clear_signature_field_marks(window)
+        window.status.showMessage(f"Đã tạo {len(placements)} ô ký số trên file đang mở", 3000)
     except Exception:
+        _clear_signature_field_marks(window)
         traceback.print_exc()
         msg = QMessageBox(window)
         msg.setIcon(QMessageBox.Icon.Critical)
@@ -1845,11 +1976,17 @@ def sign_handwritten(window):
 
         tmp_dir2 = _os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
         _os.makedirs(tmp_dir2, exist_ok=True)
-        out_path = _os.path.join(tmp_dir2, f"signed_{uuid.uuid4().hex[:8]}.pdf")
+        out_path = _os.path.join(tmp_dir2, f"signature_edit_{uuid.uuid4().hex[:8]}.pdf")
         doc.save(out_path)
         doc.close()
 
-        _refresh_document_view(window, out_path, page_number=page_no)
+        shutil.copy2(out_path, window.current_path)
+        try:
+            _os.remove(out_path)
+        except OSError:
+            pass
+
+        _refresh_document_view(window, window.current_path, page_number=page_no)
         if hasattr(window, "status"):
             window.status.showMessage("Đã đặt chữ ký tay lên PDF", 3000)
     except Exception as exc:

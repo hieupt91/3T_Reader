@@ -190,7 +190,7 @@ def ocr_pil_image(pil_image, page_num: int = 1, high_quality: bool = False) -> O
         psm = "6" if not high_quality else "3"
         config = f"--oem 1 --psm {psm}"
         if tessdata_dir:
-            config = f'{config} --tessdata-dir "{tessdata_dir}"'
+            os.environ["TESSDATA_PREFIX"] = tessdata_dir
 
         if high_quality:
             from PIL import Image
