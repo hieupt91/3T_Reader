@@ -370,10 +370,9 @@ def _build_signature_display_overlay(width: float, height: float, overlays: list
         lines = overlay.get("lines") or ["DA KY SO"]
 
         c.saveState()
-        c.setFillColor(colors.Color(0.96, 0.99, 1.0, alpha=0.85))
         c.setStrokeColorRGB(0.0, 0.36, 0.72)
         c.setLineWidth(1.0)
-        c.rect(left, bottom, box_width, box_height, stroke=1, fill=1)
+        c.rect(left, bottom, box_width, box_height, stroke=1, fill=0)
         c.setFillColorRGB(0.02, 0.18, 0.32)
         font_size = max(7.0, min(10.0, box_height / max(4.5, len(lines) + 1)))
         leading = font_size + 2

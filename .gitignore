@@ -20,6 +20,9 @@ env/
 *.exe
 *.msi
 
+# Bundled OCR runtime — local build asset, fetched via packaging script
+/third_party/tesseract/
+
 # Local app/runtime data
 recent_files.json
 *.log

@@ -68,8 +68,11 @@ class _Worker(QObject):
         self._cancelled = True
 
     def run(self):
+        import time
         from packages.ocr.engine import ocr_pdf_page
         all_text = []
+        _last_emit = 0.0
+        total = len(self._pages)
         for i, pn in enumerate(self._pages, 1):
             if self._cancelled:
                 break
@@ -80,7 +83,10 @@ class _Worker(QObject):
             header = f"{'─'*40}\n📄 Trang {pn}\n{'─'*40}\n"
             block = header + (result.text or "(không nhận dạng được văn bản)")
             all_text.append(block)
-            self.progress.emit(i, block)
+            now = time.monotonic()
+            if now - _last_emit >= 0.8 or i == total:
+                self.progress.emit(i, block)
+                _last_emit = now
         self.finished.emit("\n\n".join(all_text), len(self._pages))
 
 
@@ -88,10 +94,11 @@ class OCRDialog(QDialog):
     """Dialog OCR — chạy trong background thread, hiển thị kết quả cuộn."""
 
     def __init__(self, parent, pdf_path: str, pages: list[int],
-                 current_page: int = 1, high_quality: bool = False):
+                 current_page: int = 1, high_quality: bool = False, modal: bool = True):
         super().__init__(parent)
         self.setWindowTitle("OCR Tiếng Việt – 3T Reader")
-        self.setModal(True)
+        self.setModal(modal)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal if modal else Qt.WindowModality.NonModal)
         self.resize(680, 560)
         self.setStyleSheet(_STYLE)
 

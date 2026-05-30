@@ -1250,11 +1250,14 @@ def create_signature_field(window):
         output_path = os.path.join(tempfile.gettempdir(), f"3t_sigfields_{os.getpid()}.pdf")
         with open(window.current_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
-            used_names: set[str] = {
-                str(name)
-                for name, _value, _ref in fields.enumerate_sig_fields(writer)
-                if name
-            }
+            try:
+                used_names: set[str] = {
+                    str(name)
+                    for name, _value, _ref in fields.enumerate_sig_fields(writer)
+                    if name
+                }
+            except Exception:
+                used_names: set[str] = set()
 
             def _unique_field_name(base: str) -> str:
                 candidate = base

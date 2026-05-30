@@ -68,7 +68,7 @@ def open_ai_settings(window):
     """Dialog cấu hình API key AI và Ollama — không yêu cầu tài liệu đang mở."""
     from packages.qt_compat.QtWidgets import (
         QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-        QLineEdit, QPushButton, QFrame, QComboBox,
+        QLineEdit, QPushButton, QFrame, QComboBox, QScrollArea, QWidget,
     )
     from packages.qt_compat.QtCore import Qt, QTimer
     from styles.theme import is_dark
@@ -155,12 +155,23 @@ def open_ai_settings(window):
     dlg.setWindowTitle(_t("ai.settings.title", "Cài đặt AI"))
     dlg.setModal(True)
     dlg.setMinimumWidth(680)
-    dlg.resize(720, 520)
+    dlg.resize(760, 680)
     dlg.setStyleSheet(_STYLE)
 
-    root = QVBoxLayout(dlg)
+    outer = QVBoxLayout(dlg)
+    outer.setContentsMargins(0, 0, 0, 0)
+    outer.setSpacing(0)
+
+    scroll = QScrollArea(dlg)
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+    content = QWidget()
+    root = QVBoxLayout(content)
     root.setContentsMargins(24, 20, 24, 20)
     root.setSpacing(10)
+    scroll.setWidget(content)
+    outer.addWidget(scroll)
 
     title = QLabel(_t("ai.settings.title", "Cài đặt AI"))
     title.setObjectName("title")

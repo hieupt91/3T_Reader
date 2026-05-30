@@ -261,7 +261,7 @@ def ocr_current_page(window):
         current_page = getattr(viewer, "_current_page", 1) or 1
 
     from app.ocr_dialog import OCRDialog
-    dlg = OCRDialog(window, pdf_path, pages=[current_page], current_page=current_page, high_quality=False)
+    dlg = OCRDialog(window, pdf_path, pages=[current_page], current_page=current_page, high_quality=False, modal=True)
     window._active_ocr_dialog = dlg
     try:
         dlg.exec()
@@ -324,8 +324,7 @@ def ocr_full_document(window):
     current_page = getattr(viewer, "_current_page", 1) if viewer else 1
 
     from app.ocr_dialog import OCRDialog
-    dlg = OCRDialog(window, pdf_path, pages=pages, current_page=current_page, high_quality=True)
-    dlg.setModal(False)
+    dlg = OCRDialog(window, pdf_path, pages=pages, current_page=current_page, high_quality=True, modal=False)
     dlg.finished.connect(lambda _code: setattr(window, "_active_ocr_dialog", None))
     window._active_ocr_dialog = dlg
     dlg.show()

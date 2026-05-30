@@ -9,10 +9,10 @@ datas += [('assets', 'assets')]
 datas += [('third_party/pdfjs', 'third_party/pdfjs')]
 if os.path.isdir('app/locales'):
     datas += [('app/locales', 'app/locales')]
-if os.path.isdir(r'C:\Program Files\Tesseract-OCR'):
-    datas += [(r'C:\Program Files\Tesseract-OCR', 'Tesseract-OCR')]
-elif os.path.isdir('third_party/tesseract'):
+if os.path.isdir('third_party/tesseract'):
     datas += [('third_party/tesseract', 'Tesseract-OCR')]
+elif os.path.isdir(r'C:\Program Files\Tesseract-OCR'):
+    datas += [(r'C:\Program Files\Tesseract-OCR', 'Tesseract-OCR')]
 
 
 def _merge_collected(package_name):
