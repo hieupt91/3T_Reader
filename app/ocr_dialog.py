@@ -96,6 +96,8 @@ class OCRDialog(QDialog):
     def __init__(self, parent, pdf_path: str, pages: list[int],
                  current_page: int = 1, high_quality: bool = False, modal: bool = True):
         super().__init__(parent)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.Tool)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setWindowTitle("OCR Tiếng Việt – 3T Reader")
         self.setModal(modal)
         self.setWindowModality(Qt.WindowModality.ApplicationModal if modal else Qt.WindowModality.NonModal)
@@ -179,6 +181,7 @@ class OCRDialog(QDialog):
         root.addLayout(btn_row)
 
     def _start(self):
+        print(f"[OCR] start pages={len(self._pages)} high_quality={self._hq}", flush=True)
         self._worker = _Worker(self._pdf_path, self._pages, self._hq)
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_finished)
@@ -201,6 +204,7 @@ class OCRDialog(QDialog):
         sb.setValue(sb.maximum())
 
     def _on_finished(self, full_text: str, total: int):
+        print(f"[OCR] finished pages={total} chars={len(full_text or '')}", flush=True)
         self._final_text = full_text
         words = len(full_text.split()) if full_text else 0
         self._lbl_info.setObjectName("info")
@@ -218,6 +222,11 @@ class OCRDialog(QDialog):
         self._lbl_info.setText(f"Lỗi: {msg}")
         self._lbl_info.setStyleSheet("color:#E05050;font-size:11px")
         self._btn_cancel.setText("Đóng")
+
+    def closeEvent(self, event):
+        if self._worker:
+            self._worker.cancel()
+        super().closeEvent(event)
 
     def _on_cancel(self):
         if self._worker:

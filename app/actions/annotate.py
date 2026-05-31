@@ -505,7 +505,19 @@ def add_comment(window):
         )
         if not ok or not content.strip():
             return
-        _do_add_comment(window, content.strip(), sel_text)
+        placement = None
+        try:
+            from app.actions.edit import _pick_pdf_area
+            if hasattr(window, "status"):
+                window.status.showMessage("Kéo một vùng nhỏ trên tài liệu để đặt icon ghi chú... (Esc để hủy)", 0)
+            placement = _pick_pdf_area(window)
+            if hasattr(window, "status"):
+                window.status.showMessage("", 0)
+        except Exception:
+            placement = None
+        if not placement:
+            return
+        _do_add_comment(window, content.strip(), sel_text, placement=placement)
 
     if wv:
         wv.page().runJavaScript("window.getSelection().toString()", _apply)
@@ -513,38 +525,47 @@ def add_comment(window):
         _apply("")
 
 
-def _do_add_comment(window, content: str, anchor_text: str = ""):
+def _do_add_comment(window, content: str, anchor_text: str = "", placement: dict | None = None):
+    """Add a sticky note at a user-picked PDF position."""
     path = window.current_path
-    page_no = _get_current_page(window)
+    page_no = int(placement.get("page_number", _get_current_page(window))) if placement else _get_current_page(window)
     try:
         with pikepdf.open(path) as pdf:
             page = pdf.pages[page_no - 1]
             mb = page.mediabox
             page_w = float(mb[2]) - float(mb[0])
             page_h = float(mb[3]) - float(mb[1])
-
             icon_w = 18.0
             icon_h = 18.0
             margin = 8.0
 
-            # Vị trí mặc định: góc trên phải, sát lề nhưng vẫn nằm trong trang
-            note_x = max(margin, page_w - icon_w - margin)
-            note_y = max(icon_h + margin, page_h - margin)
+            picked_box = placement.get("box") if placement else None
+            if picked_box:
+                left, bottom, right, top = [float(v) for v in picked_box]
+                x0 = max(margin, min(left, page_w - icon_w - margin))
+                y0 = max(margin, min(bottom, page_h - icon_h - margin))
+                x1 = min(page_w - margin, max(x0 + icon_w, right))
+                y1 = min(page_h - margin, max(y0 + icon_h, top))
+            else:
+                note_x = max(margin, page_w - icon_w - margin)
+                note_y = max(icon_h + margin, page_h - margin)
+                if anchor_text:
+                    rects = _search_text_on_page(path, page_no, anchor_text)
+                    if rects:
+                        first = rects[0]
+                        note_x = min(page_w - icon_w - margin, max(margin, first[2] + 6))
+                        note_y = min(page_h - margin, max(icon_h + margin, first[3] + 6))
+                x0, y0 = note_x, max(0.0, note_y - icon_h)
+                x1, y1 = note_x + icon_w, note_y
 
-            # Nếu có text được chọn, đặt note bên phải dòng đầu tiên của text đó
-            if anchor_text:
-                rects = _search_text_on_page(path, page_no, anchor_text)
-                if rects:
-                    first = rects[0]  # (left, bottom, right, top)
-                    note_x = min(page_w - icon_w - margin, max(margin, first[2] + 6))
-                    note_y = min(page_h - margin, max(icon_h + margin, first[3] + 6))
-
-            x0, y0 = note_x, max(0.0, note_y - icon_h)
-            x1, y1 = note_x + icon_w, note_y
-
-            _add_pdf_annotation(pdf, page_no - 1, "Text",
-                                 [(x0, y0, x1, y1)], [1.0, 1.0, 0.0],
-                                 content=content)
+            _add_pdf_annotation(
+                pdf,
+                page_no - 1,
+                "Text",
+                [(x0, y0, x1, y1)],
+                [1.0, 1.0, 0.0],
+                content=content,
+            )
             _save_pikepdf_reload(window, pdf)
         if hasattr(window, "status"):
             window.status.showMessage("Đã thêm ghi chú vào trang", 3000)

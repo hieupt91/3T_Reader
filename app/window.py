@@ -1,6 +1,7 @@
 ﻿import os
 import sys
 import subprocess
+import gc
 
 from packages.qt_compat.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog
 from packages.qt_compat.QtWidgets import (
@@ -19,6 +20,7 @@ from packages.qt_compat.QtWidgets import (
     QMenu,
     QSizePolicy,
     QMessageBox,
+    QDialog,
 )
 from packages.qt_compat.QtGui import QAction, QKeySequence, QCloseEvent, QImage, QPainter
 from packages.qt_compat.QtCore import Qt, QSize, QPoint, QTimer, QThread, QObject, pyqtSignal, QRect
@@ -900,7 +902,33 @@ class PDFReaderApp(QMainWindow):
             show_warning(self, "Lỗi", "Không tìm thấy tệp PDF.")
             return
 
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        file_size = 0
+        try:
+            file_size = os.path.getsize(pdf_path)
+        except OSError:
+            pass
+
+        # Large scanned PDFs can exhaust QImage memory in print preview because
+        # Qt may repaint the preview several times. Print them directly and cap
+        # raster resolution page-by-page.
+        large_pdf = file_size >= 128 * 1024 * 1024
+        printer_mode = (
+            QPrinter.PrinterMode.ScreenResolution
+            if large_pdf
+            else QPrinter.PrinterMode.HighResolution
+        )
+        printer = QPrinter(printer_mode)
+        if large_pdf:
+            try:
+                printer.setResolution(144)
+            except Exception:
+                pass
+            dialog = QPrintDialog(printer, self)
+            dialog.setWindowTitle("In tài liệu lớn")
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self._do_print_pages(printer, pdf_path)
+            return
+
         preview = QPrintPreviewDialog(printer, self)
         preview.setWindowTitle("Xem trước khi in")
         preview.resize(1000, 700)
@@ -932,7 +960,13 @@ class PDFReaderApp(QMainWindow):
             total     = pdf.page_count
             page_list = list(range(total) if from_page == 0 else range(from_page - 1, to_page))
             count     = len(page_list)
-            render_scale = 2.0 if total <= 120 else 1.4 if total <= 300 else 1.2
+            file_size = 0
+            try:
+                file_size = os.path.getsize(pdf_path)
+            except OSError:
+                pass
+            is_large_job = file_size >= 128 * 1024 * 1024 or total > 200
+            max_render_pixels = 5_000_000 if is_large_job else 12_000_000
 
             progress = QProgressDialog("Đang chuẩn bị in…", "Hủy", 0, count, self)
             progress.setWindowTitle("In tài liệu")
@@ -959,7 +993,18 @@ class PDFReaderApp(QMainWindow):
                 if i > 0:
                     printer.newPage()
 
-                rendered = pdf.render_page_rgb(page_num + 1, scale=render_scale)
+                try:
+                    page_w_pt, page_h_pt = pdf.page_size(page_num + 1)
+                except Exception:
+                    page_w_pt, page_h_pt = 595.0, 842.0
+                page_pixels = max(1.0, page_w_pt * page_h_pt)
+                scale_by_pixels = (max_render_pixels / page_pixels) ** 0.5
+                target_scale = min(
+                    1.15 if is_large_job else 2.0,
+                    max(0.35, scale_by_pixels),
+                )
+
+                rendered = pdf.render_page_rgb(page_num + 1, scale=target_scale)
                 img = QImage(
                     rendered.samples,
                     rendered.width,
@@ -967,14 +1012,25 @@ class PDFReaderApp(QMainWindow):
                     rendered.stride,
                     QImage.Format.Format_RGB888,
                 )
-                scaled = img.scaled(
-                    QSize(w, h),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-                x = (w - scaled.width())  // 2
-                y = (h - scaled.height()) // 2
-                painter.drawImage(QRect(x, y, scaled.width(), scaled.height()), scaled)
+                if img.isNull():
+                    raise MemoryError(
+                        f"Không đủ bộ nhớ để render trang {page_num + 1}. "
+                        "Hãy thử in ít trang hơn hoặc giảm chất lượng in."
+                    )
+
+                src_w = max(1, img.width())
+                src_h = max(1, img.height())
+                ratio = min(w / src_w, h / src_h)
+                draw_w = max(1, int(src_w * ratio))
+                draw_h = max(1, int(src_h * ratio))
+                x = (w - draw_w) // 2
+                y = (h - draw_h) // 2
+                painter.drawImage(QRect(x, y, draw_w, draw_h), img)
+
+                del img
+                del rendered
+                if i % 8 == 0:
+                    gc.collect()
 
             painter.end()
             progress.setValue(count)

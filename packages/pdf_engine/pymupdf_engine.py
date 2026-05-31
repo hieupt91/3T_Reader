@@ -34,6 +34,10 @@ class PyMuPdfDocument:
             samples=bytes(pix.samples),
         )
 
+    def page_size(self, page_number: int) -> tuple[float, float]:
+        page = self._doc.load_page(page_number - 1)
+        return float(page.rect.width), float(page.rect.height)
+
     def close(self) -> None:
         self._doc.close()
 

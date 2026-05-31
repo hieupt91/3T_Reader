@@ -49,6 +49,18 @@ _PDFJS_UI_AND_HOOKS_JS = """
         '  margin: 16px auto !important;',
         '  border-radius: 4px !important;',
         '}',
+        '.annotationLayer .signatureWidgetAnnotation,',
+        '.annotationLayer .signatureWidgetAnnotation * {',
+        '  border: none !important;',
+        '  outline: none !important;',
+        '  box-shadow: none !important;',
+        '  background: transparent !important;',
+        '}',
+        '.annotationLayer .signatureWidgetAnnotation input,',
+        '.annotationLayer .signatureWidgetAnnotation textarea {',
+        '  opacity: 0 !important;',
+        '  pointer-events: none !important;',
+        '}',
     ].join('\\n');
     var style = document.createElement('style');
     style.textContent = css;
@@ -72,6 +84,23 @@ _PDFJS_UI_AND_HOOKS_JS = """
         app.eventBus.on('pagechanging', function (data) {
             window.__3tCurrentPage = data.pageNumber;
         });
+        function clear3TOverlays() {
+            document.querySelectorAll('.reader-pdf-sigfield-marker').forEach(function(el) { el.remove(); });
+            var state = window.__readerPdfSignaturePreviewState;
+            if (state && state.overlay && state.overlay.parentNode) {
+                state.overlay.parentNode.removeChild(state.overlay);
+            }
+            if (state) {
+                state.overlay = null;
+                state.handle = null;
+                state.pageView = null;
+                state.pageNumber = null;
+                state.dragging = false;
+                state.dragMode = null;
+            }
+        }
+        app.eventBus.on('documentinit', clear3TOverlays);
+        app.eventBus.on('pagesinit', clear3TOverlays);
     }
     installHooks();
 })();

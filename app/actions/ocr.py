@@ -231,7 +231,54 @@ def _check_ocr_available(window) -> bool:
     return True
 
 
-def ocr_current_page(window):
+def _raise_active_ocr_dialog(window) -> bool:
+    existing = getattr(window, "_active_ocr_dialog", None)
+    if existing is None:
+        return False
+    try:
+        if hasattr(existing, "isVisible") and not existing.isVisible():
+            window._active_ocr_dialog = None
+            return False
+        existing.raise_()
+        existing.activateWindow()
+        window.status.showMessage("OCR dang chay, vui long cho hoac dong cua so OCR hien tai.", 4000)
+        return True
+    except RuntimeError:
+        window._active_ocr_dialog = None
+        return False
+
+
+def _show_ocr_dialog(window, pdf_path: str, pages: list[int], current_page: int, *, high_quality: bool):
+    if _raise_active_ocr_dialog(window):
+        return None
+
+    from app.ocr_dialog import OCRDialog
+
+    dlg = OCRDialog(
+        window,
+        pdf_path,
+        pages=pages,
+        current_page=current_page,
+        high_quality=high_quality,
+        modal=False,
+    )
+
+    def _clear_active(*_args):
+        if getattr(window, "_active_ocr_dialog", None) is dlg:
+            window._active_ocr_dialog = None
+
+    dlg.finished.connect(_clear_active)
+    dlg.destroyed.connect(_clear_active)
+    window._active_ocr_dialog = dlg
+    dlg.show()
+    dlg.raise_()
+    dlg.activateWindow()
+
+
+    return dlg
+
+
+def _legacy_ocr_current_page(window):
     """OCR current page."""
     existing = getattr(window, "_active_ocr_dialog", None)
     if existing is not None:
@@ -274,7 +321,7 @@ def ocr_current_page(window):
         pass
 
 
-def ocr_full_document(window):
+def _legacy_ocr_full_document(window):
     """OCR whole document (enterprise flow)."""
     existing = getattr(window, "_active_ocr_dialog", None)
     if existing is not None:
@@ -330,3 +377,95 @@ def ocr_full_document(window):
     dlg.show()
     dlg.raise_()
     dlg.activateWindow()
+
+
+# Effective OCR handlers. They intentionally override the legacy modal
+# definitions above so both OCR buttons use one non-modal dialog instance.
+def ocr_current_page(window):
+    """OCR current page without opening a modal overlay."""
+    if _raise_active_ocr_dialog(window):
+        return
+
+    if not _check_ocr_available(window):
+        return
+
+    state = window._state_or_global()
+    pdf_path = state.get("source_path") or state.get("display_path")
+    if not pdf_path:
+        from app.dialogs import show_warning
+        lang = get_selected_language()
+        _t = lambda key, fallback: get_translation(lang, key, fallback)
+        show_warning(window, _t("search.no_file", "Chua mo tai lieu"), _t("search.no_file", "Vui long mo mot file PDF truoc."))
+        return
+
+    viewer = window.viewer
+    current_page = 1
+    if viewer:
+        current_page = getattr(viewer, "_current_page", 1) or 1
+
+    _show_ocr_dialog(
+        window,
+        pdf_path,
+        pages=[current_page],
+        current_page=current_page,
+        high_quality=False,
+    )
+    try:
+        from packages.audit import log_action, ACT_OCR
+        log_action(ACT_OCR, pdf_path, f"page={current_page}")
+    except Exception:
+        pass
+
+
+def ocr_full_document(window):
+    """OCR whole document without stacking modal overlays."""
+    if _raise_active_ocr_dialog(window):
+        return
+
+    if not _check_ocr_available(window):
+        return
+
+    state = window._state_or_global()
+    pdf_path = state.get("source_path") or state.get("display_path")
+    if not pdf_path:
+        from app.dialogs import show_warning
+        lang = get_selected_language()
+        _t = lambda key, fallback: get_translation(lang, key, fallback)
+        show_warning(window, _t("search.no_file", "Chua mo tai lieu"), _t("search.no_file", "Vui long mo mot file PDF truoc."))
+        return
+
+    try:
+        from packages.pdf_engine import get_pdf_engine
+        doc = get_pdf_engine().open(pdf_path)
+        total = doc.page_count
+        doc.close()
+    except Exception:
+        total = 1
+
+    if total > 50:
+        from packages.qt_compat.QtWidgets import QMessageBox
+        lang = get_selected_language()
+        _t = lambda key, fallback: get_translation(lang, key, fallback)
+        reply = QMessageBox.question(
+            window,
+            _t("ocr.install.long_doc", "Tai lieu dai"),
+            _t(
+                "ocr.install.long_doc_text",
+                f"Tai lieu co {total} trang. OCR toan bo co the mat vai phut.\n\nTiep tuc?",
+            ).format(total=total),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+    pages = list(range(1, total + 1))
+    viewer = window.viewer
+    current_page = getattr(viewer, "_current_page", 1) if viewer else 1
+
+    _show_ocr_dialog(
+        window,
+        pdf_path,
+        pages=pages,
+        current_page=current_page,
+        high_quality=True,
+    )

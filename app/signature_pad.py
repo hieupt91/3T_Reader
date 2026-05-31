@@ -3,12 +3,17 @@ import os
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QWidget,
     QColorDialog, QSlider, QSizePolicy, QMessageBox, QInputDialog,
+    QListWidget, QListWidgetItem, QFileDialog,
 )
 from packages.qt_compat.QtGui import QPainter, QPen, QColor, QImage, QPixmap
 from packages.qt_compat.QtCore import Qt, QPoint
 
 from app.dialogs import show_info, show_warning
-from app.signature_templates import save_signature_template
+from app.signature_templates import (
+    delete_signature_template,
+    list_signature_templates,
+    save_signature_template,
+)
 
 
 class DrawingCanvas(QWidget):
@@ -93,9 +98,9 @@ class SignaturePadDialog(QDialog):
         hint = QLabel("Vẽ chữ ký của bạn bằng chuột hoặc trackpad:")
         layout.addWidget(hint)
 
-        self.canvas = DrawingCanvas(self)
+        self.canvas = DrawingCanvas(self, transparent=True)
         self.canvas.setStyleSheet(
-            "background: white; border: 2px solid #444; border-radius: 6px;"
+            "border: 2px solid #444; border-radius: 6px;"
         )
         layout.addWidget(self.canvas)
 
@@ -151,6 +156,124 @@ class SignaturePadDialog(QDialog):
 
     def get_pixmap(self) -> QPixmap | None:
         return self._pixmap
+
+
+class SignatureTemplateManagerDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Quan ly mau chu ky")
+        self.setModal(True)
+        self.resize(520, 360)
+        self.selected_path: str = ""
+
+        root = QVBoxLayout(self)
+        root.addWidget(QLabel("Tao, them, sua, xoa va chon mau chu ky:"))
+
+        self._list = QListWidget()
+        root.addWidget(self._list, 1)
+
+        row = QHBoxLayout()
+        btn_draw = QPushButton("Tao bang ve tay")
+        btn_import = QPushButton("Them tu anh")
+        btn_replace = QPushButton("Sua bang ve lai")
+        btn_delete = QPushButton("Xoa")
+        btn_use = QPushButton("Chon mau")
+        btn_close = QPushButton("Dong")
+
+        btn_draw.clicked.connect(self._draw_new)
+        btn_import.clicked.connect(self._import_image)
+        btn_replace.clicked.connect(self._replace_selected)
+        btn_delete.clicked.connect(self._delete_selected)
+        btn_use.clicked.connect(self._use_selected)
+        btn_close.clicked.connect(self.reject)
+
+        for btn in (btn_draw, btn_import, btn_replace, btn_delete, btn_use, btn_close):
+            row.addWidget(btn)
+        root.addLayout(row)
+        self._reload()
+
+    def _current_item_data(self) -> dict | None:
+        item = self._list.currentItem()
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def _reload(self):
+        self._list.clear()
+        for item in list_signature_templates():
+            row = QListWidgetItem(item["label"])
+            row.setData(Qt.ItemDataRole.UserRole, item)
+            self._list.addItem(row)
+        if self._list.count():
+            self._list.setCurrentRow(0)
+
+    def _ask_code(self, title: str, default: str = "") -> str:
+        code, ok = QInputDialog.getText(self, title, "Ma mau chu ky:", text=default)
+        return code.strip() if ok else ""
+
+    def _draw_pixmap(self) -> QPixmap | None:
+        dlg = SignaturePadDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return dlg.get_pixmap()
+
+    def _draw_new(self):
+        code = self._ask_code("Tao mau chu ky")
+        if not code:
+            return
+        pixmap = self._draw_pixmap()
+        if pixmap:
+            save_signature_template(code, pixmap)
+            self._reload()
+
+    def _import_image(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Them mau chu ky tu anh",
+            "",
+            "Image Files (*.png *.jpg *.jpeg *.bmp *.webp);;All Files (*)",
+        )
+        if not path:
+            return
+        code = self._ask_code("Ten mau chu ky", os.path.splitext(os.path.basename(path))[0])
+        if not code:
+            return
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            show_warning(self, "Anh khong hop le", "Khong the doc file anh nay.")
+            return
+        save_signature_template(code, pixmap)
+        self._reload()
+
+    def _replace_selected(self):
+        data = self._current_item_data()
+        if not data:
+            return
+        pixmap = self._draw_pixmap()
+        if pixmap:
+            save_signature_template(data["code"], pixmap, overwrite=True)
+            self._reload()
+
+    def _delete_selected(self):
+        data = self._current_item_data()
+        if not data:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Xoa mau chu ky",
+            f"Xoa mau '{data['label']}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        delete_signature_template(data["path"])
+        self._reload()
+
+    def _use_selected(self):
+        data = self._current_item_data()
+        if not data:
+            show_warning(self, "Chua co mau", "Hay tao hoac them mau chu ky truoc.")
+            return
+        self.selected_path = data["path"]
+        self.accept()
 
 
 class DrawOnPdfDialog(QDialog):

@@ -88,19 +88,20 @@ def _sha256_file(path: Path) -> str:
 def _verify_signature(manifest_signature: str, manifest_json_bytes: bytes) -> bool:
     """Xác thực chữ ký Ed25519 trên JSON manifest thô.
 
-    Nếu không import được public key hoặc thư viện cryptography,
-    hàm trả về True (skip check) và in cảnh báo.
-    Trong production, hãy đảm bảo thư viện cryptography được cài đặt
-    và _EMBEDDED_PUBLIC_B64 được nạp đúng.
+    Fail-closed: bất kỳ lý do nào không xác thực được (thiếu public key embed,
+    cryptography lib không import được, signature/key sai định dạng, verify
+    fail) đều trả về False để từ chối bản cập nhật. Đây là cánh cổng cuối
+    trước khi `download_update` cho phép chạy installer; fail-open ở đây có
+    nghĩa attacker MITM/CDN compromise có thể ship .exe tuỳ ý.
     """
+    import warnings
+
     if _EMBEDDED_PUBLIC_B64 is None:
-        # Skip: không có public key nhúng sẵn
-        import warnings
         warnings.warn(
-            "Updater: không tìm thấy public key — bỏ qua xác thực chữ ký manifest.",
+            "Updater: thiếu Ed25519 public key — từ chối bản cập nhật chưa xác thực.",
             stacklevel=2,
         )
-        return True
+        return False
 
     try:
         import base64
@@ -114,7 +115,6 @@ def _verify_signature(manifest_signature: str, manifest_json_bytes: bytes) -> bo
         pub_key.verify(sig_bytes, manifest_json_bytes)
         return True
     except Exception as exc:
-        import warnings
         warnings.warn(f"Updater: chữ ký manifest không hợp lệ — {exc}", stacklevel=2)
         return False
 

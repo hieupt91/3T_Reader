@@ -1761,27 +1761,6 @@ def _show_signature_report_vn(window, title: str, report: dict, *, path: str | N
     msg.exec()
 
 
-def verify_signed_document(window):
-    """Check PDF signature validity and show a detailed report."""
-    default_path = getattr(window, "current_path", "") or ""
-    start_path = default_path if os.path.isfile(default_path) else ""
-    if default_path and os.path.exists(default_path):
-        report = validate_signed_pdf_status(default_path)
-        _show_signature_report_vn(window, "Kiểm tra chữ ký số", report, path=default_path)
-        return
-    path, _ = QFileDialog.getOpenFileName(
-        window,
-        "Chọn file PDF cần kiểm tra chữ ký",
-        start_path,
-        "PDF Files (*.pdf);;All Files (*)",
-    )
-    if not path:
-        return
-
-    report = validate_signed_pdf_status(path)
-    _show_signature_report_vn(window, "Kiểm tra chữ ký số", report, path=path)
-
-
 @require_document(show_message=True)
 def sign_handwritten(window):
     """Draw or import a signature image and place it on the current PDF."""
@@ -1791,13 +1770,13 @@ def sign_handwritten(window):
     import uuid
     import os as _os
 
-    from app.signature_pad import SignaturePadDialog
+    from app.signature_pad import SignaturePadDialog, SignatureTemplateManagerDialog
 
     source, ok = QInputDialog.getItem(
         window,
         "Chọn kiểu ký",
         "Nguồn chữ ký:",
-        ["Vẽ tay", "Nhập mã mẫu", "Chọn từ danh sách", "Chọn ảnh chữ ký", "Chọn con dấu PNG"],
+        ["Vẽ tay", "Nhập mã mẫu", "Chọn từ danh sách", "Quản lý mẫu chữ ký", "Chọn ảnh chữ ký", "Chọn con dấu PNG"],
         0,
         False,
     )
@@ -1842,23 +1821,37 @@ def sign_handwritten(window):
     elif source == "Chọn từ danh sách":
         templates = list_signature_templates()
         if not templates:
-            show_warning(window, "Chưa có mẫu", "Chưa có mẫu chữ ký nào được lưu.")
+            manager = SignatureTemplateManagerDialog(window)
+            if manager.exec() != QDialog.DialogCode.Accepted or not manager.selected_path:
+                return
+            sig_img_path = manager.selected_path
+        else:
+            labels = ["+ Quản lý / thêm / sửa / xóa mẫu..."] + [item["label"] for item in templates]
+            chosen, ok = QInputDialog.getItem(
+                window,
+                "Chọn mẫu chữ ký",
+                "Mẫu đã lưu:",
+                labels,
+                0,
+                False,
+            )
+            if not ok:
+                return
+            if chosen == labels[0]:
+                manager = SignatureTemplateManagerDialog(window)
+                if manager.exec() != QDialog.DialogCode.Accepted or not manager.selected_path:
+                    return
+                sig_img_path = manager.selected_path
+            else:
+                chosen_item = next((item for item in templates if item["label"] == chosen), None)
+                if not chosen_item:
+                    return
+                sig_img_path = chosen_item["path"]
+    elif source == "Quản lý mẫu chữ ký":
+        manager = SignatureTemplateManagerDialog(window)
+        if manager.exec() != QDialog.DialogCode.Accepted or not manager.selected_path:
             return
-        labels = [item["label"] for item in templates]
-        chosen, ok = QInputDialog.getItem(
-            window,
-            "Chọn mẫu chữ ký",
-            "Mẫu đã lưu:",
-            labels,
-            0,
-            False,
-        )
-        if not ok:
-            return
-        chosen_item = next((item for item in templates if item["label"] == chosen), None)
-        if not chosen_item:
-            return
-        sig_img_path = chosen_item["path"]
+        sig_img_path = manager.selected_path
     else:
         image_path, _ = QFileDialog.getOpenFileName(
             window,
@@ -1995,17 +1988,6 @@ def sign_handwritten(window):
     except Exception as exc:
         import traceback
         show_warning(window, "Lỗi chèn chữ ký", traceback.format_exc())
-def verify_signed_document(window):
-    """Check the currently opened PDF signature validity."""
-    default_path = getattr(window, "current_path", "") or ""
-    if not default_path or not os.path.exists(default_path):
-        show_warning(window, "Chưa có tệp", "Vui lòng mở file PDF trước khi kiểm tra chữ ký.")
-        return
-
-    report = validate_signed_pdf_status(default_path)
-    _show_signature_report_vn(window, "Kiểm tra chữ ký số", report, path=default_path)
-
-
 class SignatureStatusDialog(QDialog):
     def __init__(self, parent, report: dict, *, path: str | None = None):
         super().__init__(parent)

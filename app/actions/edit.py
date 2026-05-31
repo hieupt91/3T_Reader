@@ -57,7 +57,10 @@ AREA_PICK_SCRIPT = r"""
         }
 
         function onMouseDown(event) {
-            const page = event.target.closest('.page');
+            const target = event.target && event.target.nodeType === 1
+                ? event.target
+                : (event.target && event.target.parentElement);
+            const page = target && target.closest ? target.closest('.page') : null;
             if (!page || !page.dataset || !page.dataset.pageNumber) {
                 return;
             }
@@ -526,9 +529,8 @@ def _do_area_pick(web_view, bridge, window):
     bridge.picked.connect(_finish)
     bridge.cancelled.connect(_cancel)
     try:
-        web_view.page().runJavaScript("window.__readerPdfAreaPickInstalled = false;")
         web_view.page().runJavaScript(_SHOW_CANCEL_BTN_JS)
-        web_view.page().runJavaScript(AREA_PICK_SCRIPT)
+        web_view.page().runJavaScript(_CLEAR_BRIDGE_CACHE_JS + "\n" + AREA_PICK_SCRIPT)
         loop.exec()
     finally:
         web_view.page().runJavaScript(_REMOVE_CANCEL_BTN_JS)

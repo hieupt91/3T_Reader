@@ -89,6 +89,16 @@ class PdfiumDocument:
             samples=samples,
         )
 
+    def page_size(self, page_number: int) -> tuple[float, float]:
+        if self._doc is None:
+            raise RuntimeError("PDF cần mật khẩu để mở.")
+        page = self._doc[page_number - 1]
+        try:
+            width, height = page.get_size()
+            return float(width), float(height)
+        except Exception:
+            return 595.0, 842.0
+
     def close(self) -> None:
         if self._doc is not None:
             self._doc.close()
