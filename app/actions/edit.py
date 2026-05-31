@@ -23,6 +23,7 @@ from packages.qt_compat.QtWidgets import (
 
 from app.actions.file import open_file
 from app.actions._guard import require_document
+from app.actions._pdf_save import atomic_copy_file, reload_document
 from app.dialogs import show_warning
 from packages.pdf_engine import get_pdf_engine
 
@@ -508,12 +509,29 @@ class ObjectActionBridge(QObject):
         self.dismissed.emit()
 
 
-def _do_area_pick(web_view, bridge, window):
+def _pick_context_matches(window, expected_state, expected_path: str | None) -> bool:
+    active_fn = getattr(window, "_active_state", None)
+    current_state = active_fn() if callable(active_fn) else None
+    if expected_state is not None and current_state is not expected_state:
+        return False
+    if expected_path and getattr(window, "current_path", None) != expected_path:
+        return False
+    return True
+
+
+def _do_area_pick(web_view, bridge, window, *, expected_state=None, expected_path: str | None = None):
     """Execute one area pick using an already-registered bridge. Returns result dict or None."""
     result = {}
     loop = QEventLoop(window)
+    stale_context = {"value": False}
 
     def _finish(page_number, left, bottom, right, top):
+        if not _pick_context_matches(window, expected_state, expected_path):
+            stale_context["value"] = True
+            result.clear()
+            if loop.isRunning():
+                loop.quit()
+            return
         result.update({
             "page_number": max(1, int(page_number)),
             "box": (left, bottom, right, top),
@@ -543,11 +561,15 @@ def _do_area_pick(web_view, bridge, window):
         except Exception:
             pass
 
+    if stale_context["value"]:
+        return {"_stale_context": True}
     return result or None
 
 
 def _pick_pdf_area(window):
     from app.actions.sign import _get_web_view, _setup_webchannel, _teardown_webchannel
+    expected_state = window._active_state() if hasattr(window, "_active_state") else None
+    expected_path = getattr(window, "current_path", None)
     web_view = _get_web_view(window)
     if web_view is None:
         return None
@@ -555,7 +577,21 @@ def _pick_pdf_area(window):
     bridge = AreaPickBridge(window)
     _setup_webchannel(web_view, window, "areaPickBridge", bridge)
     try:
-        return _do_area_pick(web_view, bridge, window)
+        result = _do_area_pick(
+            web_view,
+            bridge,
+            window,
+            expected_state=expected_state,
+            expected_path=expected_path,
+        )
+        if result and result.get("_stale_context"):
+            show_warning(
+                window,
+                "Đã đổi tài liệu",
+                "Bạn đã đổi tab trong lúc đang chọn vùng. Hãy thực hiện lại trên đúng tài liệu.",
+            )
+            return None
+        return result
     finally:
         web_view.page().runJavaScript(_CLEAR_BRIDGE_CACHE_JS)
         _teardown_webchannel(web_view)
@@ -651,6 +687,22 @@ def _ensure_edit_state(window):
     if state and state.get("working_file") == current:
         return state
 
+    display_path = window.get_display_path() if hasattr(window, "get_display_path") else None
+    temp_root = os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
+    snapshot_source = current
+    try:
+        current_abs = os.path.abspath(current)
+        temp_root_abs = os.path.abspath(temp_root)
+        if (
+            display_path
+            and os.path.exists(display_path)
+            and current_abs.startswith(temp_root_abs + os.sep)
+            and os.path.basename(current_abs).lower().startswith(("op_", "work_", "base_"))
+        ):
+            snapshot_source = display_path
+    except Exception:
+        snapshot_source = current
+
     _reset_edit_state(window)
 
     edit_dir = os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
@@ -659,11 +711,11 @@ def _ensure_edit_state(window):
     base_snapshot = os.path.join(edit_dir, f"base_{session_id}.pdf")
     working_file = os.path.join(edit_dir, f"work_{session_id}.pdf")
 
-    shutil.copy2(current, base_snapshot)
-    shutil.copy2(current, working_file)
+    shutil.copy2(snapshot_source, base_snapshot)
+    shutil.copy2(snapshot_source, working_file)
 
     state = {
-        "original_path": current,
+        "original_path": snapshot_source,
         "base_snapshot": base_snapshot,
         "working_file": working_file,
         "ops": [],
@@ -1447,17 +1499,18 @@ def save_edits(window, *, reload_viewer: bool = True) -> bool:
         return False
 
     try:
-        shutil.copy2(working, save_path)
+        atomic_copy_file(working, save_path)
     except Exception as e:
         show_warning(window, "Lỗi ghi file", str(e))
         return False
 
     # Reset edit state, tải lại từ file đã lưu
     _set_edit_state(window, None)
-    _reload_viewer(window, save_path)
+    reload_document(window, save_path, display_path=save_path, temp_path=None)
     window.status.showMessage(
         f"Đã lưu: {os.path.basename(save_path)}", 5000
     )
+    return True
 
 
 def save_edits_quiet(window) -> bool:
@@ -1489,13 +1542,13 @@ def save_edits_quiet(window) -> bool:
         return False
 
     try:
-        shutil.copy2(working, save_path)
+        atomic_copy_file(working, save_path)
     except Exception:
         return False
 
-    window.current_path = save_path
     _set_edit_state(window, None)
-    window.status.showMessage(f"ÄÃ£ lÆ°u: {os.path.basename(save_path)}", 5000)
+    reload_document(window, save_path, display_path=save_path, temp_path=None)
+    window.status.showMessage(f"Đã lưu: {os.path.basename(save_path)}", 5000)
     return True
 
 
@@ -1520,7 +1573,7 @@ def save_edits_as(window):
             return
 
     try:
-        shutil.copy2(src, save_path)
+        atomic_copy_file(src, save_path)
     except Exception as e:
         show_warning(window, "Lỗi ghi file", str(e))
         return

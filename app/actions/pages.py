@@ -1,6 +1,4 @@
 import os
-import shutil
-import tempfile
 
 from packages.qt_compat.QtCore import Qt
 from packages.qt_compat.QtWidgets import (
@@ -11,6 +9,7 @@ from packages.qt_compat.QtWidgets import (
 )
 from packages.pdf_engine import get_pdf_engine
 from app.actions._guard import require_document
+from app.actions._pdf_save import make_staged_pdf_path, remove_path_quietly, replace_document_with_staged
 from app.dialogs import show_info, show_warning
 from app.actions.file import open_file
 
@@ -230,19 +229,16 @@ def delete_pages_action(window):
     if confirm != QMessageBox.StandardButton.Yes:
         return
 
-    tmp = path + ".del_tmp.pdf"
+    tmp = make_staged_pdf_path(path)
+    new_page = min(start, total - len(pages_to_del))
     try:
         get_pdf_engine().delete_pages(path, tmp, pages_to_del)
-        shutil.move(tmp, path)
+        replace_document_with_staged(window, tmp, target_path=path, page=max(1, new_page))
     except Exception as e:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        remove_path_quietly(tmp)
         show_warning(window, "Lỗi xóa trang", str(e))
         return
 
-    new_page = min(start, total - len(pages_to_del))
-    window.current_path = path
-    window.viewer.load_pdf(path, page=max(1, new_page), zoom="page-width")
     if hasattr(window, "_active_state") and window._active_state():
         window._active_state()["source_path"] = path
     window.status.showMessage(f"Đã xóa trang {start}–{end}", 4000)
@@ -303,18 +299,15 @@ def rotate_pages_action(window):
     else:
         rotations = {page_spin.value(): deg}
 
-    tmp = path + ".rot_tmp.pdf"
+    tmp = make_staged_pdf_path(path)
     try:
         get_pdf_engine().rotate_pages(path, tmp, rotations)
-        shutil.move(tmp, path)
+        replace_document_with_staged(window, tmp, target_path=path, page=max(1, page_spin.value()))
     except Exception as e:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        remove_path_quietly(tmp)
         show_warning(window, "Lỗi xoay trang", str(e))
         return
 
-    window.current_path = path
-    window.viewer.load_pdf(path, page=max(1, page_spin.value()), zoom="page-width")
     if hasattr(window, "_active_state") and window._active_state():
         window._active_state()["source_path"] = path
     window.status.showMessage(f"Đã xoay {len(rotations)} trang {deg}°", 4000)

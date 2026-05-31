@@ -1,6 +1,4 @@
 import os
-import tempfile
-import uuid
 import re
 
 import pikepdf
@@ -9,6 +7,7 @@ from packages.qt_compat.QtWidgets import (
     QInputDialog, QLineEdit, QFileDialog, QMessageBox
 )
 from app.actions._guard import require_document
+from app.actions._pdf_save import make_staged_pdf_path, replace_document_with_staged
 from app.dialogs import show_warning, show_info
 
 
@@ -20,14 +19,14 @@ def _get_current_page(window) -> int:
 
 
 def _save_pikepdf_reload(window, pdf: pikepdf.Pdf, *, keep_page: bool = True):
-    """Save pikepdf doc to temp file and reload viewer."""
-    tmp_dir = os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
-    os.makedirs(tmp_dir, exist_ok=True)
-    out_path = os.path.join(tmp_dir, f"op_{uuid.uuid4().hex[:8]}.pdf")
-    pdf.save(out_path)
-    page = _get_current_page(window) if keep_page else 1
-    window.current_path = out_path
-    window.viewer.load_pdf(out_path, page=page, zoom="page-width")
+    """Save pikepdf doc atomically to the active document and reload viewer."""
+    target_path = window.current_path
+    if not target_path:
+        raise ValueError("Không tìm thấy đường dẫn tài liệu hiện tại.")
+
+    staged_path = make_staged_pdf_path(target_path)
+    pdf.save(staged_path)
+    replace_document_with_staged(window, staged_path, target_path=target_path, keep_page=keep_page)
 
 
 def _normalize_text(value: str) -> str:

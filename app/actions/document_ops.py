@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import io
 import os
-import shutil
-import tempfile
 
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -16,22 +14,25 @@ from packages.qt_compat.QtCore import Qt
 from packages.qt_compat.QtGui import QColor
 
 from app.actions._guard import require_document
+from app.actions._pdf_save import (
+    make_staged_pdf_path,
+    remove_path_quietly,
+    replace_document_with_staged,
+)
 from app.dialogs import show_warning, show_info
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
 def _tmp_pdf():
-    return tempfile.mktemp(suffix=".pdf", dir=tempfile.gettempdir())
+    current_target = getattr(_tmp_pdf, "_current_target_path", None)
+    if not current_target:
+        raise RuntimeError("Temporary PDF target path is not configured.")
+    return make_staged_pdf_path(current_target)
 
 
-def _reload(window, path: str):
-    try:
-        cur = window.viewer.get_current_page()
-    except Exception:
-        cur = 1
-    window.current_path = path
-    window.viewer.load_pdf(path, page=max(1, cur), zoom="page-width")
+def _set_tmp_target(path: str):
+    _tmp_pdf._current_target_path = path
 
 
 def _resolve_reportlab_font(bold: bool = False) -> str:
@@ -222,6 +223,7 @@ def add_watermark(window):
         return
 
     src = window.current_path
+    _set_tmp_target(src)
     out = _tmp_pdf()
 
     try:
@@ -253,16 +255,13 @@ def add_watermark(window):
 
             pdf.save(out)
 
-        shutil.copy2(out, src)
-        os.remove(out)
-        _reload(window, src)
+        replace_document_with_staged(window, out, target_path=src)
         scope = "tất cả trang" if p["all_pages"] else "trang hiện tại"
         window.status.showMessage(f"Đã thêm watermark '{p['text']}' vào {scope}", 4000)
 
     except Exception as e:
         show_warning(window, "Lỗi watermark", str(e))
-        if os.path.exists(out):
-            os.remove(out)
+        remove_path_quietly(out)
 
 
 @require_document(show_message=True)
@@ -292,6 +291,7 @@ def remove_watermark(window):
         return
 
     src = window.current_path
+    _set_tmp_target(src)
     out = _tmp_pdf()
 
     try:
@@ -324,15 +324,12 @@ def remove_watermark(window):
 
             pdf.save(out)
 
-        shutil.copy2(out, src)
-        os.remove(out)
-        _reload(window, src)
+        replace_document_with_staged(window, out, target_path=src)
         window.status.showMessage(f"Đã xóa watermark trên {removed} trang", 4000)
 
     except Exception as e:
         show_warning(window, "Lỗi xóa watermark", str(e))
-        if os.path.exists(out):
-            os.remove(out)
+        remove_path_quietly(out)
 
 
 # ─── Password ────────────────────────────────────────────────────────────────
@@ -394,6 +391,7 @@ def set_pdf_password(window):
 
     pw  = dlg.password()
     src = window.current_path
+    _set_tmp_target(src)
     out = _tmp_pdf()
 
     try:
@@ -407,24 +405,15 @@ def set_pdf_password(window):
                     R=6,
                 )
             )
-        shutil.copy2(out, src)
-        os.remove(out)
-        _reload(window, src)
+        replace_document_with_staged(window, out, target_path=src)
         window.status.showMessage("Đã đặt mật khẩu PDF", 4000)
     except Exception as e:
         show_warning(window, "Lỗi đặt mật khẩu", str(e))
-        if os.path.exists(out):
-            os.remove(out)
+        remove_path_quietly(out)
 
 
 @require_document(show_message=True)
 def remove_pdf_password(window):
-    state = {}
-    try:
-        state = window._state_or_global()
-    except Exception:
-        pass
-
     src = window.get_display_path() or window.current_path
 
     try:
@@ -446,25 +435,23 @@ def remove_pdf_password(window):
         if not ok or not pw:
             return
 
+        _set_tmp_target(src)
         out = _tmp_pdf()
         try:
             with pikepdf.open(src, password=pw) as doc:
                 doc.save(out)
         except pikepdf.PasswordError:
             show_warning(window, "Sai mật khẩu", "Mật khẩu không đúng.")
-            if os.path.exists(out):
-                os.remove(out)
+            remove_path_quietly(out)
             return
 
-        shutil.copy2(out, src)
-        os.remove(out)
-        _reload(window, src)
-        temp_path = state.get("temp_path")
-        if temp_path and os.path.exists(temp_path) and temp_path != src:
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
+        replace_document_with_staged(
+            window,
+            out,
+            target_path=src,
+            display_path=src,
+            temp_path=None,
+        )
         window.status.showMessage("Đã xóa mật khẩu PDF", 4000)
     except Exception as e:
         show_warning(window, "Lỗi xóa mật khẩu", str(e))
@@ -475,6 +462,7 @@ def remove_pdf_password(window):
 @require_document(show_message=True)
 def compress_pdf(window):
     src = window.current_path
+    _set_tmp_target(src)
     out = _tmp_pdf()
 
     try:
@@ -489,9 +477,7 @@ def compress_pdf(window):
             )
 
         new_size = os.path.getsize(out)
-        shutil.copy2(out, src)
-        os.remove(out)
-        _reload(window, src)
+        replace_document_with_staged(window, out, target_path=src)
 
         saved = orig_size - new_size
         pct   = saved / orig_size * 100 if orig_size else 0
@@ -510,8 +496,7 @@ def compress_pdf(window):
 
     except Exception as e:
         show_warning(window, "Lỗi nén PDF", str(e))
-        if os.path.exists(out):
-            os.remove(out)
+        remove_path_quietly(out)
 
 
 # ─── Export to image ─────────────────────────────────────────────────────────
@@ -767,6 +752,7 @@ def add_page_numbers(window):
         return
 
     src = window.current_path
+    _set_tmp_target(src)
     tmp = _tmp_pdf()
     window.status.showMessage("Đang thêm số trang…", 0)
     try:
@@ -793,12 +779,9 @@ def add_page_numbers(window):
 
             pdf.save(tmp)
 
-        shutil.copy2(tmp, src)
-        os.remove(tmp)
-        _reload(window, src)
+        replace_document_with_staged(window, tmp, target_path=src)
         window.status.showMessage("Đã thêm số trang vào tất cả các trang", 4000)
     except Exception as e:
         window.status.showMessage("", 0)
         show_warning(window, "Lỗi thêm số trang", str(e))
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        remove_path_quietly(tmp)
