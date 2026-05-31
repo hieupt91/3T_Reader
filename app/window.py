@@ -231,6 +231,7 @@ class PDFReaderApp(QMainWindow):
         self._brightness = 100
         self._action_icons: dict = {}   # {QAction: svg_filename} for theme refresh
         self._tabs_data = {}
+        self._session_temp_paths = set()
         self._update_check_thread = None
         self._update_check_worker = None
         self._pending_manual_update_check = False
@@ -941,12 +942,22 @@ class PDFReaderApp(QMainWindow):
         Tiến độ xử lý qua QProgressDialog (hiện sau 1s nếu vẫn đang chạy) cho
         phép user hủy. processEvents() giữa các trang để UI vẫn phản hồi
         cho file dày.
+
+        Re-entry guard: QPrintPreviewDialog.paintRequested có thể fire nhiều
+        lần (zoom/scroll) khi user còn đang thao tác. Nếu đang render dở dang
+        rồi mà lại fire tiếp, chồng thêm QProgressDialog + QPainter.begin trên
+        cùng printer = crash. Bỏ qua re-fire trong khi chưa xong.
         """
         from packages.qt_compat.QtWidgets import QProgressDialog, QApplication
+
+        if getattr(self, "_print_busy", False):
+            return
+        self._print_busy = True
 
         try:
             pdf = get_pdf_engine().open(pdf_path)
         except Exception as e:
+            self._print_busy = False
             show_warning(self, "Lỗi in", f"Không mở được tài liệu: {e}")
             return
 
@@ -1046,6 +1057,7 @@ class PDFReaderApp(QMainWindow):
                 pdf.close()
             except Exception:
                 pass
+            self._print_busy = False
 
     # ------------------------------------------------------------------ #
     #  Menubar                                                             #
@@ -1499,6 +1511,8 @@ class PDFReaderApp(QMainWindow):
             return True
 
         state = self._tabs_data.get(tab)
+        if not self._can_close_tab_state(state):
+            return False
         edit_state = state.get("_pdf_edit_state") if state else None
         if edit_state and edit_state.get("ops"):
             title = self.tab_widget.tabText(index) or "tài liệu"
@@ -1530,6 +1544,45 @@ class PDFReaderApp(QMainWindow):
             self.hide_search_panel()
             self._update_chrome_for_active_tab()
             self.toc_sidebar.clear()
+        return True
+
+    def _can_close_tab_state(self, state) -> bool:
+        if not state:
+            return True
+
+        related_paths = {
+            path
+            for path in (
+                state.get("source_path"),
+                state.get("display_path"),
+                state.get("temp_path"),
+            )
+            if path
+        }
+        if not related_paths:
+            return True
+
+        try:
+            from app.ai_task_runner import dialog_task_running
+        except Exception:
+            return True
+
+        chat = getattr(self, "_ai_chat_dialog", None)
+        if chat is not None:
+            chat_busy = dialog_task_running(chat) or bool(getattr(chat, "_busy", False))
+            if chat_busy and getattr(chat, "_pdf_path", None) in related_paths:
+                show_warning(self, "Tác vụ đang chạy", "AI chat đang xử lý tài liệu này. Hãy chờ tác vụ hoàn tất rồi đóng tab.")
+                return False
+
+        search = getattr(self, "_ai_search_dialog", None)
+        if search is not None:
+            search_busy = any(
+                dialog_task_running(search, thread_attr=attr)
+                for attr in ("_load_index_thread", "_build_index_thread", "_search_thread")
+            )
+            if search_busy and getattr(search, "_pdf_path", None) in related_paths:
+                show_warning(self, "Tác vụ đang chạy", "AI search đang dựng index hoặc tìm kiếm trên tài liệu này. Hãy chờ tác vụ hoàn tất rồi đóng tab.")
+                return False
         return True
 
     def _activate_next_tab(self):
@@ -1885,6 +1938,9 @@ class PDFReaderApp(QMainWindow):
                 os.remove(temp_path)
             except OSError:
                 pass
+        temp_paths = getattr(self, "_session_temp_paths", None)
+        if isinstance(temp_paths, set) and temp_path:
+            temp_paths.discard(temp_path)
 
     def eventFilter(self, obj, event):
         from packages.qt_compat.QtCore import QEvent
@@ -2035,6 +2091,13 @@ class PDFReaderApp(QMainWindow):
                 self._closing = False
                 event.ignore()
                 return
+        for temp_path in list(getattr(self, "_session_temp_paths", set())):
+            try:
+                if temp_path and os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except OSError:
+                pass
+        self._session_temp_paths = set()
         self._tabs_data.clear()
         self._global_state["web_view"] = None
         super().closeEvent(event)

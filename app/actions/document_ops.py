@@ -171,46 +171,84 @@ def _watermark_page_bytes(w: float, h: float, text: str, size: int,
     return buf.read()
 
 
+_WATERMARK_MARKER_KEY = "/_3TWatermarkCount"
+
+
+def _mark_watermark_added(page) -> None:
+    """Tag a page so `_remove_last_overlay_draw` can confidently identify
+    overlays added by this app and not strip arbitrary native PDF content."""
+    try:
+        existing = page.obj.get(_WATERMARK_MARKER_KEY)
+        current = int(existing) if existing is not None else 0
+    except Exception:
+        current = 0
+    try:
+        page.obj[_WATERMARK_MARKER_KEY] = current + 1
+    except Exception:
+        pass
+
+
 def _remove_last_overlay_draw(pdf, page) -> bool:
     import pikepdf
+
+    # Only strip overlays we recorded ourselves — otherwise we risk eating the
+    # final legitimate `q ... /XObject Do Q` block of an unrelated PDF.
+    marker_value = page.obj.get(_WATERMARK_MARKER_KEY)
+    try:
+        remaining_marker = int(marker_value) if marker_value is not None else 0
+    except Exception:
+        remaining_marker = 0
+    if remaining_marker <= 0:
+        return False
 
     contents = page.obj.get("/Contents")
     if contents is None:
         return False
+
+    stripped_overlay = False
     if isinstance(contents, pikepdf.Array):
         if len(contents) > 1:
             del contents[-1]
-            return True
-        if len(contents) != 1:
+            stripped_overlay = True
+        elif len(contents) == 1:
+            content_obj = contents[0]
+        else:
             return False
-        content_obj = contents[0]
     else:
         content_obj = contents
 
-    # pikepdf.Page.add_overlay() can merge the overlay into one content stream:
-    #   q ...original... Q
-    #   q ... /SomeXObject Do Q
-    # Remove the final XObject draw block, which is how the current app adds watermarks.
-    try:
-        raw = bytes(content_obj)
-    except Exception:
-        return False
-    if not raw:
+    if not stripped_overlay:
+        try:
+            raw = bytes(content_obj)
+        except Exception:
+            return False
+        if not raw:
+            return False
+
+        stripped = raw.rstrip()
+        start = stripped.rfind(b"\nq")
+        if start < 0 and stripped.startswith(b"q"):
+            start = 0
+        tail = stripped[start:] if start >= 0 else b""
+        if start >= 0 and b" Do" in tail and tail.endswith(b"Q"):
+            new_stream = pikepdf.Stream(pdf, raw[:start].rstrip() + b"\n")
+            if isinstance(contents, pikepdf.Array):
+                contents[0] = new_stream
+            else:
+                page.obj["/Contents"] = new_stream
+            stripped_overlay = True
+
+    if not stripped_overlay:
         return False
 
-    stripped = raw.rstrip()
-    start = stripped.rfind(b"\nq")
-    if start < 0 and stripped.startswith(b"q"):
-        start = 0
-    tail = stripped[start:] if start >= 0 else b""
-    if start >= 0 and b" Do" in tail and tail.endswith(b"Q"):
-        new_stream = pikepdf.Stream(pdf, raw[:start].rstrip() + b"\n")
-        if isinstance(contents, pikepdf.Array):
-            contents[0] = new_stream
-        else:
-            page.obj["/Contents"] = new_stream
-        return True
-    return False
+    if remaining_marker > 1:
+        page.obj[_WATERMARK_MARKER_KEY] = remaining_marker - 1
+    else:
+        try:
+            del page.obj[_WATERMARK_MARKER_KEY]
+        except Exception:
+            pass
+    return True
 
 
 @require_document(show_message=True)
@@ -252,6 +290,7 @@ def add_watermark(window):
 
                 with pikepdf.open(io.BytesIO(wm_data)) as wm_pdf:
                     page.add_overlay(wm_pdf.pages[0])
+                _mark_watermark_added(page)
 
             pdf.save(out)
 
@@ -626,6 +665,7 @@ def export_pages_to_images(window):
     base_name = os.path.splitext(os.path.basename(src))[0]
     # scale: 1 point = 1/72 inch → scale = dpi / 72
     scale = p["dpi"] / 72.0
+    max_render_pixels = 24_000_000
 
     window.status.showMessage("Đang xuất ảnh…", 0)
     try:
@@ -633,7 +673,11 @@ def export_pages_to_images(window):
         done = 0
         for pg in page_list:
             page    = doc[pg - 1]
-            bitmap  = page.render(scale=scale)
+            width = float(page.get_width())
+            height = float(page.get_height())
+            area = max(1.0, width * height)
+            capped_scale = min(scale, (max_render_pixels / area) ** 0.5)
+            bitmap  = page.render(scale=max(0.25, capped_scale))
             pil_img = bitmap.to_pil()
             suffix   = f"_trang{pg:03d}.{p['ext']}"
             out_path = os.path.join(out_dir, base_name + suffix)

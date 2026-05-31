@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import os
-import threading
 
 from packages.qt_compat.QtCore import Qt, QTimer
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QFrame, QSizePolicy,
 )
+from app.ai_task_runner import dialog_task_running, start_dialog_task
 from styles.theme import is_dark
 
 
@@ -269,13 +269,14 @@ class AISearchDialog(QDialog):
                 self._btn_build.setVisible(True)
                 self._btn_search.setEnabled(False)
 
-        result_holder = [None, None]
-
-        def _thread():
-            result_holder[0], result_holder[1] = _load()
-            QTimer.singleShot(0, lambda: _done(result_holder[0], result_holder[1]))
-
-        threading.Thread(target=_thread, daemon=True).start()
+        start_dialog_task(
+            self,
+            _load,
+            on_success=lambda result: _done(result[0], result[1]),
+            on_error=lambda msg, _tb: _done(None, msg),
+            thread_attr="_load_index_thread",
+            worker_attr="_load_index_worker",
+        )
 
     def _on_build_index(self):
         if self._building:
@@ -295,34 +296,26 @@ class AISearchDialog(QDialog):
         pdf_path = self._pdf_path
         token = self._pdf_token
 
-        result_holder = [None, None]
-
         def _progress(msg: str):
             QTimer.singleShot(0, lambda m=msg: self._set_status(
                 f"Đang xây dựng index: {m}", color="#6366f1"
             ))
 
-        def _thread():
-            try:
-                from packages.ai.semantic_search import build_index, save_index
-                idx, err = build_index(pdf_path, _progress)
-                result_holder[0] = idx
-                result_holder[1] = err
-                if idx is not None:
-                    try:
-                        save_index(idx, _get_search_cache_dir())
-                    except Exception as save_err:
-                        result_holder[1] = str(save_err)
-            except Exception as exc:
-                result_holder[1] = str(exc)
-            QTimer.singleShot(0, _build_done)
+        def _build_work():
+            from packages.ai.semantic_search import build_index, save_index
+            idx, err = build_index(pdf_path, _progress)
+            if idx is not None:
+                try:
+                    save_index(idx, _get_search_cache_dir())
+                except Exception as save_err:
+                    return None, str(save_err)
+            return idx, err
 
-        def _build_done():
+        def _build_done(idx, err):
             if self._closed or token != self._pdf_token or pdf_path != self._pdf_path:
                 self._building = False
                 return
             self._building = False
-            idx, err = result_holder
             if idx is not None:
                 self._index = idx
                 self._set_status("Index đã xây dựng và lưu thành công. Nhập từ khóa để tìm kiếm.", color="#4fc080")
@@ -332,7 +325,18 @@ class AISearchDialog(QDialog):
                 self._btn_build.setEnabled(True)
                 self._set_status(f"Lỗi khi xây dựng index: {err or 'Không xác định'}", color="#E05050")
 
-        threading.Thread(target=_thread, daemon=True).start()
+        started = start_dialog_task(
+            self,
+            _build_work,
+            on_success=lambda result: _build_done(result[0], result[1]),
+            on_error=lambda msg, _tb: _build_done(None, msg),
+            thread_attr="_build_index_thread",
+            worker_attr="_build_index_worker",
+        )
+        if not started:
+            self._building = False
+            self._btn_build.setEnabled(True)
+            self._set_status("Đang xây dựng index, vui lòng chờ…", color="#f59e0b")
 
     # ------------------------------------------------------------------
     # Search
@@ -358,24 +362,18 @@ class AISearchDialog(QDialog):
         pdf_path = self._pdf_path
         token = self._pdf_token
 
-        result_holder = [None, None]
+        index = self._index
 
-        def _thread():
-            try:
-                from packages.ai.semantic_search import search
-                chunks, err = search(self._index, query, top_k=5)
-                result_holder[0] = chunks
-                result_holder[1] = err
-            except Exception as exc:
-                result_holder[1] = str(exc)
-            QTimer.singleShot(0, _search_done)
+        def _search_work():
+            from packages.ai.semantic_search import search
+            chunks, err = search(index, query, top_k=5)
+            return chunks, err
 
-        def _search_done():
+        def _search_done(chunks, err):
             if self._closed or token != self._pdf_token or pdf_path != self._pdf_path:
                 self._btn_search.setEnabled(self._index is not None and not self._building)
                 return
             self._btn_search.setEnabled(True)
-            chunks, err = result_holder
             if err:
                 self._set_status(f"Lỗi tìm kiếm: {err}", color="#E05050")
                 return
@@ -396,7 +394,17 @@ class AISearchDialog(QDialog):
 
             self._set_status(f"{len(chunks)} kết quả tìm thấy.", color="#4fc080")
 
-        threading.Thread(target=_thread, daemon=True).start()
+        started = start_dialog_task(
+            self,
+            _search_work,
+            on_success=lambda result: _search_done(result[0], result[1]),
+            on_error=lambda msg, _tb: _search_done(None, msg),
+            thread_attr="_search_thread",
+            worker_attr="_search_worker",
+        )
+        if not started:
+            self._btn_search.setEnabled(True)
+            self._set_status("Đang có tác vụ tìm kiếm khác chạy, vui lòng chờ…", color="#f59e0b")
 
     # ------------------------------------------------------------------
     # Navigation
@@ -444,6 +452,14 @@ class AISearchDialog(QDialog):
         self._lbl_status.setStyleSheet(f"color:{color};font-size:11px;")
 
     def closeEvent(self, event):
+        for attr in ("_load_index_thread", "_build_index_thread", "_search_thread"):
+            if dialog_task_running(self, thread_attr=attr):
+                self._set_status(
+                    "Đang chạy tác vụ tìm kiếm/dựng index. Vui lòng chờ hoàn tất rồi đóng.",
+                    color="#DC2626",
+                )
+                event.ignore()
+                return
         self._closed = True
         parent = self.parent()
         if parent is not None and getattr(parent, "_ai_search_dialog", None) is self:

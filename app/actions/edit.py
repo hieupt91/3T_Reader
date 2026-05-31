@@ -14,6 +14,7 @@ from packages.qt_compat.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QTextEdit,
@@ -687,6 +688,33 @@ def _ensure_edit_state(window):
     if state and state.get("working_file") == current:
         return state
 
+    # Cảnh báo trước khi vào edit mode trên file đã ký số: rebuild_pdf_with_ops
+    # không bảo toàn chữ ký, mọi edit sẽ làm chữ ký mất hiệu lực.
+    try:
+        from app.local_server import _pdf_has_signature_field
+
+        if _pdf_has_signature_field(current):
+            warned = getattr(window, "_edit_sig_warned_paths", None)
+            if warned is None:
+                warned = set()
+                window._edit_sig_warned_paths = warned
+            if current not in warned:
+                reply = QMessageBox.warning(
+                    window,
+                    "Tài liệu đã có chữ ký số",
+                    "Tài liệu này có chữ ký số. Mọi thao tác chỉnh sửa (chèn text/ảnh, vẽ, "
+                    "tô đậm, xóa…) sẽ làm chữ ký không còn hợp lệ và trình đọc PDF sẽ báo "
+                    "“document modified after signing”.\n\n"
+                    "Bạn có chắc muốn tiếp tục?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return None
+                warned.add(current)
+    except Exception:
+        pass
+
     display_path = window.get_display_path() if hasattr(window, "get_display_path") else None
     temp_root = os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
     snapshot_source = current
@@ -744,6 +772,37 @@ def _reload_viewer(window, pdf_path: str, page: int | None = None):
             show_warning(window, "Không thể mở file vừa lưu", str(exc))
 
     QTimer.singleShot(0, _load)
+
+
+def _run_when_viewer_page_ready(window, callback, *, timeout_ms: int = 1600):
+    viewer = getattr(window, "viewer", None)
+    if viewer is None:
+        callback()
+        return
+
+    fired = {"done": False}
+
+    def _finish(*_args):
+        if fired["done"]:
+            return
+        fired["done"] = True
+        try:
+            viewer.page_ready.disconnect(_on_ready)
+        except Exception:
+            pass
+        callback()
+
+    def _on_ready(*_args):
+        _finish()
+
+    try:
+        viewer.page_ready.connect(_on_ready)
+    except Exception:
+        callback()
+        return
+
+    from packages.qt_compat.QtCore import QTimer
+    QTimer.singleShot(timeout_ms, _finish)
 
 
 def _navigate_viewer(window, page_no: int):
@@ -812,8 +871,7 @@ def _render_edit_state(
 
     # Điều hướng đến trang đã chèn sau khi viewer load xong (delay nhỏ)
     if focus_page is not None:
-        from packages.qt_compat.QtCore import QTimer
-        QTimer.singleShot(800, lambda: _navigate_viewer(window, focus_page))
+        _run_when_viewer_page_ready(window, lambda: _navigate_viewer(window, focus_page))
 
     op_count = len(ops)
     undo_hint = f" (Ctrl+Z để hoàn tác, {op_count} thao tác)" if op_count > 0 else ""

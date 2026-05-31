@@ -44,6 +44,12 @@ def open_file(window, path=None):
             return
 
         source_path, display_path, temp_path = prepared
+        if temp_path:
+            tracked = getattr(window, "_session_temp_paths", None)
+            if tracked is None:
+                tracked = set()
+                window._session_temp_paths = tracked
+            tracked.add(temp_path)
 
         if hasattr(window, "open_document"):
             opened = window.open_document(

@@ -158,6 +158,8 @@ def _search_text_on_page(pdf_path: str, page_no: int, text: str) -> list[tuple]:
 
     rects = []
     doc = pdfium.PdfDocument(pdf_path)
+    textpage = None
+    searcher = None
     try:
         page = doc[page_no - 1]
         textpage = page.get_textpage()
@@ -177,8 +179,53 @@ def _search_text_on_page(pdf_path: str, page_no: int, text: str) -> list[tuple]:
                 r = textpage.get_rect(i)
                 rects.append((float(r[0]), float(r[1]), float(r[2]), float(r[3])))
     finally:
+        for obj in (searcher, textpage):
+            try:
+                close = getattr(obj, "close", None)
+                if callable(close):
+                    close()
+            except Exception:
+                pass
         doc.close()
     return rects
+
+
+def _page_rotation(page) -> int:
+    try:
+        return int(page.get("/Rotate", 0)) % 360
+    except Exception:
+        try:
+            return int(page["/Rotate"]) % 360
+        except Exception:
+            return 0
+
+
+def _normalize_box_for_page_rotation(
+    box: tuple[float, float, float, float],
+    page_w: float,
+    page_h: float,
+    rotation: int,
+) -> tuple[float, float, float, float]:
+    left, bottom, right, top = [float(v) for v in box]
+    if rotation not in (90, 180, 270):
+        return left, bottom, right, top
+
+    def _map_point(x: float, y: float) -> tuple[float, float]:
+        if rotation == 90:
+            return y, page_h - x
+        if rotation == 180:
+            return page_w - x, page_h - y
+        return page_w - y, x
+
+    points = [
+        _map_point(left, bottom),
+        _map_point(left, top),
+        _map_point(right, bottom),
+        _map_point(right, top),
+    ]
+    xs = [pt[0] for pt in points]
+    ys = [pt[1] for pt in points]
+    return min(xs), min(ys), max(xs), max(ys)
 
 
 def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
@@ -534,13 +581,19 @@ def _do_add_comment(window, content: str, anchor_text: str = "", placement: dict
             mb = page.mediabox
             page_w = float(mb[2]) - float(mb[0])
             page_h = float(mb[3]) - float(mb[1])
+            rotation = _page_rotation(page)
             icon_w = 18.0
             icon_h = 18.0
             margin = 8.0
 
             picked_box = placement.get("box") if placement else None
             if picked_box:
-                left, bottom, right, top = [float(v) for v in picked_box]
+                left, bottom, right, top = _normalize_box_for_page_rotation(
+                    tuple(float(v) for v in picked_box),
+                    page_w,
+                    page_h,
+                    rotation,
+                )
                 x0 = max(margin, min(left, page_w - icon_w - margin))
                 y0 = max(margin, min(bottom, page_h - icon_h - margin))
                 x1 = min(page_w - margin, max(x0 + icon_w, right))

@@ -520,17 +520,7 @@ def load_language_pack(code: str) -> dict[str, str]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, dict) and data.get("code") and str(data.get("code")) != code:
-            return {}
-        if isinstance(data, dict) and isinstance(data.get("strings"), dict):
-            data = data["strings"]
-        if not isinstance(data, dict):
-            return {}
-        strings = {str(k): str(v) for k, v in data.items()}
-        sample = "\n".join(strings.values())
-        if any(marker in sample for marker in _MOJIBAKE_MARKERS):
-            return {}
-        return strings
+        return _normalize_language_pack_payload(data, expected_code=code)
     except Exception:
         return {}
 
@@ -541,6 +531,20 @@ def save_language_pack(code: str, data: dict[str, str]) -> Path:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     return path
+
+
+def _normalize_language_pack_payload(data, *, expected_code: str) -> dict[str, str]:
+    if isinstance(data, dict) and data.get("code") and str(data.get("code")) != expected_code:
+        return {}
+    if isinstance(data, dict) and isinstance(data.get("strings"), dict):
+        data = data["strings"]
+    if not isinstance(data, dict):
+        return {}
+    strings = {str(k): str(v) for k, v in data.items()}
+    sample = "\n".join(strings.values())
+    if any(marker in sample for marker in _MOJIBAKE_MARKERS):
+        return {}
+    return strings
 
 
 def get_translation(code: str, key: str, fallback: str) -> str:
@@ -631,6 +635,11 @@ def download_language_pack(code: str, parent=None) -> tuple[bool, str]:
                         block_num += 1
                         _reporthook(block_num, len(chunk), total_size)
                 if tmp_path.exists() and tmp_path.stat().st_size > 0:
+                    with open(tmp_path, "r", encoding="utf-8") as f:
+                        payload = json.load(f)
+                    normalized = _normalize_language_pack_payload(payload, expected_code=code)
+                    if not normalized:
+                        raise RuntimeError("Downloaded language pack failed validation")
                     tmp_path.replace(save_path)
                     if progress is not None:
                         progress.setValue(100)
