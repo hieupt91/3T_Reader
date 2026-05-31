@@ -226,6 +226,7 @@ class PDFReaderApp(QMainWindow):
         self.is_fullscreen = False
         self._tab_context_index = -1
         self._usb_token_detected = False
+        self._closing = False
 
         self._brightness = 100
         self._action_icons: dict = {}   # {QAction: svg_filename} for theme refresh
@@ -260,7 +261,6 @@ class PDFReaderApp(QMainWindow):
         self._apply_language_texts()
         self._start_token_monitor()
         self._apply_toolbar_prefs()
-        QTimer.singleShot(200, self._check_license)
         QTimer.singleShot(15_000, self._auto_check_update)
         # Khôi phục AI API key đã lưu (nếu có)
         try:
@@ -2007,6 +2007,13 @@ class PDFReaderApp(QMainWindow):
             event.acceptProposedAction()
 
     def closeEvent(self, event: QCloseEvent):
+        self._closing = True
+        try:
+            from app.license_dialog import _stop_heartbeat
+            _stop_heartbeat(self)
+        except Exception:
+            pass
+
         for attr_name in ("_ai_chat_dialog", "_ai_search_dialog"):
             dlg = getattr(self, attr_name, None)
             if dlg is not None:
@@ -2015,6 +2022,7 @@ class PDFReaderApp(QMainWindow):
                 except Exception:
                     pass
                 if dlg is not None and getattr(dlg, "isVisible", lambda: False)():
+                    self._closing = False
                     event.ignore()
                     return
 
@@ -2024,6 +2032,7 @@ class PDFReaderApp(QMainWindow):
 
         for idx in range(self.tab_widget.count() - 1, -1, -1):
             if not self._close_tab(idx):
+                self._closing = False
                 event.ignore()
                 return
         self._tabs_data.clear()

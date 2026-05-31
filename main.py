@@ -73,5 +73,9 @@ if __name__ == "__main__":
     app.setWindowIcon(app_logo_icon(256))
 
     window = PDFReaderApp()
+    from app.license_dialog import check_license_on_startup
+    if not check_license_on_startup(window):
+        window.close()
+        sys.exit(0)
     window.show()
     sys.exit(app.exec())

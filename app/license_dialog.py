@@ -535,6 +535,7 @@ def _remove_trial_banner(window):
 def _start_heartbeat(window, client):
     """Gửi heartbeat mỗi 6 giờ trong background."""
     from packages.qt_compat.QtCore import QTimer
+    _stop_heartbeat(window)
     timer = QTimer(window)
     timer.setInterval(6 * 3600 * 1000)  # 6h
 
@@ -542,7 +543,7 @@ def _start_heartbeat(window, client):
         def _worker():
             try:
                 status = client.heartbeat()
-                if not status.active:
+                if not status.active and not getattr(window, "_closing", False):
                     QTimer.singleShot(0, lambda: _warn_expired(window))
             except Exception:
                 pass
@@ -551,6 +552,21 @@ def _start_heartbeat(window, client):
     timer.timeout.connect(_beat)
     timer.start()
     window._license_heartbeat_timer = timer
+
+
+def _stop_heartbeat(window):
+    timer = getattr(window, "_license_heartbeat_timer", None)
+    if timer is None:
+        return
+    try:
+        timer.stop()
+    except Exception:
+        pass
+    try:
+        timer.deleteLater()
+    except Exception:
+        pass
+    window._license_heartbeat_timer = None
 
 
 def _warn_expired(window):
