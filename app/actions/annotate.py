@@ -541,8 +541,22 @@ def strikeout_text(window):
 def add_comment(window):
     """Thêm ghi chú (sticky note) — bám theo text đang chọn hoặc dòng đầu trang."""
     wv = window._get_webview()
+    try:
+        from app.actions.edit import _pick_context_matches
+    except Exception:
+        _pick_context_matches = None
+    expected_state = window._active_state() if hasattr(window, "_active_state") else None
+    expected_path = getattr(window, "current_path", None)
+
+    def _context_ok() -> bool:
+        if _pick_context_matches is None:
+            return True
+        return _pick_context_matches(window, expected_state, expected_path)
 
     def _apply(sel_text):
+        if not _context_ok():
+            show_warning(window, "Đã đổi tài liệu", "Bạn đã đổi tab trong lúc thêm ghi chú. Hãy thực hiện lại trên đúng tài liệu.")
+            return
         sel_text = (sel_text or "").strip()
 
         content, ok = QInputDialog.getMultiLineText(
@@ -550,6 +564,9 @@ def add_comment(window):
             f"Ghi chú cho: \"{sel_text[:60]}…\"" if sel_text else "Nội dung ghi chú:",
         )
         if not ok or not content.strip():
+            return
+        if not _context_ok():
+            show_warning(window, "Đã đổi tài liệu", "Bạn đã đổi tab trong lúc nhập ghi chú. Hãy thực hiện lại trên đúng tài liệu.")
             return
         placement = None
         try:
@@ -562,6 +579,9 @@ def add_comment(window):
         except Exception:
             placement = None
         if not placement:
+            return
+        if not _context_ok():
+            show_warning(window, "Đã đổi tài liệu", "Bạn đã đổi tab trong lúc chọn vị trí ghi chú. Hãy thực hiện lại trên đúng tài liệu.")
             return
         _do_add_comment(window, content.strip(), sel_text, placement=placement)
 
@@ -594,10 +614,12 @@ def _do_add_comment(window, content: str, anchor_text: str = "", placement: dict
                     page_h,
                     rotation,
                 )
-                x0 = max(margin, min(left, page_w - icon_w - margin))
-                y0 = max(margin, min(bottom, page_h - icon_h - margin))
-                x1 = min(page_w - margin, max(x0 + icon_w, right))
-                y1 = min(page_h - margin, max(y0 + icon_h, top))
+                center_x = (left + right) / 2.0
+                center_y = (bottom + top) / 2.0
+                x0 = max(margin, min(center_x - icon_w / 2.0, page_w - icon_w - margin))
+                y0 = max(margin, min(center_y - icon_h / 2.0, page_h - icon_h - margin))
+                x1 = x0 + icon_w
+                y1 = y0 + icon_h
             else:
                 note_x = max(margin, page_w - icon_w - margin)
                 note_y = max(icon_h + margin, page_h - margin)
