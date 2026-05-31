@@ -2007,6 +2007,21 @@ class PDFReaderApp(QMainWindow):
             event.acceptProposedAction()
 
     def closeEvent(self, event: QCloseEvent):
+        for attr_name in ("_ai_chat_dialog", "_ai_search_dialog"):
+            dlg = getattr(self, attr_name, None)
+            if dlg is not None:
+                try:
+                    dlg.close()
+                except Exception:
+                    pass
+                if dlg is not None and getattr(dlg, "isVisible", lambda: False)():
+                    event.ignore()
+                    return
+
+        if self._update_check_thread is not None and self._update_check_thread.isRunning():
+            self._update_check_thread.quit()
+            self._update_check_thread.wait(2000)
+
         for idx in range(self.tab_widget.count() - 1, -1, -1):
             if not self._close_tab(idx):
                 event.ignore()

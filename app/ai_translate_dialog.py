@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import os
-import threading
 
-from packages.qt_compat.QtCore import Qt, QTimer, QObject, pyqtSignal
+from packages.qt_compat.QtCore import Qt, QTimer
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QPushButton, QFrame, QFileDialog, QButtonGroup, QRadioButton,
     QSizePolicy,
 )
+from app.ai_task_runner import dialog_task_running, start_dialog_task
 from styles.theme import is_dark
 
 
@@ -82,31 +82,6 @@ QPushButton#btn_translate:hover { background: #3B82F6; }
 QFrame#divider { background: #CBD5E1; }
 """
 
-
-class _TranslateWorker(QObject):
-    finished = pyqtSignal(object)   # TranslationResult
-    error    = pyqtSignal(str)
-
-    def __init__(self, pdf_path: str, page_num: int,
-                 source_lang: str, target_lang: str):
-        super().__init__()
-        self._pdf_path    = pdf_path
-        self._page_num    = page_num
-        self._source_lang = source_lang
-        self._target_lang = target_lang
-
-    def run(self):
-        try:
-            from packages.ai.translate import translate_pdf_page
-            result = translate_pdf_page(
-                self._pdf_path, self._page_num,
-                self._source_lang, self._target_lang,
-            )
-            self.finished.emit(result)
-        except Exception as e:
-            self.error.emit(str(e))
-
-
 class AITranslateDialog(QDialog):
     """Dialog dịch thuật trang PDF hiện tại."""
 
@@ -121,7 +96,8 @@ class AITranslateDialog(QDialog):
         self._pdf_path    = pdf_path
         self._current_page = current_page
         self._result_text  = ""
-        self._worker: _TranslateWorker | None = None
+        self._task_thread = None
+        self._task_worker = None
 
         self._build_ui()
 
@@ -209,14 +185,26 @@ class AITranslateDialog(QDialog):
         self._lbl_status.setText("Đang dịch…")
         self._text_edit.setPlainText("Đang dịch…")
 
-        self._worker = _TranslateWorker(
-            self._pdf_path, self._current_page, source_lang, target_lang
+        started = start_dialog_task(
+            self,
+            lambda: self._translate_page(source_lang, target_lang),
+            on_success=self._on_finished,
+            on_error=self._on_error,
         )
-        self._worker.finished.connect(self._on_finished)
-        self._worker.error.connect(self._on_error)
+        if not started:
+            self._btn_translate.setEnabled(True)
+            self._text_edit.setPlainText("Đang có một tác vụ AI khác đang chạy.")
+            self._lbl_status.setText("Đang có tác vụ AI khác đang chạy.")
 
-        thread = threading.Thread(target=self._worker.run, daemon=True)
-        thread.start()
+    def _translate_page(self, source_lang: str, target_lang: str):
+        from packages.ai.translate import translate_pdf_page
+
+        return translate_pdf_page(
+            self._pdf_path,
+            self._current_page,
+            source_lang,
+            target_lang,
+        )
 
     def _on_finished(self, result):
         self._btn_translate.setEnabled(True)
@@ -231,7 +219,7 @@ class AITranslateDialog(QDialog):
             self._lbl_status.setStyleSheet("color:#E05050;font-size:11px")
             self._lbl_status.setText(f"Lỗi: {result.error}")
 
-    def _on_error(self, msg: str):
+    def _on_error(self, msg: str, _tb: str):
         self._btn_translate.setEnabled(True)
         self._text_edit.setPlainText(f"Lỗi: {msg}")
         self._lbl_status.setStyleSheet("color:#E05050;font-size:11px")
@@ -251,3 +239,11 @@ class AITranslateDialog(QDialog):
             orig = self._btn_save.text()
             self._btn_save.setText("Đã lưu!")
             QTimer.singleShot(1500, lambda: self._btn_save.setText(orig))
+
+    def closeEvent(self, event):
+        if dialog_task_running(self):
+            self._lbl_status.setStyleSheet("color:#E05050;font-size:11px")
+            self._lbl_status.setText("Đang chờ AI hoàn tất. Hãy đóng lại sau khi tác vụ xong.")
+            event.ignore()
+            return
+        super().closeEvent(event)

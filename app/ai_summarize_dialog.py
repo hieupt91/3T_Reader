@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import os
-import threading
 
-from packages.qt_compat.QtCore import Qt, QTimer, QObject, pyqtSignal
+from packages.qt_compat.QtCore import Qt, QTimer
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QPushButton, QFrame, QFileDialog, QComboBox, QCheckBox,
     QSizePolicy,
 )
+from app.ai_task_runner import dialog_task_running, start_dialog_task
 from styles.theme import is_dark
 
 
@@ -124,52 +124,6 @@ _DOC_TYPES = [
     ("Tài liệu thông thường", "general"),
 ]
 
-
-class _SummarizeWorker(QObject):
-    finished = pyqtSignal(object)   # SummaryResult
-    error    = pyqtSignal(str)
-
-    def __init__(self, pdf_path: str, doc_type: str, extract_contract: bool):
-        super().__init__()
-        self._pdf_path        = pdf_path
-        self._doc_type        = doc_type
-        self._extract_contract = extract_contract
-
-    def run(self):
-        try:
-            from packages.ai.summarize import summarize_pdf, extract_contract_data
-            result = summarize_pdf(self._pdf_path, self._doc_type)
-            if not result.success:
-                self.finished.emit(result)
-                return
-
-            if self._extract_contract and self._doc_type == "contract":
-                import pdfplumber
-                with pdfplumber.open(self._pdf_path) as _pdf:
-                    parts = []
-                    for _pg in _pdf.pages:
-                        t = (_pg.extract_text() or "").strip()
-                        if t:
-                            parts.append(t)
-                text = "\n\n".join(parts)
-                if len(text) > 6000:
-                    text = text[:6000]
-                contract_result = extract_contract_data(text)
-                if contract_result.success:
-                    from packages.ai.summarize import SummaryResult
-                    combined = (
-                        "=== TÓM TẮT ===\n"
-                        + result.summary
-                        + "\n\n=== DỮ LIỆU HỢP ĐỒNG ===\n"
-                        + contract_result.summary
-                    )
-                    result = SummaryResult(summary=combined, doc_type=result.doc_type)
-
-            self.finished.emit(result)
-        except Exception as e:
-            self.error.emit(str(e))
-
-
 class AISummarizeDialog(QDialog):
     """Dialog tóm tắt tài liệu PDF."""
 
@@ -183,7 +137,8 @@ class AISummarizeDialog(QDialog):
 
         self._pdf_path   = pdf_path
         self._result_text = ""
-        self._worker: _SummarizeWorker | None = None
+        self._task_thread = None
+        self._task_worker = None
 
         self._build_ui()
 
@@ -280,12 +235,48 @@ class AISummarizeDialog(QDialog):
         self._lbl_status.setText("Đang tóm tắt…")
         self._text_edit.setPlainText("Đang phân tích tài liệu…")
 
-        self._worker = _SummarizeWorker(self._pdf_path, doc_type, extract)
-        self._worker.finished.connect(self._on_finished)
-        self._worker.error.connect(self._on_error)
+        started = start_dialog_task(
+            self,
+            lambda: self._summarize_document(doc_type, extract),
+            on_success=self._on_finished,
+            on_error=self._on_error,
+        )
+        if not started:
+            self._btn_summarize.setEnabled(True)
+            self._text_edit.setPlainText("Đang có một tác vụ AI khác đang chạy.")
+            self._lbl_status.setText("Đang có tác vụ AI khác đang chạy.")
 
-        thread = threading.Thread(target=self._worker.run, daemon=True)
-        thread.start()
+    def _summarize_document(self, doc_type: str, extract_contract: bool):
+        from packages.ai.summarize import summarize_pdf, extract_contract_data
+
+        result = summarize_pdf(self._pdf_path, doc_type)
+        if not result.success:
+            return result
+
+        if extract_contract and doc_type == "contract":
+            import pdfplumber
+
+            with pdfplumber.open(self._pdf_path) as pdf_doc:
+                parts = []
+                for page in pdf_doc.pages:
+                    text = (page.extract_text() or "").strip()
+                    if text:
+                        parts.append(text)
+            text = "\n\n".join(parts)
+            if len(text) > 6000:
+                text = text[:6000]
+            contract_result = extract_contract_data(text)
+            if contract_result.success:
+                from packages.ai.summarize import SummaryResult
+
+                combined = (
+                    "=== TÓM TẮT ===\n"
+                    + result.summary
+                    + "\n\n=== DỮ LIỆU HỢP ĐỒNG ===\n"
+                    + contract_result.summary
+                )
+                result = SummaryResult(summary=combined, doc_type=result.doc_type)
+        return result
 
     def _on_finished(self, result):
         self._btn_summarize.setEnabled(True)
@@ -300,7 +291,7 @@ class AISummarizeDialog(QDialog):
             self._lbl_status.setStyleSheet("color:#E05050;font-size:11px")
             self._lbl_status.setText(f"Lỗi: {result.error}")
 
-    def _on_error(self, msg: str):
+    def _on_error(self, msg: str, _tb: str):
         self._btn_summarize.setEnabled(True)
         self._text_edit.setPlainText(f"Lỗi: {msg}")
         self._lbl_status.setStyleSheet("color:#E05050;font-size:11px")
@@ -320,3 +311,11 @@ class AISummarizeDialog(QDialog):
             orig = self._btn_save.text()
             self._btn_save.setText("Đã lưu!")
             QTimer.singleShot(1500, lambda: self._btn_save.setText(orig))
+
+    def closeEvent(self, event):
+        if dialog_task_running(self):
+            self._lbl_status.setStyleSheet("color:#E05050;font-size:11px")
+            self._lbl_status.setText("Đang chờ AI hoàn tất. Hãy đóng lại sau khi tác vụ xong.")
+            event.ignore()
+            return
+        super().closeEvent(event)

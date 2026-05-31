@@ -771,5 +771,8 @@ def notify_pdf_changed(new_path: str | None):
             dlg = getattr(widget, "_ai_chat_dialog", None)
             if dlg is not None and dlg.isVisible() and new_path:
                 dlg.set_pdf(new_path)
+            search_dlg = getattr(widget, "_ai_search_dialog", None)
+            if search_dlg is not None and search_dlg.isVisible() and new_path:
+                search_dlg.set_pdf(new_path)
     except Exception:
         pass

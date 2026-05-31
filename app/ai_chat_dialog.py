@@ -1,13 +1,12 @@
 """Dialog chat với PDF — AI Assistant."""
 from __future__ import annotations
 
-import threading
-
-from packages.qt_compat.QtCore import Qt, QTimer, QObject, pyqtSignal
+from packages.qt_compat.QtCore import Qt
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QPushButton, QFrame, QLineEdit, QSizePolicy, QApplication,
 )
+from app.ai_task_runner import dialog_task_running, start_dialog_task
 from styles.theme import is_dark
 
 
@@ -122,24 +121,6 @@ QFrame#divider { background: #E2E8F0; }
         "system": "#64748B",
     }
 
-
-class _ChatWorker(QObject):
-    finished = pyqtSignal(object)   # ChatResult
-    error    = pyqtSignal(str)
-
-    def __init__(self, session, question: str):
-        super().__init__()
-        self._session  = session
-        self._question = question
-
-    def run(self):
-        try:
-            result = self._session.ask(self._question)
-            self.finished.emit(result)
-        except Exception as e:
-            self.error.emit(str(e))
-
-
 class AIChatDialog(QDialog):
     """Dialog chat với PDF — non-modal, giữ nguyên khi đọc."""
 
@@ -158,6 +139,10 @@ class AIChatDialog(QDialog):
         self._pdf_path = pdf_path
         self._session  = None
         self._busy     = False
+        self._request_seq = 0
+        self._active_request_id = 0
+        self._task_thread = None
+        self._task_worker = None
 
         self._build_ui()
         self._append_system_msg(
@@ -258,12 +243,21 @@ class AIChatDialog(QDialog):
         self._lbl_status.setText("Đã gửi câu hỏi. AI đang đọc tài liệu và trả lời…")
         QApplication.processEvents()
 
-        self._worker = _ChatWorker(self._session, question)
-        self._worker.finished.connect(self._on_finished)
-        self._worker.error.connect(self._on_error)
+        request_id = self._request_seq + 1
+        self._request_seq = request_id
+        self._active_request_id = request_id
+        session = self._session
 
-        thread = threading.Thread(target=self._worker.run, daemon=True)
-        thread.start()
+        started = start_dialog_task(
+            self,
+            lambda: self._run_request(request_id, session, question),
+            on_success=self._on_finished,
+            on_error=self._on_runner_error,
+        )
+        if not started:
+            self._busy = False
+            self._btn_send.setEnabled(True)
+            self._lbl_status.setText("Đang có một yêu cầu AI khác đang chạy.")
 
     def _remove_thinking_bubble(self):
         cursor = self._chat_area.document().find(_MSG_THINKING)
@@ -272,14 +266,27 @@ class AIChatDialog(QDialog):
         # We re-render chat from scratch to keep it clean
         # Simpler: just let new message append after; the thinking bubble stays brief
 
-    def _on_finished(self, result):
+    def _run_request(self, request_id: int, session, question: str):
+        try:
+            return request_id, session, session.ask(question), ""
+        except Exception as exc:
+            return request_id, session, None, str(exc)
+
+    def _on_finished(self, payload):
+        request_id, session, result, error_message = payload
+        if request_id != self._active_request_id or session is not self._session:
+            return
         self._busy = False
         self._btn_send.setEnabled(True)
 
         # Remove thinking bubble by rebuilding from session history
         self._rebuild_chat()
 
-        if result.success:
+        if error_message:
+            self._append_html(self._theme["error"].format(text=self._escape(error_message)))
+            self._lbl_status.setStyleSheet("color:#DC2626;font-size:11px")
+            self._lbl_status.setText(f"Lỗi: {error_message}")
+        elif result.success:
             self._lbl_status.setStyleSheet("color:#059669;font-size:11px")
             self._lbl_status.setText("Sẵn sàng.")
         else:
@@ -289,7 +296,7 @@ class AIChatDialog(QDialog):
             self._lbl_status.setStyleSheet("color:#DC2626;font-size:11px")
             self._lbl_status.setText(f"Lỗi: {result.error}")
 
-    def _on_error(self, msg: str):
+    def _on_runner_error(self, msg: str, _tb: str):
         self._busy = False
         self._btn_send.setEnabled(True)
         self._rebuild_chat()
@@ -331,11 +338,28 @@ class AIChatDialog(QDialog):
             return
         self._pdf_path = pdf_path
         self._session  = None
+        self._active_request_id = self._request_seq + 1
+        self._request_seq = self._active_request_id
+        self._busy = False
+        self._btn_send.setEnabled(True)
         self._chat_area.clear()
+        self._lbl_status.setStyleSheet("")
+        self._lbl_status.setText("Sẵn sàng.")
         self._append_system_msg(
             f"Tài liệu đã thay đổi: <i>{pdf_path}</i><br>"
             "Session mới được tạo. Hãy đặt câu hỏi."
         )
+
+    def closeEvent(self, event):
+        if dialog_task_running(self) or self._busy:
+            self._lbl_status.setStyleSheet("color:#DC2626;font-size:11px")
+            self._lbl_status.setText("Đang chờ AI trả lời. Hãy đóng lại sau khi tác vụ hoàn tất.")
+            event.ignore()
+            return
+        parent = self.parent()
+        if parent is not None and getattr(parent, "_ai_chat_dialog", None) is self:
+            parent._ai_chat_dialog = None
+        super().closeEvent(event)
 
     @staticmethod
     def _escape(text: str) -> str:
