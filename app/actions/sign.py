@@ -23,12 +23,13 @@ from packages.qt_compat.QtWidgets import (
     QVBoxLayout,
     QStyle,
 )
-from packages.qt_compat.QtCore import QObject, QEventLoop, Qt, QTimer, pyqtSignal, pyqtSlot
+from packages.qt_compat.QtCore import QObject, QEventLoop, Qt, QThread, QTimer, pyqtSignal, pyqtSlot
 from packages.qt_compat.QtWebChannel import QWebChannel
 
 from packages.signing import get_signing_provider
 from packages.signing.shared import sign_pdf_with_pkcs12, validate_signed_pdf_status
 from app.actions._guard import require_document
+from app.actions._pdf_save import make_staged_pdf_path, replace_document_with_staged
 from app.dialogs import show_warning, show_info
 from app.signature_templates import find_signature_template, list_signature_templates
 
@@ -88,6 +89,70 @@ def _refresh_document_view(window, output_path: str, *, page_number: int = 1):
             show_warning(window, "Lỗi mở file đã ký", "Không thể hiển thị file vừa ký.")
 
     QTimer.singleShot(0, _load)
+
+
+class _SigningWorker(QObject):
+    succeeded = pyqtSignal()
+    failed = pyqtSignal(str, str, str)
+
+    def __init__(self, fn):
+        super().__init__()
+        self._fn = fn
+
+    def run(self):
+        try:
+            self._fn()
+        except Exception as exc:
+            self.failed.emit(type(exc).__name__, str(exc), traceback.format_exc())
+        else:
+            self.succeeded.emit()
+
+
+def _run_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[str, str, str] | None]:
+    existing = getattr(window, "_signing_thread", None)
+    if existing is not None and existing.isRunning():
+        show_warning(window, "Đang ký số", "Vui lòng chờ thao tác ký hiện tại hoàn tất.")
+        return False, ("SigningBusy", "Đang có thao tác ký đang chạy.", "")
+
+    worker = _SigningWorker(fn)
+    thread = QThread(window)
+    worker.moveToThread(thread)
+
+    loop = QEventLoop(window)
+    result: dict[str, object] = {"ok": False, "error": None}
+
+    def _finish_success():
+        result["ok"] = True
+        if loop.isRunning():
+            loop.quit()
+
+    def _finish_error(exc_type: str, exc_message: str, tb_text: str):
+        result["ok"] = False
+        result["error"] = (exc_type, exc_message, tb_text)
+        if loop.isRunning():
+            loop.quit()
+
+    worker.succeeded.connect(_finish_success)
+    worker.failed.connect(_finish_error)
+    worker.succeeded.connect(thread.quit)
+    worker.failed.connect(thread.quit)
+    worker.succeeded.connect(worker.deleteLater)
+    worker.failed.connect(worker.deleteLater)
+    thread.finished.connect(thread.deleteLater)
+    thread.finished.connect(lambda: setattr(window, "_signing_thread", None))
+    thread.started.connect(worker.run)
+
+    window._signing_thread = thread
+    try:
+        if hasattr(window, "status"):
+            window.status.showMessage(status_message, 0)
+        thread.start()
+        loop.exec()
+    finally:
+        if hasattr(window, "status"):
+            window.status.clearMessage()
+
+    return bool(result["ok"]), result["error"]
 
 
 def _format_signature_report(report: dict, path: str | None = None) -> str:
@@ -1184,8 +1249,6 @@ def create_signature_field(window):
     """Create one or more reusable empty signature fields on the current PDF."""
     from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
     from pyhanko.sign import fields
-    import tempfile
-    import shutil
     import re
     import unicodedata
 
@@ -1247,7 +1310,7 @@ def create_signature_field(window):
         return
 
     try:
-        output_path = os.path.join(tempfile.gettempdir(), f"3t_sigfields_{os.getpid()}.pdf")
+        output_path = make_staged_pdf_path(window.current_path, prefix=".3t_sigfields_", suffix=".pdf")
         with open(window.current_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
             try:
@@ -1281,13 +1344,12 @@ def create_signature_field(window):
             with open(output_path, "wb") as out:
                 writer.write(out)
 
-        shutil.copy2(output_path, window.current_path)
-        try:
-            os.remove(output_path)
-        except OSError:
-            pass
-
-        _refresh_document_view(window, window.current_path, page_number=placements[-1]["page_number"])
+        replace_document_with_staged(
+            window,
+            output_path,
+            target_path=window.current_path,
+            page=placements[-1]["page_number"],
+        )
         _clear_signature_field_marks(window)
         window.status.showMessage(f"Đã tạo {len(placements)} ô ký số trên file đang mở", 3000)
     except Exception:
@@ -1451,42 +1513,75 @@ def sign_with_pfx(window):
         _set_signature_preview(window, None)
         return
 
-    try:
-        asyncio.run(
-            sign_pdf_with_pkcs12(
-                pfx_path,
-                pin,
-                window.current_path,
-                output_path,
-                signer_name=signer_name,
-                page_number=placement["page_number"],
-                box=placement["box"],
-            )
-        )
+    in_place_output = os.path.normcase(os.path.abspath(output_path)) == os.path.normcase(os.path.abspath(window.current_path))
+    actual_output_path = (
+        make_staged_pdf_path(window.current_path, prefix=".3t_pfx_signed_", suffix=".pdf")
+        if in_place_output
+        else output_path
+    )
 
-        with open(output_path, "rb") as f:
+    try:
+        ok, error = _run_signing_task(
+            window,
+            lambda: asyncio.run(
+                sign_pdf_with_pkcs12(
+                    pfx_path,
+                    pin,
+                    window.current_path,
+                    actual_output_path,
+                    signer_name=signer_name,
+                    page_number=placement["page_number"],
+                    box=placement["box"],
+                )
+            ),
+            status_message="Đang ký tài liệu bằng file chứng thư…",
+        )
+        if not ok:
+            exc_type_name, exc_message, tb_text = error or ("RuntimeError", "Ký số thất bại.", "")
+            raise RuntimeError(f"{exc_type_name}: {exc_message}\n{tb_text}".strip())
+
+        with open(actual_output_path, "rb") as f:
             header = f.read(5)
         if header != b"%PDF-":
-            os.remove(output_path)
+            os.remove(actual_output_path)
             raise RuntimeError(
                 "File ký xong không hợp lệ (thiếu %PDF header).\n"
                 "Vui lòng thử lại."
             )
 
-        validation = validate_signed_pdf_status(output_path)
+        final_output_path = output_path
+        if in_place_output:
+            replace_document_with_staged(
+                window,
+                actual_output_path,
+                target_path=window.current_path,
+                page=placement["page_number"],
+            )
+            final_output_path = window.current_path
+
+        validation = validate_signed_pdf_status(final_output_path)
         validation_line = str(validation.get("message") or "")
 
-        reply = QMessageBox.question(
-            window,
-            "Ký từ file chứng thư thành công",
-            "Ký từ file chứng thư thành công!\n\n"
-            f"Trạng thái: {validation_line}\n\n"
-            f"File lưu tại:\n{output_path}\n\n"
-            "Mở file đã ký ngay?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            _refresh_document_view(window, output_path, page_number=placement["page_number"])
+        if in_place_output:
+            QMessageBox.information(
+                window,
+                "Ký từ file chứng thư thành công",
+                "Ký từ file chứng thư thành công!\n\n"
+                f"Trạng thái: {validation_line}\n\n"
+                f"File đã được cập nhật tại:\n{final_output_path}",
+            )
+        else:
+            reply = QMessageBox.question(
+                window,
+                "Ký từ file chứng thư thành công",
+                "Ký từ file chứng thư thành công!\n\n"
+                f"Trạng thái: {validation_line}\n\n"
+                f"File lưu tại:\n{final_output_path}\n\n"
+                "Mở file đã ký ngay?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                _refresh_document_view(window, final_output_path, page_number=placement["page_number"])
 
     except Exception:
         traceback.print_exc()
@@ -1652,44 +1747,85 @@ def sign_document(window):
         if signer_info_with_pin and signer_info_with_pin.signer_name:
             signer_name = signer_info_with_pin.signer_name
 
-    try:
-        asyncio.run(
-            signing_provider.sign_pdf(
-                window.current_path,
-                output_path,
-                pin,
-                signer_name=signer_name,
-                page_number=placement["page_number"],
-                box=placement["box"],
-            )
-        )
+    in_place_output = os.path.normcase(os.path.abspath(output_path)) == os.path.normcase(os.path.abspath(window.current_path))
+    actual_output_path = (
+        make_staged_pdf_path(window.current_path, prefix=".3t_signed_", suffix=".pdf")
+        if in_place_output
+        else output_path
+    )
 
-        with open(output_path, "rb") as f:
+    try:
+        ok, error = _run_signing_task(
+            window,
+            lambda: asyncio.run(
+                signing_provider.sign_pdf(
+                    window.current_path,
+                    actual_output_path,
+                    pin,
+                    signer_name=signer_name,
+                    page_number=placement["page_number"],
+                    box=placement["box"],
+                )
+            ),
+            status_message="Đang ký số tài liệu…",
+        )
+        if not ok:
+            exc_type_name, exc_message, tb_text = error or ("RuntimeError", "Ký số thất bại.", "")
+            raise RuntimeError(f"{exc_type_name}: {exc_message}\n{tb_text}".strip())
+
+        with open(actual_output_path, "rb") as f:
             header = f.read(5)
         if header != b"%PDF-":
-            os.remove(output_path)
+            os.remove(actual_output_path)
             raise RuntimeError(
                 "File ký xong không hợp lệ (thiếu %PDF header).\n"
                 "Vui lòng thử lại."
             )
 
-        validation = validate_signed_pdf_status(output_path)
+        final_output_path = output_path
+        if in_place_output:
+            replace_document_with_staged(
+                window,
+                actual_output_path,
+                target_path=window.current_path,
+                page=placement["page_number"],
+            )
+            final_output_path = window.current_path
+
+        validation = validate_signed_pdf_status(final_output_path)
         validation_line = str(validation.get("message") or "")
 
-        reply = QMessageBox.question(
-            window,
-            "Ký số thành công",
-            "Ký số thành công!\n\n"
-            f"Trạng thái: {validation_line}\n\n"
-            f"File lưu tại:\n{output_path}\n\n"
-            "Mở file đã ký ngay?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            _refresh_document_view(window, output_path, page_number=placement["page_number"])
+        if in_place_output:
+            QMessageBox.information(
+                window,
+                "Ký số thành công",
+                "Ký số thành công!\n\n"
+                f"Trạng thái: {validation_line}\n\n"
+                f"File đã được cập nhật tại:\n{final_output_path}",
+            )
+        else:
+            reply = QMessageBox.question(
+                window,
+                "Ký số thành công",
+                "Ký số thành công!\n\n"
+                f"Trạng thái: {validation_line}\n\n"
+                f"File lưu tại:\n{final_output_path}\n\n"
+                "Mở file đã ký ngay?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                _refresh_document_view(window, final_output_path, page_number=placement["page_number"])
 
     except Exception as exc:
         exc_type_name = type(exc).__name__
+        exc_message = str(exc)
+        if exc_type_name == "RuntimeError":
+            first_line = exc_message.splitlines()[0]
+            if ":" in first_line:
+                maybe_type, _, maybe_message = first_line.partition(":")
+                if maybe_type in {"PinIncorrect", "PinLocked"}:
+                    exc_type_name = maybe_type
+                    exc_message = maybe_message.strip()
 
         if exc_type_name == "PinIncorrect" or "PinIncorrect" in str(type(exc)):
             QMessageBox.warning(
@@ -1766,7 +1902,6 @@ def sign_handwritten(window):
     """Draw or import a signature image and place it on the current PDF."""
     import fitz
     import shutil
-    import tempfile
     import uuid
     import os as _os
 
@@ -1970,19 +2105,16 @@ def sign_handwritten(window):
         rect = fitz.Rect(left, page_h - top_pt, right, page_h - bottom)
         page.insert_image(rect, filename=sig_img_path, keep_proportion=True)
 
-        tmp_dir2 = _os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
-        _os.makedirs(tmp_dir2, exist_ok=True)
-        out_path = _os.path.join(tmp_dir2, f"signature_edit_{uuid.uuid4().hex[:8]}.pdf")
+        out_path = make_staged_pdf_path(window.current_path, prefix=".3t_handwritten_", suffix=".pdf")
         doc.save(out_path)
         doc.close()
 
-        shutil.copy2(out_path, window.current_path)
-        try:
-            _os.remove(out_path)
-        except OSError:
-            pass
-
-        _refresh_document_view(window, window.current_path, page_number=page_no)
+        replace_document_with_staged(
+            window,
+            out_path,
+            target_path=window.current_path,
+            page=page_no,
+        )
         if hasattr(window, "status"):
             window.status.showMessage("Đã đặt chữ ký tay lên PDF", 3000)
     except Exception as exc:

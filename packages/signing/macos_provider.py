@@ -191,8 +191,9 @@ class MacOSPkcs11Provider:
             )
         lib = p11.lib(lib_path)
         token = next(lib.get_tokens())
-        session = token.open(user_pin=pin, rw=False)
+        session = None
         try:
+            session = token.open(user_pin=pin, rw=False)
             await sign_pdf_with_session(
                 session,
                 lib_path,
@@ -203,4 +204,5 @@ class MacOSPkcs11Provider:
                 box=box,
             )
         finally:
-            session.close()
+            if session is not None:
+                session.close()

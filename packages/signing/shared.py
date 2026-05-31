@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import tempfile
 import unicodedata
 import uuid
@@ -189,48 +188,6 @@ def build_signature_info_text(
     return "\n".join(lines)
 
 
-def _render_signature_info_page(
-    input_path: str,
-    output_path: str,
-    *,
-    page_number: int,
-    box: tuple[float, float, float, float],
-    text: str,
-) -> None:
-    import fitz
-
-    doc = fitz.open(input_path)
-    try:
-        from packages.platform import get_vietnamese_font_path
-
-        page_index = max(0, int(page_number) - 1)
-        page = doc[page_index]
-        page_h = page.rect.height
-        left, bottom, right, top = box
-        rect = fitz.Rect(left, page_h - top, right, page_h - bottom)
-        font_path = get_vietnamese_font_path(bold=False)
-        kwargs = {
-            "align": fitz.TEXT_ALIGN_LEFT,
-            "fontsize": 8.0,
-            "lineheight": 1.15,
-            "color": (0.05, 0.26, 0.52),
-            "overlay": True,
-        }
-        if font_path:
-            kwargs["fontfile"] = font_path
-            kwargs["fontname"] = "vietnamese"
-        else:
-            kwargs["fontname"] = "helv"
-        page.insert_textbox(
-            rect,
-            text,
-            **kwargs,
-        )
-        doc.save(output_path, garbage=4, deflate=True)
-    finally:
-        doc.close()
-
-
 def build_vietnamese_stamp_style(
     signer_display_name: str,
     *,
@@ -291,17 +248,37 @@ def build_vietnamese_stamp_style(
     )
 
 
-def _invisible_sig_field_spec(fields, field_name: str, page_number: int):
-    return fields.SigFieldSpec(
-        sig_field_name=field_name,
-        box=None,
-        on_page=max(0, page_number - 1),
-        invis_sig_settings=fields.InvisSigSettings(
-            set_print_flag=False,
-            set_hidden_flag=True,
-            box_out_of_bounds=True,
-        ),
-    )
+def _pick_signing_certificate(session, attribute_mod, object_class_mod):
+    certs = list(session.get_objects({attribute_mod.CLASS: object_class_mod.CERTIFICATE}))
+    if not certs:
+        raise RuntimeError("Khong tim thay certificate tren USB Token!")
+
+    private_key_ids = {
+        _safe_get_pkcs11_attr(key_obj, attribute_mod.ID)
+        for key_obj in session.get_objects({attribute_mod.CLASS: object_class_mod.PRIVATE_KEY})
+    }
+    private_key_ids.discard(None)
+
+    scored_candidates: list[tuple[tuple[int, int, int, int], object, bytes | None, dict[str, object] | None]] = []
+    for index, cert in enumerate(certs):
+        cert_id = _safe_get_pkcs11_attr(cert, attribute_mod.ID)
+        cert_der = _safe_get_pkcs11_attr(cert, attribute_mod.VALUE)
+        cert_details = extract_certificate_details_from_der(cert_der)
+        subject_raw = str(cert_details.get("subject_raw") if cert_details else "")
+        issuer_raw = str(cert_details.get("issuer_raw") if cert_details else "")
+        matches_private_key = cert_id in private_key_ids if private_key_ids else True
+        likely_leaf = bool(subject_raw) and subject_raw != issuer_raw
+        has_subject = bool(str(cert_details.get("subject_name") if cert_details else "").strip())
+        score = (
+            1 if matches_private_key else 0,
+            1 if likely_leaf else 0,
+            1 if has_subject else 0,
+            -index,
+        )
+        scored_candidates.append((score, cert, cert_id, cert_details))
+
+    _score, signing_cert, cert_id, cert_details = max(scored_candidates, key=lambda item: item[0])
+    return signing_cert, cert_id, cert_details
 
 
 async def sign_pdf_with_session(
@@ -330,71 +307,53 @@ async def sign_pdf_with_session(
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     tmp_path = tmp.name
     tmp.close()
-    stamped_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    stamped_tmp_path = stamped_tmp.name
-    stamped_tmp.close()
 
     try:
-        certs = list(session.get_objects({Attribute.CLASS: ObjectClass.CERTIFICATE}))
-        if not certs:
-            raise RuntimeError("Khong tim thay certificate tren USB Token!")
-
-        signing_cert = certs[-1]
-        cert_id = signing_cert[Attribute.ID]
-        cert_details = extract_certificate_details_from_der(
-            _safe_get_pkcs11_attr(signing_cert, Attribute.VALUE)
+        _signing_cert, cert_id, cert_details = _pick_signing_certificate(
+            session,
+            Attribute,
+            ObjectClass,
         )
+        if cert_id is None:
+            raise RuntimeError("Khong tim thay khoa bi mat phu hop voi chung thu so tren USB Token!")
         cert_name = str(cert_details.get("subject_name") if cert_details else "")
         cert_tax = str(cert_details.get("tax_code") if cert_details else "") or ""
         cert_issuer = str(cert_details.get("issuer_provider") if cert_details else "") or ""
         cert_serial = str(cert_details.get("serial_hex") if cert_details else "") or ""
-        cert_valid_from = str(cert_details.get("valid_from") if cert_details else "")
-        cert_valid_to = str(cert_details.get("valid_to") if cert_details else "")
-        cert_status = str(cert_details.get("certificate_status") if cert_details else "")
 
         signer_obj = PKCS11Signer(session, cert_id=cert_id)
         display_name = (signer_name or "").strip() or cert_name or "Khong ro"
         visible_subject = cert_name or display_name
         signed_at_vn = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         field_name = f"Signature_{uuid.uuid4().hex[:12]}"
-        stamp_text = build_signature_info_text(
-            subject_name=visible_subject,
+        stamp_style = build_vietnamese_stamp_style(
+            visible_subject,
             tax_code=cert_tax,
-            issuer_provider=cert_issuer,
-            serial_hex=cert_serial,
-            valid_from=cert_valid_from,
-            valid_to=cert_valid_to,
-            certificate_status=cert_status,
             signed_at=signed_at_vn,
+            issuer_name=cert_issuer,
+            token_serial=token_serial,
+            cert_serial=cert_serial,
         )
-        _render_signature_info_page(
-            input_path,
-            stamped_tmp_path,
-            page_number=page_number,
-            box=box,
-            text=stamp_text,
-        )
-
-        with open(stamped_tmp_path, "rb") as f:
+        with open(input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
-            fields.append_signature_field(
-                writer,
-                sig_field_spec=_invisible_sig_field_spec(fields, field_name, page_number),
-            )
             meta = PdfSignatureMetadata(field_name=field_name, name=visible_subject)
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer_obj,
+                stamp_style=stamp_style,
+                new_field_spec=fields.SigFieldSpec(
+                    sig_field_name=field_name,
+                    box=box,
+                    on_page=max(0, page_number - 1),
+                ),
             )
             with open(tmp_path, "wb") as out:
                 await pdf_signer.async_sign_pdf(writer, output=out)
 
-        shutil.copy2(tmp_path, output_path)
+        os.replace(tmp_path, output_path)
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
-        if os.path.exists(stamped_tmp_path):
-            os.remove(stamped_tmp_path)
 
 
 async def sign_pdf_with_pkcs12(
@@ -420,9 +379,6 @@ async def sign_pdf_with_pkcs12(
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     tmp_path = tmp.name
     tmp.close()
-    stamped_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    stamped_tmp_path = stamped_tmp.name
-    stamped_tmp.close()
 
     try:
         passphrase_bytes = passphrase.encode("utf-8") if isinstance(passphrase, str) else passphrase
@@ -447,9 +403,6 @@ async def sign_pdf_with_pkcs12(
         cert_tax = str(cert_details.get("tax_code") if cert_details else "") or ""
         cert_issuer = str(cert_details.get("issuer_provider") if cert_details else "") or ""
         cert_serial = str(cert_details.get("serial_hex") if cert_details else "") or ""
-        cert_valid_from = str(cert_details.get("valid_from") if cert_details else "")
-        cert_valid_to = str(cert_details.get("valid_to") if cert_details else "")
-        cert_status = str(cert_details.get("certificate_status") if cert_details else "")
 
         display_name = (
             (signer_name or "").strip()
@@ -460,44 +413,33 @@ async def sign_pdf_with_pkcs12(
         visible_subject = cert_name or display_name
         field_name = f"Signature_{uuid.uuid4().hex[:12]}"
         signed_at_vn = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        stamp_text = build_signature_info_text(
-            subject_name=visible_subject,
+        stamp_style = build_vietnamese_stamp_style(
+            visible_subject,
             tax_code=cert_tax,
-            issuer_provider=cert_issuer,
-            serial_hex=cert_serial,
-            valid_from=cert_valid_from,
-            valid_to=cert_valid_to,
-            certificate_status=cert_status,
             signed_at=signed_at_vn,
+            issuer_name=cert_issuer,
+            cert_serial=cert_serial,
         )
-        _render_signature_info_page(
-            input_path,
-            stamped_tmp_path,
-            page_number=page_number,
-            box=box,
-            text=stamp_text,
-        )
-
-        with open(stamped_tmp_path, "rb") as f:
+        with open(input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
-            fields.append_signature_field(
-                writer,
-                sig_field_spec=_invisible_sig_field_spec(fields, field_name, page_number),
-            )
             meta = PdfSignatureMetadata(field_name=field_name, name=visible_subject)
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer,
+                stamp_style=stamp_style,
+                new_field_spec=fields.SigFieldSpec(
+                    sig_field_name=field_name,
+                    box=box,
+                    on_page=max(0, page_number - 1),
+                ),
             )
             with open(tmp_path, "wb") as out:
                 await pdf_signer.async_sign_pdf(writer, output=out)
 
-        shutil.copy2(tmp_path, output_path)
+        os.replace(tmp_path, output_path)
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
-        if os.path.exists(stamped_tmp_path):
-            os.remove(stamped_tmp_path)
 
 
 def validate_signed_pdf_status(path: str) -> dict[str, object]:

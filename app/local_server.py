@@ -544,9 +544,10 @@ def _signature_overlay_from_annot(annot) -> dict | None:
             or (parent_obj is not None and parent_obj.get("/V") is not None)
             or bool(extracted)
         )
+        lines = extracted or ["DA KY SO"]
         return {
             "box": (left, bottom, right, top),
-            "lines": extracted or ([] if signed else ["DA KY SO"]),
+            "lines": lines,
             "signed": signed,
         }
     except Exception:
@@ -575,7 +576,24 @@ def _extract_signature_text_lines(annot) -> list[str]:
         text = _decode_pdf_literal(match.group(1)).strip()
         if text:
             lines.append(text)
-    return lines[:6]
+    for match in re.finditer(rb"\[(.*?)\]\s*TJ", data, flags=re.S):
+        array_data = match.group(1)
+        for literal in re.finditer(rb"\(((?:\\.|[^\\)])*)\)", array_data):
+            text = _decode_pdf_literal(literal.group(1)).strip()
+            if text:
+                lines.append(text)
+        for hex_text in re.finditer(rb"<([0-9A-Fa-f\s]+)>", array_data):
+            text = _decode_pdf_hex_string(hex_text.group(1)).strip()
+            if text:
+                lines.append(text)
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for line in lines:
+        if line in seen:
+            continue
+        seen.add(line)
+        deduped.append(line)
+    return deduped[:6]
 
 
 def _decode_pdf_literal(data: bytes) -> str:
@@ -611,6 +629,20 @@ def _decode_pdf_literal(data: bytes) -> str:
             out.append(esc)
             i += 1
     return out.decode("latin-1", errors="replace")
+
+
+def _decode_pdf_hex_string(data: bytes) -> str:
+    compact = b"".join(data.split())
+    if len(compact) % 2 == 1:
+        compact += b"0"
+    try:
+        raw = bytes.fromhex(compact.decode("ascii"))
+    except Exception:
+        return ""
+    try:
+        return raw.decode("utf-16-be").replace("\x00", "")
+    except Exception:
+        return raw.decode("latin-1", errors="replace")
 
 
 def _page_size(page) -> tuple[float, float]:

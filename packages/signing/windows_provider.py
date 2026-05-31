@@ -680,8 +680,9 @@ class WindowsPkcs11Provider:
         if token is None:
             raise RuntimeError("USB Token da chon khong con duoc phat hien. Vui long cam lai token va thu lai.")
 
-        session = token.open(user_pin=pin, rw=False)
+        session = None
         try:
+            session = token.open(user_pin=pin, rw=False)
             await sign_pdf_with_session(
                 session,
                 lib_path,
@@ -693,4 +694,5 @@ class WindowsPkcs11Provider:
                 token_serial=token_info.serial or token_info.cert_serial,
             )
         finally:
-            session.close()
+            if session is not None:
+                session.close()
