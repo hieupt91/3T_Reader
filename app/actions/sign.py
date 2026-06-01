@@ -24,7 +24,6 @@ from packages.qt_compat.QtWidgets import (
     QStyle,
 )
 from packages.qt_compat.QtCore import QObject, QEventLoop, Qt, QThread, QTimer, pyqtSignal, pyqtSlot
-from packages.qt_compat.QtWebChannel import QWebChannel
 
 from packages.signing import get_signing_provider
 from packages.signing.shared import sign_pdf_with_pkcs12, validate_signed_pdf_status
@@ -42,10 +41,9 @@ def _get_web_view(window):
 
 def _setup_webchannel(web_view, parent, name, bridge):
     """Shared: register a bridge object on a new QWebChannel."""
-    channel = QWebChannel(parent)
-    channel.registerObject(name, bridge)
-    web_view.page().setWebChannel(channel)
-    return channel
+    from app.webchannel import register_webchannel_object
+
+    return register_webchannel_object(web_view, parent, name, bridge)
 
 
 def _teardown_webchannel(web_view):
@@ -53,7 +51,9 @@ def _teardown_webchannel(web_view):
     if web_view is None:
         return
     try:
-        web_view.page().setWebChannel(None)
+        from app.webchannel import unregister_webchannel_object
+
+        unregister_webchannel_object(web_view)
     except RuntimeError:
         pass
 

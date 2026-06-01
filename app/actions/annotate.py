@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 import pikepdf
 
 from packages.qt_compat.QtCore import QObject, QTimer, pyqtSlot
-from packages.qt_compat.QtWebChannel import QWebChannel
 from packages.qt_compat.QtWidgets import (
     QFileDialog,
     QInputDialog,
@@ -15,8 +14,14 @@ from packages.qt_compat.QtWidgets import (
     QMessageBox,
 )
 from app.actions._guard import require_document
-from app.actions._pdf_save import make_staged_pdf_path, replace_document_with_staged
+from app.actions._pdf_save import (
+    make_staged_pdf_path,
+    remove_path_quietly,
+    replace_document_with_staged,
+    replace_file_with_retry,
+)
 from app.dialogs import show_warning, show_info
+from app.webchannel import register_webchannel_object
 
 
 NOTE_ICON_SIZE_PT = 18.0
@@ -50,6 +55,66 @@ def _save_pikepdf_reload(window, pdf: pikepdf.Pdf, *, keep_page: bool = True):
     except Exception:
         pass
     replace_document_with_staged(window, staged_path, target_path=target_path, keep_page=keep_page)
+
+
+class _AnnotationOpQueue(QObject):
+    def __init__(self, window):
+        super().__init__(window)
+        self._window = window
+        self._pending: list[tuple[str, object]] = []
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self.flush)
+
+    def enqueue(self, target_path: str, op, *, delay_ms: int = 350) -> None:
+        self._pending.append((os.path.abspath(target_path), op))
+        self._timer.start(max(0, int(delay_ms)))
+
+    def flush(self) -> None:
+        if not self._pending:
+            return
+        target_path = self._pending[0][0]
+        same_target: list[tuple[str, object]] = []
+        rest: list[tuple[str, object]] = []
+        for item in self._pending:
+            if item[0] == target_path:
+                same_target.append(item)
+            else:
+                rest.append(item)
+        self._pending = rest
+
+        staged_path = ""
+        try:
+            with pikepdf.open(target_path) as pdf:
+                for _path, op in same_target:
+                    op(pdf)
+                staged_path = make_staged_pdf_path(target_path)
+                pdf.save(staged_path)
+            replace_file_with_retry(staged_path, target_path, attempts=3)
+            if hasattr(self._window, "status"):
+                self._window.status.showMessage("Da tu dong luu chu thich.", 1800)
+        except Exception as exc:
+            remove_path_quietly(staged_path)
+            self._pending = same_target + self._pending
+            if hasattr(self._window, "status"):
+                self._window.status.showMessage(f"Chua luu duoc chu thich, se thu lai: {exc}", 3500)
+            self._timer.start(1200)
+            return
+
+        if self._pending:
+            self._timer.start(50)
+
+
+def _annotation_queue(window) -> _AnnotationOpQueue:
+    queue = getattr(window, "_annotation_op_queue", None)
+    if queue is None:
+        queue = _AnnotationOpQueue(window)
+        window._annotation_op_queue = queue
+    return queue
+
+
+def _queue_annotation_op(window, target_path: str, op, *, delay_ms: int = 350) -> None:
+    _annotation_queue(window).enqueue(target_path, op, delay_ms=delay_ms)
 
 
 def _pdf_date_now() -> pikepdf.String:
@@ -193,12 +258,13 @@ def add_annotation(
     rect: tuple[float, float, float, float],
     content: str,
     author: str = "3T Reader",
+    annot_id: str | None = None,
 ) -> str:
     """Add one supported annotation and return its stable PDF annotation id."""
     if subtype != "Text":
         raise ValueError(f"Unsupported annotation subtype: {subtype}")
 
-    annot_id = f"3t-note-{uuid.uuid4().hex}"
+    annot_id = annot_id or f"3t-note-{uuid.uuid4().hex}"
     page = pdf.pages[page_idx]
     left, bottom, right, top = [float(v) for v in rect]
     note = pikepdf.Dictionary(
@@ -443,6 +509,242 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
 })(__NOTES_JSON__);"""
 
 
+_ARM_NOTE_TOOLS_JS = r"""(function(notes) {
+    if (typeof window.__3tNoteToolsCleanup === 'function') {
+        try { window.__3tNoteToolsCleanup(); } catch (_err) {}
+    }
+
+    function ensureBridge(callback) {
+        if (typeof QWebChannel === 'undefined') {
+            var script = document.createElement('script');
+            script.src = 'qrc:///qtwebchannel/qwebchannel.js';
+            script.onload = function() { ensureBridge(callback); };
+            document.head.appendChild(script);
+            return;
+        }
+        if (!(window.qt && qt.webChannelTransport)) {
+            setTimeout(function() { ensureBridge(callback); }, 80);
+            return;
+        }
+        new QWebChannel(qt.webChannelTransport, function(channel) {
+            callback(channel.objects.noteToolsBridge || null);
+        });
+    }
+
+    function ensureStyle() {
+        if (document.getElementById('__3tAnnotationOverlayStyle')) return;
+        var style = document.createElement('style');
+        style.id = '__3tAnnotationOverlayStyle';
+        style.textContent = [
+            '.annotationLayer .textAnnotation{opacity:0!important;pointer-events:none!important;}',
+            '.threeTNoteOverlay{position:absolute;z-index:10001;width:24px;height:24px;border:0;border-radius:4px;background:#facc15;color:#111827;box-shadow:0 2px 7px rgba(15,23,42,.25);cursor:move;font:16px/24px sans-serif;text-align:center;padding:0;}',
+            '.threeTNoteOverlay:focus{outline:2px solid #0b84f3;outline-offset:2px;}',
+            '.threeTMarkOverlay{position:absolute;z-index:9999;pointer-events:none;border-radius:2px;}'
+        ].join('\n');
+        document.head.appendChild(style);
+    }
+
+    function closeMenu() {
+        var old = document.getElementById('__3tNoteMenu');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+    }
+
+    function showMenu(note, x, y, bridge) {
+        closeMenu();
+        var menu = document.createElement('div');
+        menu.id = '__3tNoteMenu';
+        menu.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:10050;min-width:132px;background:#fff;color:#111827;border:1px solid rgba(15,23,42,.18);box-shadow:0 10px 28px rgba(15,23,42,.22);border-radius:6px;padding:4px;font:13px sans-serif';
+        function item(label, danger, fn) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = label;
+            btn.style.cssText = 'display:block;width:100%;border:0;background:transparent;color:' + (danger ? '#dc2626' : '#111827') + ';text-align:left;padding:7px 9px;border-radius:4px;cursor:pointer';
+            btn.addEventListener('mouseenter', function() { btn.style.background = '#f3f4f6'; });
+            btn.addEventListener('mouseleave', function() { btn.style.background = 'transparent'; });
+            btn.addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                closeMenu();
+                fn();
+            }, true);
+            menu.appendChild(btn);
+        }
+        item('Sua ghi chu', false, function() { bridge.editNote(note.id, note.page_number); });
+        item('Xoa ghi chu', true, function() { bridge.deleteNote(note.id, note.page_number); });
+        document.body.appendChild(menu);
+        setTimeout(function() {
+            document.addEventListener('mousedown', closeMenu, {capture: true, once: true});
+            document.addEventListener('keydown', closeMenu, {capture: true, once: true});
+        }, 0);
+    }
+
+    function pageViewFor(viewer, pageNumber) {
+        return viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
+    }
+
+    function removeOldOverlays() {
+        document.querySelectorAll('.threeTNoteOverlay,.threeTMarkOverlay').forEach(function(el) { el.remove(); });
+    }
+
+    function positionForNote(pageView, note) {
+        var rect = pageView.viewport.convertToViewportRectangle(note.rect);
+        return {
+            left: (rect[0] + rect[2]) / 2 - 12,
+            top: (rect[1] + rect[3]) / 2 - 12
+        };
+    }
+
+    function placeNode(node, pageView, note) {
+        var pos = positionForNote(pageView, note);
+        node.style.left = pos.left + 'px';
+        node.style.top = pos.top + 'px';
+    }
+
+    function bindNote(node, pageView, pageEl, note, bridge, cleanupFns) {
+        var pressed = false;
+        var dragging = false;
+        var startClientX = 0;
+        var startClientY = 0;
+        var startLeft = 0;
+        var startTop = 0;
+
+        function blockNextClick(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.removeEventListener('click', blockNextClick, true);
+        }
+        function onMouseDown(event) {
+            if (event.button !== 0) return;
+            pressed = true;
+            dragging = false;
+            startClientX = event.clientX;
+            startClientY = event.clientY;
+            startLeft = parseFloat(node.style.left || '0') || 0;
+            startTop = parseFloat(node.style.top || '0') || 0;
+        }
+        function onMouseMove(event) {
+            if (!pressed) return;
+            var dx = event.clientX - startClientX;
+            var dy = event.clientY - startClientY;
+            if (!dragging && Math.hypot(dx, dy) < 4) return;
+            dragging = true;
+            event.preventDefault();
+            event.stopPropagation();
+            node.style.cursor = 'grabbing';
+            node.style.left = Math.max(0, Math.min(startLeft + dx, pageEl.clientWidth - 24)) + 'px';
+            node.style.top = Math.max(0, Math.min(startTop + dy, pageEl.clientHeight - 24)) + 'px';
+        }
+        function onMouseUp(event) {
+            if (!pressed) return;
+            pressed = false;
+            if (!dragging) return;
+            event.preventDefault();
+            event.stopPropagation();
+            dragging = false;
+            node.style.cursor = 'move';
+            var cx = parseFloat(node.style.left || '0') + 12;
+            var cy = parseFloat(node.style.top || '0') + 12;
+            var pdfPoint = pageView.viewport.convertToPdfPoint(cx, cy);
+            note.rect = [pdfPoint[0] - 9.0, pdfPoint[1] - 9.0, pdfPoint[0] + 9.0, pdfPoint[1] + 9.0];
+            document.addEventListener('click', blockNextClick, true);
+            bridge.moveNote(note.id, note.page_number, note.rect[0], note.rect[1], note.rect[2], note.rect[3]);
+        }
+        function onDoubleClick(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            bridge.editNote(note.id, note.page_number);
+        }
+        function onContextMenu(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            showMenu(note, event.clientX, event.clientY, bridge);
+        }
+
+        node.title = 'Keo de di chuyen. Dup chuot de sua. Chuot phai de xoa/sua.';
+        node.addEventListener('mousedown', onMouseDown, true);
+        node.addEventListener('dblclick', onDoubleClick, true);
+        node.addEventListener('contextmenu', onContextMenu, true);
+        document.addEventListener('mousemove', onMouseMove, true);
+        document.addEventListener('mouseup', onMouseUp, true);
+        cleanupFns.push(function() {
+            node.removeEventListener('mousedown', onMouseDown, true);
+            node.removeEventListener('dblclick', onDoubleClick, true);
+            node.removeEventListener('contextmenu', onContextMenu, true);
+            document.removeEventListener('mousemove', onMouseMove, true);
+            document.removeEventListener('mouseup', onMouseUp, true);
+        });
+    }
+
+    function renderMarks(viewer, marks) {
+        if (!Array.isArray(marks)) return;
+        marks.forEach(function(mark) {
+            var pageView = pageViewFor(viewer, mark.page_number);
+            if (!pageView || !pageView.viewport || !pageView.div) return;
+            (mark.rects || []).forEach(function(pdfRect) {
+                var rect = pageView.viewport.convertToViewportRectangle(pdfRect);
+                var left = Math.min(rect[0], rect[2]);
+                var top = Math.min(rect[1], rect[3]);
+                var width = Math.abs(rect[2] - rect[0]);
+                var height = Math.abs(rect[3] - rect[1]);
+                var el = document.createElement('div');
+                el.className = 'threeTMarkOverlay';
+                el.style.left = left + 'px';
+                el.style.top = top + 'px';
+                el.style.width = width + 'px';
+                el.style.height = height + 'px';
+                el.style.background = mark.color || 'rgba(250,204,21,.35)';
+                pageView.div.appendChild(el);
+            });
+        });
+    }
+
+    function bindAll(bridge) {
+        if (!bridge || !Array.isArray(notes)) return;
+        var app = window.PDFViewerApplication;
+        var viewer = app && app.pdfViewer;
+        if (!viewer) return;
+        ensureStyle();
+        removeOldOverlays();
+        var cleanupFns = [];
+        var noteItems = notes.filter(function(item) { return item && item.kind !== 'mark'; });
+        var markItems = notes.filter(function(item) { return item && item.kind === 'mark'; });
+
+        window.__3tNotesUpdateNote = function(updated) {
+            if (!updated || !updated.id) return;
+            var node = document.querySelector('.threeTNoteOverlay[data-three-t-note-id="' + updated.id + '"]');
+            if (node && typeof updated.content === 'string') node.dataset.noteContent = updated.content;
+        };
+        window.__3tNotesDeleteNote = function(noteId) {
+            var node = document.querySelector('.threeTNoteOverlay[data-three-t-note-id="' + noteId + '"]');
+            if (node && node.parentNode) node.parentNode.removeChild(node);
+        };
+
+        noteItems.forEach(function(note) {
+            var pageView = pageViewFor(viewer, note.page_number);
+            if (!pageView || !pageView.viewport || !pageView.div) return;
+            var node = document.createElement('button');
+            node.type = 'button';
+            node.className = 'threeTNoteOverlay';
+            node.textContent = '\uD83D\uDCCE';
+            node.dataset.threeTNoteId = note.id;
+            node.dataset.noteContent = note.content || '';
+            placeNode(node, pageView, note);
+            pageView.div.appendChild(node);
+            bindNote(node, pageView, pageView.div, note, bridge, cleanupFns);
+        });
+        renderMarks(viewer, markItems);
+
+        window.__3tNoteToolsCleanup = function() {
+            closeMenu();
+            cleanupFns.forEach(function(fn) { try { fn(); } catch (_err) {} });
+            removeOldOverlays();
+        };
+    }
+
+    ensureBridge(bindAll);
+})(__NOTES_JSON__);"""
+
+
 class _NoteToolsBridge(QObject):
     def __init__(self, window, pdf_path: str):
         super().__init__(window)
@@ -453,23 +755,44 @@ class _NoteToolsBridge(QObject):
         current_path = getattr(self._window, "current_path", None)
         return bool(current_path and os.path.abspath(current_path) == os.path.abspath(self._pdf_path))
 
+    def _run_js(self, script: str) -> None:
+        try:
+            getter = getattr(self._window, "_get_webview", None)
+            web_view = getter() if callable(getter) else None
+            if web_view is not None:
+                web_view.page().runJavaScript(script)
+        except Exception:
+            pass
+
     @pyqtSlot(str, int, float, float, float, float)
     def moveNote(self, note_id: str, page_number: int, left: float, bottom: float, right: float, top: float):
         if not self._path_is_current():
             return
         try:
-            with pikepdf.open(self._pdf_path) as pdf:
+            raw_rect = (float(left), float(bottom), float(right), float(top))
+            notes = _overlay_notes(self._window)
+            note = notes.get(note_id) or _find_note_by_id(self._pdf_path, note_id) or {}
+            note.update({
+                "id": note_id,
+                "page_number": int(page_number),
+                "rect": [float(v) for v in raw_rect],
+                "content": str(note.get("content") or ""),
+            })
+            notes[note_id] = note
+
+            def _op(pdf):
                 page_no = max(1, min(int(page_number), len(pdf.pages)))
                 page = pdf.pages[page_no - 1]
-                rect = _clamp_note_rect_to_page(page, (left, bottom, right, top))
-                if not _update_note_rect_by_id(
+                rect = _clamp_note_rect_to_page(page, raw_rect)
+                _update_note_rect_by_id(
                     pdf,
                     page_idx=page_no - 1,
                     note_id=note_id,
                     new_rect=rect,
-                ):
-                    return
-                _save_pikepdf_reload(self._window, pdf)
+                )
+
+            _queue_annotation_op(self._window, self._pdf_path, _op, delay_ms=350)
+            page_no = int(page_number)
             if hasattr(self._window, "status"):
                 self._window.status.showMessage(f"Đã di chuyển ghi chú trên trang {page_no}", 2500)
         except Exception as exc:
@@ -480,7 +803,7 @@ class _NoteToolsBridge(QObject):
         if not self._path_is_current():
             return
         try:
-            note = _find_note_by_id(self._pdf_path, note_id)
+            note = _overlay_notes(self._window).get(note_id) or _find_note_by_id(self._pdf_path, note_id)
             if not note:
                 show_warning(self._window, "Sửa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
                 return
@@ -496,6 +819,19 @@ class _NoteToolsBridge(QObject):
             if not text:
                 show_warning(self._window, "Sửa ghi chú", "Nội dung ghi chú không được để trống.")
                 return
+            note = dict(note)
+            note["content"] = text
+            _overlay_notes(self._window)[note_id] = note
+
+            def _op(pdf):
+                _update_note_content_by_id(pdf, note_id=note_id, content=text)
+
+            _queue_annotation_op(self._window, self._pdf_path, _op, delay_ms=350)
+            payload = json.dumps({"id": note_id, "content": text}, ensure_ascii=False)
+            self._run_js(f"if(window.__3tNotesUpdateNote) window.__3tNotesUpdateNote({payload});")
+            if hasattr(self._window, "status"):
+                self._window.status.showMessage(f"Da sua ghi chu trang {note.get('page_number') or page_number}.", 1800)
+            return
             with pikepdf.open(self._pdf_path) as pdf:
                 if not _update_note_content_by_id(pdf, note_id=note_id, content=text):
                     show_warning(self._window, "Sửa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
@@ -511,7 +847,7 @@ class _NoteToolsBridge(QObject):
         if not self._path_is_current():
             return
         try:
-            note = _find_note_by_id(self._pdf_path, note_id)
+            note = _overlay_notes(self._window).get(note_id) or _find_note_by_id(self._pdf_path, note_id)
             if not note:
                 show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
                 return
@@ -525,6 +861,21 @@ class _NoteToolsBridge(QObject):
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
+            tombstone = dict(note)
+            tombstone["_deleted"] = True
+            _overlay_notes(self._window)[note_id] = tombstone
+
+            def _op(pdf):
+                _delete_note_by_id(pdf, note_id=note_id)
+
+            _queue_annotation_op(self._window, self._pdf_path, _op, delay_ms=350)
+            self._run_js(
+                "if(window.__3tNotesDeleteNote) window.__3tNotesDeleteNote(%s);"
+                % json.dumps(note_id, ensure_ascii=False)
+            )
+            if hasattr(self._window, "status"):
+                self._window.status.showMessage(f"Da xoa ghi chu trang {note.get('page_number') or page_number}.", 1800)
+            return
             with pikepdf.open(self._pdf_path) as pdf:
                 if not _delete_note_by_id(pdf, note_id=note_id):
                     show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
@@ -552,19 +903,79 @@ def enable_note_tools(window):
     try:
         notes = _notes_for_js(path)
     except Exception:
-        return
+        notes = []
+    notes = _merge_overlay_notes(window, notes)
+    notes.extend(_overlay_marks_for_js(window, path))
     if not notes:
         return
 
     bridge = _NoteToolsBridge(window, path)
-    channel = QWebChannel(window)
-    channel.registerObject("noteToolsBridge", bridge)
-    web_view.page().setWebChannel(channel)
+    channel = register_webchannel_object(web_view, window, "noteToolsBridge", bridge)
     window._note_tools_bridge = bridge
     window._note_tools_channel = channel
 
     script = _ARM_NOTE_TOOLS_JS.replace("__NOTES_JSON__", json.dumps(notes, ensure_ascii=False))
-    QTimer.singleShot(250, lambda: web_view.page().runJavaScript(script))
+    QTimer.singleShot(80, lambda: web_view.page().runJavaScript(script))
+
+
+def _overlay_notes(window) -> dict:
+    notes = getattr(window, "_annotation_overlay_notes", None)
+    if not isinstance(notes, dict):
+        notes = {}
+        window._annotation_overlay_notes = notes
+    return notes
+
+
+def _overlay_marks(window) -> list:
+    marks = getattr(window, "_annotation_overlay_marks", None)
+    if not isinstance(marks, list):
+        marks = []
+        window._annotation_overlay_marks = marks
+    return marks
+
+
+def _merge_overlay_notes(window, notes: list[dict]) -> list[dict]:
+    merged = {str(item.get("id")): dict(item) for item in notes if item.get("id")}
+    for note_id, item in _overlay_notes(window).items():
+        if item.get("_deleted"):
+            merged.pop(str(note_id), None)
+        else:
+            merged[str(note_id)] = dict(item)
+    return list(merged.values())
+
+
+def _overlay_marks_for_js(window, path: str) -> list[dict]:
+    current = os.path.abspath(path)
+    return [
+        dict(item)
+        for item in _overlay_marks(window)
+        if os.path.abspath(str(item.get("path") or "")) == current
+    ]
+
+
+def _refresh_annotation_overlays(window) -> None:
+    try:
+        enable_note_tools(window)
+    except Exception:
+        pass
+
+
+def _add_overlay_mark(
+    window,
+    path: str,
+    *,
+    page_number: int,
+    rects: list[tuple],
+    color: str,
+) -> None:
+    _overlay_marks(window).append({
+        "kind": "mark",
+        "path": os.path.abspath(path),
+        "page_number": int(page_number),
+        "rects": [[float(v) for v in rect] for rect in rects],
+        "color": color,
+    })
+    _refresh_annotation_overlays(window)
 
 
 def _update_note_rect_by_id(
@@ -919,9 +1330,18 @@ def _do_highlight(window, text: str):
             f'Không tìm thấy "{text}" trên trang {page_no}.')
         return
     try:
-        with pikepdf.open(path) as pdf:
+        _add_overlay_mark(
+            window,
+            path,
+            page_number=page_no,
+            rects=rects,
+            color="rgba(250,204,21,.35)",
+        )
+
+        def _op(pdf):
             _add_pdf_annotation(pdf, page_no - 1, "Highlight", rects, [1.0, 1.0, 0.0])
-            _save_pikepdf_reload(window, pdf)
+
+        _queue_annotation_op(window, path, _op, delay_ms=350)
         if hasattr(window, "status"):
             window.status.showMessage(
                 f"Đã tô sáng {len(rects)} chỗ: \"{text}\"", 3000)
@@ -1091,9 +1511,19 @@ def _do_line_annot(window, text: str, annot_type: str):
     try:
         subtype = "Underline" if annot_type == "underline" else "StrikeOut"
         color   = [0.0, 0.0, 1.0] if annot_type == "underline" else [1.0, 0.0, 0.0]
-        with pikepdf.open(path) as pdf:
+        overlay_color = "rgba(37,99,235,.28)" if annot_type == "underline" else "rgba(220,38,38,.25)"
+        _add_overlay_mark(
+            window,
+            path,
+            page_number=page_no,
+            rects=rects,
+            color=overlay_color,
+        )
+
+        def _op(pdf):
             _add_pdf_annotation(pdf, page_no - 1, subtype, rects, color)
-            _save_pikepdf_reload(window, pdf)
+
+        _queue_annotation_op(window, path, _op, delay_ms=350)
         label = "gạch dưới" if annot_type == "underline" else "gạch ngang"
         if hasattr(window, "status"):
             window.status.showMessage(
@@ -1176,14 +1606,26 @@ def add_comment(window):
                 page_no = 1
             page = pdf.pages[page_no - 1]
             rect = _default_note_rect(page, _count_text_notes(page))
-            note_id = add_annotation(
+        note_id = f"3t-note-{uuid.uuid4().hex}"
+        note = {
+            "id": note_id,
+            "page_number": page_no,
+            "rect": [float(v) for v in rect],
+            "content": content,
+        }
+        _overlay_notes(window)[note_id] = note
+
+        def _op(pdf):
+            add_annotation(
                 pdf,
                 page_idx=page_no - 1,
                 subtype="Text",
                 rect=rect,
                 content=content,
+                annot_id=note_id,
             )
-            _save_pikepdf_reload(window, pdf)
+
+        _queue_annotation_op(window, path, _op, delay_ms=250)
         enable_note_tools(window)
         if hasattr(window, "status"):
             window.status.showMessage(

@@ -733,18 +733,18 @@ def _get_web_view(window):
 
 
 def _setup_webchannel(web_view, parent, name, bridge):
-    from packages.qt_compat.QtWebChannel import QWebChannel as _WC
-    ch = _WC(parent)
-    ch.registerObject(name, bridge)
-    web_view.page().setWebChannel(ch)
-    return ch
+    from app.webchannel import register_webchannel_object
+
+    return register_webchannel_object(web_view, parent, name, bridge)
 
 
 def _teardown_webchannel(web_view):
     if web_view is None:
         return
     try:
-        web_view.page().setWebChannel(None)
+        from app.webchannel import unregister_webchannel_object
+
+        unregister_webchannel_object(web_view)
     except RuntimeError:
         pass
 

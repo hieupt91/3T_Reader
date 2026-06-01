@@ -2087,6 +2087,13 @@ class PDFReaderApp(QMainWindow):
             self._update_check_thread.quit()
             self._update_check_thread.wait(2000)
 
+        queue = getattr(self, "_annotation_op_queue", None)
+        if queue is not None:
+            try:
+                queue.flush()
+            except Exception:
+                pass
+
         for idx in range(self.tab_widget.count() - 1, -1, -1):
             if not self._close_tab(idx):
                 self._closing = False
