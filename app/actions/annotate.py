@@ -152,12 +152,15 @@ def load_annotations(pdf_path: str, page_no: int | None = None) -> list[dict]:
             if page_no is not None and idx != int(page_no):
                 continue
             annots = page.get("/Annots", [])
-            for annot in annots:
+            for annot_idx, annot in enumerate(annots):
                 if _annotation_subtype(annot) != "/Text":
                     continue
                 rect = [float(v) for v in annot.get("/Rect", [])]
+                annot_id = _annotation_id(annot)
+                if not annot_id:
+                    annot_id = _synthetic_note_id(idx, annot_idx, rect, str(annot.get("/Contents", "")))
                 items.append({
-                    "id": _annotation_id(annot),
+                    "id": annot_id,
                     "page_number": idx,
                     "type": "Text",
                     "content": str(annot.get("/Contents", "")),
@@ -166,6 +169,12 @@ def load_annotations(pdf_path: str, page_no: int | None = None) -> list[dict]:
                     "rect": tuple(rect) if len(rect) == 4 else (),
                 })
     return items
+
+
+def _synthetic_note_id(page_number: int, annot_index: int, rect: list[float], content: str) -> str:
+    rect_key = ",".join(f"{float(v):.2f}" for v in (rect or [])[:4])
+    raw = f"{int(page_number)}|{int(annot_index)}|{rect_key}|{content[:80]}"
+    return "3t-note-synth-" + uuid.uuid5(uuid.NAMESPACE_URL, raw).hex
 
 
 def _page_box(page) -> tuple[float, float, float, float]:
@@ -725,8 +734,11 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
             if (node && typeof updated.content === 'string') node.dataset.noteContent = updated.content;
         };
         window.__3tNotesDeleteNote = function(noteId) {
-            var node = document.querySelector('.threeTNoteOverlay[data-three-t-note-id="' + noteId + '"]');
-            if (node && node.parentNode) node.parentNode.removeChild(node);
+            document
+                .querySelectorAll('.threeTNoteOverlay[data-three-t-note-id="' + noteId + '"]')
+                .forEach(function(node) {
+                    if (node && node.parentNode) node.parentNode.removeChild(node);
+                });
         };
 
         noteItems.forEach(function(note) {
@@ -999,10 +1011,15 @@ def _update_note_rect_by_id(
 ) -> bool:
     page = pdf.pages[page_idx]
     annots = page.get("/Annots", [])
-    for annot in annots:
+    for annot_idx, annot in enumerate(annots):
         if _annotation_subtype(annot) != "/Text":
             continue
-        if _annotation_id(annot) != note_id:
+        current_id = _annotation_id(annot)
+        if not current_id:
+            rect = [float(v) for v in annot.get("/Rect", [])]
+            current_id = _synthetic_note_id(page_idx + 1, annot_idx, rect, str(annot.get("/Contents", "")))
+            annot["/NM"] = pikepdf.String(current_id)
+        if current_id != note_id:
             continue
         annot["/Rect"] = pikepdf.Array([float(v) for v in new_rect])
         annot["/M"] = _pdf_date_now()
@@ -1011,11 +1028,17 @@ def _update_note_rect_by_id(
 
 
 def _update_note_content_by_id(pdf: pikepdf.Pdf, *, note_id: str, content: str) -> bool:
-    for page in pdf.pages:
-        for annot in page.get("/Annots", []):
+    for page_idx, page in enumerate(pdf.pages):
+        annots = page.get("/Annots", [])
+        for annot_idx, annot in enumerate(annots):
             if _annotation_subtype(annot) != "/Text":
                 continue
-            if _annotation_id(annot) != note_id:
+            current_id = _annotation_id(annot)
+            if not current_id:
+                rect = [float(v) for v in annot.get("/Rect", [])]
+                current_id = _synthetic_note_id(page_idx + 1, annot_idx, rect, str(annot.get("/Contents", "")))
+                annot["/NM"] = pikepdf.String(current_id)
+            if current_id != note_id:
                 continue
             annot["/Contents"] = pikepdf.String(content)
             annot["/M"] = _pdf_date_now()
@@ -1024,14 +1047,18 @@ def _update_note_content_by_id(pdf: pikepdf.Pdf, *, note_id: str, content: str) 
 
 
 def _delete_note_by_id(pdf: pikepdf.Pdf, *, note_id: str) -> bool:
-    for page in pdf.pages:
+    for page_idx, page in enumerate(pdf.pages):
         annots = page.get("/Annots", None)
         if annots is None:
             continue
         for idx, annot in enumerate(list(annots)):
             if _annotation_subtype(annot) != "/Text":
                 continue
-            if _annotation_id(annot) != note_id:
+            current_id = _annotation_id(annot)
+            if not current_id:
+                rect = [float(v) for v in annot.get("/Rect", [])]
+                current_id = _synthetic_note_id(page_idx + 1, idx, rect, str(annot.get("/Contents", "")))
+            if current_id != note_id:
                 continue
             del annots[idx]
             return True
