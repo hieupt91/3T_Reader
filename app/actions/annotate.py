@@ -5,8 +5,9 @@ from datetime import datetime, timezone
 
 import pikepdf
 
+from packages.qt_compat.QtCore import Qt, QRectF, pyqtSignal
+from packages.qt_compat.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPixmap, QPolygonF
 from packages.qt_compat.QtWidgets import (
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -20,7 +21,9 @@ from packages.qt_compat.QtWidgets import (
     QSpinBox,
     QTextEdit,
     QVBoxLayout,
+    QWidget,
 )
+from packages.pdf_engine import get_pdf_engine
 from app.actions._guard import require_document
 from app.actions._pdf_save import make_staged_pdf_path, replace_document_with_staged
 from app.dialogs import show_warning, show_info
@@ -182,6 +185,32 @@ def _note_rect_for_position(
     left = _clamp_float(left, x0 + margin, x1 - margin - size)
     bottom = _clamp_float(top - size, y0 + margin, y1 - margin - size)
     return left, bottom, left + size, bottom + size
+
+
+def _render_page_preview(pdf_path: str, page_no: int, *, max_width: int = 520) -> QPixmap | None:
+    doc = None
+    try:
+        doc = get_pdf_engine().open(pdf_path)
+        page_w, _page_h = doc.page_size(page_no)
+        scale = max(0.15, min(1.0, float(max_width) / max(1.0, float(page_w))))
+        rendered = doc.render_page_rgb(page_no, scale=scale)
+        image = QImage(
+            rendered.samples,
+            rendered.width,
+            rendered.height,
+            rendered.stride,
+            QImage.Format.Format_RGB888,
+        ).copy()
+        pixmap = QPixmap.fromImage(image)
+        return None if pixmap.isNull() else pixmap
+    except Exception:
+        return None
+    finally:
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception:
+                pass
 
 
 def _count_text_notes(page) -> int:
@@ -469,11 +498,142 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
             page["/Annots"].append(a)
 
 
-class _AddNoteDialog(QDialog):
-    def __init__(self, parent=None, *, current_page: int = 1, total_pages: int = 1):
+class _NotePlacementPreview(QWidget):
+    positionChanged = pyqtSignal(float, float)
+
+    def __init__(self, parent=None, *, pixmap: QPixmap | None = None):
         super().__init__(parent)
+        self._pixmap = pixmap
+        self._x_percent = 90.0
+        self._y_percent = 10.0
+        self._dragging = False
+        self._note_px = 24.0
+        self.setMinimumSize(360, 420)
+        self.setMouseTracking(True)
+
+    def set_position(self, x_percent: float, y_percent: float, *, emit: bool = False):
+        self._x_percent = _clamp_float(x_percent, 0.0, 100.0)
+        self._y_percent = _clamp_float(y_percent, 0.0, 100.0)
+        self.update()
+        if emit:
+            self.positionChanged.emit(self._x_percent, self._y_percent)
+
+    def set_pixmap(self, pixmap: QPixmap | None):
+        self._pixmap = pixmap
+        self.update()
+
+    def position(self) -> tuple[float, float]:
+        return self._x_percent, self._y_percent
+
+    def _page_rect(self) -> QRectF:
+        margin = 12.0
+        area_w = max(1.0, float(self.width()) - margin * 2.0)
+        area_h = max(1.0, float(self.height()) - margin * 2.0)
+        if self._pixmap is None or self._pixmap.isNull():
+            return QRectF(margin, margin, area_w, area_h)
+
+        src_w = max(1.0, float(self._pixmap.width()))
+        src_h = max(1.0, float(self._pixmap.height()))
+        scale = min(area_w / src_w, area_h / src_h)
+        width = src_w * scale
+        height = src_h * scale
+        left = margin + (area_w - width) / 2.0
+        top = margin + (area_h - height) / 2.0
+        return QRectF(left, top, width, height)
+
+    def _note_center(self) -> tuple[float, float]:
+        rect = self._page_rect()
+        cx = rect.left() + rect.width() * (self._x_percent / 100.0)
+        cy = rect.top() + rect.height() * (self._y_percent / 100.0)
+        return cx, cy
+
+    def _note_rect(self) -> QRectF:
+        cx, cy = self._note_center()
+        half = self._note_px / 2.0
+        return QRectF(cx - half, cy - half, self._note_px, self._note_px)
+
+    def _event_pos(self, event):
+        pos = getattr(event, "position", None)
+        return pos().toPoint() if callable(pos) else event.pos()
+
+    def _set_from_widget_pos(self, pos):
+        page_rect = self._page_rect()
+        x = _clamp_float(pos.x(), page_rect.left(), page_rect.right())
+        y = _clamp_float(pos.y(), page_rect.top(), page_rect.bottom())
+        self.set_position(
+            ((x - page_rect.left()) / max(1.0, page_rect.width())) * 100.0,
+            ((y - page_rect.top()) / max(1.0, page_rect.height())) * 100.0,
+            emit=True,
+        )
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        try:
+            painter.fillRect(self.rect(), QColor("#f3f4f6"))
+            page_rect = self._page_rect()
+            painter.setPen(QPen(QColor("#cbd5e1"), 1))
+            painter.setBrush(QBrush(QColor("#ffffff")))
+            painter.drawRect(page_rect)
+            if self._pixmap is not None and not self._pixmap.isNull():
+                painter.drawPixmap(page_rect.toRect(), self._pixmap)
+            else:
+                painter.setPen(QColor("#64748b"))
+                painter.drawText(page_rect, Qt.AlignmentFlag.AlignCenter, "Không render được preview")
+
+            note_rect = self._note_rect()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setPen(QPen(QColor("#92400e"), 1.4))
+            painter.setBrush(QBrush(QColor("#facc15")))
+            painter.drawRoundedRect(note_rect, 4, 4)
+            fold = QRectF(note_rect.right() - 8, note_rect.top(), 8, 8)
+            painter.setBrush(QBrush(QColor("#fde68a")))
+            painter.drawPolygon(QPolygonF([fold.topLeft(), fold.topRight(), fold.bottomRight()]))
+            painter.setPen(QPen(QColor("#78350f"), 1))
+            y = note_rect.top() + 9
+            for _ in range(3):
+                painter.drawLine(note_rect.left() + 5, y, note_rect.right() - 5, y)
+                y += 5
+        finally:
+            painter.end()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._set_from_widget_pos(self._event_pos(event))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._dragging:
+            self._set_from_widget_pos(self._event_pos(event))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._dragging:
+            self._dragging = False
+            self._set_from_widget_pos(self._event_pos(event))
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
+class _AddNoteDialog(QDialog):
+    def __init__(
+        self,
+        parent=None,
+        *,
+        pdf_path: str,
+        current_page: int = 1,
+        total_pages: int = 1,
+        preview_pixmap: QPixmap | None = None,
+    ):
+        super().__init__(parent)
+        self._pdf_path = pdf_path
         self.setWindowTitle("Thêm ghi chú")
-        self.setMinimumWidth(460)
+        self.setMinimumWidth(560)
 
         layout = QVBoxLayout(self)
 
@@ -485,21 +645,14 @@ class _AddNoteDialog(QDialog):
             pass
         layout.addWidget(QLabel("Nội dung ghi chú:"))
         layout.addWidget(self.content_edit)
+        self.preview = _NotePlacementPreview(self, pixmap=preview_pixmap)
+        layout.addWidget(self.preview)
 
         form = QFormLayout()
         self.page_spin = QSpinBox()
         self.page_spin.setRange(1, max(1, int(total_pages)))
         self.page_spin.setValue(max(1, min(int(current_page), max(1, int(total_pages)))))
         form.addRow("Trang:", self.page_spin)
-
-        self.position_combo = QComboBox()
-        self.position_combo.addItem("Mặc định - góc phải trên", NOTE_POSITION_DEFAULT)
-        self.position_combo.addItem("Góc trái trên", NOTE_POSITION_TOP_LEFT)
-        self.position_combo.addItem("Góc phải trên", NOTE_POSITION_TOP_RIGHT)
-        self.position_combo.addItem("Góc trái dưới", NOTE_POSITION_BOTTOM_LEFT)
-        self.position_combo.addItem("Góc phải dưới", NOTE_POSITION_BOTTOM_RIGHT)
-        self.position_combo.addItem("Tùy chỉnh theo % trang", NOTE_POSITION_CUSTOM)
-        form.addRow("Vị trí:", self.position_combo)
 
         custom_row = QHBoxLayout()
         self.x_spin = QDoubleSpinBox()
@@ -521,7 +674,7 @@ class _AddNoteDialog(QDialog):
         form.addRow("Tọa độ:", custom_row)
         layout.addLayout(form)
 
-        help_label = QLabel("Mặc định tự xếp các ghi chú ở góc phải trên. Chọn tùy chỉnh để đặt chính xác hơn.")
+        help_label = QLabel("Kéo biểu tượng ghi chú trên preview để đặt vị trí. Mặc định nằm ở góc phải trên.")
         help_label.setWordWrap(True)
         layout.addWidget(help_label)
 
@@ -534,13 +687,11 @@ class _AddNoteDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-        self.position_combo.currentIndexChanged.connect(self._update_custom_enabled)
-        self._update_custom_enabled()
-
-    def _update_custom_enabled(self):
-        enabled = self.position() == NOTE_POSITION_CUSTOM
-        self.x_spin.setEnabled(enabled)
-        self.y_spin.setEnabled(enabled)
+        self.preview.positionChanged.connect(self._sync_spins_from_preview)
+        self.x_spin.valueChanged.connect(self._sync_preview_from_spins)
+        self.y_spin.valueChanged.connect(self._sync_preview_from_spins)
+        self.page_spin.valueChanged.connect(self._reload_preview_page)
+        self.preview.set_position(self.x_spin.value(), self.y_spin.value())
 
     def content(self) -> str:
         return self.content_edit.toPlainText().strip()
@@ -549,8 +700,7 @@ class _AddNoteDialog(QDialog):
         return int(self.page_spin.value())
 
     def position(self) -> str:
-        data = self.position_combo.currentData()
-        return str(data or NOTE_POSITION_DEFAULT)
+        return NOTE_POSITION_CUSTOM
 
     def x_percent(self) -> float:
         return float(self.x_spin.value())
@@ -558,9 +708,38 @@ class _AddNoteDialog(QDialog):
     def y_percent(self) -> float:
         return float(self.y_spin.value())
 
+    def _sync_spins_from_preview(self, x_percent: float, y_percent: float):
+        self.x_spin.blockSignals(True)
+        self.y_spin.blockSignals(True)
+        try:
+            self.x_spin.setValue(float(x_percent))
+            self.y_spin.setValue(float(y_percent))
+        finally:
+            self.x_spin.blockSignals(False)
+            self.y_spin.blockSignals(False)
 
-def _show_add_note_dialog(window, *, current_page: int, total_pages: int) -> dict | None:
-    dialog = _AddNoteDialog(window, current_page=current_page, total_pages=total_pages)
+    def _sync_preview_from_spins(self, *_args):
+        self.preview.set_position(self.x_spin.value(), self.y_spin.value())
+
+    def _reload_preview_page(self, page_number: int):
+        self.preview.set_pixmap(_render_page_preview(self._pdf_path, int(page_number)))
+
+
+def _show_add_note_dialog(
+    window,
+    *,
+    pdf_path: str,
+    current_page: int,
+    total_pages: int,
+) -> dict | None:
+    preview = _render_page_preview(pdf_path, current_page)
+    dialog = _AddNoteDialog(
+        window,
+        pdf_path=pdf_path,
+        current_page=current_page,
+        total_pages=total_pages,
+        preview_pixmap=preview,
+    )
     if dialog.exec() != QDialog.DialogCode.Accepted:
         return None
     content = dialog.content()
@@ -859,7 +1038,12 @@ def add_comment(window):
         if page_no < 1 or page_no > total_pages:
             page_no = 1
 
-        request = _show_add_note_dialog(window, current_page=page_no, total_pages=total_pages)
+        request = _show_add_note_dialog(
+            window,
+            pdf_path=path,
+            current_page=page_no,
+            total_pages=total_pages,
+        )
         if request is None:
             return
 
