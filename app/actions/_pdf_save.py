@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import time
 
 
 _UNSET = object()
@@ -37,10 +38,54 @@ def atomic_copy_file(source_path: str, target_path: str) -> None:
     staged_path = make_staged_pdf_path(target_path)
     try:
         shutil.copy2(source_path, staged_path)
-        os.replace(staged_path, target_path)
+        replace_file_with_retry(staged_path, target_path)
     except Exception:
         remove_path_quietly(staged_path)
         raise
+
+
+def _pump_qt_events() -> None:
+    try:
+        from packages.qt_compat.QtWidgets import QApplication
+
+        QApplication.processEvents()
+    except Exception:
+        pass
+
+
+def release_viewer_file_lock(window) -> None:
+    """Move QWebEngine away from the PDF before replacing the file on Windows."""
+    try:
+        from packages.qt_compat.QtCore import QUrl
+    except Exception:
+        return
+
+    try:
+        getter = getattr(window, "_get_webview", None)
+        web_view = getter() if callable(getter) else None
+        if web_view is None:
+            return
+        web_view.load(QUrl("about:blank"))
+        _pump_qt_events()
+        time.sleep(0.08)
+        _pump_qt_events()
+    except Exception:
+        pass
+
+
+def replace_file_with_retry(staged_path: str, target_path: str, *, attempts: int = 8) -> None:
+    last_error = None
+    for attempt in range(max(1, attempts)):
+        try:
+            os.replace(staged_path, target_path)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            _pump_qt_events()
+            time.sleep(0.08 * (attempt + 1))
+    if last_error is not None:
+        raise last_error
+    os.replace(staged_path, target_path)
 
 
 def reload_document(
@@ -92,7 +137,8 @@ def replace_document_with_staged(
 
     target_page = page if page is not None else (current_viewer_page(window) if keep_page else 1)
     try:
-        os.replace(staged_path, resolved_target)
+        release_viewer_file_lock(window)
+        replace_file_with_retry(staged_path, resolved_target)
     except Exception:
         remove_path_quietly(staged_path)
         raise

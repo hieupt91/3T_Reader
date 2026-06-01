@@ -1,14 +1,40 @@
 import os
 import re
+import uuid
+from datetime import datetime, timezone
 
 import pikepdf
 
 from packages.qt_compat.QtWidgets import (
-    QInputDialog, QLineEdit, QFileDialog, QMessageBox
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QSpinBox,
+    QTextEdit,
+    QVBoxLayout,
 )
 from app.actions._guard import require_document
 from app.actions._pdf_save import make_staged_pdf_path, replace_document_with_staged
 from app.dialogs import show_warning, show_info
+
+
+NOTE_ICON_SIZE_PT = 18.0
+NOTE_MARGIN_PT = 12.0
+NOTE_STACK_GAP_PT = 6.0
+NOTE_POSITION_DEFAULT = "default"
+NOTE_POSITION_TOP_LEFT = "top_left"
+NOTE_POSITION_TOP_RIGHT = "top_right"
+NOTE_POSITION_BOTTOM_LEFT = "bottom_left"
+NOTE_POSITION_BOTTOM_RIGHT = "bottom_right"
+NOTE_POSITION_CUSTOM = "custom"
 
 
 def _get_current_page(window) -> int:
@@ -26,7 +52,181 @@ def _save_pikepdf_reload(window, pdf: pikepdf.Pdf, *, keep_page: bool = True):
 
     staged_path = make_staged_pdf_path(target_path)
     pdf.save(staged_path)
+    try:
+        pdf.close()
+    except Exception:
+        pass
     replace_document_with_staged(window, staged_path, target_path=target_path, keep_page=keep_page)
+
+
+def _pdf_date_now() -> pikepdf.String:
+    now = datetime.now(timezone.utc)
+    return pikepdf.String(now.strftime("D:%Y%m%d%H%M%SZ"))
+
+
+def _name_value(value) -> str:
+    try:
+        return str(value)
+    except Exception:
+        return ""
+
+
+def _annotation_subtype(annot) -> str:
+    try:
+        return _name_value(annot.get("/Subtype"))
+    except Exception:
+        return ""
+
+
+def _annotation_id(annot) -> str:
+    try:
+        value = annot.get("/NM")
+    except Exception:
+        value = None
+    return str(value or "")
+
+
+def load_annotations(pdf_path: str, page_no: int | None = None) -> list[dict]:
+    """Load supported PDF annotations. Currently exposes Text notes for the comment panel path."""
+    items: list[dict] = []
+    with pikepdf.open(pdf_path) as pdf:
+        for idx, page in enumerate(pdf.pages, start=1):
+            if page_no is not None and idx != int(page_no):
+                continue
+            annots = page.get("/Annots", [])
+            for annot in annots:
+                if _annotation_subtype(annot) != "/Text":
+                    continue
+                rect = [float(v) for v in annot.get("/Rect", [])]
+                items.append({
+                    "id": _annotation_id(annot),
+                    "page_number": idx,
+                    "type": "Text",
+                    "content": str(annot.get("/Contents", "")),
+                    "author": str(annot.get("/T", "")),
+                    "modified": str(annot.get("/M", "")),
+                    "rect": tuple(rect) if len(rect) == 4 else (),
+                })
+    return items
+
+
+def _page_box(page) -> tuple[float, float, float, float]:
+    box = page.mediabox
+    return float(box[0]), float(box[1]), float(box[2]), float(box[3])
+
+
+def _default_note_rect(page, existing_note_count: int) -> tuple[float, float, float, float]:
+    x0, y0, x1, y1 = _page_box(page)
+    size = NOTE_ICON_SIZE_PT
+    offset = max(0, existing_note_count) * (size + NOTE_STACK_GAP_PT)
+    left = x1 - NOTE_MARGIN_PT - size
+    top = y1 - NOTE_MARGIN_PT - offset
+    if top - size < y0 + NOTE_MARGIN_PT:
+        top = y1 - NOTE_MARGIN_PT
+        left = max(x0 + NOTE_MARGIN_PT, left - size - NOTE_STACK_GAP_PT)
+    bottom = max(y0 + NOTE_MARGIN_PT, top - size)
+    top = bottom + size
+    return left, bottom, left + size, top
+
+
+def _clamp_float(value: float, low: float, high: float) -> float:
+    if high < low:
+        return low
+    return max(low, min(float(value), high))
+
+
+def _stack_offset(existing_note_count: int) -> float:
+    return max(0, existing_note_count) * (NOTE_ICON_SIZE_PT + NOTE_STACK_GAP_PT)
+
+
+def _note_rect_for_position(
+    page,
+    position: str,
+    existing_note_count: int = 0,
+    *,
+    x_percent: float = 90.0,
+    y_percent: float = 10.0,
+) -> tuple[float, float, float, float]:
+    """Return a PDF /Rect for a sticky note icon.
+
+    Presets use PDF coordinates (origin at bottom-left). Custom coordinates are
+    easier for users: X is percent from left, Y is percent from top.
+    """
+    if position in ("", NOTE_POSITION_DEFAULT, NOTE_POSITION_TOP_RIGHT):
+        return _default_note_rect(page, existing_note_count)
+
+    x0, y0, x1, y1 = _page_box(page)
+    size = NOTE_ICON_SIZE_PT
+    margin = NOTE_MARGIN_PT
+    page_w = max(size, x1 - x0)
+    page_h = max(size, y1 - y0)
+    offset = _stack_offset(existing_note_count)
+
+    if position == NOTE_POSITION_TOP_LEFT:
+        left = x0 + margin
+        top = y1 - margin - offset
+    elif position == NOTE_POSITION_BOTTOM_LEFT:
+        left = x0 + margin
+        top = y0 + margin + size + offset
+    elif position == NOTE_POSITION_BOTTOM_RIGHT:
+        left = x1 - margin - size
+        top = y0 + margin + size + offset
+    elif position == NOTE_POSITION_CUSTOM:
+        x_ratio = _clamp_float(x_percent, 0.0, 100.0) / 100.0
+        y_ratio = _clamp_float(y_percent, 0.0, 100.0) / 100.0
+        left = x0 + (page_w - size) * x_ratio
+        top = y1 - (page_h - size) * y_ratio
+    else:
+        return _default_note_rect(page, existing_note_count)
+
+    left = _clamp_float(left, x0 + margin, x1 - margin - size)
+    bottom = _clamp_float(top - size, y0 + margin, y1 - margin - size)
+    return left, bottom, left + size, bottom + size
+
+
+def _count_text_notes(page) -> int:
+    try:
+        annots = page.get("/Annots", [])
+    except Exception:
+        return 0
+    return sum(1 for annot in annots if _annotation_subtype(annot) == "/Text")
+
+
+def add_annotation(
+    pdf: pikepdf.Pdf,
+    *,
+    page_idx: int,
+    subtype: str,
+    rect: tuple[float, float, float, float],
+    content: str,
+    author: str = "3T Reader",
+) -> str:
+    """Add one supported annotation and return its stable PDF annotation id."""
+    if subtype != "Text":
+        raise ValueError(f"Unsupported annotation subtype: {subtype}")
+
+    annot_id = f"3t-note-{uuid.uuid4().hex}"
+    page = pdf.pages[page_idx]
+    left, bottom, right, top = [float(v) for v in rect]
+    note = pikepdf.Dictionary(
+        Type=pikepdf.Name.Annot,
+        Subtype=pikepdf.Name("/Text"),
+        Rect=pikepdf.Array([left, bottom, right, top]),
+        Contents=pikepdf.String(content),
+        T=pikepdf.String(author),
+        M=_pdf_date_now(),
+        NM=pikepdf.String(annot_id),
+        Name=pikepdf.Name("/Note"),
+        C=pikepdf.Array([1.0, 0.82, 0.22]),
+        F=4,
+        Open=False,
+    )
+    indirect = pdf.make_indirect(note)
+    if "/Annots" not in page:
+        page["/Annots"] = pikepdf.Array([indirect])
+    else:
+        page["/Annots"].append(indirect)
+    return annot_id
 
 
 def _normalize_text(value: str) -> str:
@@ -267,6 +467,113 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
     else:
         for a in new_annots:
             page["/Annots"].append(a)
+
+
+class _AddNoteDialog(QDialog):
+    def __init__(self, parent=None, *, current_page: int = 1, total_pages: int = 1):
+        super().__init__(parent)
+        self.setWindowTitle("Thêm ghi chú")
+        self.setMinimumWidth(460)
+
+        layout = QVBoxLayout(self)
+
+        self.content_edit = QTextEdit()
+        self.content_edit.setMinimumHeight(110)
+        try:
+            self.content_edit.setPlaceholderText("Nhập nội dung ghi chú...")
+        except Exception:
+            pass
+        layout.addWidget(QLabel("Nội dung ghi chú:"))
+        layout.addWidget(self.content_edit)
+
+        form = QFormLayout()
+        self.page_spin = QSpinBox()
+        self.page_spin.setRange(1, max(1, int(total_pages)))
+        self.page_spin.setValue(max(1, min(int(current_page), max(1, int(total_pages)))))
+        form.addRow("Trang:", self.page_spin)
+
+        self.position_combo = QComboBox()
+        self.position_combo.addItem("Mặc định - góc phải trên", NOTE_POSITION_DEFAULT)
+        self.position_combo.addItem("Góc trái trên", NOTE_POSITION_TOP_LEFT)
+        self.position_combo.addItem("Góc phải trên", NOTE_POSITION_TOP_RIGHT)
+        self.position_combo.addItem("Góc trái dưới", NOTE_POSITION_BOTTOM_LEFT)
+        self.position_combo.addItem("Góc phải dưới", NOTE_POSITION_BOTTOM_RIGHT)
+        self.position_combo.addItem("Tùy chỉnh theo % trang", NOTE_POSITION_CUSTOM)
+        form.addRow("Vị trí:", self.position_combo)
+
+        custom_row = QHBoxLayout()
+        self.x_spin = QDoubleSpinBox()
+        self.x_spin.setRange(0.0, 100.0)
+        self.x_spin.setDecimals(1)
+        self.x_spin.setSingleStep(2.5)
+        self.x_spin.setSuffix("%")
+        self.x_spin.setValue(90.0)
+        self.y_spin = QDoubleSpinBox()
+        self.y_spin.setRange(0.0, 100.0)
+        self.y_spin.setDecimals(1)
+        self.y_spin.setSingleStep(2.5)
+        self.y_spin.setSuffix("%")
+        self.y_spin.setValue(10.0)
+        custom_row.addWidget(QLabel("X từ trái:"))
+        custom_row.addWidget(self.x_spin)
+        custom_row.addWidget(QLabel("Y từ trên:"))
+        custom_row.addWidget(self.y_spin)
+        form.addRow("Tọa độ:", custom_row)
+        layout.addLayout(form)
+
+        help_label = QLabel("Mặc định tự xếp các ghi chú ở góc phải trên. Chọn tùy chỉnh để đặt chính xác hơn.")
+        help_label.setWordWrap(True)
+        layout.addWidget(help_label)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Thêm ghi chú")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Hủy")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.position_combo.currentIndexChanged.connect(self._update_custom_enabled)
+        self._update_custom_enabled()
+
+    def _update_custom_enabled(self):
+        enabled = self.position() == NOTE_POSITION_CUSTOM
+        self.x_spin.setEnabled(enabled)
+        self.y_spin.setEnabled(enabled)
+
+    def content(self) -> str:
+        return self.content_edit.toPlainText().strip()
+
+    def page_number(self) -> int:
+        return int(self.page_spin.value())
+
+    def position(self) -> str:
+        data = self.position_combo.currentData()
+        return str(data or NOTE_POSITION_DEFAULT)
+
+    def x_percent(self) -> float:
+        return float(self.x_spin.value())
+
+    def y_percent(self) -> float:
+        return float(self.y_spin.value())
+
+
+def _show_add_note_dialog(window, *, current_page: int, total_pages: int) -> dict | None:
+    dialog = _AddNoteDialog(window, current_page=current_page, total_pages=total_pages)
+    if dialog.exec() != QDialog.DialogCode.Accepted:
+        return None
+    content = dialog.content()
+    if not content:
+        show_warning(window, "Thiếu nội dung", "Bạn chưa nhập nội dung ghi chú.")
+        return None
+    return {
+        "content": content,
+        "page_number": dialog.page_number(),
+        "position": dialog.position(),
+        "x_percent": dialog.x_percent(),
+        "y_percent": dialog.y_percent(),
+    }
 
 
 # ── Highlight ─────────────────────────────────────────────────────────────────
@@ -539,109 +846,46 @@ def strikeout_text(window):
 
 @require_document(show_message=True)
 def add_comment(window):
-    """Thêm ghi chú (sticky note) — bám theo text đang chọn hoặc dòng đầu trang."""
-    wv = window._get_webview()
-    try:
-        from app.actions.edit import _pick_context_matches
-    except Exception:
-        _pick_context_matches = None
-    expected_state = window._active_state() if hasattr(window, "_active_state") else None
-    expected_path = getattr(window, "current_path", None)
+    """Add a standards-compliant sticky note with a user-selectable position."""
+    path = getattr(window, "current_path", None)
+    if not path:
+        show_warning(window, "Không thể ghi chú", "Không tìm thấy tài liệu đang mở.")
+        return
 
-    def _context_ok() -> bool:
-        if _pick_context_matches is None:
-            return True
-        return _pick_context_matches(window, expected_state, expected_path)
-
-    def _apply(sel_text):
-        if not _context_ok():
-            show_warning(window, "Đã đổi tài liệu", "Bạn đã đổi tab trong lúc thêm ghi chú. Hãy thực hiện lại trên đúng tài liệu.")
-            return
-        sel_text = (sel_text or "").strip()
-
-        content, ok = QInputDialog.getMultiLineText(
-            window, "Thêm ghi chú",
-            f"Ghi chú cho: \"{sel_text[:60]}…\"" if sel_text else "Nội dung ghi chú:",
-        )
-        if not ok or not content.strip():
-            return
-        if not _context_ok():
-            show_warning(window, "Đã đổi tài liệu", "Bạn đã đổi tab trong lúc nhập ghi chú. Hãy thực hiện lại trên đúng tài liệu.")
-            return
-        placement = None
-        try:
-            from app.actions.edit import _pick_pdf_area
-            if hasattr(window, "status"):
-                window.status.showMessage("Kéo một vùng nhỏ trên tài liệu để đặt icon ghi chú... (Esc để hủy)", 0)
-            placement = _pick_pdf_area(window)
-            if hasattr(window, "status"):
-                window.status.showMessage("", 0)
-        except Exception:
-            placement = None
-        if not placement:
-            return
-        if not _context_ok():
-            show_warning(window, "Đã đổi tài liệu", "Bạn đã đổi tab trong lúc chọn vị trí ghi chú. Hãy thực hiện lại trên đúng tài liệu.")
-            return
-        _do_add_comment(window, content.strip(), sel_text, placement=placement)
-
-    if wv:
-        wv.page().runJavaScript("window.getSelection().toString()", _apply)
-    else:
-        _apply("")
-
-
-def _do_add_comment(window, content: str, anchor_text: str = "", placement: dict | None = None):
-    """Add a sticky note at a user-picked PDF position."""
-    path = window.current_path
-    page_no = int(placement.get("page_number", _get_current_page(window))) if placement else _get_current_page(window)
+    page_no = _get_current_page(window)
     try:
         with pikepdf.open(path) as pdf:
+            total_pages = len(pdf.pages)
+        if page_no < 1 or page_no > total_pages:
+            page_no = 1
+
+        request = _show_add_note_dialog(window, current_page=page_no, total_pages=total_pages)
+        if request is None:
+            return
+
+        page_no = int(request["page_number"])
+        content = str(request["content"])
+        with pikepdf.open(path) as pdf:
+            if page_no < 1 or page_no > len(pdf.pages):
+                page_no = 1
             page = pdf.pages[page_no - 1]
-            mb = page.mediabox
-            page_w = float(mb[2]) - float(mb[0])
-            page_h = float(mb[3]) - float(mb[1])
-            rotation = _page_rotation(page)
-            icon_w = 18.0
-            icon_h = 18.0
-            margin = 8.0
-
-            picked_box = placement.get("box") if placement else None
-            if picked_box:
-                left, bottom, right, top = _normalize_box_for_page_rotation(
-                    tuple(float(v) for v in picked_box),
-                    page_w,
-                    page_h,
-                    rotation,
-                )
-                center_x = (left + right) / 2.0
-                center_y = (bottom + top) / 2.0
-                x0 = max(margin, min(center_x - icon_w / 2.0, page_w - icon_w - margin))
-                y0 = max(margin, min(center_y - icon_h / 2.0, page_h - icon_h - margin))
-                x1 = x0 + icon_w
-                y1 = y0 + icon_h
-            else:
-                note_x = max(margin, page_w - icon_w - margin)
-                note_y = max(icon_h + margin, page_h - margin)
-                if anchor_text:
-                    rects = _search_text_on_page(path, page_no, anchor_text)
-                    if rects:
-                        first = rects[0]
-                        note_x = min(page_w - icon_w - margin, max(margin, first[2] + 6))
-                        note_y = min(page_h - margin, max(icon_h + margin, first[3] + 6))
-                x0, y0 = note_x, max(0.0, note_y - icon_h)
-                x1, y1 = note_x + icon_w, note_y
-
-            _add_pdf_annotation(
+            rect = _note_rect_for_position(
+                page,
+                str(request.get("position") or NOTE_POSITION_DEFAULT),
+                _count_text_notes(page),
+                x_percent=float(request.get("x_percent", 90.0)),
+                y_percent=float(request.get("y_percent", 10.0)),
+            )
+            note_id = add_annotation(
                 pdf,
-                page_no - 1,
-                "Text",
-                [(x0, y0, x1, y1)],
-                [1.0, 1.0, 0.0],
+                page_idx=page_no - 1,
+                subtype="Text",
+                rect=rect,
                 content=content,
             )
             _save_pikepdf_reload(window, pdf)
         if hasattr(window, "status"):
-            window.status.showMessage("Đã thêm ghi chú vào trang", 3000)
-    except Exception as e:
-        show_warning(window, "Lỗi thêm ghi chú", str(e))
+            window.status.showMessage(f"Đã thêm ghi chú vào trang {page_no}", 3000)
+        setattr(window, "_last_added_note_id", note_id)
+    except Exception as exc:
+        show_warning(window, "Lỗi thêm ghi chú", str(exc))
