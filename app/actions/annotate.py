@@ -358,11 +358,15 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         if (old && old.parentNode) old.parentNode.removeChild(old);
     }
 
-    function showMenu(note, x, y, bridge) {
+    function showMenu(note, node, x, y, bridge) {
         closeMenu();
         var menu = document.createElement('div');
         menu.id = '__3tNoteMenu';
-        menu.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:10050;min-width:132px;background:#fff;color:#111827;border:1px solid rgba(15,23,42,.18);box-shadow:0 10px 28px rgba(15,23,42,.22);border-radius:6px;padding:4px;font:13px sans-serif';
+        menu.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:10050;min-width:220px;max-width:320px;background:#fff;color:#111827;border:1px solid rgba(15,23,42,.18);box-shadow:0 10px 28px rgba(15,23,42,.22);border-radius:6px;padding:6px;font:13px sans-serif';
+        var body = document.createElement('div');
+        body.textContent = ((node && node.dataset && node.dataset.noteContent) || note.content || '').trim() || '(Ghi chu trong)';
+        body.style.cssText = 'white-space:pre-wrap;word-break:break-word;max-height:160px;overflow:auto;padding:6px 8px;margin-bottom:4px;border-radius:4px;background:#f8fafc;color:#0f172a;';
+        menu.appendChild(body);
         function item(label, danger, fn) {
             var btn = document.createElement('button');
             btn.type = 'button';
@@ -684,7 +688,7 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         function onContextMenu(event) {
             event.preventDefault();
             event.stopPropagation();
-            showMenu(note, event.clientX, event.clientY, bridge);
+            showMenu(note, node, event.clientX, event.clientY, bridge);
         }
 
         node.title = 'Keo de di chuyen. Dup chuot de sua. Chuot phai de xoa/sua.';
@@ -891,16 +895,6 @@ class _NoteToolsBridge(QObject):
             note = _overlay_notes(self._window).get(note_id) or _find_note_by_id(self._pdf_path, note_id)
             if not note:
                 show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
-                return
-            preview = _shorten_note_content(str(note.get("content") or ""), 120)
-            reply = QMessageBox.question(
-                self._window,
-                "Xóa ghi chú",
-                f"Xóa ghi chú này?\n\n{preview}",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
                 return
             with pikepdf.open(self._pdf_path) as pdf:
                 if not _delete_note_by_id(pdf, note_id=note_id):
