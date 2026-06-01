@@ -87,3 +87,18 @@ def test_note_rect_position_presets_and_custom_are_clamped():
 
     assert custom == (170.0, 12.0, 188.0, 30.0)
     pdf.close()
+
+
+def test_note_rect_drag_result_is_clamped_to_page():
+    import pytest
+
+    pikepdf = pytest.importorskip("pikepdf")
+    from app.actions.annotate import _clamp_note_rect_to_page
+
+    pdf = pikepdf.Pdf.new()
+    pdf.add_blank_page(page_size=(200, 300))
+    page = pdf.pages[0]
+
+    assert _clamp_note_rect_to_page(page, (-50, -50, -32, -32)) == (12.0, 12.0, 30.0, 30.0)
+    assert _clamp_note_rect_to_page(page, (240, 340, 258, 358)) == (170.0, 270.0, 188.0, 288.0)
+    pdf.close()

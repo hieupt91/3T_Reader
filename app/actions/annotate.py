@@ -5,25 +5,13 @@ from datetime import datetime, timezone
 
 import pikepdf
 
-from packages.qt_compat.QtCore import Qt, QRectF, pyqtSignal
-from packages.qt_compat.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPixmap, QPolygonF
+from packages.qt_compat.QtCore import QEventLoop, QTimer
 from packages.qt_compat.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QDoubleSpinBox,
     QFileDialog,
-    QFormLayout,
-    QHBoxLayout,
     QInputDialog,
-    QLabel,
     QLineEdit,
     QMessageBox,
-    QSpinBox,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
 )
-from packages.pdf_engine import get_pdf_engine
 from app.actions._guard import require_document
 from app.actions._pdf_save import make_staged_pdf_path, replace_document_with_staged
 from app.dialogs import show_warning, show_info
@@ -187,32 +175,6 @@ def _note_rect_for_position(
     return left, bottom, left + size, bottom + size
 
 
-def _render_page_preview(pdf_path: str, page_no: int, *, max_width: int = 520) -> QPixmap | None:
-    doc = None
-    try:
-        doc = get_pdf_engine().open(pdf_path)
-        page_w, _page_h = doc.page_size(page_no)
-        scale = max(0.15, min(1.0, float(max_width) / max(1.0, float(page_w))))
-        rendered = doc.render_page_rgb(page_no, scale=scale)
-        image = QImage(
-            rendered.samples,
-            rendered.width,
-            rendered.height,
-            rendered.stride,
-            QImage.Format.Format_RGB888,
-        ).copy()
-        pixmap = QPixmap.fromImage(image)
-        return None if pixmap.isNull() else pixmap
-    except Exception:
-        return None
-    finally:
-        if doc is not None:
-            try:
-                doc.close()
-            except Exception:
-                pass
-
-
 def _count_text_notes(page) -> int:
     try:
         annots = page.get("/Annots", [])
@@ -256,6 +218,232 @@ def add_annotation(
     else:
         page["/Annots"].append(indirect)
     return annot_id
+
+
+def _clamp_note_rect_to_page(page, rect: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    x0, y0, x1, y1 = _page_box(page)
+    size = NOTE_ICON_SIZE_PT
+    left, bottom, right, top = [float(v) for v in rect]
+    center_x = (left + right) / 2.0
+    center_y = (bottom + top) / 2.0
+    center_x = _clamp_float(center_x, x0 + NOTE_MARGIN_PT + size / 2.0, x1 - NOTE_MARGIN_PT - size / 2.0)
+    center_y = _clamp_float(center_y, y0 + NOTE_MARGIN_PT + size / 2.0, y1 - NOTE_MARGIN_PT - size / 2.0)
+    return (
+        center_x - size / 2.0,
+        center_y - size / 2.0,
+        center_x + size / 2.0,
+        center_y + size / 2.0,
+    )
+
+
+_NOTE_PIN_PLACEMENT_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRight, pdfTop) {
+    if (typeof window.__3tNotePlacementCleanup === 'function') {
+        try { window.__3tNotePlacementCleanup(); } catch (_err) {}
+    }
+    window.__3tNotePlacementResult = null;
+
+    function cleanup() {
+        var old = document.getElementById('__3tNotePinOverlay');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+        var bar = document.getElementById('__3tNotePinBar');
+        if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+        document.removeEventListener('keydown', onKeyDown, true);
+        document.removeEventListener('mousemove', onMouseMove, true);
+        document.removeEventListener('mouseup', onMouseUp, true);
+        window.__3tNotePlacementCleanup = null;
+    }
+
+    function finish(payload) {
+        cleanup();
+        window.__3tNotePlacementResult = payload;
+    }
+
+    function onKeyDown(event) {
+        if (event.key === 'Escape') {
+            finish({type: 'cancel'});
+        }
+    }
+
+    window.__3tNotePlacementCleanup = cleanup;
+
+    var app = window.PDFViewerApplication;
+    var viewer = app && app.pdfViewer;
+    var pageView = viewer && (viewer.getPageView
+        ? viewer.getPageView(pageNum - 1)
+        : (viewer._pages && viewer._pages[pageNum - 1]));
+    if (!pageView || !pageView.viewport || !pageView.div) {
+        finish({type: 'error', message: 'PDF viewer chưa sẵn sàng để đặt ghi chú.'});
+        return;
+    }
+
+    var pageEl = pageView.div;
+    var viewport = pageView.viewport;
+    var coords = viewport.convertToViewportRectangle([pdfLeft, pdfBottom, pdfRight, pdfTop]);
+    var centerX = (coords[0] + coords[2]) / 2;
+    var centerY = (coords[1] + coords[3]) / 2;
+    var dragging = false;
+
+    var pin = document.createElement('div');
+    pin.id = '__3tNotePinOverlay';
+    pin.title = 'Kéo để đặt vị trí ghi chú';
+    pin.innerHTML = '<div class="pin-head"></div><div class="pin-tip"></div>';
+    pin.style.cssText = [
+        'position:absolute',
+        'width:30px',
+        'height:38px',
+        'z-index:10000',
+        'cursor:grab',
+        'user-select:none',
+        'touch-action:none',
+        'filter:drop-shadow(0 4px 6px rgba(0,0,0,.35))'
+    ].join(';');
+
+    var style = document.createElement('style');
+    style.textContent = [
+        '#__3tNotePinOverlay .pin-head{position:absolute;left:4px;top:0;width:22px;height:22px;border-radius:50%;background:#facc15;border:2px solid #92400e;box-sizing:border-box;}',
+        '#__3tNotePinOverlay .pin-tip{position:absolute;left:13px;top:18px;width:4px;height:19px;background:#92400e;border-radius:2px;transform:rotate(18deg);transform-origin:top center;}',
+        '#__3tNotePinBar{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:10001;background:rgba(15,23,42,.94);color:#fff;border-radius:8px;padding:10px 12px;font:13px sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.35);display:flex;gap:10px;align-items:center;}',
+        '#__3tNotePinBar button{border:0;border-radius:6px;padding:7px 12px;font-weight:600;cursor:pointer;}',
+        '#__3tNotePinSave{background:#16a34a;color:#fff;}',
+        '#__3tNotePinCancel{background:#e2e8f0;color:#0f172a;}'
+    ].join('\n');
+    pin.appendChild(style);
+    pageEl.appendChild(pin);
+
+    function clamp(value, minValue, maxValue) {
+        return Math.max(minValue, Math.min(value, maxValue));
+    }
+
+    function setPinPosition(x, y) {
+        centerX = clamp(x, 12, Math.max(12, pageEl.clientWidth - 12));
+        centerY = clamp(y, 12, Math.max(12, pageEl.clientHeight - 12));
+        pin.style.left = (centerX - 15) + 'px';
+        pin.style.top = (centerY - 32) + 'px';
+    }
+
+    function currentPdfRect() {
+        var center = viewport.convertToPdfPoint(centerX, centerY);
+        var half = 9.0;
+        return [
+            center[0] - half,
+            center[1] - half,
+            center[0] + half,
+            center[1] + half
+        ];
+    }
+
+    function eventToPagePoint(event) {
+        var rect = pageEl.getBoundingClientRect();
+        return {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top
+        };
+    }
+
+    function onMouseMove(event) {
+        if (!dragging) return;
+        event.preventDefault();
+        event.stopPropagation();
+        var point = eventToPagePoint(event);
+        setPinPosition(point.x, point.y);
+    }
+
+    function onMouseUp(event) {
+        if (!dragging) return;
+        event.preventDefault();
+        event.stopPropagation();
+        dragging = false;
+        pin.style.cursor = 'grab';
+    }
+
+    pin.addEventListener('mousedown', function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        dragging = true;
+        pin.style.cursor = 'grabbing';
+        var point = eventToPagePoint(event);
+        setPinPosition(point.x, point.y);
+    }, true);
+    document.addEventListener('mousemove', onMouseMove, true);
+    document.addEventListener('mouseup', onMouseUp, true);
+    document.addEventListener('keydown', onKeyDown, true);
+
+    var bar = document.createElement('div');
+    bar.id = '__3tNotePinBar';
+    bar.innerHTML = '<span>Kéo ghim đến vị trí cần đặt</span><button id="__3tNotePinSave">Lưu vị trí</button><button id="__3tNotePinCancel">Hủy</button>';
+    document.body.appendChild(bar);
+    document.getElementById('__3tNotePinSave').addEventListener('click', function(event) {
+        event.preventDefault();
+        finish({type: 'save', page_number: pageNum, box: currentPdfRect()});
+    });
+    document.getElementById('__3tNotePinCancel').addEventListener('click', function(event) {
+        event.preventDefault();
+        finish({type: 'cancel'});
+    });
+
+    setPinPosition(centerX, centerY);
+})(%d, %f, %f, %f, %f);"""
+
+
+_CLEAR_NOTE_PIN_PLACEMENT_JS = """(function() {
+    if (typeof window.__3tNotePlacementCleanup === 'function') {
+        try { window.__3tNotePlacementCleanup(); } catch (_err) {}
+    }
+    var old = document.getElementById('__3tNotePinOverlay');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var bar = document.getElementById('__3tNotePinBar');
+    if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+    window.__3tNotePlacementResult = null;
+})();"""
+
+
+def _place_note_pin_on_viewer(
+    window,
+    *,
+    page_no: int,
+    default_rect: tuple[float, float, float, float],
+) -> dict | None:
+    web_view = None
+    try:
+        getter = getattr(window, "_get_webview", None)
+        web_view = getter() if callable(getter) else None
+    except Exception:
+        web_view = None
+    if web_view is None:
+        return {"type": "save", "page_number": page_no, "box": default_rect}
+
+    result: dict = {}
+    loop = QEventLoop(window)
+    poll_timer = QTimer(window)
+    poll_timer.setInterval(80)
+
+    def _poll_result(js_result):
+        if not isinstance(js_result, dict) or not js_result.get("type"):
+            return
+        result.update(js_result)
+        poll_timer.stop()
+        if loop.isRunning():
+            loop.quit()
+
+    def _poll():
+        web_view.page().runJavaScript("window.__3tNotePlacementResult", _poll_result)
+
+    poll_timer.timeout.connect(_poll)
+    if hasattr(window, "status"):
+        window.status.showMessage("Kéo ghim ghi chú đến vị trí cần đặt, rồi bấm Lưu vị trí. Esc để hủy.", 0)
+
+    try:
+        web_view.page().runJavaScript(_CLEAR_NOTE_PIN_PLACEMENT_JS)
+        web_view.page().runJavaScript(_NOTE_PIN_PLACEMENT_JS % (page_no, *default_rect))
+        poll_timer.start()
+        loop.exec()
+    finally:
+        poll_timer.stop()
+        web_view.page().runJavaScript(_CLEAR_NOTE_PIN_PLACEMENT_JS)
+        if hasattr(window, "status"):
+            window.status.showMessage("", 0)
+
+    return result or None
 
 
 def _normalize_text(value: str) -> str:
@@ -496,263 +684,6 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
     else:
         for a in new_annots:
             page["/Annots"].append(a)
-
-
-class _NotePlacementPreview(QWidget):
-    positionChanged = pyqtSignal(float, float)
-
-    def __init__(self, parent=None, *, pixmap: QPixmap | None = None):
-        super().__init__(parent)
-        self._pixmap = pixmap
-        self._x_percent = 90.0
-        self._y_percent = 10.0
-        self._dragging = False
-        self._note_px = 24.0
-        self.setMinimumSize(360, 420)
-        self.setMouseTracking(True)
-
-    def set_position(self, x_percent: float, y_percent: float, *, emit: bool = False):
-        self._x_percent = _clamp_float(x_percent, 0.0, 100.0)
-        self._y_percent = _clamp_float(y_percent, 0.0, 100.0)
-        self.update()
-        if emit:
-            self.positionChanged.emit(self._x_percent, self._y_percent)
-
-    def set_pixmap(self, pixmap: QPixmap | None):
-        self._pixmap = pixmap
-        self.update()
-
-    def position(self) -> tuple[float, float]:
-        return self._x_percent, self._y_percent
-
-    def _page_rect(self) -> QRectF:
-        margin = 12.0
-        area_w = max(1.0, float(self.width()) - margin * 2.0)
-        area_h = max(1.0, float(self.height()) - margin * 2.0)
-        if self._pixmap is None or self._pixmap.isNull():
-            return QRectF(margin, margin, area_w, area_h)
-
-        src_w = max(1.0, float(self._pixmap.width()))
-        src_h = max(1.0, float(self._pixmap.height()))
-        scale = min(area_w / src_w, area_h / src_h)
-        width = src_w * scale
-        height = src_h * scale
-        left = margin + (area_w - width) / 2.0
-        top = margin + (area_h - height) / 2.0
-        return QRectF(left, top, width, height)
-
-    def _note_center(self) -> tuple[float, float]:
-        rect = self._page_rect()
-        cx = rect.left() + rect.width() * (self._x_percent / 100.0)
-        cy = rect.top() + rect.height() * (self._y_percent / 100.0)
-        return cx, cy
-
-    def _note_rect(self) -> QRectF:
-        cx, cy = self._note_center()
-        half = self._note_px / 2.0
-        return QRectF(cx - half, cy - half, self._note_px, self._note_px)
-
-    def _event_pos(self, event):
-        pos = getattr(event, "position", None)
-        return pos().toPoint() if callable(pos) else event.pos()
-
-    def _set_from_widget_pos(self, pos):
-        page_rect = self._page_rect()
-        x = _clamp_float(pos.x(), page_rect.left(), page_rect.right())
-        y = _clamp_float(pos.y(), page_rect.top(), page_rect.bottom())
-        self.set_position(
-            ((x - page_rect.left()) / max(1.0, page_rect.width())) * 100.0,
-            ((y - page_rect.top()) / max(1.0, page_rect.height())) * 100.0,
-            emit=True,
-        )
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        try:
-            painter.fillRect(self.rect(), QColor("#f3f4f6"))
-            page_rect = self._page_rect()
-            painter.setPen(QPen(QColor("#cbd5e1"), 1))
-            painter.setBrush(QBrush(QColor("#ffffff")))
-            painter.drawRect(page_rect)
-            if self._pixmap is not None and not self._pixmap.isNull():
-                painter.drawPixmap(page_rect.toRect(), self._pixmap)
-            else:
-                painter.setPen(QColor("#64748b"))
-                painter.drawText(page_rect, Qt.AlignmentFlag.AlignCenter, "Không render được preview")
-
-            note_rect = self._note_rect()
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            painter.setPen(QPen(QColor("#92400e"), 1.4))
-            painter.setBrush(QBrush(QColor("#facc15")))
-            painter.drawRoundedRect(note_rect, 4, 4)
-            fold = QRectF(note_rect.right() - 8, note_rect.top(), 8, 8)
-            painter.setBrush(QBrush(QColor("#fde68a")))
-            painter.drawPolygon(QPolygonF([fold.topLeft(), fold.topRight(), fold.bottomRight()]))
-            painter.setPen(QPen(QColor("#78350f"), 1))
-            y = note_rect.top() + 9
-            for _ in range(3):
-                painter.drawLine(note_rect.left() + 5, y, note_rect.right() - 5, y)
-                y += 5
-        finally:
-            painter.end()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._dragging = True
-            self._set_from_widget_pos(self._event_pos(event))
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if self._dragging:
-            self._set_from_widget_pos(self._event_pos(event))
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and self._dragging:
-            self._dragging = False
-            self._set_from_widget_pos(self._event_pos(event))
-            event.accept()
-            return
-        super().mouseReleaseEvent(event)
-
-
-class _AddNoteDialog(QDialog):
-    def __init__(
-        self,
-        parent=None,
-        *,
-        pdf_path: str,
-        current_page: int = 1,
-        total_pages: int = 1,
-        preview_pixmap: QPixmap | None = None,
-    ):
-        super().__init__(parent)
-        self._pdf_path = pdf_path
-        self.setWindowTitle("Thêm ghi chú")
-        self.setMinimumWidth(560)
-
-        layout = QVBoxLayout(self)
-
-        self.content_edit = QTextEdit()
-        self.content_edit.setMinimumHeight(110)
-        try:
-            self.content_edit.setPlaceholderText("Nhập nội dung ghi chú...")
-        except Exception:
-            pass
-        layout.addWidget(QLabel("Nội dung ghi chú:"))
-        layout.addWidget(self.content_edit)
-        self.preview = _NotePlacementPreview(self, pixmap=preview_pixmap)
-        layout.addWidget(self.preview)
-
-        form = QFormLayout()
-        self.page_spin = QSpinBox()
-        self.page_spin.setRange(1, max(1, int(total_pages)))
-        self.page_spin.setValue(max(1, min(int(current_page), max(1, int(total_pages)))))
-        form.addRow("Trang:", self.page_spin)
-
-        custom_row = QHBoxLayout()
-        self.x_spin = QDoubleSpinBox()
-        self.x_spin.setRange(0.0, 100.0)
-        self.x_spin.setDecimals(1)
-        self.x_spin.setSingleStep(2.5)
-        self.x_spin.setSuffix("%")
-        self.x_spin.setValue(90.0)
-        self.y_spin = QDoubleSpinBox()
-        self.y_spin.setRange(0.0, 100.0)
-        self.y_spin.setDecimals(1)
-        self.y_spin.setSingleStep(2.5)
-        self.y_spin.setSuffix("%")
-        self.y_spin.setValue(10.0)
-        custom_row.addWidget(QLabel("X từ trái:"))
-        custom_row.addWidget(self.x_spin)
-        custom_row.addWidget(QLabel("Y từ trên:"))
-        custom_row.addWidget(self.y_spin)
-        form.addRow("Tọa độ:", custom_row)
-        layout.addLayout(form)
-
-        help_label = QLabel("Kéo biểu tượng ghi chú trên preview để đặt vị trí. Mặc định nằm ở góc phải trên.")
-        help_label.setWordWrap(True)
-        layout.addWidget(help_label)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Thêm ghi chú")
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Hủy")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-        self.preview.positionChanged.connect(self._sync_spins_from_preview)
-        self.x_spin.valueChanged.connect(self._sync_preview_from_spins)
-        self.y_spin.valueChanged.connect(self._sync_preview_from_spins)
-        self.page_spin.valueChanged.connect(self._reload_preview_page)
-        self.preview.set_position(self.x_spin.value(), self.y_spin.value())
-
-    def content(self) -> str:
-        return self.content_edit.toPlainText().strip()
-
-    def page_number(self) -> int:
-        return int(self.page_spin.value())
-
-    def position(self) -> str:
-        return NOTE_POSITION_CUSTOM
-
-    def x_percent(self) -> float:
-        return float(self.x_spin.value())
-
-    def y_percent(self) -> float:
-        return float(self.y_spin.value())
-
-    def _sync_spins_from_preview(self, x_percent: float, y_percent: float):
-        self.x_spin.blockSignals(True)
-        self.y_spin.blockSignals(True)
-        try:
-            self.x_spin.setValue(float(x_percent))
-            self.y_spin.setValue(float(y_percent))
-        finally:
-            self.x_spin.blockSignals(False)
-            self.y_spin.blockSignals(False)
-
-    def _sync_preview_from_spins(self, *_args):
-        self.preview.set_position(self.x_spin.value(), self.y_spin.value())
-
-    def _reload_preview_page(self, page_number: int):
-        self.preview.set_pixmap(_render_page_preview(self._pdf_path, int(page_number)))
-
-
-def _show_add_note_dialog(
-    window,
-    *,
-    pdf_path: str,
-    current_page: int,
-    total_pages: int,
-) -> dict | None:
-    preview = _render_page_preview(pdf_path, current_page)
-    dialog = _AddNoteDialog(
-        window,
-        pdf_path=pdf_path,
-        current_page=current_page,
-        total_pages=total_pages,
-        preview_pixmap=preview,
-    )
-    if dialog.exec() != QDialog.DialogCode.Accepted:
-        return None
-    content = dialog.content()
-    if not content:
-        show_warning(window, "Thiếu nội dung", "Bạn chưa nhập nội dung ghi chú.")
-        return None
-    return {
-        "content": content,
-        "page_number": dialog.page_number(),
-        "position": dialog.position(),
-        "x_percent": dialog.x_percent(),
-        "y_percent": dialog.y_percent(),
-    }
 
 
 # ── Highlight ─────────────────────────────────────────────────────────────────
@@ -1025,41 +956,47 @@ def strikeout_text(window):
 
 @require_document(show_message=True)
 def add_comment(window):
-    """Add a standards-compliant sticky note with a user-selectable position."""
+    """Add a standards-compliant sticky note by dragging a pin on the PDF page."""
     path = getattr(window, "current_path", None)
     if not path:
         show_warning(window, "Không thể ghi chú", "Không tìm thấy tài liệu đang mở.")
         return
 
+    content, ok = QInputDialog.getMultiLineText(
+        window,
+        "Thêm ghi chú",
+        "Nội dung ghi chú:",
+    )
+    content = (content or "").strip()
+    if not ok or not content:
+        return
+
     page_no = _get_current_page(window)
     try:
-        with pikepdf.open(path) as pdf:
-            total_pages = len(pdf.pages)
-        if page_no < 1 or page_no > total_pages:
-            page_no = 1
-
-        request = _show_add_note_dialog(
-            window,
-            pdf_path=path,
-            current_page=page_no,
-            total_pages=total_pages,
-        )
-        if request is None:
-            return
-
-        page_no = int(request["page_number"])
-        content = str(request["content"])
         with pikepdf.open(path) as pdf:
             if page_no < 1 or page_no > len(pdf.pages):
                 page_no = 1
             page = pdf.pages[page_no - 1]
-            rect = _note_rect_for_position(
-                page,
-                str(request.get("position") or NOTE_POSITION_DEFAULT),
-                _count_text_notes(page),
-                x_percent=float(request.get("x_percent", 90.0)),
-                y_percent=float(request.get("y_percent", 10.0)),
-            )
+            default_rect = _default_note_rect(page, _count_text_notes(page))
+
+        placement = _place_note_pin_on_viewer(
+            window,
+            page_no=page_no,
+            default_rect=default_rect,
+        )
+        if not placement or placement.get("type") == "cancel":
+            return
+        if placement.get("type") == "error":
+            show_warning(window, "Không thể đặt ghi chú", str(placement.get("message") or "PDF viewer chưa sẵn sàng."))
+            return
+
+        page_no = int(placement.get("page_number") or page_no)
+        with pikepdf.open(path) as pdf:
+            if page_no < 1 or page_no > len(pdf.pages):
+                page_no = 1
+            page = pdf.pages[page_no - 1]
+            raw_rect = placement.get("box") or default_rect
+            rect = _clamp_note_rect_to_page(page, tuple(float(v) for v in raw_rect))
             note_id = add_annotation(
                 pdf,
                 page_idx=page_no - 1,
