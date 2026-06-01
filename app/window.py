@@ -1514,6 +1514,12 @@ class PDFReaderApp(QMainWindow):
         state = self._tabs_data.get(tab)
         if not self._can_close_tab_state(state):
             return False
+        queue = getattr(self, "_annotation_op_queue", None)
+        if queue is not None:
+            try:
+                queue.flush()
+            except Exception:
+                pass
         edit_state = state.get("_pdf_edit_state") if state else None
         if edit_state and edit_state.get("ops"):
             title = self.tab_widget.tabText(index) or "tài liệu"
