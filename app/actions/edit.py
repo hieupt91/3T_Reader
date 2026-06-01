@@ -42,6 +42,16 @@ AREA_PICK_SCRIPT = r"""
         let dragState = null;
         let overlay = null;
 
+        function cleanup() {
+            document.removeEventListener('mousedown', onMouseDown, true);
+            document.removeEventListener('mousemove', onMouseMove, true);
+            document.removeEventListener('mouseup', onMouseUp, true);
+            window.removeEventListener('keydown', onKeyDown, true);
+            document.body.style.cursor = '';
+            clearOverlay();
+            dragState = null;
+        }
+
         function clearOverlay() {
             if (overlay && overlay.parentNode) {
                 overlay.parentNode.removeChild(overlay);
@@ -49,21 +59,49 @@ AREA_PICK_SCRIPT = r"""
             overlay = null;
         }
 
+        function resolvePageFromEvent(event) {
+            const candidates = [];
+            const directTarget = event.target && event.target.nodeType === 1
+                ? event.target
+                : (event.target && event.target.parentElement);
+            if (directTarget) {
+                candidates.push(directTarget);
+            }
+            if (document.elementsFromPoint) {
+                try {
+                    const hits = document.elementsFromPoint(event.clientX, event.clientY) || [];
+                    for (const el of hits) {
+                        candidates.push(el);
+                    }
+                } catch (_err) {}
+            } else if (document.elementFromPoint) {
+                try {
+                    const hit = document.elementFromPoint(event.clientX, event.clientY);
+                    if (hit) {
+                        candidates.push(hit);
+                    }
+                } catch (_err) {}
+            }
+
+            for (const candidate of candidates) {
+                if (candidate && candidate.closest) {
+                    const page = candidate.closest('.page');
+                    if (page && page.dataset && page.dataset.pageNumber) {
+                        return page;
+                    }
+                }
+            }
+            return null;
+        }
+
         function cancel() {
-            document.removeEventListener('mousedown', onMouseDown, true);
-            document.removeEventListener('mousemove', onMouseMove, true);
-            document.removeEventListener('mouseup', onMouseUp, true);
-            window.removeEventListener('keydown', onKeyDown, true);
-            clearOverlay();
+            cleanup();
             try { bridge.cancelPick(); } catch (_err) {}
         }
 
         function onMouseDown(event) {
-            const target = event.target && event.target.nodeType === 1
-                ? event.target
-                : (event.target && event.target.parentElement);
-            const page = target && target.closest ? target.closest('.page') : null;
-            if (!page || !page.dataset || !page.dataset.pageNumber) {
+            const page = resolvePageFromEvent(event);
+            if (!page) {
                 return;
             }
             const pdfViewer = window.PDFViewerApplication && PDFViewerApplication.pdfViewer;
@@ -74,17 +112,18 @@ AREA_PICK_SCRIPT = r"""
             const pageView = pdfViewer.getPageView
                 ? pdfViewer.getPageView(pageNumber - 1)
                 : (pdfViewer._pages && pdfViewer._pages[pageNumber - 1]);
-            if (!pageView || !pageView.viewport) {
+            if (!pageView || !pageView.viewport || !pageView.pdfPage) {
                 return;
             }
 
             event.preventDefault();
             event.stopPropagation();
+            event.stopImmediatePropagation();
 
-            const canvas = page.querySelector('canvas') || page;
-            const rect = canvas.getBoundingClientRect();
-            const startX = event.clientX - rect.left;
-            const startY = event.clientY - rect.top;
+            document.body.style.cursor = 'crosshair';
+            const rect = page.getBoundingClientRect();
+            const startX = Math.max(0, Math.min(event.clientX - rect.left, page.clientWidth));
+            const startY = Math.max(0, Math.min(event.clientY - rect.top, page.clientHeight));
 
             dragState = {
                 page,
@@ -103,7 +142,7 @@ AREA_PICK_SCRIPT = r"""
                 overlay.style.border = '2px dashed #0B84F3';
                 overlay.style.background = 'rgba(11, 132, 243, 0.15)';
                 overlay.style.pointerEvents = 'none';
-                overlay.style.zIndex = '40';
+                overlay.style.zIndex = '10000';
                 overlay.style.boxSizing = 'border-box';
                 page.appendChild(overlay);
             } else if (overlay.parentNode !== page) {
@@ -112,14 +151,21 @@ AREA_PICK_SCRIPT = r"""
                 }
                 page.appendChild(overlay);
             }
+            overlay.style.left = `${startX}px`;
+            overlay.style.top = `${startY}px`;
+            overlay.style.width = '1px';
+            overlay.style.height = '1px';
         }
 
         function onMouseMove(event) {
             if (!dragState || !overlay) {
                 return;
             }
-            const x = event.clientX - dragState.rect.left;
-            const y = event.clientY - dragState.rect.top;
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            const x = Math.max(0, Math.min(event.clientX - dragState.rect.left, dragState.page.clientWidth));
+            const y = Math.max(0, Math.min(event.clientY - dragState.rect.top, dragState.page.clientHeight));
             dragState.curX = x;
             dragState.curY = y;
 
@@ -141,9 +187,10 @@ AREA_PICK_SCRIPT = r"""
 
             event.preventDefault();
             event.stopPropagation();
+            event.stopImmediatePropagation();
 
-            const x2 = event.clientX - dragState.rect.left;
-            const y2 = event.clientY - dragState.rect.top;
+            const x2 = Math.max(0, Math.min(event.clientX - dragState.rect.left, dragState.page.clientWidth));
+            const y2 = Math.max(0, Math.min(event.clientY - dragState.rect.top, dragState.page.clientHeight));
             const x1 = dragState.startX;
             const y1 = dragState.startY;
 
@@ -160,13 +207,8 @@ AREA_PICK_SCRIPT = r"""
             const bottom = Math.min(p1[1], p2[1]);
             const top = Math.max(p1[1], p2[1]);
 
-            document.removeEventListener('mousedown', onMouseDown, true);
-            document.removeEventListener('mousemove', onMouseMove, true);
-            document.removeEventListener('mouseup', onMouseUp, true);
-            window.removeEventListener('keydown', onKeyDown, true);
-            clearOverlay();
             const pickedPageNumber = dragState.pageNumber;
-            dragState = null;
+            cleanup();
 
             try {
                 bridge.reportArea(pickedPageNumber, left, bottom, right, top);
@@ -346,7 +388,7 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
     var angleLbl = document.createElement('div');
     angleLbl.style.cssText = 'position:absolute;'
         + 'left:'+(pad+bw/2)+'px;top:'+(pad+bh/2)+'px;'
-        + 'transform:translate(-50%,-50%);'
+        + 'transform:translate(-50%%,-50%%);'
         + 'color:#0B84F3;font-size:13px;font-weight:700;font-family:sans-serif;'
         + 'pointer-events:none;opacity:0;transition:opacity 0.1s;'
         + 'background:rgba(255,255,255,0.82);border-radius:4px;padding:2px 7px;';
@@ -362,7 +404,7 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
         if (corner === 'tr') pos = 'right:0;top:0;';
         if (corner === 'bl') pos = 'left:0;bottom:0;';
         if (corner === 'br') pos = 'right:0;bottom:0;';
-        h.style.cssText = 'position:absolute;border-radius:50%;z-index:62;'
+        h.style.cssText = 'position:absolute;border-radius:50%%;z-index:62;'
             + 'user-select:none;pointer-events:auto;'
             + 'display:flex;align-items:center;justify-content:center;'
             + 'box-shadow:0 2px 6px rgba(0,0,0,0.5);'
@@ -409,7 +451,7 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
             var pr  = pageEl.getBoundingClientRect();
             var cur = Math.atan2(e2.clientY - pr.top  - by - bh/2,
                                   e2.clientX - pr.left - bx - bw/2) * 180 / Math.PI;
-            dispAngle = ((currentRotation + cur - startAng) % 360 + 360) % 360;
+            dispAngle = ((currentRotation + cur - startAng) %% 360 + 360) %% 360;
             grp.style.transform = 'rotate(' + dispAngle + 'deg)';
             angleLbl.textContent = Math.round(dispAngle) + '°';
         }
@@ -419,10 +461,10 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
             document.removeEventListener('mouseup',   onUp);
             _dragging = false;
             rotH.style.cursor = 'grab';
-            var finalAngle = Math.round(dispAngle) % 360;
+            var finalAngle = Math.round(dispAngle) %% 360;
             var moved = Math.abs(finalAngle - currentRotation);
             if (moved > 180) moved = 360 - moved;
-            if (moved < 3) finalAngle = (Math.round(currentRotation / 15) * 15 + 15) % 360;
+            if (moved < 3) finalAngle = (Math.round(currentRotation / 15) * 15 + 15) %% 360;
             cleanupAll();
             reportAction({type:'rotate', angle: finalAngle});
         }

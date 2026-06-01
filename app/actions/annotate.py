@@ -689,10 +689,20 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
                 var el = document.createElement('div');
                 el.className = 'threeTMarkOverlay';
                 el.style.left = left + 'px';
-                el.style.top = top + 'px';
                 el.style.width = width + 'px';
-                el.style.height = height + 'px';
-                el.style.background = mark.color || 'rgba(250,204,21,.35)';
+                if (mark.style === 'underline') {
+                    el.style.top = (top + height - 2) + 'px';
+                    el.style.height = '2px';
+                    el.style.background = mark.color || 'rgba(37,99,235,.85)';
+                } else if (mark.style === 'strikeout') {
+                    el.style.top = (top + height * 0.52) + 'px';
+                    el.style.height = '2px';
+                    el.style.background = mark.color || 'rgba(220,38,38,.85)';
+                } else {
+                    el.style.top = top + 'px';
+                    el.style.height = height + 'px';
+                    el.style.background = mark.color || 'rgba(250,204,21,.35)';
+                }
                 pageView.div.appendChild(el);
             });
         });
@@ -967,6 +977,7 @@ def _add_overlay_mark(
     page_number: int,
     rects: list[tuple],
     color: str,
+    style: str = "highlight",
 ) -> None:
     _overlay_marks(window).append({
         "kind": "mark",
@@ -974,6 +985,7 @@ def _add_overlay_mark(
         "page_number": int(page_number),
         "rects": [[float(v) for v in rect] for rect in rects],
         "color": color,
+        "style": style,
     })
     _refresh_annotation_overlays(window)
 
@@ -1336,6 +1348,7 @@ def _do_highlight(window, text: str):
             page_number=page_no,
             rects=rects,
             color="rgba(250,204,21,.35)",
+            style="highlight",
         )
 
         def _op(pdf):
@@ -1511,13 +1524,15 @@ def _do_line_annot(window, text: str, annot_type: str):
     try:
         subtype = "Underline" if annot_type == "underline" else "StrikeOut"
         color   = [0.0, 0.0, 1.0] if annot_type == "underline" else [1.0, 0.0, 0.0]
-        overlay_color = "rgba(37,99,235,.28)" if annot_type == "underline" else "rgba(220,38,38,.25)"
+        overlay_style = "underline" if annot_type == "underline" else "strikeout"
+        overlay_color = "rgba(37,99,235,.9)" if annot_type == "underline" else "rgba(220,38,38,.9)"
         _add_overlay_mark(
             window,
             path,
             page_number=page_no,
             rects=rects,
             color=overlay_color,
+            style=overlay_style,
         )
 
         def _op(pdf):
