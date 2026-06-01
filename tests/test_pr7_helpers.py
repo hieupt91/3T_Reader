@@ -132,3 +132,38 @@ def test_update_text_note_rect_by_id(tmp_path):
 
     notes = load_annotations(str(out))
     assert notes[0]["rect"] == (20.0, 30.0, 38.0, 48.0)
+
+
+def test_edit_and_delete_text_note_by_id(tmp_path):
+    import pytest
+
+    pikepdf = pytest.importorskip("pikepdf")
+    from app.actions.annotate import (
+        add_annotation,
+        load_annotations,
+        _delete_note_by_id,
+        _update_note_content_by_id,
+    )
+
+    out = tmp_path / "edit-delete-note.pdf"
+    pdf = pikepdf.Pdf.new()
+    pdf.add_blank_page(page_size=(200, 200))
+    note_id = add_annotation(
+        pdf,
+        page_idx=0,
+        subtype="Text",
+        rect=(170, 170, 188, 188),
+        content="Original",
+    )
+
+    assert _update_note_content_by_id(pdf, note_id=note_id, content="Updated")
+    pdf.save(out)
+    pdf.close()
+    assert load_annotations(str(out))[0]["content"] == "Updated"
+
+    pdf = pikepdf.open(out)
+    assert _delete_note_by_id(pdf, note_id=note_id)
+    deleted = tmp_path / "edit-delete-note-deleted.pdf"
+    pdf.save(deleted)
+    pdf.close()
+    assert load_annotations(str(deleted)) == []

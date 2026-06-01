@@ -1,6 +1,7 @@
 import os
 import re
 import uuid
+import json
 from datetime import datetime, timezone
 
 import pikepdf
@@ -237,9 +238,9 @@ def _clamp_note_rect_to_page(page, rect: tuple[float, float, float, float]) -> t
     )
 
 
-_ARM_NOTE_ICON_DRAG_JS = r"""(function(noteId, pageNum, pdfLeft, pdfBottom, pdfRight, pdfTop) {
-    if (typeof window.__3tNoteIconDragCleanup === 'function') {
-        try { window.__3tNoteIconDragCleanup(); } catch (_err) {}
+_ARM_NOTE_TOOLS_JS = r"""(function(notes) {
+    if (typeof window.__3tNoteToolsCleanup === 'function') {
+        try { window.__3tNoteToolsCleanup(); } catch (_err) {}
     }
 
     function ensureBridge(callback) {
@@ -255,173 +256,206 @@ _ARM_NOTE_ICON_DRAG_JS = r"""(function(noteId, pageNum, pdfLeft, pdfBottom, pdfR
             return;
         }
         new QWebChannel(qt.webChannelTransport, function(channel) {
-            callback(channel.objects.noteMoveBridge || null);
+            callback(channel.objects.noteToolsBridge || null);
         });
     }
 
-    function bindToRenderedNote(bridge) {
-        if (!bridge) {
-            return;
-        }
-        var app = window.PDFViewerApplication;
-        var viewer = app && app.pdfViewer;
-        var pageView = viewer && (viewer.getPageView
-            ? viewer.getPageView(pageNum - 1)
-            : (viewer._pages && viewer._pages[pageNum - 1]));
-        if (!pageView || !pageView.viewport || !pageView.div) {
-            setTimeout(function() { bindToRenderedNote(bridge); }, 120);
-            return;
-        }
-        var pageEl = pageView.div;
-        var layer = pageEl.querySelector('.annotationLayer');
-        if (!layer) {
-            setTimeout(function() { bindToRenderedNote(bridge); }, 120);
-            return;
-        }
+    function closeMenu() {
+        var old = document.getElementById('__3tNoteMenu');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+    }
 
-        var targetCenter = pageView.viewport.convertToViewportRectangle([pdfLeft, pdfBottom, pdfRight, pdfTop]);
-        var targetCx = (targetCenter[0] + targetCenter[2]) / 2;
-        var targetCy = (targetCenter[1] + targetCenter[3]) / 2;
-        var nodes = Array.from(layer.querySelectorAll('.textAnnotation'));
-        if (!nodes.length) {
-            setTimeout(function() { bindToRenderedNote(bridge); }, 120);
-            return;
+    function showMenu(note, x, y, bridge) {
+        closeMenu();
+        var menu = document.createElement('div');
+        menu.id = '__3tNoteMenu';
+        menu.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:10050;min-width:132px;background:#fff;color:#111827;border:1px solid rgba(15,23,42,.18);box-shadow:0 10px 28px rgba(15,23,42,.22);border-radius:6px;padding:4px;font:13px sans-serif';
+        function item(label, danger, fn) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = label;
+            btn.style.cssText = 'display:block;width:100%;border:0;background:transparent;color:' + (danger ? '#dc2626' : '#111827') + ';text-align:left;padding:7px 9px;border-radius:4px;cursor:pointer';
+            btn.addEventListener('mouseenter', function() { btn.style.background = '#f3f4f6'; });
+            btn.addEventListener('mouseleave', function() { btn.style.background = 'transparent'; });
+            btn.addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                closeMenu();
+                fn();
+            }, true);
+            menu.appendChild(btn);
         }
+        item('Sửa ghi chú', false, function() { bridge.editNote(note.id, note.page_number); });
+        item('Xóa ghi chú', true, function() { bridge.deleteNote(note.id, note.page_number); });
+        document.body.appendChild(menu);
+        setTimeout(function() {
+            document.addEventListener('mousedown', closeMenu, {capture: true, once: true});
+            document.addEventListener('keydown', closeMenu, {capture: true, once: true});
+        }, 0);
+    }
 
-        var target = null;
-        var bestDistance = Number.POSITIVE_INFINITY;
-        var pageRectForSearch = pageEl.getBoundingClientRect();
-        for (var i = 0; i < nodes.length; i += 1) {
-            var nodeRect = nodes[i].getBoundingClientRect();
-            var cx = nodeRect.left - pageRectForSearch.left + nodeRect.width / 2;
-            var cy = nodeRect.top - pageRectForSearch.top + nodeRect.height / 2;
-            var distance = Math.hypot(cx - targetCx, cy - targetCy);
-            if (distance < bestDistance) {
-                bestDistance = distance;
-                target = nodes[i];
-            }
-        }
-        if (!target) {
-            return;
-        }
+    function pageViewFor(viewer, pageNumber) {
+        return viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
+    }
 
-        var originalTransform = target.style.transform || '';
-        var originalZIndex = target.style.zIndex || '';
-        var originalOutline = target.style.outline || '';
-        var originalOutlineOffset = target.style.outlineOffset || '';
+    function bindNote(node, pageView, pageEl, note, bridge, cleanupFns) {
+        var originalTransform = node.style.transform || '';
+        var originalZIndex = node.style.zIndex || '';
+        var originalOutline = node.style.outline || '';
+        var originalOutlineOffset = node.style.outlineOffset || '';
         var pressed = false;
         var dragging = false;
         var startClientX = 0;
         var startClientY = 0;
         var pageRect = null;
-        var dragImage = target.querySelector('img') || target;
-
-        function cleanup() {
-            target.style.transform = originalTransform;
-            target.style.zIndex = originalZIndex;
-            target.style.cursor = '';
-            target.style.outline = originalOutline;
-            target.style.outlineOffset = originalOutlineOffset;
-            target.removeEventListener('mousedown', onMouseDown, true);
-            document.removeEventListener('mousemove', onMouseMove, true);
-            document.removeEventListener('mouseup', onMouseUp, true);
-            if (dragImage) {
-                dragImage.style.pointerEvents = '';
-            }
-            window.__3tNoteIconDragCleanup = null;
-        }
-        window.__3tNoteIconDragCleanup = cleanup;
+        var dragImage = node.querySelector('img') || node;
 
         function blockNextClick(event) {
             event.preventDefault();
             event.stopPropagation();
             document.removeEventListener('click', blockNextClick, true);
         }
-
         function onMouseDown(event) {
-            if (event.button !== 0) {
-                return;
-            }
+            if (event.button !== 0) return;
             pressed = true;
             dragging = false;
             startClientX = event.clientX;
             startClientY = event.clientY;
             pageRect = pageEl.getBoundingClientRect();
         }
-
         function onMouseMove(event) {
-            if (!pressed) {
-                return;
-            }
-            var deltaX = event.clientX - startClientX;
-            var deltaY = event.clientY - startClientY;
-            if (!dragging && Math.hypot(deltaX, deltaY) < 4) {
-                return;
-            }
+            if (!pressed) return;
+            var dx = event.clientX - startClientX;
+            var dy = event.clientY - startClientY;
+            if (!dragging && Math.hypot(dx, dy) < 4) return;
             dragging = true;
             event.preventDefault();
             event.stopPropagation();
-            target.style.cursor = 'grabbing';
-            target.style.zIndex = '10002';
-            target.style.outline = '2px solid rgba(11,132,243,.55)';
-            target.style.outlineOffset = '2px';
-            target.style.transform = originalTransform + ' translate(' + deltaX + 'px,' + deltaY + 'px)';
-            if (dragImage) {
-                dragImage.style.pointerEvents = 'none';
-            }
+            node.style.cursor = 'grabbing';
+            node.style.zIndex = '10002';
+            node.style.outline = '2px solid rgba(11,132,243,.6)';
+            node.style.outlineOffset = '2px';
+            node.style.transform = originalTransform + ' translate(' + dx + 'px,' + dy + 'px)';
+            if (dragImage) dragImage.style.pointerEvents = 'none';
         }
-
         function onMouseUp(event) {
-            if (!pressed) {
-                return;
-            }
+            if (!pressed) return;
             pressed = false;
-            if (!dragging) {
-                return;
-            }
+            if (!dragging) return;
             event.preventDefault();
             event.stopPropagation();
             dragging = false;
-            var rect = target.getBoundingClientRect();
+            var rect = node.getBoundingClientRect();
             var cx = rect.left - pageRect.left + rect.width / 2;
             var cy = rect.top - pageRect.top + rect.height / 2;
             var pdfPoint = pageView.viewport.convertToPdfPoint(cx, cy);
             document.addEventListener('click', blockNextClick, true);
-            cleanup();
-            bridge.moveNote(
-                noteId,
-                pageNum,
-                pdfPoint[0] - 9.0,
-                pdfPoint[1] - 9.0,
-                pdfPoint[0] + 9.0,
-                pdfPoint[1] + 9.0
-            );
+            bridge.moveNote(note.id, note.page_number, pdfPoint[0] - 9.0, pdfPoint[1] - 9.0, pdfPoint[0] + 9.0, pdfPoint[1] + 9.0);
+        }
+        function onDoubleClick(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            bridge.editNote(note.id, note.page_number);
+        }
+        function onContextMenu(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            showMenu(note, event.clientX, event.clientY, bridge);
         }
 
-        target.title = 'Kéo để di chuyển ghi chú';
-        target.style.cursor = 'move';
-        target.addEventListener('mousedown', onMouseDown, true);
+        node.dataset.threeTNoteBound = '1';
+        node.dataset.threeTNoteId = note.id;
+        node.title = 'Kéo để di chuyển. Đúp chuột để sửa. Chuột phải để xóa/sửa.';
+        node.style.cursor = 'move';
+        node.addEventListener('mousedown', onMouseDown, true);
+        node.addEventListener('dblclick', onDoubleClick, true);
+        node.addEventListener('contextmenu', onContextMenu, true);
         document.addEventListener('mousemove', onMouseMove, true);
         document.addEventListener('mouseup', onMouseUp, true);
+        cleanupFns.push(function() {
+            node.style.transform = originalTransform;
+            node.style.zIndex = originalZIndex;
+            node.style.cursor = '';
+            node.style.outline = originalOutline;
+            node.style.outlineOffset = originalOutlineOffset;
+            node.removeEventListener('mousedown', onMouseDown, true);
+            node.removeEventListener('dblclick', onDoubleClick, true);
+            node.removeEventListener('contextmenu', onContextMenu, true);
+            document.removeEventListener('mousemove', onMouseMove, true);
+            document.removeEventListener('mouseup', onMouseUp, true);
+            if (dragImage) dragImage.style.pointerEvents = '';
+        });
     }
 
-    ensureBridge(bindToRenderedNote);
-})("__NOTE_ID__", __PAGE_NUM__, __PDF_LEFT__, __PDF_BOTTOM__, __PDF_RIGHT__, __PDF_TOP__);"""
+    function bindAll(bridge) {
+        if (!bridge || !Array.isArray(notes) || !notes.length) return;
+        var app = window.PDFViewerApplication;
+        var viewer = app && app.pdfViewer;
+        if (!viewer) return;
+        var cleanupFns = [];
+        var pending = notes.slice();
+        function attempt() {
+            var retry = [];
+            for (var n = 0; n < pending.length; n += 1) {
+                var note = pending[n];
+                var pageView = pageViewFor(viewer, note.page_number);
+                if (!pageView || !pageView.viewport || !pageView.div) {
+                    retry.push(note);
+                    continue;
+                }
+                var pageEl = pageView.div;
+                var layer = pageEl.querySelector('.annotationLayer');
+                if (!layer) {
+                    retry.push(note);
+                    continue;
+                }
+                var targetRect = pageView.viewport.convertToViewportRectangle(note.rect);
+                var tx = (targetRect[0] + targetRect[2]) / 2;
+                var ty = (targetRect[1] + targetRect[3]) / 2;
+                var pageRect = pageEl.getBoundingClientRect();
+                var nodes = Array.from(layer.querySelectorAll('.textAnnotation'));
+                var target = null;
+                var best = Number.POSITIVE_INFINITY;
+                for (var i = 0; i < nodes.length; i += 1) {
+                    if (nodes[i].dataset && nodes[i].dataset.threeTNoteBound === '1') continue;
+                    var r = nodes[i].getBoundingClientRect();
+                    var cx = r.left - pageRect.left + r.width / 2;
+                    var cy = r.top - pageRect.top + r.height / 2;
+                    var dist = Math.hypot(cx - tx, cy - ty);
+                    if (dist < best) {
+                        best = dist;
+                        target = nodes[i];
+                    }
+                }
+                if (target) bindNote(target, pageView, pageEl, note, bridge, cleanupFns);
+            }
+            pending = retry;
+            if (pending.length) setTimeout(attempt, 160);
+        }
+        attempt();
+        window.__3tNoteToolsCleanup = function() {
+            closeMenu();
+            cleanupFns.forEach(function(fn) { try { fn(); } catch (_err) {} });
+        };
+    }
+
+    ensureBridge(bindAll);
+})(__NOTES_JSON__);"""
 
 
-class _NoteMoveBridge(QObject):
-    def __init__(self, window, pdf_path: str, note_id: str):
+class _NoteToolsBridge(QObject):
+    def __init__(self, window, pdf_path: str):
         super().__init__(window)
         self._window = window
         self._pdf_path = pdf_path
-        self._note_id = note_id
+
+    def _path_is_current(self) -> bool:
+        current_path = getattr(self._window, "current_path", None)
+        return bool(current_path and os.path.abspath(current_path) == os.path.abspath(self._pdf_path))
 
     @pyqtSlot(str, int, float, float, float, float)
     def moveNote(self, note_id: str, page_number: int, left: float, bottom: float, right: float, top: float):
-        if note_id != self._note_id:
-            return
-        current_path = getattr(self._window, "current_path", None)
-        if not current_path or os.path.abspath(current_path) != os.path.abspath(self._pdf_path):
+        if not self._path_is_current():
             return
         try:
             with pikepdf.open(self._pdf_path) as pdf:
@@ -441,8 +475,72 @@ class _NoteMoveBridge(QObject):
         except Exception as exc:
             show_warning(self._window, "Lỗi di chuyển ghi chú", str(exc))
 
+    @pyqtSlot(str, int)
+    def editNote(self, note_id: str, page_number: int):
+        if not self._path_is_current():
+            return
+        try:
+            note = _find_note_by_id(self._pdf_path, note_id)
+            if not note:
+                show_warning(self._window, "Sửa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
+                return
+            text, ok = QInputDialog.getMultiLineText(
+                self._window,
+                "Sửa ghi chú",
+                "Nội dung ghi chú:",
+                str(note.get("content") or ""),
+            )
+            text = (text or "").strip()
+            if not ok:
+                return
+            if not text:
+                show_warning(self._window, "Sửa ghi chú", "Nội dung ghi chú không được để trống.")
+                return
+            with pikepdf.open(self._pdf_path) as pdf:
+                if not _update_note_content_by_id(pdf, note_id=note_id, content=text):
+                    show_warning(self._window, "Sửa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
+                    return
+                _save_pikepdf_reload(self._window, pdf)
+            if hasattr(self._window, "status"):
+                self._window.status.showMessage(f"Đã sửa ghi chú trang {note.get('page_number') or page_number}", 2500)
+        except Exception as exc:
+            show_warning(self._window, "Lỗi sửa ghi chú", str(exc))
 
-def _arm_note_icon_drag(window, *, pdf_path: str, note_id: str, page_no: int, rect: tuple[float, float, float, float]):
+    @pyqtSlot(str, int)
+    def deleteNote(self, note_id: str, page_number: int):
+        if not self._path_is_current():
+            return
+        try:
+            note = _find_note_by_id(self._pdf_path, note_id)
+            if not note:
+                show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
+                return
+            preview = _shorten_note_content(str(note.get("content") or ""), 120)
+            reply = QMessageBox.question(
+                self._window,
+                "Xóa ghi chú",
+                f"Xóa ghi chú này?\n\n{preview}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            with pikepdf.open(self._pdf_path) as pdf:
+                if not _delete_note_by_id(pdf, note_id=note_id):
+                    show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
+                    return
+                _save_pikepdf_reload(self._window, pdf)
+            if hasattr(self._window, "status"):
+                self._window.status.showMessage(f"Đã xóa ghi chú trang {note.get('page_number') or page_number}", 2500)
+        except Exception as exc:
+            show_warning(self._window, "Lỗi xóa ghi chú", str(exc))
+
+
+def enable_note_tools(window):
+    """Arm all rendered PDF.js sticky note icons for drag/edit/delete."""
+    path = getattr(window, "current_path", None)
+    if not path:
+        return
     try:
         getter = getattr(window, "_get_webview", None)
         web_view = getter() if callable(getter) else None
@@ -451,22 +549,21 @@ def _arm_note_icon_drag(window, *, pdf_path: str, note_id: str, page_no: int, re
     if web_view is None:
         return
 
-    bridge = _NoteMoveBridge(window, pdf_path, note_id)
-    channel = QWebChannel(window)
-    channel.registerObject("noteMoveBridge", bridge)
-    web_view.page().setWebChannel(channel)
-    window._note_move_bridge = bridge
-    window._note_move_channel = channel
+    try:
+        notes = _notes_for_js(path)
+    except Exception:
+        return
+    if not notes:
+        return
 
-    script = (
-        _ARM_NOTE_ICON_DRAG_JS
-        .replace("__NOTE_ID__", str(note_id).replace("\\", "\\\\").replace('"', '\\"'))
-        .replace("__PAGE_NUM__", str(int(page_no)))
-        .replace("__PDF_LEFT__", repr(float(rect[0])))
-        .replace("__PDF_BOTTOM__", repr(float(rect[1])))
-        .replace("__PDF_RIGHT__", repr(float(rect[2])))
-        .replace("__PDF_TOP__", repr(float(rect[3])))
-    )
+    bridge = _NoteToolsBridge(window, path)
+    channel = QWebChannel(window)
+    channel.registerObject("noteToolsBridge", bridge)
+    web_view.page().setWebChannel(channel)
+    window._note_tools_bridge = bridge
+    window._note_tools_channel = channel
+
+    script = _ARM_NOTE_TOOLS_JS.replace("__NOTES_JSON__", json.dumps(notes, ensure_ascii=False))
     QTimer.singleShot(250, lambda: web_view.page().runJavaScript(script))
 
 
@@ -488,6 +585,63 @@ def _update_note_rect_by_id(
         annot["/M"] = _pdf_date_now()
         return True
     return False
+
+
+def _update_note_content_by_id(pdf: pikepdf.Pdf, *, note_id: str, content: str) -> bool:
+    for page in pdf.pages:
+        for annot in page.get("/Annots", []):
+            if _annotation_subtype(annot) != "/Text":
+                continue
+            if _annotation_id(annot) != note_id:
+                continue
+            annot["/Contents"] = pikepdf.String(content)
+            annot["/M"] = _pdf_date_now()
+            return True
+    return False
+
+
+def _delete_note_by_id(pdf: pikepdf.Pdf, *, note_id: str) -> bool:
+    for page in pdf.pages:
+        annots = page.get("/Annots", None)
+        if annots is None:
+            continue
+        for idx, annot in enumerate(list(annots)):
+            if _annotation_subtype(annot) != "/Text":
+                continue
+            if _annotation_id(annot) != note_id:
+                continue
+            del annots[idx]
+            return True
+    return False
+
+
+def _find_note_by_id(pdf_path: str, note_id: str) -> dict | None:
+    for item in load_annotations(pdf_path):
+        if item.get("id") == note_id:
+            return item
+    return None
+
+
+def _shorten_note_content(content: str, limit: int = 120) -> str:
+    text = " ".join((content or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _notes_for_js(pdf_path: str) -> list[dict]:
+    notes: list[dict] = []
+    for item in load_annotations(pdf_path):
+        rect = item.get("rect") or ()
+        if not item.get("id") or len(rect) != 4:
+            continue
+        notes.append({
+            "id": str(item["id"]),
+            "page_number": int(item["page_number"]),
+            "rect": [float(v) for v in rect],
+            "content": str(item.get("content") or ""),
+        })
+    return notes
 
 
 def _normalize_text(value: str) -> str:
@@ -1030,15 +1184,12 @@ def add_comment(window):
                 content=content,
             )
             _save_pikepdf_reload(window, pdf)
-        _arm_note_icon_drag(
-            window,
-            pdf_path=path,
-            note_id=note_id,
-            page_no=page_no,
-            rect=rect,
-        )
+        enable_note_tools(window)
         if hasattr(window, "status"):
-            window.status.showMessage(f"Đã thêm ghi chú vào trang {page_no}. Kéo icon ghi chú để đổi vị trí.", 5000)
+            window.status.showMessage(
+                f"Đã thêm ghi chú vào trang {page_no}. Kéo icon để di chuyển, đúp chuột để sửa, chuột phải để xóa.",
+                6000,
+            )
         setattr(window, "_last_added_note_id", note_id)
     except Exception as exc:
         show_warning(window, "Lỗi thêm ghi chú", str(exc))

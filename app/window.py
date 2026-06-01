@@ -49,7 +49,7 @@ from styles.theme import toggle_theme, is_dark
 from app.actions.annotate import (
     highlight_text, rotate_page_cw, rotate_page_ccw,
     delete_current_page, merge_pdf, extract_pages,
-    underline_text, strikeout_text, add_comment,
+    underline_text, strikeout_text, add_comment, enable_note_tools,
 )
 from app.actions.sign import (
     check_token,
@@ -1413,6 +1413,7 @@ class PDFReaderApp(QMainWindow):
         wv = self._get_webview_for_viewer(viewer)
         if wv:
             apply_brightness_to_webview(self, wv)
+            QTimer.singleShot(250, lambda: enable_note_tools(self))
 
     def _on_page_changed(self, viewer, cur, total):
         if viewer is not self.viewer:
