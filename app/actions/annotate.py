@@ -117,6 +117,24 @@ def _queue_annotation_op(window, target_path: str, op, *, delay_ms: int = 350) -
     _annotation_queue(window).enqueue(target_path, op, delay_ms=delay_ms)
 
 
+def _flush_annotation_queue(window) -> None:
+    queue = getattr(window, "_annotation_op_queue", None)
+    if queue is None:
+        return
+    queue.flush()
+
+
+def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str) -> None:
+    staged_path = ""
+    try:
+        staged_path = make_staged_pdf_path(target_path)
+        pdf.save(staged_path)
+        replace_file_with_retry(staged_path, target_path, attempts=8)
+    except Exception:
+        remove_path_quietly(staged_path)
+        raise
+
+
 def _pdf_date_now() -> pikepdf.String:
     now = datetime.now(timezone.utc)
     return pikepdf.String(now.strftime("D:%Y%m%d%H%M%SZ"))
@@ -869,6 +887,7 @@ class _NoteToolsBridge(QObject):
         if not self._path_is_current():
             return
         try:
+            _flush_annotation_queue(self._window)
             note = _overlay_notes(self._window).get(note_id) or _find_note_by_id(self._pdf_path, note_id)
             if not note:
                 show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
@@ -883,14 +902,15 @@ class _NoteToolsBridge(QObject):
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
+            with pikepdf.open(self._pdf_path) as pdf:
+                if not _delete_note_by_id(pdf, note_id=note_id):
+                    show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
+                    return
+                _save_pikepdf_in_place(pdf, self._pdf_path)
+
             tombstone = dict(note)
             tombstone["_deleted"] = True
             _overlay_notes(self._window)[note_id] = tombstone
-
-            def _op(pdf):
-                _delete_note_by_id(pdf, note_id=note_id)
-
-            _queue_annotation_op(self._window, self._pdf_path, _op, delay_ms=350)
             self._run_js(
                 "if(window.__3tNotesDeleteNote) window.__3tNotesDeleteNote(%s);"
                 % json.dumps(note_id, ensure_ascii=False)
@@ -898,13 +918,6 @@ class _NoteToolsBridge(QObject):
             if hasattr(self._window, "status"):
                 self._window.status.showMessage(f"Da xoa ghi chu trang {note.get('page_number') or page_number}.", 1800)
             return
-            with pikepdf.open(self._pdf_path) as pdf:
-                if not _delete_note_by_id(pdf, note_id=note_id):
-                    show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
-                    return
-                _save_pikepdf_reload(self._window, pdf)
-            if hasattr(self._window, "status"):
-                self._window.status.showMessage(f"Đã xóa ghi chú trang {note.get('page_number') or page_number}", 2500)
         except Exception as exc:
             show_warning(self._window, "Lỗi xóa ghi chú", str(exc))
 
