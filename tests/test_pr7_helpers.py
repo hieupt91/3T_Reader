@@ -102,3 +102,33 @@ def test_note_rect_drag_result_is_clamped_to_page():
     assert _clamp_note_rect_to_page(page, (-50, -50, -32, -32)) == (12.0, 12.0, 30.0, 30.0)
     assert _clamp_note_rect_to_page(page, (240, 340, 258, 358)) == (170.0, 270.0, 188.0, 288.0)
     pdf.close()
+
+
+def test_update_text_note_rect_by_id(tmp_path):
+    import pytest
+
+    pikepdf = pytest.importorskip("pikepdf")
+    from app.actions.annotate import add_annotation, load_annotations, _update_note_rect_by_id
+
+    out = tmp_path / "move-note.pdf"
+    pdf = pikepdf.Pdf.new()
+    pdf.add_blank_page(page_size=(200, 200))
+    note_id = add_annotation(
+        pdf,
+        page_idx=0,
+        subtype="Text",
+        rect=(170, 170, 188, 188),
+        content="Move me",
+    )
+
+    assert _update_note_rect_by_id(
+        pdf,
+        page_idx=0,
+        note_id=note_id,
+        new_rect=(20, 30, 38, 48),
+    )
+    pdf.save(out)
+    pdf.close()
+
+    notes = load_annotations(str(out))
+    assert notes[0]["rect"] == (20.0, 30.0, 38.0, 48.0)
