@@ -81,7 +81,7 @@ def test_replace_document_with_staged_updates_state_and_cleans_old_temp(tmp_path
     assert window.get_display_path() == str(target)
     assert window._state["temp_path"] is None
     assert not old_temp.exists()
-    assert window.viewer.loaded == [(str(target), 3, "page-width")]
+    assert window.viewer.loaded == [(str(target), 3, "100")]
 
 
 def test_ensure_edit_state_prefers_display_path_over_legacy_op_temp(tmp_path, monkeypatch):

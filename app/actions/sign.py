@@ -79,10 +79,11 @@ def _refresh_document_view(window, output_path: str, *, page_number: int = 1):
         if not viewer:
             return
         try:
+            zoom = str(getattr(getattr(window, "zoom_spin", None), "value", lambda: 100)())
             viewer.load_pdf(
                 output_path,
                 page=max(1, int(page_number or 1)),
-                zoom="page-width",
+                zoom=zoom,
             )
         except Exception:
             traceback.print_exc()

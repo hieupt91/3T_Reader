@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pikepdf
 
-from packages.qt_compat.QtCore import QObject, QTimer, pyqtSlot
+from packages.qt_compat.QtCore import QObject, QEventLoop, QTimer, pyqtSlot
 from packages.qt_compat.QtWidgets import (
     QFileDialog,
     QInputDialog,
@@ -1389,6 +1389,121 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
             page["/Annots"].append(a)
 
 
+_GET_SELECTION_RECTS_JS = r"""(function() {
+    var sel = window.getSelection ? window.getSelection() : null;
+    var text = sel ? String(sel.toString() || '') : '';
+    var app = window.PDFViewerApplication;
+    var viewer = app && app.pdfViewer;
+    if (!sel || sel.rangeCount <= 0 || !viewer) return {text: text, rects: []};
+
+    function pageViewFor(pageNumber) {
+        return viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
+    }
+    function pageForRect(rect) {
+        var cx = (rect.left + rect.right) / 2;
+        var cy = (rect.top + rect.bottom) / 2;
+        var el = document.elementFromPoint(cx, cy);
+        var pageEl = el && el.closest ? el.closest('.page') : null;
+        if (pageEl) return pageEl;
+        var pages = document.querySelectorAll('.page[data-page-number]');
+        for (var i = 0; i < pages.length; i++) {
+            var pr = pages[i].getBoundingClientRect();
+            if (cx >= pr.left && cx <= pr.right && cy >= pr.top && cy <= pr.bottom) return pages[i];
+        }
+        return null;
+    }
+
+    var out = [];
+    for (var r = 0; r < sel.rangeCount; r++) {
+        var rects = sel.getRangeAt(r).getClientRects();
+        for (var i = 0; i < rects.length; i++) {
+            var cr = rects[i];
+            if (!cr || cr.width < 2 || cr.height < 2) continue;
+            var pageEl = pageForRect(cr);
+            if (!pageEl) continue;
+            var pageNumber = parseInt(pageEl.getAttribute('data-page-number') || '0', 10);
+            var pageView = pageNumber ? pageViewFor(pageNumber) : null;
+            if (!pageView || !pageView.viewport) continue;
+            var pr = pageEl.getBoundingClientRect();
+            var p0 = pageView.viewport.convertToPdfPoint(cr.left - pr.left, cr.top - pr.top);
+            var p1 = pageView.viewport.convertToPdfPoint(cr.right - pr.left, cr.bottom - pr.top);
+            out.push({
+                page_number: pageNumber,
+                rect: [
+                    Math.min(p0[0], p1[0]), Math.min(p0[1], p1[1]),
+                    Math.max(p0[0], p1[0]), Math.max(p0[1], p1[1])
+                ]
+            });
+        }
+    }
+    return {text: text, rects: out};
+})()"""
+
+
+def _selection_page_rects(payload) -> tuple[str, dict[int, list[tuple[float, float, float, float]]]]:
+    text = ""
+    raw_rects = []
+    if isinstance(payload, dict):
+        text = str(payload.get("text") or "").strip()
+        raw_rects = payload.get("rects") or []
+    rects_by_page: dict[int, list[tuple[float, float, float, float]]] = {}
+    if not isinstance(raw_rects, list):
+        return text, rects_by_page
+    for item in raw_rects:
+        if not isinstance(item, dict):
+            continue
+        try:
+            page_no = int(item.get("page_number") or 0)
+            rect = item.get("rect") or []
+            if page_no < 1 or len(rect) != 4:
+                continue
+            left, bottom, right, top = [float(v) for v in rect]
+            if abs(right - left) < 1 or abs(top - bottom) < 1:
+                continue
+            rects_by_page.setdefault(page_no, []).append((left, bottom, right, top))
+        except Exception:
+            continue
+    return text, {page: _merge_rects_by_line(rects) for page, rects in rects_by_page.items()}
+
+
+def _get_selection_page_rects_sync(window, *, timeout_ms: int = 350) -> tuple[str, dict[int, list[tuple[float, float, float, float]]]]:
+    """Read the current PDF.js selection geometry synchronously for modal flows."""
+    try:
+        getter = getattr(window, "_get_webview", None)
+        web_view = getter() if callable(getter) else None
+    except Exception:
+        web_view = None
+    if web_view is None:
+        return "", {}
+
+    holder = {"payload": None}
+    loop = QEventLoop(window)
+
+    def _done(payload):
+        holder["payload"] = payload
+        if loop.isRunning():
+            loop.quit()
+
+    try:
+        web_view.page().runJavaScript(_GET_SELECTION_RECTS_JS, _done)
+        QTimer.singleShot(timeout_ms, lambda: loop.quit() if loop.isRunning() else None)
+        loop.exec()
+    except Exception:
+        return "", {}
+    return _selection_page_rects(holder.get("payload") or {})
+
+
+def _selected_note_rect(page, selected_rects: list[tuple[float, float, float, float]]) -> tuple[float, float, float, float] | None:
+    """Place a note icon at the beginning of the first selected text line."""
+    if not selected_rects:
+        return None
+    size = NOTE_ICON_SIZE_PT
+    first = sorted(selected_rects, key=lambda r: (-float(r[3]), float(r[0])))[0]
+    left = float(first[0])
+    top = float(first[3])
+    return _clamp_note_rect_to_page(page, (left, top - size, left + size, top))
+
+
 # ── Highlight ─────────────────────────────────────────────────────────────────
 
 @require_document(show_message=True)
@@ -1396,8 +1511,8 @@ def highlight_text(window):
     """Highlight selected or searched text on current page."""
     wv = window._get_webview()
 
-    def _apply(sel_text):
-        text = (sel_text or "").strip()
+    def _apply(payload):
+        text, page_rects = _selection_page_rects(payload)
         if not text:
             text, ok = QInputDialog.getText(
                 window, "Tô sáng văn bản",
@@ -1407,45 +1522,62 @@ def highlight_text(window):
             if not ok or not text.strip():
                 return
             text = text.strip()
-        _do_highlight(window, text)
+        _do_highlight(window, text, page_rects=page_rects)
 
     if wv:
-        wv.page().runJavaScript("window.getSelection().toString()", _apply)
+        wv.page().runJavaScript(_GET_SELECTION_RECTS_JS, _apply)
     else:
-        _apply("")
+        _apply({})
 
 
-def _do_highlight(window, text: str):
+def _do_highlight(window, text: str, *, page_rects: dict[int, list[tuple]] | None = None):
     path = window.current_path
     page_no = _get_current_page(window)
-    rects = _merge_rects_by_line(_search_text_on_page(path, page_no, text))
-    if not rects:
+    if page_rects:
+        rect_groups = {int(page): list(rects) for page, rects in page_rects.items() if rects}
+        page_no = sorted(rect_groups.keys())[0] if rect_groups else page_no
+    else:
+        rect_groups = {page_no: _merge_rects_by_line(_search_text_on_page(path, page_no, text))}
+    if not any(rect_groups.values()):
         show_warning(window, "Không tìm thấy",
             f'Không tìm thấy "{text}" trên trang {page_no}.')
         return
     try:
         mark_id = f"3t-mark-{uuid.uuid4().hex}"
-        annot_ids = [f"{mark_id}-{idx}" for idx in range(len(rects))]
-        _add_overlay_mark(
-            window,
-            path,
-            page_number=page_no,
-            rects=rects,
-            color="rgba(250,204,21,.35)",
-            style="highlight",
-            mark_id=mark_id,
-        )
+        annot_ids = []
+        total_rects = 0
+        for group_page, rects in sorted(rect_groups.items()):
+            rects = list(rects or [])
+            if not rects:
+                continue
+            page_ids = [f"{mark_id}-{group_page}-{idx}" for idx in range(len(rects))]
+            annot_ids.extend(page_ids)
+            total_rects += len(rects)
+            _add_overlay_mark(
+                window,
+                path,
+                page_number=group_page,
+                rects=rects,
+                color="rgba(250,204,21,.35)",
+                style="highlight",
+                mark_id=mark_id,
+            )
 
         def _op(pdf):
             if _annotation_mark_active(window, mark_id):
-                _add_pdf_annotation(
-                    pdf,
-                    page_no - 1,
-                    "Highlight",
-                    rects,
-                    [1.0, 1.0, 0.0],
-                    annot_ids=annot_ids,
-                )
+                for group_page, rects in sorted(rect_groups.items()):
+                    rects = list(rects or [])
+                    if not rects or group_page < 1 or group_page > len(pdf.pages):
+                        continue
+                    page_ids = [f"{mark_id}-{group_page}-{idx}" for idx in range(len(rects))]
+                    _add_pdf_annotation(
+                        pdf,
+                        group_page - 1,
+                        "Highlight",
+                        rects,
+                        [1.0, 1.0, 0.0],
+                        annot_ids=page_ids,
+                    )
 
         _queue_annotation_op(window, path, _op, delay_ms=350)
         _push_annotation_undo(window, {
@@ -1613,11 +1745,15 @@ def _parse_page_range(text: str, max_page: int) -> list[int]:
 
 # ── Underline / Strikeout ─────────────────────────────────────────────────────
 
-def _do_line_annot(window, text: str, annot_type: str):
+def _do_line_annot(window, text: str, annot_type: str, *, page_rects: dict[int, list[tuple]] | None = None):
     path = window.current_path
     page_no = _get_current_page(window)
-    rects = _merge_rects_by_line(_search_text_on_page(path, page_no, text))
-    if not rects:
+    if page_rects:
+        rect_groups = {int(page): list(rects) for page, rects in page_rects.items() if rects}
+        page_no = sorted(rect_groups.keys())[0] if rect_groups else page_no
+    else:
+        rect_groups = {page_no: _merge_rects_by_line(_search_text_on_page(path, page_no, text))}
+    if not any(rect_groups.values()):
         show_warning(window, "Không tìm thấy",
             f'Không tìm thấy "{text}" trên trang {page_no}.')
         return
@@ -1627,27 +1763,40 @@ def _do_line_annot(window, text: str, annot_type: str):
         overlay_style = "underline" if annot_type == "underline" else "strikeout"
         overlay_color = "rgba(37,99,235,.9)" if annot_type == "underline" else "rgba(220,38,38,.9)"
         mark_id = f"3t-mark-{uuid.uuid4().hex}"
-        annot_ids = [f"{mark_id}-{idx}" for idx in range(len(rects))]
-        _add_overlay_mark(
-            window,
-            path,
-            page_number=page_no,
-            rects=rects,
-            color=overlay_color,
-            style=overlay_style,
-            mark_id=mark_id,
-        )
+        annot_ids = []
+        total_rects = 0
+        for group_page, rects in sorted(rect_groups.items()):
+            rects = list(rects or [])
+            if not rects:
+                continue
+            page_ids = [f"{mark_id}-{group_page}-{idx}" for idx in range(len(rects))]
+            annot_ids.extend(page_ids)
+            total_rects += len(rects)
+            _add_overlay_mark(
+                window,
+                path,
+                page_number=group_page,
+                rects=rects,
+                color=overlay_color,
+                style=overlay_style,
+                mark_id=mark_id,
+            )
 
         def _op(pdf):
             if _annotation_mark_active(window, mark_id):
-                _add_pdf_annotation(
-                    pdf,
-                    page_no - 1,
-                    subtype,
-                    rects,
-                    color,
-                    annot_ids=annot_ids,
-                )
+                for group_page, rects in sorted(rect_groups.items()):
+                    rects = list(rects or [])
+                    if not rects or group_page < 1 or group_page > len(pdf.pages):
+                        continue
+                    page_ids = [f"{mark_id}-{group_page}-{idx}" for idx in range(len(rects))]
+                    _add_pdf_annotation(
+                        pdf,
+                        group_page - 1,
+                        subtype,
+                        rects,
+                        color,
+                        annot_ids=page_ids,
+                    )
 
         _queue_annotation_op(window, path, _op, delay_ms=350)
         _push_annotation_undo(window, {
@@ -1670,8 +1819,8 @@ def underline_text(window):
     """Gạch dưới văn bản được chọn hoặc nhập."""
     wv = window._get_webview()
 
-    def _apply(sel_text):
-        text = (sel_text or "").strip()
+    def _apply(payload):
+        text, page_rects = _selection_page_rects(payload)
         if not text:
             text, ok = QInputDialog.getText(
                 window, "Gạch dưới văn bản",
@@ -1681,12 +1830,12 @@ def underline_text(window):
             if not ok or not text.strip():
                 return
             text = text.strip()
-        _do_line_annot(window, text, "underline")
+        _do_line_annot(window, text, "underline", page_rects=page_rects)
 
     if wv:
-        wv.page().runJavaScript("window.getSelection().toString()", _apply)
+        wv.page().runJavaScript(_GET_SELECTION_RECTS_JS, _apply)
     else:
-        _apply("")
+        _apply({})
 
 
 @require_document(show_message=True)
@@ -1694,8 +1843,8 @@ def strikeout_text(window):
     """Gạch ngang (strikeout) văn bản được chọn hoặc nhập."""
     wv = window._get_webview()
 
-    def _apply(sel_text):
-        text = (sel_text or "").strip()
+    def _apply(payload):
+        text, page_rects = _selection_page_rects(payload)
         if not text:
             text, ok = QInputDialog.getText(
                 window, "Gạch ngang văn bản",
@@ -1705,12 +1854,12 @@ def strikeout_text(window):
             if not ok or not text.strip():
                 return
             text = text.strip()
-        _do_line_annot(window, text, "strikeout")
+        _do_line_annot(window, text, "strikeout", page_rects=page_rects)
 
     if wv:
-        wv.page().runJavaScript("window.getSelection().toString()", _apply)
+        wv.page().runJavaScript(_GET_SELECTION_RECTS_JS, _apply)
     else:
-        _apply("")
+        _apply({})
 
 
 # ── Comment (sticky note) ─────────────────────────────────────────────────────
@@ -1732,13 +1881,18 @@ def add_comment(window):
     if not ok or not content:
         return
 
+    _sel_text, selected_page_rects = _get_selection_page_rects_sync(window)
     page_no = _get_current_page(window)
     try:
         with pikepdf.open(path) as pdf:
+            if selected_page_rects:
+                page_no = sorted(selected_page_rects.keys())[0]
             if page_no < 1 or page_no > len(pdf.pages):
                 page_no = 1
             page = pdf.pages[page_no - 1]
-            rect = _default_note_rect(page, _count_text_notes(page))
+            rect = _selected_note_rect(page, selected_page_rects.get(page_no) or [])
+            if rect is None:
+                rect = _note_rect_for_position(page, NOTE_POSITION_TOP_LEFT, _count_text_notes(page))
         note_id = f"3t-note-{uuid.uuid4().hex}"
         note = {
             "id": note_id,

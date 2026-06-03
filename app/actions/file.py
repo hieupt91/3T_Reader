@@ -66,7 +66,7 @@ def open_file(window, path=None):
                 return
         else:
             window.current_path = source_path
-            window.viewer.load_pdf(source_path, zoom="page-width", pagemode="thumbs")
+            window.viewer.load_pdf(source_path, zoom="100", pagemode="thumbs")
 
         save_recent(path)
         window.status.showMessage(f"Đã mở: {os.path.basename(path)}", 3000)

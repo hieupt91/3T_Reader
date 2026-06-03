@@ -38,7 +38,7 @@ _JS_FIT_PAGE = """
 (function() {
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
-    app.pdfViewer.currentScaleValue = 'page-fit';
+    app.pdfViewer.currentScaleValue = '1.0';
     return Math.round((app.pdfViewer.currentScale || 1) * 100);
 })()
 """
@@ -46,7 +46,11 @@ _JS_FIT_PAGE = """
 
 def _update_spinner(window, pct):
     if pct and pct > 0:
-        window.zoom_spin.setValue(int(pct))
+        try:
+            window.zoom_spin.blockSignals(True)
+            window.zoom_spin.setValue(max(25, min(400, int(pct))))
+        finally:
+            window.zoom_spin.blockSignals(False)
 
 
 def _run_zoom_js(window, wv, js: str, *, attempts: int = 8):

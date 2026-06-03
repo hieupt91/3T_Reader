@@ -34,7 +34,8 @@ def _reload(window, path: str):
     except Exception:
         page = 1
     window.current_path = path
-    window.viewer.load_pdf(path, page=max(1, page), zoom="page-width")
+    zoom = str(getattr(getattr(window, "zoom_spin", None), "value", lambda: 100)())
+    window.viewer.load_pdf(path, page=max(1, page), zoom=zoom)
     if hasattr(window, "_active_state") and window._active_state() is not None:
         window._active_state()["source_path"] = path
         window._active_state()["display_path"] = path

@@ -414,7 +414,7 @@ class PDFReaderApp(QMainWindow):
         self._connect_viewer_signals(viewer)
 
         try:
-            viewer.load_pdf(source_path, zoom="page-width", pagemode="thumbs")
+            viewer.load_pdf(source_path, zoom="100", pagemode="thumbs")
         except Exception as e:
             self._close_tab(index)
             show_warning(self, "Không thể mở tệp", str(e))
@@ -435,6 +435,7 @@ class PDFReaderApp(QMainWindow):
     def _connect_viewer_signals(self, viewer):
         viewer.pdf_loaded.connect(lambda meta, v=viewer: self._on_pdf_loaded(v, meta))
         viewer.page_changed.connect(lambda cur, total, v=viewer: self._on_page_changed(v, cur, total))
+        viewer.zoom_changed.connect(lambda pct, v=viewer: self._on_zoom_changed(v, pct))
         viewer.error_occurred.connect(lambda msg: self.status.showMessage(f"Cảnh báo: {msg}", 5000))
         viewer.find_not_found.connect(lambda q: show_warning(self, "Không tìm thấy", f"Không tìm thấy kết quả cho: \"{q}\""))
         viewer.page_ready.connect(lambda v=viewer: self._on_page_ready(v))
@@ -1411,6 +1412,15 @@ class PDFReaderApp(QMainWindow):
             self.page_spin.setMaximum(max(1, cur))
         self.page_spin.setValue(cur)
         self.sidebar.highlight_page(cur)
+
+    def _on_zoom_changed(self, viewer, pct):
+        if viewer is not self.viewer or not pct:
+            return
+        try:
+            self.zoom_spin.blockSignals(True)
+            self.zoom_spin.setValue(max(25, min(400, int(pct))))
+        finally:
+            self.zoom_spin.blockSignals(False)
 
     def _load_toc_for_active(self):
         state = self._active_state()

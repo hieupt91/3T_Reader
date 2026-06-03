@@ -93,7 +93,7 @@ def reload_document(
     source_path: str,
     *,
     page: int | None = None,
-    zoom: str = "page-width",
+    zoom: str = "100",
     display_path=_UNSET,
     temp_path=_UNSET,
 ) -> None:

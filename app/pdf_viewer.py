@@ -129,12 +129,18 @@ _PDFJS_UI_AND_HOOKS_JS = """
 })();
 """
 
-# Poll JS: returns current page number (0 if PDF.js not ready)
-_JS_GET_PAGE = """
+# Poll JS: returns current page number + zoom percent if PDF.js is ready.
+_JS_GET_VIEW_STATE = """
 (function(){
     var app = window.PDFViewerApplication;
-    if (app && app.pdfViewer) return app.pdfViewer.currentPageNumber || 0;
-    return window.__3tCurrentPage || 0;
+    if (app && app.pdfViewer) {
+        var viewer = app.pdfViewer;
+        return {
+            page: viewer.currentPageNumber || 0,
+            zoom: Math.round((viewer.currentScale || 0) * 100)
+        };
+    }
+    return {page: window.__3tCurrentPage || 0, zoom: 0};
 })()
 """
 
@@ -151,6 +157,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
 
     pdf_loaded = pyqtSignal(dict)
     page_changed = pyqtSignal(int, int)
+    zoom_changed = pyqtSignal(int)
     page_ready = pyqtSignal()
     error_occurred = pyqtSignal(str)
     find_not_found = pyqtSignal(str)   # emitted with the query when PDF.js reports notFound
@@ -162,7 +169,8 @@ class PDFViewerWidget(QtWidgets.QWidget):
         self._path = ""
         self._page_count = 0
         self._current_page = 1
-        self._zoom = "page-width"
+        self._zoom = "100"
+        self._zoom_pct = 0
         self._load_token = 0
 
         self._web_view = QtWebEngineWidgets.QWebEngineView(self)
@@ -209,13 +217,14 @@ class PDFViewerWidget(QtWidgets.QWidget):
     #  Public API                                                          #
     # ------------------------------------------------------------------ #
 
-    def load_pdf(self, path: str, zoom: str = "page-width", page: int | None = None, pagemode: str | None = None):
+    def load_pdf(self, path: str, zoom: str = "100", page: int | None = None, pagemode: str | None = None):
         self._load_token += 1
         token = self._load_token
         self._path = path
         self._zoom = zoom
         self._current_page = max(1, int(page or 1))
         self._page_count = 0
+        self._zoom_pct = 0
 
         self._load_web_view(path, zoom=zoom, page=self._current_page, pagemode=pagemode)
         self.pdf_loaded.emit({"filename": os.path.basename(path), "path": path})
@@ -266,7 +275,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
     def _poll_page(self):
         if not self._path:
             return
-        self._web_view.page().runJavaScript(_JS_GET_PAGE, self._on_page_polled)
+        self._web_view.page().runJavaScript(_JS_GET_VIEW_STATE, self._on_view_state_polled)
 
     def _load_page_count_async(self, token: int, path: str):
         def _worker():
@@ -280,10 +289,25 @@ class PDFViewerWidget(QtWidgets.QWidget):
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_page_polled(self, page_num):
+    def _on_view_state_polled(self, state):
+        if not isinstance(state, dict):
+            return
+        try:
+            page_num = int(state.get("page") or 0)
+        except Exception:
+            page_num = 0
+        try:
+            zoom_pct = int(state.get("zoom") or 0)
+        except Exception:
+            zoom_pct = 0
+
+        if zoom_pct > 0 and zoom_pct != self._zoom_pct:
+            self._zoom_pct = zoom_pct
+            self.zoom_changed.emit(zoom_pct)
+
         if not page_num or page_num == self._current_page:
             return
-        self._current_page = int(page_num)
+        self._current_page = page_num
         self.page_changed.emit(self._current_page, self._page_count)
 
     def _on_page_count_ready(self, token: int, path: str, page_count: int, error: str):

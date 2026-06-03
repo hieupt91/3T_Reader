@@ -809,7 +809,8 @@ def _reload_viewer(window, pdf_path: str, page: int | None = None):
 
     def _load():
         try:
-            window.viewer.load_pdf(pdf_path, page=page, zoom="page-width")
+            zoom = str(getattr(getattr(window, "zoom_spin", None), "value", lambda: 100)())
+            window.viewer.load_pdf(pdf_path, page=page, zoom=zoom)
         except Exception as exc:
             show_warning(window, "Không thể mở file vừa lưu", str(exc))
 
