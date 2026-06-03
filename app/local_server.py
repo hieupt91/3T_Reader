@@ -441,8 +441,14 @@ def _normalise_pdfjs_appearance_boxes(pdf_path: str, original_data: bytes) -> by
                 for annot in annots:
                     annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
                     if _is_signature_widget(annot_obj):
-                        overlay = _signature_overlay_from_annot(annot_obj)
-                        if overlay:
+                        painted = _paint_signature_widget_appearance(
+                            pdf,
+                            page,
+                            annot_obj,
+                            f"T3Sig{page_index}_{removed_signature_widgets + 1}",
+                        )
+                        overlay = None if painted else _signature_overlay_from_annot(annot_obj)
+                        if overlay and overlay.get("lines"):
                             signature_overlays.setdefault(page_index, []).append(overlay)
                         removed_signature_widgets += 1
                         field_name = _signature_field_name(annot_obj)
@@ -551,6 +557,91 @@ def _signature_field_name(annot) -> str | None:
     except Exception:
         return None
     return None
+
+
+def _signature_appearance_stream(annot):
+    try:
+        ap = annot.get("/AP")
+        normal = ap.get("/N") if ap else None
+        if normal is None:
+            return None
+        if hasattr(normal, "read_bytes"):
+            return normal
+        if hasattr(normal, "items"):
+            for key, value in normal.items():
+                if str(key) == "/Off":
+                    continue
+                if hasattr(value, "read_bytes"):
+                    return value
+            for value in normal.values():
+                if hasattr(value, "read_bytes"):
+                    return value
+    except Exception:
+        return None
+    return None
+
+
+def _paint_signature_widget_appearance(pdf, page, annot, resource_name: str) -> bool:
+    """Flatten a signature widget's real appearance into the display-only page."""
+    try:
+        import pikepdf
+
+        stream = _signature_appearance_stream(annot)
+        if stream is None:
+            return False
+        rect = [float(v) for v in annot.get("/Rect")]
+        if len(rect) != 4:
+            return False
+        left, bottom, right, top = (
+            min(rect[0], rect[2]),
+            min(rect[1], rect[3]),
+            max(rect[0], rect[2]),
+            max(rect[1], rect[3]),
+        )
+        width = right - left
+        height = top - bottom
+        if width <= 0 or height <= 0:
+            return False
+
+        bbox = stream.get("/BBox")
+        if bbox and len(bbox) == 4:
+            bx0, by0, bx1, by1 = [float(v) for v in bbox]
+            bbox_w = abs(bx1 - bx0) or width
+            bbox_h = abs(by1 - by0) or height
+        else:
+            bx0, by0, bbox_w, bbox_h = 0.0, 0.0, width, height
+
+        sx = width / bbox_w
+        sy = height / bbox_h
+        tx = left - bx0 * sx
+        ty = bottom - by0 * sy
+
+        resources = page.obj.get("/Resources")
+        if resources is None:
+            resources = pikepdf.Dictionary()
+            page.obj["/Resources"] = resources
+        xobjects = resources.get("/XObject")
+        if xobjects is None:
+            xobjects = pikepdf.Dictionary()
+            resources["/XObject"] = xobjects
+        name = pikepdf.Name("/" + "".join(ch if ch.isalnum() else "_" for ch in resource_name))
+        xobjects[name] = stream
+
+        content = (
+            f"q\n{sx:.8f} 0 0 {sy:.8f} {tx:.8f} {ty:.8f} cm\n"
+            f"{name} Do\nQ\n"
+        ).encode("ascii")
+        new_stream = pikepdf.Stream(pdf, content)
+        existing = page.obj.get("/Contents")
+        if existing is None:
+            page.obj["/Contents"] = new_stream
+        elif isinstance(existing, pikepdf.Array):
+            existing.append(new_stream)
+        else:
+            page.obj["/Contents"] = pikepdf.Array([existing, new_stream])
+        return True
+    except Exception:
+        return False
 
 
 def _strip_signature_fields(fields_arr, removed_names: set[str]) -> tuple[list, bool]:

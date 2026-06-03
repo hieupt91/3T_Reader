@@ -65,7 +65,7 @@ def test_extract_signature_text_lines_supports_tj_arrays():
     assert "AB" in lines
 
 
-def test_signature_overlay_falls_back_for_image_only_signed_widget():
+def test_signature_overlay_does_not_synthesize_label_for_image_only_widget():
     from app.local_server import _signature_overlay_from_annot
 
     class FakeStream:
@@ -82,4 +82,4 @@ def test_signature_overlay_falls_back_for_image_only_signed_widget():
 
     assert overlay is not None
     assert overlay["signed"] is True
-    assert overlay["lines"] == ["DA KY SO"]
+    assert overlay["lines"] == []
