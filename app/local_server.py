@@ -16,6 +16,49 @@ from collections import OrderedDict
 from pathlib import Path
 
 
+_PDFJS_RUNTIME_POLYFILL = b"""
+// 3T Reader compatibility shim for Qt WebEngine builds that advertise a newer
+// Chromium version than the embedded V8 feature set actually supports.
+(function () {
+  function installMapHelpers(Ctor) {
+    if (!Ctor || !Ctor.prototype) return;
+    if (!Ctor.prototype.getOrInsert) {
+      Object.defineProperty(Ctor.prototype, 'getOrInsert', {
+        configurable: true,
+        writable: true,
+        value: function (key, defaultValue) {
+          if (!this.has(key)) this.set(key, defaultValue);
+          return this.get(key);
+        }
+      });
+    }
+    if (!Ctor.prototype.getOrInsertComputed) {
+      Object.defineProperty(Ctor.prototype, 'getOrInsertComputed', {
+        configurable: true,
+        writable: true,
+        value: function (key, computeFn) {
+          if (!this.has(key)) this.set(key, computeFn(key));
+          return this.get(key);
+        }
+      });
+    }
+  }
+  installMapHelpers(globalThis.Map);
+  installMapHelpers(globalThis.WeakMap);
+  if (!Promise.withResolvers) {
+    Promise.withResolvers = function () {
+      var resolve, reject;
+      var promise = new Promise(function (res, rej) {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise: promise, resolve: resolve, reject: reject };
+    };
+  }
+})();
+"""
+
+
 def _find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -231,6 +274,8 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
             mime = "application/octet-stream"
         try:
             data = file_path.read_bytes()
+            if file_path.suffix.lower() in {".mjs", ".js"}:
+                data = _PDFJS_RUNTIME_POLYFILL + b"\n" + data
             self.send_response(200)
             self.send_header("Content-Type", mime)
             self.send_header("Content-Length", str(len(data)))

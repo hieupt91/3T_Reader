@@ -12,20 +12,43 @@ class _DebugPage(QWebEnginePage):
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
         print(f"[JS:{level.name}:{lineNumber}] {message}", flush=True)
 
-# Polyfill for Map methods added in V8 13.6+ (Chrome 136+).
+# Polyfill for collection helpers added in V8 13.6+ (Chrome 136+).
 # Qt WebEngine 6.11 reports Chrome/140 but ships a build without these methods.
 _MAP_POLYFILL_JS = """
 (function () {
-    if (!Map.prototype.getOrInsert) {
-        Map.prototype.getOrInsert = function (key, defaultValue) {
-            if (!this.has(key)) { this.set(key, defaultValue); }
-            return this.get(key);
-        };
+    function install(Ctor) {
+        if (!Ctor || !Ctor.prototype) return;
+        if (!Ctor.prototype.getOrInsert) {
+            Object.defineProperty(Ctor.prototype, 'getOrInsert', {
+                configurable: true,
+                writable: true,
+                value: function (key, defaultValue) {
+                    if (!this.has(key)) { this.set(key, defaultValue); }
+                    return this.get(key);
+                }
+            });
+        }
+        if (!Ctor.prototype.getOrInsertComputed) {
+            Object.defineProperty(Ctor.prototype, 'getOrInsertComputed', {
+                configurable: true,
+                writable: true,
+                value: function (key, computeFn) {
+                    if (!this.has(key)) { this.set(key, computeFn(key)); }
+                    return this.get(key);
+                }
+            });
+        }
     }
-    if (!Map.prototype.getOrInsertComputed) {
-        Map.prototype.getOrInsertComputed = function (key, computeFn) {
-            if (!this.has(key)) { this.set(key, computeFn(key)); }
-            return this.get(key);
+    install(Map);
+    install(WeakMap);
+    if (!Promise.withResolvers) {
+        Promise.withResolvers = function () {
+            var resolve, reject;
+            var promise = new Promise(function (res, rej) {
+                resolve = res;
+                reject = rej;
+            });
+            return { promise: promise, resolve: resolve, reject: reject };
         };
     }
 })();
