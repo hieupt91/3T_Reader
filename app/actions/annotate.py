@@ -362,6 +362,23 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         if (old && old.parentNode) old.parentNode.removeChild(old);
     }
 
+    function installMenuDismiss(menu) {
+        function onDocMouseDown(event) {
+            if (menu && menu.contains(event.target)) return;
+            closeMenu();
+            document.removeEventListener('mousedown', onDocMouseDown, true);
+        }
+        function onDocKeyDown() {
+            closeMenu();
+            document.removeEventListener('mousedown', onDocMouseDown, true);
+            document.removeEventListener('keydown', onDocKeyDown, true);
+        }
+        setTimeout(function() {
+            document.addEventListener('mousedown', onDocMouseDown, true);
+            document.addEventListener('keydown', onDocKeyDown, true);
+        }, 0);
+    }
+
     function showMenu(note, node, x, y, bridge) {
         closeMenu();
         var menu = document.createElement('div');
@@ -603,10 +620,7 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         }, true);
         menu.appendChild(btn);
         document.body.appendChild(menu);
-        setTimeout(function() {
-            document.addEventListener('mousedown', closeMenu, {capture: true, once: true});
-            document.addEventListener('keydown', closeMenu, {capture: true, once: true});
-        }, 0);
+        installMenuDismiss(menu);
     }
 
     function pageViewFor(viewer, pageNumber) {
@@ -658,10 +672,7 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
             preview.textContent = ((node && node.dataset && node.dataset.noteContent) || note.content || '').trim() || '(Ghi chu trong)';
             preview.style.cssText = 'position:fixed;left:' + (event.clientX + 10) + 'px;top:' + (event.clientY + 10) + 'px;z-index:10050;min-width:220px;max-width:320px;white-space:pre-wrap;word-break:break-word;max-height:160px;overflow:auto;padding:8px 10px;border-radius:6px;background:#fff;color:#0f172a;border:1px solid rgba(15,23,42,.18);box-shadow:0 10px 28px rgba(15,23,42,.22);font:13px sans-serif';
             document.body.appendChild(preview);
-            setTimeout(function() {
-                document.addEventListener('mousedown', closeMenu, {capture: true, once: true});
-                document.addEventListener('keydown', closeMenu, {capture: true, once: true});
-            }, 0);
+            installMenuDismiss(preview);
         }
         function onMouseDown(event) {
             if (event.button !== 0) return;
