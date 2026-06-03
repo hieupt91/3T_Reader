@@ -224,6 +224,16 @@ class ThumbnailSidebar(QDockWidget):
 
     def highlight_page(self, page_number: int):
         """Tô sáng trang đang xem trong thanh bên."""
+        try:
+            page_number = int(page_number)
+        except Exception:
+            return
+        while (
+            self._page_count > 0
+            and page_number > self.list.count()
+            and self._populate_index <= self._page_count
+        ):
+            self._populate_next_batch()
         index = page_number - 1
         if 0 <= index < self.list.count():
             self.list.setCurrentRow(index)

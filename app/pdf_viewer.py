@@ -135,8 +135,27 @@ _JS_GET_VIEW_STATE = """
     var app = window.PDFViewerApplication;
     if (app && app.pdfViewer) {
         var viewer = app.pdfViewer;
+        var page = 0;
+        var container = document.getElementById('viewerContainer');
+        var pages = document.querySelectorAll('.page[data-page-number]');
+        if (container && pages && pages.length) {
+            var viewport = container.getBoundingClientRect();
+            var bestScore = -1;
+            for (var i = 0; i < pages.length; i++) {
+                var pageEl = pages[i];
+                var rect = pageEl.getBoundingClientRect();
+                var overlapY = Math.max(0, Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top));
+                var overlapX = Math.max(0, Math.min(rect.right, viewport.right) - Math.max(rect.left, viewport.left));
+                var score = overlapY * Math.max(1, overlapX);
+                if (score > bestScore) {
+                    bestScore = score;
+                    page = parseInt(pageEl.getAttribute('data-page-number') || '0', 10) || 0;
+                }
+            }
+        }
+        if (!page) page = viewer.currentPageNumber || window.__3tCurrentPage || 0;
         return {
-            page: viewer.currentPageNumber || 0,
+            page: page,
             zoom: Math.round((viewer.currentScale || 0) * 100)
         };
     }
@@ -203,9 +222,9 @@ class PDFViewerWidget(QtWidgets.QWidget):
         self._web_view.loadFinished.connect(lambda ok: self.page_ready.emit() if ok else None)
         self.page_count_ready.connect(self._on_page_count_ready)
 
-        # Timer: polls current page from PDF.js every 400 ms while a PDF is open
+        # Timer: polls current page/zoom from PDF.js while a PDF is open.
         self._page_timer = QtCore.QTimer(self)
-        self._page_timer.setInterval(400)
+        self._page_timer.setInterval(150)
         self._page_timer.timeout.connect(self._poll_page)
 
         layout = QtWidgets.QVBoxLayout(self)
