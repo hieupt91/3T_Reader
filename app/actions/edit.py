@@ -350,7 +350,11 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
     var pageView  = pdfViewer.getPageView
         ? pdfViewer.getPageView(pageNum - 1)
         : (pdfViewer._pages && pdfViewer._pages[pageNum - 1]);
-    if (!pageView || !pageView.viewport || !pageView.div) { console.error('[3T] no pageView for page ' + pageNum); return; }
+    if (!pageView || !pageView.viewport || !pageView.div) {
+        console.warn('[3T] no pageView for page ' + pageNum + ', retry later');
+        reportAction({type:'retry'});
+        return;
+    }
 
     var vp     = pageView.viewport;
     var coords = vp.convertToViewportRectangle([pdfLeft, pdfBottom, pdfRight, pdfTop]);
@@ -1040,7 +1044,7 @@ def _find_op_at_pick(state, pick):
     return min(candidates, key=dist2)
 
 
-def _run_object_action_session(window, state, target_op, web_view=None):
+def _run_object_action_session(window, state, target_op, web_view=None, retry_count: int = 0):
     from app.actions.sign import _get_web_view, _setup_webchannel, _teardown_webchannel
 
     if web_view is None:
@@ -1091,6 +1095,14 @@ def _run_object_action_session(window, state, target_op, web_view=None):
         _clear_object_overlay(window)
 
     action = action_result.get("type", "dismiss")
+
+    if action == "retry":
+        if retry_count >= 8:
+            if hasattr(window, "status"):
+                window.status.showMessage("Chưa hiển thị được khung chọn. Vui lòng thử lại sau khi trang tải xong.", 3500)
+            return
+        QTimer.singleShot(250, lambda: _run_object_action_session(window, state, target_op, web_view, retry_count + 1))
+        return
 
     if action == "dismiss":
         return
@@ -1318,8 +1330,7 @@ class _TextEditDialog(QDialog):
         btn_ok = QPushButton("Lưu thay đổi")
         btn_ok.setDefault(True)
         btn_ok.setStyleSheet(
-            "QPushButton{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #FF7700,stop:1 #FF4400);color:white;border:none;"
+            "QPushButton{background:#FF6600;color:white;border:none;"
             "border-radius:5px;padding:5px 14px;font-size:12px;font-weight:600;}"
             "QPushButton:hover{background:#FF9900;}"
         )
