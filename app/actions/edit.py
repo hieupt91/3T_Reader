@@ -1853,12 +1853,13 @@ def select_inserted_object(window):
         _teardown_webchannel(web_view)
 
     # ── Phase 2: show Foxit-style handles overlay ─────────────────────────
+    _run_object_action_session(window, state, target_op, web_view)
+    return
+
     op_type     = target_op.get("type", "text")
     current_rot = int(target_op.get("rotation", 0))
     page_num    = int(target_op.get("page_number", 1))
     left, bottom, right, top = target_op.get("box", (0, 0, 0, 0))
-
-    print(f"[DBG] Phase2 start: op_type={op_type} rot={current_rot} page={page_num} box=({left:.1f},{bottom:.1f},{right:.1f},{top:.1f})", flush=True)
 
     # Poll window.__3tPendingAction every 80 ms — no QWebChannel needed.
     action_result = {}
@@ -1869,7 +1870,6 @@ def select_inserted_object(window):
     def _poll_action(js_result):
         if js_result is None:
             return
-        print(f"[DBG] _poll_action got: {js_result}", flush=True)
         action_result.update(js_result)
         poll_timer.stop()
         if loop.isRunning():
@@ -1881,7 +1881,7 @@ def select_inserted_object(window):
     poll_timer.timeout.connect(_do_poll)
 
     def _js_ran(result):
-        print(f"[DBG] runJavaScript(handles) returned: {result}", flush=True)
+        pass
 
     try:
         js = _SHOW_OBJECT_WITH_HANDLES_JS % (
@@ -1890,9 +1890,7 @@ def select_inserted_object(window):
         )
         web_view.page().runJavaScript(js, _js_ran)
         poll_timer.start()
-        print("[DBG] poll_timer started, entering loop.exec()", flush=True)
         loop.exec()
-        print(f"[DBG] loop.exec() returned, action_result={action_result}", flush=True)
     finally:
         poll_timer.stop()
         web_view.page().runJavaScript(_CLEAR_OBJECT_HANDLES_JS)
