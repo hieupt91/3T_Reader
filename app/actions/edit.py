@@ -1606,7 +1606,18 @@ def save_edits(window, *, reload_viewer: bool = True) -> bool:
 
     # Reset edit state, tải lại từ file đã lưu
     _set_edit_state(window, None)
-    reload_document(window, save_path, display_path=save_path, temp_path=None)
+    if reload_viewer:
+        reload_document(window, save_path, display_path=save_path, temp_path=None)
+    else:
+        try:
+            window.current_path = save_path
+            state_obj = window._state_or_global() if hasattr(window, "_state_or_global") else None
+            if isinstance(state_obj, dict):
+                state_obj["source_path"] = save_path
+                state_obj["display_path"] = save_path
+                state_obj["temp_path"] = None
+        except Exception:
+            pass
     window.status.showMessage(
         f"Đã lưu: {os.path.basename(save_path)}", 5000
     )
