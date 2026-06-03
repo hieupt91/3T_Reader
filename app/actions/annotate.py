@@ -335,7 +335,7 @@ def _clamp_note_rect_to_page(page, rect: tuple[float, float, float, float]) -> t
     )
 
 
-_ARM_NOTE_TOOLS_JS = r"""(function(notes) {
+_LEGACY_NOTE_TOOLS_JS_UNUSED = r"""(function(notes) {
     if (typeof window.__3tNoteToolsCleanup === 'function') {
         try { window.__3tNoteToolsCleanup(); } catch (_err) {}
     }
