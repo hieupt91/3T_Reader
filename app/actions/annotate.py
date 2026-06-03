@@ -1504,11 +1504,118 @@ def _selected_note_rect(page, selected_rects: list[tuple[float, float, float, fl
     return _clamp_note_rect_to_page(page, (left, top - size, left + size, top))
 
 
+def _rects_by_current_page(rects: list[tuple[float, float, float, float]], page_no: int) -> dict[int, list[tuple[float, float, float, float]]]:
+    rects = _merge_rects_by_line(rects)
+    return {int(page_no): rects} if rects else {}
+
+
+def _mark_config(mark_type: str) -> tuple[str, list[float], str, str, str]:
+    if mark_type == "underline":
+        return "Underline", [0.0, 0.0, 1.0], "underline", "rgba(37,99,235,.9)", "gạch dưới"
+    if mark_type == "strikeout":
+        return "StrikeOut", [1.0, 0.0, 0.0], "strikeout", "rgba(220,38,38,.9)", "gạch ngang"
+    return "Highlight", [1.0, 1.0, 0.0], "highlight", "rgba(250,204,21,.35)", "tô sáng"
+
+
+def _apply_mark_rects(
+    window,
+    rects_by_page: dict[int, list[tuple[float, float, float, float]]],
+    *,
+    mark_type: str,
+    label_text: str = "",
+) -> None:
+    path = window.current_path
+    if not path:
+        show_warning(window, "Không thể chú thích", "Không tìm thấy tài liệu đang mở.")
+        return
+
+    normalized: dict[int, list[tuple[float, float, float, float]]] = {}
+    for page_no, rects in (rects_by_page or {}).items():
+        try:
+            page_no = int(page_no)
+        except Exception:
+            continue
+        merged = _merge_rects_by_line(rects)
+        if page_no >= 1 and merged:
+            normalized[page_no] = merged
+
+    if not normalized:
+        show_warning(
+            window,
+            "Không có vùng chọn",
+            "Hãy bôi đen văn bản trong tài liệu rồi bấm lại thao tác chú thích.",
+        )
+        return
+
+    subtype, pdf_color, overlay_style, overlay_color, label = _mark_config(mark_type)
+    mark_id = f"3t-mark-{uuid.uuid4().hex}"
+    annot_ids_by_page: dict[int, list[str]] = {}
+    annot_ids: list[str] = []
+
+    try:
+        for page_no, rects in normalized.items():
+            page_annot_ids = [f"{mark_id}-{page_no}-{idx}" for idx in range(len(rects))]
+            annot_ids_by_page[page_no] = page_annot_ids
+            annot_ids.extend(page_annot_ids)
+            _add_overlay_mark(
+                window,
+                path,
+                page_number=page_no,
+                rects=rects,
+                color=overlay_color,
+                style=overlay_style,
+                mark_id=mark_id,
+            )
+
+        def _op(pdf):
+            if not _annotation_mark_active(window, mark_id):
+                return
+            for page_no, rects in normalized.items():
+                if 1 <= page_no <= len(pdf.pages):
+                    _add_pdf_annotation(
+                        pdf,
+                        page_no - 1,
+                        subtype,
+                        rects,
+                        pdf_color,
+                        annot_ids=annot_ids_by_page.get(page_no),
+                    )
+
+        _queue_annotation_op(window, path, _op, delay_ms=350)
+        _push_annotation_undo(window, {
+            "kind": "mark",
+            "path": os.path.abspath(path),
+            "mark_id": mark_id,
+            "annot_ids": annot_ids,
+            "label": label,
+        })
+        if hasattr(window, "status"):
+            count = sum(len(rects) for rects in normalized.values())
+            suffix = f': "{label_text.strip()[:80]}"' if label_text and label_text.strip() else ""
+            window.status.showMessage(f"Đã {label} {count} vùng{suffix}", 3000)
+    except Exception as e:
+        show_warning(window, "Lỗi chú thích", str(e))
+
+
 # ── Highlight ─────────────────────────────────────────────────────────────────
 
 @require_document(show_message=True)
 def highlight_text(window):
     """Highlight selected or searched text on current page."""
+    text, selected_page_rects = _get_selection_page_rects_sync(window)
+    if selected_page_rects:
+        _apply_mark_rects(window, selected_page_rects, mark_type="highlight", label_text=text)
+        return
+
+    text, ok = QInputDialog.getText(
+        window, "TÃ´ sÃ¡ng vÄƒn báº£n",
+        "Nháº­p tá»«/cá»¥m tá»« cáº§n tÃ´ sÃ¡ng:",
+        QLineEdit.EchoMode.Normal,
+    )
+    if ok and text.strip():
+        _do_highlight(window, text.strip())
+    return
+
     wv = window._get_webview()
 
     def _apply(sel_text):
@@ -1782,6 +1889,20 @@ def _do_line_annot(window, text: str, annot_type: str):
 
 @require_document(show_message=True)
 def underline_text(window):
+    text, selected_page_rects = _get_selection_page_rects_sync(window)
+    if selected_page_rects:
+        _apply_mark_rects(window, selected_page_rects, mark_type="underline", label_text=text)
+        return
+
+    text, ok = QInputDialog.getText(
+        window, "Gáº¡ch dÆ°á»›i vÄƒn báº£n",
+        "Nháº­p tá»«/cá»¥m tá»« cáº§n gáº¡ch dÆ°á»›i:",
+        QLineEdit.EchoMode.Normal,
+    )
+    if ok and text.strip():
+        _do_line_annot(window, text.strip(), "underline")
+    return
+
     """Gạch dưới văn bản được chọn hoặc nhập."""
     wv = window._get_webview()
 
@@ -1806,6 +1927,20 @@ def underline_text(window):
 
 @require_document(show_message=True)
 def strikeout_text(window):
+    text, selected_page_rects = _get_selection_page_rects_sync(window)
+    if selected_page_rects:
+        _apply_mark_rects(window, selected_page_rects, mark_type="strikeout", label_text=text)
+        return
+
+    text, ok = QInputDialog.getText(
+        window, "Gáº¡ch ngang vÄƒn báº£n",
+        "Nháº­p tá»«/cá»¥m tá»« cáº§n gáº¡ch ngang:",
+        QLineEdit.EchoMode.Normal,
+    )
+    if ok and text.strip():
+        _do_line_annot(window, text.strip(), "strikeout")
+    return
+
     """Gạch ngang (strikeout) văn bản được chọn hoặc nhập."""
     wv = window._get_webview()
 
