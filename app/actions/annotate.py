@@ -1511,8 +1511,8 @@ def highlight_text(window):
     """Highlight selected or searched text on current page."""
     wv = window._get_webview()
 
-    def _apply(payload):
-        text, page_rects = _selection_page_rects(payload)
+    def _apply(sel_text):
+        text = (sel_text or "").strip()
         if not text:
             text, ok = QInputDialog.getText(
                 window, "Tô sáng văn bản",
@@ -1522,62 +1522,45 @@ def highlight_text(window):
             if not ok or not text.strip():
                 return
             text = text.strip()
-        _do_highlight(window, text, page_rects=page_rects)
+        _do_highlight(window, text)
 
     if wv:
-        wv.page().runJavaScript(_GET_SELECTION_RECTS_JS, _apply)
+        wv.page().runJavaScript("window.getSelection().toString()", _apply)
     else:
-        _apply({})
+        _apply("")
 
 
-def _do_highlight(window, text: str, *, page_rects: dict[int, list[tuple]] | None = None):
+def _do_highlight(window, text: str):
     path = window.current_path
     page_no = _get_current_page(window)
-    if page_rects:
-        rect_groups = {int(page): list(rects) for page, rects in page_rects.items() if rects}
-        page_no = sorted(rect_groups.keys())[0] if rect_groups else page_no
-    else:
-        rect_groups = {page_no: _merge_rects_by_line(_search_text_on_page(path, page_no, text))}
-    if not any(rect_groups.values()):
+    rects = _merge_rects_by_line(_search_text_on_page(path, page_no, text))
+    if not rects:
         show_warning(window, "Không tìm thấy",
             f'Không tìm thấy "{text}" trên trang {page_no}.')
         return
     try:
         mark_id = f"3t-mark-{uuid.uuid4().hex}"
-        annot_ids = []
-        total_rects = 0
-        for group_page, rects in sorted(rect_groups.items()):
-            rects = list(rects or [])
-            if not rects:
-                continue
-            page_ids = [f"{mark_id}-{group_page}-{idx}" for idx in range(len(rects))]
-            annot_ids.extend(page_ids)
-            total_rects += len(rects)
-            _add_overlay_mark(
-                window,
-                path,
-                page_number=group_page,
-                rects=rects,
-                color="rgba(250,204,21,.35)",
-                style="highlight",
-                mark_id=mark_id,
-            )
+        annot_ids = [f"{mark_id}-{idx}" for idx in range(len(rects))]
+        _add_overlay_mark(
+            window,
+            path,
+            page_number=page_no,
+            rects=rects,
+            color="rgba(250,204,21,.35)",
+            style="highlight",
+            mark_id=mark_id,
+        )
 
         def _op(pdf):
             if _annotation_mark_active(window, mark_id):
-                for group_page, rects in sorted(rect_groups.items()):
-                    rects = list(rects or [])
-                    if not rects or group_page < 1 or group_page > len(pdf.pages):
-                        continue
-                    page_ids = [f"{mark_id}-{group_page}-{idx}" for idx in range(len(rects))]
-                    _add_pdf_annotation(
-                        pdf,
-                        group_page - 1,
-                        "Highlight",
-                        rects,
-                        [1.0, 1.0, 0.0],
-                        annot_ids=page_ids,
-                    )
+                _add_pdf_annotation(
+                    pdf,
+                    page_no - 1,
+                    "Highlight",
+                    rects,
+                    [1.0, 1.0, 0.0],
+                    annot_ids=annot_ids,
+                )
 
         _queue_annotation_op(window, path, _op, delay_ms=350)
         _push_annotation_undo(window, {
@@ -1745,15 +1728,11 @@ def _parse_page_range(text: str, max_page: int) -> list[int]:
 
 # ── Underline / Strikeout ─────────────────────────────────────────────────────
 
-def _do_line_annot(window, text: str, annot_type: str, *, page_rects: dict[int, list[tuple]] | None = None):
+def _do_line_annot(window, text: str, annot_type: str):
     path = window.current_path
     page_no = _get_current_page(window)
-    if page_rects:
-        rect_groups = {int(page): list(rects) for page, rects in page_rects.items() if rects}
-        page_no = sorted(rect_groups.keys())[0] if rect_groups else page_no
-    else:
-        rect_groups = {page_no: _merge_rects_by_line(_search_text_on_page(path, page_no, text))}
-    if not any(rect_groups.values()):
+    rects = _merge_rects_by_line(_search_text_on_page(path, page_no, text))
+    if not rects:
         show_warning(window, "Không tìm thấy",
             f'Không tìm thấy "{text}" trên trang {page_no}.')
         return
@@ -1763,40 +1742,27 @@ def _do_line_annot(window, text: str, annot_type: str, *, page_rects: dict[int, 
         overlay_style = "underline" if annot_type == "underline" else "strikeout"
         overlay_color = "rgba(37,99,235,.9)" if annot_type == "underline" else "rgba(220,38,38,.9)"
         mark_id = f"3t-mark-{uuid.uuid4().hex}"
-        annot_ids = []
-        total_rects = 0
-        for group_page, rects in sorted(rect_groups.items()):
-            rects = list(rects or [])
-            if not rects:
-                continue
-            page_ids = [f"{mark_id}-{group_page}-{idx}" for idx in range(len(rects))]
-            annot_ids.extend(page_ids)
-            total_rects += len(rects)
-            _add_overlay_mark(
-                window,
-                path,
-                page_number=group_page,
-                rects=rects,
-                color=overlay_color,
-                style=overlay_style,
-                mark_id=mark_id,
-            )
+        annot_ids = [f"{mark_id}-{idx}" for idx in range(len(rects))]
+        _add_overlay_mark(
+            window,
+            path,
+            page_number=page_no,
+            rects=rects,
+            color=overlay_color,
+            style=overlay_style,
+            mark_id=mark_id,
+        )
 
         def _op(pdf):
             if _annotation_mark_active(window, mark_id):
-                for group_page, rects in sorted(rect_groups.items()):
-                    rects = list(rects or [])
-                    if not rects or group_page < 1 or group_page > len(pdf.pages):
-                        continue
-                    page_ids = [f"{mark_id}-{group_page}-{idx}" for idx in range(len(rects))]
-                    _add_pdf_annotation(
-                        pdf,
-                        group_page - 1,
-                        subtype,
-                        rects,
-                        color,
-                        annot_ids=page_ids,
-                    )
+                _add_pdf_annotation(
+                    pdf,
+                    page_no - 1,
+                    subtype,
+                    rects,
+                    color,
+                    annot_ids=annot_ids,
+                )
 
         _queue_annotation_op(window, path, _op, delay_ms=350)
         _push_annotation_undo(window, {
@@ -1820,7 +1786,7 @@ def underline_text(window):
     wv = window._get_webview()
 
     def _apply(payload):
-        text, page_rects = _selection_page_rects(payload)
+        text = (payload or "").strip()
         if not text:
             text, ok = QInputDialog.getText(
                 window, "Gạch dưới văn bản",
@@ -1830,12 +1796,12 @@ def underline_text(window):
             if not ok or not text.strip():
                 return
             text = text.strip()
-        _do_line_annot(window, text, "underline", page_rects=page_rects)
+        _do_line_annot(window, text, "underline")
 
     if wv:
-        wv.page().runJavaScript(_GET_SELECTION_RECTS_JS, _apply)
+        wv.page().runJavaScript("window.getSelection().toString()", _apply)
     else:
-        _apply({})
+        _apply("")
 
 
 @require_document(show_message=True)
@@ -1844,7 +1810,7 @@ def strikeout_text(window):
     wv = window._get_webview()
 
     def _apply(payload):
-        text, page_rects = _selection_page_rects(payload)
+        text = (payload or "").strip()
         if not text:
             text, ok = QInputDialog.getText(
                 window, "Gạch ngang văn bản",
@@ -1854,12 +1820,12 @@ def strikeout_text(window):
             if not ok or not text.strip():
                 return
             text = text.strip()
-        _do_line_annot(window, text, "strikeout", page_rects=page_rects)
+        _do_line_annot(window, text, "strikeout")
 
     if wv:
-        wv.page().runJavaScript(_GET_SELECTION_RECTS_JS, _apply)
+        wv.page().runJavaScript("window.getSelection().toString()", _apply)
     else:
-        _apply({})
+        _apply("")
 
 
 # ── Comment (sticky note) ─────────────────────────────────────────────────────
