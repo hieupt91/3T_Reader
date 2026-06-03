@@ -12,9 +12,23 @@ import sys
 import tempfile
 import traceback
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 # Đảm bảo import được từ project root
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+
+if "pytest" in sys.modules:
+    import pytest
+
+    pytest.skip(
+        "Windows inline-editor diagnostic script; run directly with python tests/test_inline_editor_win.py",
+        allow_module_level=True,
+    )
 
 PASS = "[PASS]"
 FAIL = "[FAIL]"
@@ -60,7 +74,8 @@ def _check_reportlab():
 
 def _check_pypdfium2():
     import pypdfium2 as pdfium
-    return f"v{pdfium.V_PDFIUM_BUILD}"
+    version = getattr(pdfium, "V_PDFIUM_BUILD", None) or getattr(pdfium, "__version__", None)
+    return f"v{version or 'installed'}"
 
 
 check("PySide6",       lambda: __import__("PySide6") and f"v{__import__('PySide6').__version__}")
@@ -201,8 +216,10 @@ def _check_image_insert():
 
         pdf.save(tmp_pdf)
         size = os.path.getsize(tmp_pdf)
-        if size < 5000:
-            raise RuntimeError(f"PDF quá nhỏ ({size} bytes) — ảnh chưa được nhúng đúng.")
+        with pikepdf.open(tmp_pdf) as check_pdf:
+            xobjects = check_pdf.pages[0].get("/Resources", {}).get("/XObject", {})
+            if "/Img0" not in xobjects:
+                raise RuntimeError("Không tìm thấy XObject /Img0 sau khi lưu PDF.")
         return f"OK — PDF size {size:,} bytes"
     finally:
         for f in [tmp_img, tmp_pdf]:
