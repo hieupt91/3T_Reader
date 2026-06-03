@@ -91,47 +91,63 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
                 self._serve_pdf_file(pdf_path, send_body=send_body)
                 return
             data = self._read_pdf_for_display(pdf_path)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/pdf")
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Accept-Ranges", "bytes")
-            self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1")
-            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
-            self.send_header("Pragma", "no-cache")
-            self.end_headers()
-            if send_body:
-                self.wfile.write(data)
+            self._serve_pdf_bytes(data, send_body=send_body)
         except OSError:
             self.send_error(500)
 
+    def _parse_range_header(self, content_length: int) -> tuple[int, int, int] | None:
+        range_header = self.headers.get("Range", "")
+        if not range_header.startswith("bytes="):
+            return 200, 0, max(0, content_length - 1)
+        start = 0
+        end = content_length - 1
+        try:
+            spec = range_header.split("=", 1)[1].split(",", 1)[0].strip()
+            if spec.startswith("-"):
+                suffix = int(spec[1:] or "0")
+                start = max(0, content_length - suffix)
+            else:
+                left, _, right = spec.partition("-")
+                start = int(left or "0")
+                if right:
+                    end = min(content_length - 1, int(right))
+        except ValueError:
+            self.send_error(400, "Invalid Range header")
+            return None
+        if start < 0 or start >= content_length or end < start:
+            self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{content_length}")
+            self.send_header("Accept-Ranges", "bytes")
+            self.end_headers()
+            return None
+        return 206, start, end
+
+    def _serve_pdf_bytes(self, data: bytes, *, send_body: bool = True):
+        file_size = len(data)
+        parsed_range = self._parse_range_header(file_size)
+        if parsed_range is None:
+            return
+        status, start, end = parsed_range
+        length = end - start + 1
+        self.send_response(status)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Length", str(length))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        if status == 206:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+        self.end_headers()
+        if send_body:
+            self.wfile.write(data[start:end + 1])
+
     def _serve_pdf_file(self, pdf_path: str, *, send_body: bool = True):
         file_size = os.path.getsize(pdf_path)
-        range_header = self.headers.get("Range", "")
-        start = 0
-        end = file_size - 1
-        status = 200
-
-        if range_header.startswith("bytes="):
-            status = 206
-            try:
-                spec = range_header.split("=", 1)[1].split(",", 1)[0].strip()
-                if spec.startswith("-"):
-                    suffix = int(spec[1:] or "0")
-                    start = max(0, file_size - suffix)
-                else:
-                    left, _, right = spec.partition("-")
-                    start = int(left or "0")
-                    if right:
-                        end = min(file_size - 1, int(right))
-            except ValueError:
-                self.send_error(400, "Invalid Range header")
-                return
-            if start < 0 or start >= file_size or end < start:
-                self.send_response(416)
-                self.send_header("Content-Range", f"bytes */{file_size}")
-                self.send_header("Accept-Ranges", "bytes")
-                self.end_headers()
-                return
+        parsed_range = self._parse_range_header(file_size)
+        if parsed_range is None:
+            return
+        status, start, end = parsed_range
         length = end - start + 1
         self.send_response(status)
         self.send_header("Content-Type", "application/pdf")
