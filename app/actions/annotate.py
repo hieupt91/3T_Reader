@@ -1389,12 +1389,17 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
             page["/Annots"].append(a)
 
 
-_GET_SELECTION_RECTS_JS = r"""(function() {
+_SELECTION_TRACKER_JS = r"""(function() {
+    if (window.__3tSelectionTrackerInstalled && window.__3tCollectPdfSelection) return true;
+
+    window.__3tCollectPdfSelection = function(useLast) {
     var sel = window.getSelection ? window.getSelection() : null;
     var text = sel ? String(sel.toString() || '') : '';
     var app = window.PDFViewerApplication;
     var viewer = app && app.pdfViewer;
-    if (!sel || sel.rangeCount <= 0 || !viewer) return {text: text, rects: []};
+        if (!sel || sel.rangeCount <= 0 || !viewer) {
+            return useLast && window.__3tLastPdfSelection ? window.__3tLastPdfSelection : {text: text, rects: []};
+        }
 
     function pageViewFor(pageNumber) {
         return viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
@@ -1436,8 +1441,39 @@ _GET_SELECTION_RECTS_JS = r"""(function() {
             });
         }
     }
-    return {text: text, rects: out};
+
+        var result = {text: text, rects: out};
+        if (String(text || '').trim() && out.length > 0) {
+            window.__3tLastPdfSelection = result;
+        }
+        return (out.length > 0 || !useLast || !window.__3tLastPdfSelection)
+            ? result
+            : window.__3tLastPdfSelection;
+    };
+
+    function rememberSelection() {
+        try { window.__3tCollectPdfSelection(false); } catch (_err) {}
+    }
+    document.addEventListener('selectionchange', rememberSelection, true);
+    document.addEventListener('mouseup', rememberSelection, true);
+    document.addEventListener('keyup', rememberSelection, true);
+    document.addEventListener('pointerup', rememberSelection, true);
+    window.__3tSelectionTrackerInstalled = true;
+    return true;
 })()"""
+
+
+_GET_SELECTION_RECTS_JS = _SELECTION_TRACKER_JS + "\n;(function(){ return window.__3tCollectPdfSelection ? window.__3tCollectPdfSelection(true) : {text:'', rects:[]}; })()"
+
+
+def enable_selection_tools(window) -> None:
+    try:
+        getter = getattr(window, "_get_webview", None)
+        web_view = getter() if callable(getter) else None
+        if web_view is not None:
+            web_view.page().runJavaScript(_SELECTION_TRACKER_JS)
+    except Exception:
+        pass
 
 
 def _selection_page_rects(payload) -> tuple[str, dict[int, list[tuple[float, float, float, float]]]]:
@@ -1504,6 +1540,14 @@ def _selected_note_rect(page, selected_rects: list[tuple[float, float, float, fl
     return _clamp_note_rect_to_page(page, (left, top - size, left + size, top))
 
 
+def _warn_select_text(window, action_label: str) -> None:
+    show_warning(
+        window,
+        "Chưa chọn văn bản",
+        f"Hãy bôi đen văn bản trên PDF trước, sau đó bấm {action_label}.",
+    )
+
+
 # ── Highlight ─────────────────────────────────────────────────────────────────
 
 @require_document(show_message=True)
@@ -1513,15 +1557,11 @@ def highlight_text(window):
 
     def _apply(payload):
         text, page_rects = _selection_page_rects(payload)
+        if not page_rects:
+            _warn_select_text(window, "Tô sáng")
+            return
         if not text:
-            text, ok = QInputDialog.getText(
-                window, "Tô sáng văn bản",
-                "Nhập từ/cụm từ cần tô sáng:",
-                QLineEdit.EchoMode.Normal,
-            )
-            if not ok or not text.strip():
-                return
-            text = text.strip()
+            text = "văn bản đã chọn"
         _do_highlight(window, text, page_rects=page_rects)
 
     if wv:
@@ -1821,15 +1861,11 @@ def underline_text(window):
 
     def _apply(payload):
         text, page_rects = _selection_page_rects(payload)
+        if not page_rects:
+            _warn_select_text(window, "Gạch dưới")
+            return
         if not text:
-            text, ok = QInputDialog.getText(
-                window, "Gạch dưới văn bản",
-                "Nhập từ/cụm từ cần gạch dưới:",
-                QLineEdit.EchoMode.Normal,
-            )
-            if not ok or not text.strip():
-                return
-            text = text.strip()
+            text = "văn bản đã chọn"
         _do_line_annot(window, text, "underline", page_rects=page_rects)
 
     if wv:
@@ -1845,15 +1881,11 @@ def strikeout_text(window):
 
     def _apply(payload):
         text, page_rects = _selection_page_rects(payload)
+        if not page_rects:
+            _warn_select_text(window, "Gạch ngang")
+            return
         if not text:
-            text, ok = QInputDialog.getText(
-                window, "Gạch ngang văn bản",
-                "Nhập từ/cụm từ cần gạch ngang:",
-                QLineEdit.EchoMode.Normal,
-            )
-            if not ok or not text.strip():
-                return
-            text = text.strip()
+            text = "văn bản đã chọn"
         _do_line_annot(window, text, "strikeout", page_rects=page_rects)
 
     if wv:
