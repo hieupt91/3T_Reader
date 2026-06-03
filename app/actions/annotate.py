@@ -129,6 +129,10 @@ def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str) -> None:
     try:
         staged_path = make_staged_pdf_path(target_path)
         pdf.save(staged_path)
+        try:
+            pdf.close()
+        except Exception:
+            pass
         replace_file_with_retry(staged_path, target_path, attempts=8)
     except Exception:
         remove_path_quietly(staged_path)
