@@ -1,5 +1,6 @@
 import sys
 import platform as _platform
+import os
 
 # ================================================================
 # BƯỚC 1: Xử lý subprocess của QtWebEngine TRƯỚC TIÊN
@@ -33,6 +34,17 @@ from packages.qt_compat.QtCore import QLocale, QLibraryInfo, QTranslator, Qt
 from app.window import PDFReaderApp
 from app.config import APP_NAME
 from styles.theme import apply_theme
+
+
+def _startup_pdf_path(argv: list[str]) -> str | None:
+    """Return the first PDF path passed by file association / command line."""
+    for arg in argv[1:]:
+        if not arg or arg.startswith("-"):
+            continue
+        path = os.path.abspath(os.path.expanduser(arg.strip('"')))
+        if path.lower().endswith(".pdf") and os.path.isfile(path):
+            return path
+    return None
 
 if __name__ == "__main__":
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
@@ -77,5 +89,11 @@ if __name__ == "__main__":
     if not check_license_on_startup(window):
         window.close()
         sys.exit(0)
+    startup_pdf = _startup_pdf_path(sys.argv)
     window.show()
+    if startup_pdf:
+        from packages.qt_compat.QtCore import QTimer
+        from app.actions.file import open_file
+
+        QTimer.singleShot(0, lambda p=startup_pdf: open_file(window, p))
     sys.exit(app.exec())

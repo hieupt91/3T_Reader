@@ -560,10 +560,9 @@ def _signature_overlay_from_annot(annot) -> dict | None:
             or (parent_obj is not None and parent_obj.get("/V") is not None)
             or bool(extracted)
         )
-        lines = extracted or ["DA KY SO"]
         return {
             "box": (left, bottom, right, top),
-            "lines": lines,
+            "lines": extracted,
             "signed": signed,
         }
     except Exception:
@@ -680,7 +679,9 @@ def _build_signature_display_overlay(width: float, height: float, overlays: list
         box_width = max(1.0, right - left)
         box_height = max(1.0, top - bottom)
         signed = bool(overlay.get("signed"))
-        lines = overlay.get("lines") or ([] if signed else ["DA KY SO"])
+        lines = [str(line).strip() for line in (overlay.get("lines") or []) if str(line).strip()]
+        if not lines:
+            continue
 
         c.saveState()
         # Render text only; never draw signature field frames in the display copy.
