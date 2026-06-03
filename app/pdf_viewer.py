@@ -6,11 +6,20 @@ from packages.qt_compat import QtCore, QtWebEngineWidgets, QtWidgets, pyqtSignal
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings, QWebEngineScript
 
 from app.local_server import LocalPDFJSServer
+from app.webchannel import register_webchannel_object
 
 
 class _DebugPage(QWebEnginePage):
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
         print(f"[JS:{level.name}:{lineNumber}] {message}", flush=True)
+
+
+class _PageStateBridge(QtCore.QObject):
+    stateChanged = pyqtSignal(int, int)
+
+    @QtCore.Slot(int, int)
+    def reportState(self, page_number: int, zoom_percent: int):
+        self.stateChanged.emit(int(page_number), int(zoom_percent))
 
 # Polyfill for collection helpers added in V8 13.6+ (Chrome 136+).
 # Qt WebEngine 6.11 reports Chrome/140 but ships a build without these methods.
@@ -135,6 +144,51 @@ _PDFJS_UI_AND_HOOKS_JS = """
         return readVisiblePage(window.PDFViewerApplication);
     };
 
+    function currentZoomPercent(app) {
+        try {
+            var viewer = app && app.pdfViewer;
+            return Math.round((viewer && viewer.currentScale || 0) * 100);
+        } catch (_) {
+            return 0;
+        }
+    }
+
+    function reportPageState(app, reason) {
+        var page = readVisiblePage(app) || window.__3tCurrentPage || 0;
+        if (!page) return;
+        window.__3tCurrentPage = page;
+        var zoom = currentZoomPercent(app);
+
+        function send(bridge) {
+            try {
+                if (bridge && typeof bridge.reportState === 'function') {
+                    bridge.reportState(page, zoom || 0);
+                }
+            } catch (_) {}
+        }
+
+        if (window.__3tPageStateBridge) {
+            send(window.__3tPageStateBridge);
+            return;
+        }
+        if (typeof QWebChannel === 'undefined') {
+            var existing = document.getElementById('__3t_qwebchannel_script');
+            if (!existing) {
+                var script = document.createElement('script');
+                script.id = '__3t_qwebchannel_script';
+                script.src = 'qrc:///qtwebchannel/qwebchannel.js';
+                script.onload = function () { reportPageState(app, reason); };
+                document.head.appendChild(script);
+            }
+            return;
+        }
+        if (!window.qt || !qt.webChannelTransport) return;
+        new QWebChannel(qt.webChannelTransport, function(channel) {
+            window.__3tPageStateBridge = channel.objects.pageStateBridge || null;
+            send(window.__3tPageStateBridge);
+        });
+    }
+
     function installHooks() {
         var app = window.PDFViewerApplication;
         if (!app || !app.eventBus) {
@@ -151,6 +205,7 @@ _PDFJS_UI_AND_HOOKS_JS = """
         // Track page changes from scroll/keyboard inside PDF.js
         app.eventBus.on('pagechanging', function (data) {
             window.__3tCurrentPage = data.pageNumber;
+            reportPageState(app, 'pagechanging');
         });
         app.eventBus.on('updateviewarea', function (data) {
             var page = 0;
@@ -158,6 +213,7 @@ _PDFJS_UI_AND_HOOKS_JS = """
                 page = parseInt(data.location.pageNumber, 10) || 0;
             }
             window.__3tCurrentPage = page || readVisiblePage(app) || window.__3tCurrentPage || 1;
+            reportPageState(app, 'updateviewarea');
         });
         var container = document.getElementById('viewerContainer');
         if (container) {
@@ -167,6 +223,7 @@ _PDFJS_UI_AND_HOOKS_JS = """
                 scrollTimer = setTimeout(function () {
                     scrollTimer = null;
                     window.__3tCurrentPage = readVisiblePage(app) || window.__3tCurrentPage || 1;
+                    reportPageState(app, 'scroll');
                 }, 50);
             }, { passive: true });
         }
@@ -310,6 +367,14 @@ class PDFViewerWidget(QtWidgets.QWidget):
 
         self._web_view = QtWebEngineWidgets.QWebEngineView(self)
         self._web_view.setPage(_DebugPage(self._web_view))
+        self._page_state_bridge = _PageStateBridge(self)
+        self._page_state_bridge.stateChanged.connect(self._on_bridge_page_state)
+        register_webchannel_object(
+            self._web_view,
+            self,
+            "pageStateBridge",
+            self._page_state_bridge,
+        )
 
         settings = self._web_view.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
@@ -444,6 +509,14 @@ class PDFViewerWidget(QtWidgets.QWidget):
             return
         self._current_page = page_num
         self.page_changed.emit(self._current_page, self._page_count)
+
+    def _on_bridge_page_state(self, page_num: int, zoom_pct: int):
+        if not self._path:
+            return
+        self._on_view_state_polled({
+            "page": page_num,
+            "zoom": zoom_pct,
+        })
 
     def _on_page_count_ready(self, token: int, path: str, page_count: int, error: str):
         if token != self._load_token or path != self._path:
