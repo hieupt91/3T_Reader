@@ -419,7 +419,9 @@ class AISearchDialog(QDialog):
             if parent is not None:
                 viewer = getattr(parent, "viewer", None)
                 if viewer is not None:
-                    viewer.jump_to_page(page_num)
+                    goto_page = getattr(viewer, "goto_page", None)
+                    if callable(goto_page):
+                        goto_page(int(page_num))
         except Exception:
             pass
 
