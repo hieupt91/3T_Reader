@@ -584,15 +584,24 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         if (old && old.parentNode) old.parentNode.removeChild(old);
     }
 
-    function showMenu(note, node, x, y) {
+    function showMenu(note, node, x, y, bridge) {
         closeMenu();
         var menu = document.createElement('div');
         menu.id = '__3tNoteMenu';
-        menu.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:10050;min-width:220px;max-width:320px;background:#fff;color:#111827;border:1px solid rgba(15,23,42,.18);box-shadow:0 10px 28px rgba(15,23,42,.22);border-radius:6px;padding:6px;font:13px sans-serif';
-        var body = document.createElement('div');
-        body.textContent = ((node && node.dataset && node.dataset.noteContent) || note.content || '').trim() || '(Ghi chu trong)';
-        body.style.cssText = 'white-space:pre-wrap;word-break:break-word;max-height:160px;overflow:auto;padding:6px 8px;border-radius:4px;background:#f8fafc;color:#0f172a;';
-        menu.appendChild(body);
+        menu.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:10050;min-width:150px;background:#fff;color:#111827;border:1px solid rgba(15,23,42,.18);box-shadow:0 10px 28px rgba(15,23,42,.22);border-radius:6px;padding:4px;font:13px sans-serif';
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Xoa ghi chu';
+        btn.style.cssText = 'display:block;width:100%;border:0;background:transparent;color:#dc2626;text-align:left;padding:7px 9px;border-radius:4px;cursor:pointer';
+        btn.addEventListener('mouseenter', function() { btn.style.background = '#fef2f2'; });
+        btn.addEventListener('mouseleave', function() { btn.style.background = 'transparent'; });
+        btn.addEventListener('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            closeMenu();
+            bridge.deleteNote(note.id, note.page_number);
+        }, true);
+        menu.appendChild(btn);
         document.body.appendChild(menu);
         setTimeout(function() {
             document.addEventListener('mousedown', closeMenu, {capture: true, once: true});
@@ -643,7 +652,16 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
             }
         }
         function showPreview(event) {
-            showMenu(note, node, event.clientX + 10, event.clientY + 10);
+            closeMenu();
+            var preview = document.createElement('div');
+            preview.id = '__3tNoteMenu';
+            preview.textContent = ((node && node.dataset && node.dataset.noteContent) || note.content || '').trim() || '(Ghi chu trong)';
+            preview.style.cssText = 'position:fixed;left:' + (event.clientX + 10) + 'px;top:' + (event.clientY + 10) + 'px;z-index:10050;min-width:220px;max-width:320px;white-space:pre-wrap;word-break:break-word;max-height:160px;overflow:auto;padding:8px 10px;border-radius:6px;background:#fff;color:#0f172a;border:1px solid rgba(15,23,42,.18);box-shadow:0 10px 28px rgba(15,23,42,.22);font:13px sans-serif';
+            document.body.appendChild(preview);
+            setTimeout(function() {
+                document.addEventListener('mousedown', closeMenu, {capture: true, once: true});
+                document.addEventListener('keydown', closeMenu, {capture: true, once: true});
+            }, 0);
         }
         function onMouseDown(event) {
             if (event.button !== 0) return;
@@ -699,11 +717,10 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
             event.preventDefault();
             event.stopPropagation();
             clearClickTimer();
-            closeMenu();
-            bridge.deleteNote(note.id, note.page_number);
+            showMenu(note, node, event.clientX, event.clientY, bridge);
         }
 
-        node.title = 'Click xem ghi chu. Dup chuot sua. Chuot phai xoa.';
+        node.title = 'Click xem ghi chu. Dup chuot sua. Chuot phai mo menu xoa.';
         node.addEventListener('mousedown', onMouseDown, true);
         node.addEventListener('dblclick', onDoubleClick, true);
         node.addEventListener('contextmenu', onContextMenu, true);
