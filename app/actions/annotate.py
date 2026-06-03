@@ -580,28 +580,15 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         if (old && old.parentNode) old.parentNode.removeChild(old);
     }
 
-    function showMenu(note, x, y, bridge) {
+    function showMenu(note, node, x, y) {
         closeMenu();
         var menu = document.createElement('div');
         menu.id = '__3tNoteMenu';
-        menu.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:10050;min-width:132px;background:#fff;color:#111827;border:1px solid rgba(15,23,42,.18);box-shadow:0 10px 28px rgba(15,23,42,.22);border-radius:6px;padding:4px;font:13px sans-serif';
-        function item(label, danger, fn) {
-            var btn = document.createElement('button');
-            btn.type = 'button';
-            btn.textContent = label;
-            btn.style.cssText = 'display:block;width:100%;border:0;background:transparent;color:' + (danger ? '#dc2626' : '#111827') + ';text-align:left;padding:7px 9px;border-radius:4px;cursor:pointer';
-            btn.addEventListener('mouseenter', function() { btn.style.background = '#f3f4f6'; });
-            btn.addEventListener('mouseleave', function() { btn.style.background = 'transparent'; });
-            btn.addEventListener('click', function(event) {
-                event.preventDefault();
-                event.stopPropagation();
-                closeMenu();
-                fn();
-            }, true);
-            menu.appendChild(btn);
-        }
-        item('Sua ghi chu', false, function() { bridge.editNote(note.id, note.page_number); });
-        item('Xoa ghi chu', true, function() { bridge.deleteNote(note.id, note.page_number); });
+        menu.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:10050;min-width:220px;max-width:320px;background:#fff;color:#111827;border:1px solid rgba(15,23,42,.18);box-shadow:0 10px 28px rgba(15,23,42,.22);border-radius:6px;padding:6px;font:13px sans-serif';
+        var body = document.createElement('div');
+        body.textContent = ((node && node.dataset && node.dataset.noteContent) || note.content || '').trim() || '(Ghi chu trong)';
+        body.style.cssText = 'white-space:pre-wrap;word-break:break-word;max-height:160px;overflow:auto;padding:6px 8px;border-radius:4px;background:#f8fafc;color:#0f172a;';
+        menu.appendChild(body);
         document.body.appendChild(menu);
         setTimeout(function() {
             document.addEventListener('mousedown', closeMenu, {capture: true, once: true});
@@ -638,11 +625,21 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         var startClientY = 0;
         var startLeft = 0;
         var startTop = 0;
+        var clickTimer = null;
 
         function blockNextClick(event) {
             event.preventDefault();
             event.stopPropagation();
             document.removeEventListener('click', blockNextClick, true);
+        }
+        function clearClickTimer() {
+            if (clickTimer) {
+                clearTimeout(clickTimer);
+                clickTimer = null;
+            }
+        }
+        function showPreview(event) {
+            showMenu(note, node, event.clientX + 10, event.clientY + 10);
         }
         function onMouseDown(event) {
             if (event.button !== 0) return;
@@ -668,7 +665,14 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         function onMouseUp(event) {
             if (!pressed) return;
             pressed = false;
-            if (!dragging) return;
+            if (!dragging) {
+                clearClickTimer();
+                clickTimer = setTimeout(function() {
+                    clickTimer = null;
+                    showPreview(event);
+                }, 220);
+                return;
+            }
             event.preventDefault();
             event.stopPropagation();
             dragging = false;
@@ -683,21 +687,26 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         function onDoubleClick(event) {
             event.preventDefault();
             event.stopPropagation();
+            clearClickTimer();
+            closeMenu();
             bridge.editNote(note.id, note.page_number);
         }
         function onContextMenu(event) {
             event.preventDefault();
             event.stopPropagation();
-            showMenu(note, node, event.clientX, event.clientY, bridge);
+            clearClickTimer();
+            closeMenu();
+            bridge.deleteNote(note.id, note.page_number);
         }
 
-        node.title = 'Keo de di chuyen. Dup chuot de sua. Chuot phai de xoa/sua.';
+        node.title = 'Click xem ghi chu. Dup chuot sua. Chuot phai xoa.';
         node.addEventListener('mousedown', onMouseDown, true);
         node.addEventListener('dblclick', onDoubleClick, true);
         node.addEventListener('contextmenu', onContextMenu, true);
         document.addEventListener('mousemove', onMouseMove, true);
         document.addEventListener('mouseup', onMouseUp, true);
         cleanupFns.push(function() {
+            clearClickTimer();
             node.removeEventListener('mousedown', onMouseDown, true);
             node.removeEventListener('dblclick', onDoubleClick, true);
             node.removeEventListener('contextmenu', onContextMenu, true);
@@ -722,12 +731,16 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
                 el.style.left = left + 'px';
                 el.style.width = width + 'px';
                 if (mark.style === 'underline') {
-                    el.style.top = (top + height - 2) + 'px';
-                    el.style.height = '2px';
+                    var underlineY = Math.round(top + height * 0.84);
+                    var underlineH = Math.max(2, Math.round(height * 0.08));
+                    el.style.top = underlineY + 'px';
+                    el.style.height = underlineH + 'px';
                     el.style.background = mark.color || 'rgba(37,99,235,.85)';
                 } else if (mark.style === 'strikeout') {
-                    el.style.top = (top + height * 0.52) + 'px';
-                    el.style.height = '2px';
+                    var strikeY = Math.round(top + height * 0.52);
+                    var strikeH = Math.max(2, Math.round(height * 0.08));
+                    el.style.top = strikeY + 'px';
+                    el.style.height = strikeH + 'px';
                     el.style.background = mark.color || 'rgba(220,38,38,.85)';
                 } else {
                     el.style.top = top + 'px';
