@@ -7,14 +7,10 @@ _JS_ZOOM_IN = """
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
     var viewer = app.pdfViewer;
-    if (typeof viewer.increaseScale === 'function') {
-        viewer.increaseScale();
-    } else if (typeof app.zoomIn === 'function') {
-        app.zoomIn(1);
-    } else {
-        viewer.currentScaleValue = String(Math.min(10, (viewer.currentScale || 1) * 1.1));
-    }
-    return Math.round((viewer.currentScale || 1) * 100);
+    var current = Number(viewer.currentScale || 1);
+    var target = Math.min(4.0, current * 1.1);
+    viewer.currentScaleValue = String(target);
+    return Math.round(target * 100);
 })()
 """
 
@@ -23,14 +19,10 @@ _JS_ZOOM_OUT = """
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
     var viewer = app.pdfViewer;
-    if (typeof viewer.decreaseScale === 'function') {
-        viewer.decreaseScale();
-    } else if (typeof app.zoomOut === 'function') {
-        app.zoomOut(1);
-    } else {
-        viewer.currentScaleValue = String(Math.max(0.1, (viewer.currentScale || 1) / 1.1));
-    }
-    return Math.round((viewer.currentScale || 1) * 100);
+    var current = Number(viewer.currentScale || 1);
+    var target = Math.max(0.25, current / 1.1);
+    viewer.currentScaleValue = String(target);
+    return Math.round(target * 100);
 })()
 """
 

@@ -50,7 +50,6 @@ from app.actions.annotate import (
     highlight_text, rotate_page_cw, rotate_page_ccw,
     delete_current_page, merge_pdf, extract_pages,
     underline_text, strikeout_text, add_comment, enable_note_tools,
-    enable_selection_tools,
 )
 from app.actions.sign import (
     check_token,
@@ -610,8 +609,10 @@ class PDFReaderApp(QMainWindow):
         self.act_prev   = make("Trang trước", "chevron_left.svg",  "Trang trước (←)",                   "Left",         lambda: prev_page(self))
         self.act_next   = make("Trang sau",   "chevron_right.svg", "Trang sau (→)",                      "Right",        lambda: next_page(self))
         self.act_zoom_in = make("Phóng to",   "zoom_in.svg",       f"Phóng to ({shortcut_label('Ctrl+=')})",  "Ctrl+=", lambda: zoom_in(self))
+        self.act_zoom_in.setShortcuts([QKeySequence("Ctrl+="), QKeySequence("Ctrl++")])
         self.act_zoom_in.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_zoom_out = make("Thu nhỏ",   "zoom_out.svg",      f"Thu nhỏ ({shortcut_label('Ctrl+-')})",   "Ctrl+-", lambda: zoom_out(self))
+        self.act_zoom_out.setShortcuts([QKeySequence("Ctrl+-"), QKeySequence("Ctrl+_")])
         self.act_zoom_out.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_fit    = make("Vừa trang",   "fit_page.svg",      f"Vừa trang ({shortcut_label('Ctrl+0')})", "Ctrl+0", lambda: zoom_fit(self))
 
@@ -1398,7 +1399,6 @@ class PDFReaderApp(QMainWindow):
         wv = self._get_webview_for_viewer(viewer)
         if wv:
             apply_brightness_to_webview(self, wv)
-            QTimer.singleShot(100, lambda: enable_selection_tools(self))
             QTimer.singleShot(250, lambda: enable_note_tools(self))
 
     def _on_page_changed(self, viewer, cur, total):

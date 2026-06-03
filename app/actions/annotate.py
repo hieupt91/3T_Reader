@@ -1389,54 +1389,44 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
             page["/Annots"].append(a)
 
 
-_SELECTION_TRACKER_JS = r"""(function() {
-    var VERSION = 3;
-    if (window.__3tSelectionTrackerVersion === VERSION && window.__3tCollectPdfSelection) return true;
-
-    function pdfViewer() {
-        var app = window.PDFViewerApplication;
-        return app && app.pdfViewer ? app.pdfViewer : null;
-    }
+_GET_SELECTION_RECTS_JS = r"""(function() {
+    var sel = window.getSelection ? window.getSelection() : null;
+    var text = sel ? String(sel.toString() || '') : '';
+    var app = window.PDFViewerApplication;
+    var viewer = app && app.pdfViewer;
+    if (!sel || sel.rangeCount <= 0 || !viewer) return {text: text, rects: []};
 
     function pageViewFor(pageNumber) {
-        var viewer = pdfViewer();
-        if (!viewer) return null;
         return viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
     }
-
-    function pageForClientRect(rect) {
+    function pageForRect(rect) {
         var cx = (rect.left + rect.right) / 2;
         var cy = (rect.top + rect.bottom) / 2;
         var el = document.elementFromPoint(cx, cy);
-        var pageEl = el && el.closest ? el.closest('.page[data-page-number]') : null;
+        var pageEl = el && el.closest ? el.closest('.page') : null;
         if (pageEl) return pageEl;
         var pages = document.querySelectorAll('.page[data-page-number]');
-        var best = null;
-        var bestArea = 0;
         for (var i = 0; i < pages.length; i++) {
             var pr = pages[i].getBoundingClientRect();
-            var overlapW = Math.max(0, Math.min(rect.right, pr.right) - Math.max(rect.left, pr.left));
-            var overlapH = Math.max(0, Math.min(rect.bottom, pr.bottom) - Math.max(rect.top, pr.top));
-            var area = overlapW * overlapH;
-            if (area > bestArea) {
-                best = pages[i];
-                bestArea = area;
-            }
+            if (cx >= pr.left && cx <= pr.right && cy >= pr.top && cy <= pr.bottom) return pages[i];
         }
-        return best;
+        return null;
     }
 
-    function convertClientRects(rawRects) {
-        var out = [];
-        if (!Array.isArray(rawRects)) return out;
-        for (var i = 0; i < rawRects.length; i++) {
-            var item = rawRects[i];
-            var pageNumber = parseInt(item && item.page_number || '0', 10);
-            var rect = item && item.client_rect;
+    var out = [];
+    for (var r = 0; r < sel.rangeCount; r++) {
+        var rects = sel.getRangeAt(r).getClientRects();
+        for (var i = 0; i < rects.length; i++) {
+            var cr = rects[i];
+            if (!cr || cr.width < 2 || cr.height < 2) continue;
+            var pageEl = pageForRect(cr);
+            if (!pageEl) continue;
+            var pageNumber = parseInt(pageEl.getAttribute('data-page-number') || '0', 10);
             var pageView = pageNumber ? pageViewFor(pageNumber) : null;
-            if (!pageView || !pageView.viewport || !Array.isArray(rect) || rect.length !== 4) continue;
-            var p0 = pageView.viewport.convertToPdfPoint(rect[0], rect[1]);
-            var p1 = pageView.viewport.convertToPdfPoint(rect[2], rect[3]);
+            if (!pageView || !pageView.viewport) continue;
+            var pr = pageEl.getBoundingClientRect();
+            var p0 = pageView.viewport.convertToPdfPoint(cr.left - pr.left, cr.top - pr.top);
+            var p1 = pageView.viewport.convertToPdfPoint(cr.right - pr.left, cr.bottom - pr.top);
             out.push({
                 page_number: pageNumber,
                 rect: [
@@ -1445,82 +1435,9 @@ _SELECTION_TRACKER_JS = r"""(function() {
                 ]
             });
         }
-        return out;
     }
-
-    function collectCurrentSelection(useLast) {
-        var sel = window.getSelection ? window.getSelection() : null;
-        var text = sel ? String(sel.toString() || '').trim() : '';
-        if (!sel || sel.rangeCount <= 0 || !text) {
-            return useLast && window.__3tLastPdfSelection
-                ? window.__3tLastPdfSelection
-                : {text: text, rects: [], client_rects: []};
-        }
-
-        var raw = [];
-        for (var r = 0; r < sel.rangeCount; r++) {
-            var rects = sel.getRangeAt(r).getClientRects();
-            for (var i = 0; i < rects.length; i++) {
-                var cr = rects[i];
-                if (!cr || cr.width < 2 || cr.height < 2) continue;
-                var pageEl = pageForClientRect(cr);
-                if (!pageEl) continue;
-                var pageNumber = parseInt(pageEl.getAttribute('data-page-number') || '0', 10);
-                if (!pageNumber) continue;
-                var pr = pageEl.getBoundingClientRect();
-                raw.push({
-                    page_number: pageNumber,
-                    client_rect: [cr.left - pr.left, cr.top - pr.top, cr.right - pr.left, cr.bottom - pr.top]
-                });
-            }
-        }
-
-        var result = {text: text, client_rects: raw, rects: convertClientRects(raw)};
-        if (raw.length > 0 || result.rects.length > 0) {
-            window.__3tLastPdfSelection = result;
-        }
-        if (text) return result;
-        return (result.rects.length > 0 || result.client_rects.length > 0 || !useLast || !window.__3tLastPdfSelection)
-            ? result
-            : window.__3tLastPdfSelection;
-    }
-
-    window.__3tCollectPdfSelection = function(useLast) {
-        var result = collectCurrentSelection(useLast);
-        if ((!result.rects || result.rects.length === 0) && result.client_rects && result.client_rects.length) {
-            result.rects = convertClientRects(result.client_rects);
-            if (result.rects.length > 0) window.__3tLastPdfSelection = result;
-        }
-        return result;
-    };
-
-    function rememberSelectionDelayed() {
-        setTimeout(function() { try { window.__3tCollectPdfSelection(false); } catch (_err) {} }, 0);
-        setTimeout(function() { try { window.__3tCollectPdfSelection(false); } catch (_err) {} }, 80);
-        setTimeout(function() { try { window.__3tCollectPdfSelection(false); } catch (_err) {} }, 180);
-    }
-    document.addEventListener('selectionchange', rememberSelectionDelayed, true);
-    document.addEventListener('mouseup', rememberSelectionDelayed, true);
-    document.addEventListener('keyup', rememberSelectionDelayed, true);
-    document.addEventListener('pointerup', rememberSelectionDelayed, true);
-    document.addEventListener('touchend', rememberSelectionDelayed, true);
-    window.__3tSelectionTrackerVersion = VERSION;
-    window.__3tSelectionTrackerInstalled = true;
-    return true;
+    return {text: text, rects: out};
 })()"""
-
-
-_GET_SELECTION_RECTS_JS = _SELECTION_TRACKER_JS + "\n;(function(){ return window.__3tCollectPdfSelection ? window.__3tCollectPdfSelection(true) : {text:'', rects:[]}; })()"
-
-
-def enable_selection_tools(window) -> None:
-    try:
-        getter = getattr(window, "_get_webview", None)
-        web_view = getter() if callable(getter) else None
-        if web_view is not None:
-            web_view.page().runJavaScript(_SELECTION_TRACKER_JS)
-    except Exception:
-        pass
 
 
 def _selection_page_rects(payload) -> tuple[str, dict[int, list[tuple[float, float, float, float]]]]:
@@ -1587,58 +1504,30 @@ def _selected_note_rect(page, selected_rects: list[tuple[float, float, float, fl
     return _clamp_note_rect_to_page(page, (left, top - size, left + size, top))
 
 
-def _warn_select_text(window, action_label: str) -> None:
-    show_warning(
-        window,
-        "Chưa chọn văn bản",
-        f"Hãy bôi đen văn bản trên PDF trước, sau đó bấm {action_label}.",
-    )
-
-
 # ── Highlight ─────────────────────────────────────────────────────────────────
-
-def _with_selected_text(window, action_label: str, callback, *, attempts: int = 4) -> None:
-    """Run callback(text, page_rects) from the current/last PDF.js selection."""
-    try:
-        getter = getattr(window, "_get_webview", None)
-        web_view = getter() if callable(getter) else None
-    except Exception:
-        web_view = None
-    if web_view is None:
-        _warn_select_text(window, action_label)
-        return
-
-    enable_selection_tools(window)
-
-    def _handle(payload, remaining: int):
-        text, page_rects = _selection_page_rects(payload)
-        if page_rects:
-            callback(text or "văn bản đã chọn", page_rects)
-            return
-        if remaining > 0:
-            QTimer.singleShot(
-                120,
-                lambda: web_view.page().runJavaScript(
-                    _GET_SELECTION_RECTS_JS,
-                    lambda result: _handle(result, remaining - 1),
-                ),
-            )
-            return
-        _warn_select_text(window, action_label)
-
-    web_view.page().runJavaScript(
-        _GET_SELECTION_RECTS_JS,
-        lambda result: _handle(result, max(0, attempts - 1)),
-    )
-
 
 @require_document(show_message=True)
 def highlight_text(window):
     """Highlight selected or searched text on current page."""
-    def _apply(text, page_rects):
+    wv = window._get_webview()
+
+    def _apply(payload):
+        text, page_rects = _selection_page_rects(payload)
+        if not text:
+            text, ok = QInputDialog.getText(
+                window, "Tô sáng văn bản",
+                "Nhập từ/cụm từ cần tô sáng:",
+                QLineEdit.EchoMode.Normal,
+            )
+            if not ok or not text.strip():
+                return
+            text = text.strip()
         _do_highlight(window, text, page_rects=page_rects)
 
-    _with_selected_text(window, "Tô sáng", _apply)
+    if wv:
+        wv.page().runJavaScript(_GET_SELECTION_RECTS_JS, _apply)
+    else:
+        _apply({})
 
 
 def _do_highlight(window, text: str, *, page_rects: dict[int, list[tuple]] | None = None):
@@ -1928,19 +1817,49 @@ def _do_line_annot(window, text: str, annot_type: str, *, page_rects: dict[int, 
 @require_document(show_message=True)
 def underline_text(window):
     """Gạch dưới văn bản được chọn hoặc nhập."""
-    def _apply(text, page_rects):
+    wv = window._get_webview()
+
+    def _apply(payload):
+        text, page_rects = _selection_page_rects(payload)
+        if not text:
+            text, ok = QInputDialog.getText(
+                window, "Gạch dưới văn bản",
+                "Nhập từ/cụm từ cần gạch dưới:",
+                QLineEdit.EchoMode.Normal,
+            )
+            if not ok or not text.strip():
+                return
+            text = text.strip()
         _do_line_annot(window, text, "underline", page_rects=page_rects)
 
-    _with_selected_text(window, "Gạch dưới", _apply)
+    if wv:
+        wv.page().runJavaScript(_GET_SELECTION_RECTS_JS, _apply)
+    else:
+        _apply({})
 
 
 @require_document(show_message=True)
 def strikeout_text(window):
     """Gạch ngang (strikeout) văn bản được chọn hoặc nhập."""
-    def _apply(text, page_rects):
+    wv = window._get_webview()
+
+    def _apply(payload):
+        text, page_rects = _selection_page_rects(payload)
+        if not text:
+            text, ok = QInputDialog.getText(
+                window, "Gạch ngang văn bản",
+                "Nhập từ/cụm từ cần gạch ngang:",
+                QLineEdit.EchoMode.Normal,
+            )
+            if not ok or not text.strip():
+                return
+            text = text.strip()
         _do_line_annot(window, text, "strikeout", page_rects=page_rects)
 
-    _with_selected_text(window, "Gạch ngang", _apply)
+    if wv:
+        wv.page().runJavaScript(_GET_SELECTION_RECTS_JS, _apply)
+    else:
+        _apply({})
 
 
 # ── Comment (sticky note) ─────────────────────────────────────────────────────
