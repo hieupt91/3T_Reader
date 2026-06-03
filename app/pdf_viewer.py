@@ -93,12 +93,57 @@ _PDFJS_UI_AND_HOOKS_JS = """
     window.__3tFindState = -1;   // -1=unknown, 0=notFound, 1=found, 2=wrapped
     window.__3tCurrentPage = 0;
 
+    function readVisiblePage(app) {
+        try {
+            var viewer = app && app.pdfViewer;
+            if (!viewer) return 0;
+
+            var visible = null;
+            if (typeof viewer._getVisiblePages === 'function') {
+                visible = viewer._getVisiblePages();
+            } else if (viewer._visiblePages) {
+                visible = viewer._visiblePages;
+            } else if (viewer.visiblePages) {
+                visible = viewer.visiblePages;
+            }
+
+            var views = visible && (visible.views || visible);
+            if (views && views.length) {
+                var best = views[0];
+                var bestPercent = -1;
+                for (var i = 0; i < views.length; i++) {
+                    var item = views[i];
+                    var percent = Number(item.percent || 0);
+                    if (percent > bestPercent) {
+                        best = item;
+                        bestPercent = percent;
+                    }
+                }
+                return parseInt(best.id || (best.view && best.view.id) || 0, 10) || 0;
+            }
+
+            if (viewer._location && viewer._location.pageNumber) {
+                return parseInt(viewer._location.pageNumber, 10) || 0;
+            }
+            return parseInt(viewer.currentPageNumber || 0, 10) || 0;
+        } catch (_) {
+            return 0;
+        }
+    }
+
+    window.__3tReadVisiblePage = function () {
+        return readVisiblePage(window.PDFViewerApplication);
+    };
+
     function installHooks() {
         var app = window.PDFViewerApplication;
         if (!app || !app.eventBus) {
             setTimeout(installHooks, 200);
             return;
         }
+        if (window.__3tHooksInstalled) return;
+        window.__3tHooksInstalled = true;
+
         // Track find state
         app.eventBus.on('updatefindcontrolstate', function (data) {
             window.__3tFindState = data.state;
@@ -107,6 +152,24 @@ _PDFJS_UI_AND_HOOKS_JS = """
         app.eventBus.on('pagechanging', function (data) {
             window.__3tCurrentPage = data.pageNumber;
         });
+        app.eventBus.on('updateviewarea', function (data) {
+            var page = 0;
+            if (data && data.location && data.location.pageNumber) {
+                page = parseInt(data.location.pageNumber, 10) || 0;
+            }
+            window.__3tCurrentPage = page || readVisiblePage(app) || window.__3tCurrentPage || 1;
+        });
+        var container = document.getElementById('viewerContainer');
+        if (container) {
+            var scrollTimer = null;
+            container.addEventListener('scroll', function () {
+                if (scrollTimer) clearTimeout(scrollTimer);
+                scrollTimer = setTimeout(function () {
+                    scrollTimer = null;
+                    window.__3tCurrentPage = readVisiblePage(app) || window.__3tCurrentPage || 1;
+                }, 50);
+            }, { passive: true });
+        }
         function clear3TOverlays() {
             document.querySelectorAll('.reader-pdf-sigfield-marker').forEach(function(el) { el.remove(); });
             var state = window.__readerPdfSignaturePreviewState;
@@ -135,28 +198,81 @@ _JS_GET_VIEW_STATE = """
     var app = window.PDFViewerApplication;
     if (app && app.pdfViewer) {
         var viewer = app.pdfViewer;
-        var page = 0;
-        var container = document.getElementById('viewerContainer');
-        var pages = document.querySelectorAll('.page[data-page-number]');
-        if (container && pages && pages.length) {
-            var viewport = container.getBoundingClientRect();
-            var bestScore = -1;
-            for (var i = 0; i < pages.length; i++) {
-                var pageEl = pages[i];
-                var rect = pageEl.getBoundingClientRect();
-                var overlapY = Math.max(0, Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top));
-                var overlapX = Math.max(0, Math.min(rect.right, viewport.right) - Math.max(rect.left, viewport.left));
-                var score = overlapY * Math.max(1, overlapX);
-                if (score > bestScore) {
-                    bestScore = score;
-                    page = parseInt(pageEl.getAttribute('data-page-number') || '0', 10) || 0;
+        var page = 0, source = '';
+
+        function readVisiblePageFromViewer() {
+            try {
+                var visible = null;
+                if (typeof viewer._getVisiblePages === 'function') {
+                    visible = viewer._getVisiblePages();
+                } else if (viewer._visiblePages) {
+                    visible = viewer._visiblePages;
+                } else if (viewer.visiblePages) {
+                    visible = viewer.visiblePages;
                 }
+                var views = visible && (visible.views || visible);
+                if (views && views.length) {
+                    var best = views[0];
+                    var bestPercent = -1;
+                    for (var i = 0; i < views.length; i++) {
+                        var item = views[i];
+                        var percent = Number(item.percent || 0);
+                        if (percent > bestPercent) {
+                            best = item;
+                            bestPercent = percent;
+                        }
+                    }
+                    return parseInt(best.id || (best.view && best.view.id) || 0, 10) || 0;
+                }
+            } catch (_) {}
+            return 0;
+        }
+
+        page = readVisiblePageFromViewer();
+        source = page ? 'visible' : '';
+
+        if (!page && typeof window.__3tReadVisiblePage === 'function') {
+            page = window.__3tReadVisiblePage() || 0;
+            source = page ? 'hook-visible' : '';
+        }
+        if (!page && window.__3tCurrentPage) {
+            page = parseInt(window.__3tCurrentPage, 10) || 0;
+            source = page ? 'event' : '';
+        }
+        if (!page && viewer._location && viewer._location.pageNumber) {
+            page = parseInt(viewer._location.pageNumber, 10) || 0;
+            source = page ? 'location' : '';
+        }
+        if (!page && viewer.currentPageNumber) {
+            page = parseInt(viewer.currentPageNumber, 10) || 0;
+            source = page ? 'current' : '';
+        }
+
+        if (!page) {
+            var container = document.getElementById('viewerContainer');
+            var pages = document.querySelectorAll('.page[data-page-number]');
+            if (container && pages && pages.length) {
+                var viewport = container.getBoundingClientRect();
+                var bestScore = -1;
+                for (var j = 0; j < pages.length; j++) {
+                    var pageEl = pages[j];
+                    var rect = pageEl.getBoundingClientRect();
+                    var overlapY = Math.max(0, Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top));
+                    var overlapX = Math.max(0, Math.min(rect.right, viewport.right) - Math.max(rect.left, viewport.left));
+                    var score = overlapY * Math.max(1, overlapX);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        page = parseInt(pageEl.getAttribute('data-page-number') || '0', 10) || 0;
+                    }
+                }
+                source = page ? 'dom' : '';
             }
         }
-        if (!page) page = viewer.currentPageNumber || window.__3tCurrentPage || 0;
+        if (page) window.__3tCurrentPage = page;
         return {
             page: page,
-            zoom: Math.round((viewer.currentScale || 0) * 100)
+            zoom: Math.round((viewer.currentScale || 0) * 100),
+            source: source
         };
     }
     return {page: window.__3tCurrentPage || 0, zoom: 0};

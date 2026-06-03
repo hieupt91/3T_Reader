@@ -1412,7 +1412,11 @@ class PDFReaderApp(QMainWindow):
             self.page_label.setText(f"Trang {cur} / -")
             self.total_label.setText(" / -")
             self.page_spin.setMaximum(max(1, cur))
-        self.page_spin.setValue(cur)
+        try:
+            self.page_spin.blockSignals(True)
+            self.page_spin.setValue(cur)
+        finally:
+            self.page_spin.blockSignals(False)
         self.sidebar.highlight_page(cur)
 
     def _on_zoom_changed(self, viewer, pct):
@@ -1458,7 +1462,11 @@ class PDFReaderApp(QMainWindow):
             self.file_label.setText("Chưa mở tệp")
             self.page_label.setText("Trang: -")
             self.page_spin.setMaximum(9999)
-            self.page_spin.setValue(1)
+            try:
+                self.page_spin.blockSignals(True)
+                self.page_spin.setValue(1)
+            finally:
+                self.page_spin.blockSignals(False)
             self.search_input.clear()
             self.hide_search_panel()
             self.sidebar.list.clear()
@@ -1478,7 +1486,11 @@ class PDFReaderApp(QMainWindow):
             cur   = 1
 
         self.page_spin.setMaximum(max(1, total))
-        self.page_spin.setValue(max(1, cur))
+        try:
+            self.page_spin.blockSignals(True)
+            self.page_spin.setValue(max(1, cur))
+        finally:
+            self.page_spin.blockSignals(False)
         if total and total > 0:
             self.total_label.setText(f" / {total}")
             self.page_label.setText(f"Trang {cur} / {total}")
@@ -1491,6 +1503,7 @@ class PDFReaderApp(QMainWindow):
             state["source_path"],
             on_click=lambda page, v=viewer: v.goto_page(page),
         )
+        self.sidebar.highlight_page(cur)
 
     # ------------------------------------------------------------------ #
     #  Tab management                                                      #
@@ -1980,6 +1993,12 @@ class PDFReaderApp(QMainWindow):
     def _toggle_sidebar(self):
         visible = self.sidebar.isVisible()
         self.sidebar.setVisible(not visible)
+        if visible:
+            return
+        try:
+            self.sidebar.highlight_page(self.viewer.get_current_page())
+        except Exception:
+            pass
 
     def _toggle_toc(self):
         visible = self.toc_sidebar.isVisible()
