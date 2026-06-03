@@ -9,8 +9,8 @@ import os
 import sys
 from pathlib import Path
 
-from packages.qt_compat.QtCore import QObject, QProcess, QThread, pyqtSignal
-from packages.qt_compat.QtWidgets import QFileDialog, QMessageBox
+from packages.qt_compat.QtCore import QObject, QProcess, QThread, Qt, pyqtSignal
+from packages.qt_compat.QtWidgets import QFileDialog, QMessageBox, QProgressDialog
 
 from app.actions._guard import require_document
 from app.dialogs import show_warning
@@ -91,9 +91,23 @@ def _run_in_thread(window, task: str, pdf_path: str, output_path: str):
     worker = _ExportWorker(task, pdf_path, output_path)
     thread = QThread(window)
     worker.moveToThread(thread)
+    progress = QProgressDialog("Đang chuẩn bị xuất file…", "Ẩn", 0, 0, window)
+    progress.setWindowTitle("Xuất Word/Excel")
+    progress.setWindowModality(Qt.WindowModality.WindowModal)
+    progress.setMinimumDuration(0)
+    progress.setAutoClose(False)
+    progress.setAutoReset(False)
 
-    worker.progress.connect(lambda text: window.status.showMessage(text, 0))
-    worker.finished.connect(lambda ok, err: _show_export_result(window, output_path, ok, err))
+    def _progress(text: str):
+        window.status.showMessage(text, 0)
+        progress.setLabelText(text or "Đang xử lý…")
+
+    def _finish(ok: bool, err: str):
+        progress.close()
+        _show_export_result(window, output_path, ok, err)
+
+    worker.progress.connect(_progress)
+    worker.finished.connect(_finish)
     worker.finished.connect(thread.quit)
     worker.finished.connect(worker.deleteLater)
     thread.finished.connect(thread.deleteLater)
@@ -102,6 +116,7 @@ def _run_in_thread(window, task: str, pdf_path: str, output_path: str):
 
     window._export_thread = thread
     window.status.showMessage("Đang chạy bộ xử lý xuất…", 0)
+    progress.show()
     thread.start()
 
 
@@ -133,6 +148,12 @@ def _run_in_subprocess(window, task: str, pdf_path: str, output_path: str):
     proc.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
 
     state = {"stdout": [], "stderr": []}
+    progress = QProgressDialog("Đang chuẩn bị xuất file…", "Hủy", 0, 0, window)
+    progress.setWindowTitle("Xuất Word/Excel")
+    progress.setWindowModality(Qt.WindowModality.WindowModal)
+    progress.setMinimumDuration(0)
+    progress.setAutoClose(False)
+    progress.setAutoReset(False)
 
     def _append_stdout():
         chunk = bytes(proc.readAllStandardOutput()).decode("utf-8", "replace")
@@ -141,6 +162,7 @@ def _run_in_subprocess(window, task: str, pdf_path: str, output_path: str):
             last = chunk.strip().splitlines()[-1] if chunk.strip() else ""
             if last:
                 window.status.showMessage(last, 0)
+                progress.setLabelText(last)
 
     def _append_stderr():
         chunk = bytes(proc.readAllStandardError()).decode("utf-8", "replace")
@@ -156,6 +178,7 @@ def _run_in_subprocess(window, task: str, pdf_path: str, output_path: str):
         stderr_text = "".join(state["stderr"]).strip()
 
         ok = exit_code == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0
+        progress.close()
         err = "" if ok else (stderr_text or stdout_text or f"Bộ xử lý xuất thoát với mã {exit_code}")
         _show_export_result(window, output_path, ok, err)
 
@@ -164,14 +187,17 @@ def _run_in_subprocess(window, task: str, pdf_path: str, output_path: str):
         _append_stderr()
         if proc.state() != QProcess.ProcessState.NotRunning:
             proc.kill()
+        progress.close()
 
     proc.readyReadStandardOutput.connect(_append_stdout)
     proc.readyReadStandardError.connect(_append_stderr)
     proc.finished.connect(_finish)
     proc.errorOccurred.connect(_error)
+    progress.canceled.connect(lambda: proc.kill() if proc.state() != QProcess.ProcessState.NotRunning else None)
 
     window._export_proc = proc
     window.status.showMessage("Đang chạy bộ xử lý xuất…", 0)
+    progress.show()
     proc.start(
         str(python_exe),
         [

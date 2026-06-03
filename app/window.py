@@ -892,7 +892,12 @@ class PDFReaderApp(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def print_current_pdf(self):
-        """In PDF với xem trước — QPrintPreviewDialog, không dùng ShellExecute."""
+        """In PDF directly through QPrintDialog.
+
+        QPrintPreviewDialog repeatedly calls paintRequested while zooming or
+        opening the preview; for scanned/large PDFs that feels like the app is
+        frozen. Direct print keeps one render pass with progress/cancel.
+        """
         state = self._active_state()
         if not state:
             show_warning(self, "Chưa mở tệp", "Vui lòng mở tệp PDF trước khi in.")
@@ -903,38 +908,16 @@ class PDFReaderApp(QMainWindow):
             show_warning(self, "Lỗi", "Không tìm thấy tệp PDF.")
             return
 
-        file_size = 0
+        printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
         try:
-            file_size = os.path.getsize(pdf_path)
-        except OSError:
+            printer.setResolution(150)
+        except Exception:
             pass
 
-        # Large scanned PDFs can exhaust QImage memory in print preview because
-        # Qt may repaint the preview several times. Print them directly and cap
-        # raster resolution page-by-page.
-        large_pdf = file_size >= 128 * 1024 * 1024
-        printer_mode = (
-            QPrinter.PrinterMode.ScreenResolution
-            if large_pdf
-            else QPrinter.PrinterMode.HighResolution
-        )
-        printer = QPrinter(printer_mode)
-        if large_pdf:
-            try:
-                printer.setResolution(144)
-            except Exception:
-                pass
-            dialog = QPrintDialog(printer, self)
-            dialog.setWindowTitle("In tài liệu lớn")
-            if dialog.exec() == QDialog.DialogCode.Accepted:
-                self._do_print_pages(printer, pdf_path)
-            return
-
-        preview = QPrintPreviewDialog(printer, self)
-        preview.setWindowTitle("Xem trước khi in")
-        preview.resize(1000, 700)
-        preview.paintRequested.connect(lambda p: self._do_print_pages(p, pdf_path))
-        preview.exec()
+        dialog = QPrintDialog(printer, self)
+        dialog.setWindowTitle("In tài liệu")
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._do_print_pages(printer, pdf_path)
 
     def _do_print_pages(self, printer: QPrinter, pdf_path: str):
         """Vẽ từng trang PDF lên printer — chạy trên main thread qua paintRequested.

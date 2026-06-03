@@ -143,6 +143,18 @@ def _queue_annotation_op(window, target_path: str, op, *, delay_ms: int = 350) -
     _annotation_queue(window).enqueue(target_path, op, delay_ms=delay_ms)
 
 
+def _annotation_undo_stack(window) -> list:
+    stack = getattr(window, "_annotation_undo_stack", None)
+    if not isinstance(stack, list):
+        stack = []
+        window._annotation_undo_stack = stack
+    return stack
+
+
+def _push_annotation_undo(window, item: dict) -> None:
+    _annotation_undo_stack(window).append(dict(item))
+
+
 def _flush_annotation_queue(window, target_path: str | None = None) -> bool:
     queue = getattr(window, "_annotation_op_queue", None)
     if queue is None:
@@ -166,6 +178,56 @@ def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str) -> None:
     except Exception:
         remove_path_quietly(staged_path)
         raise
+
+
+def _merge_rects_by_line(rects: list[tuple]) -> list[tuple[float, float, float, float]]:
+    """Normalize text-mark rectangles so highlight/underline/strike render line-stable."""
+    if not rects:
+        return []
+    normalized: list[tuple[float, float, float, float]] = []
+    for rect in rects:
+        if len(rect) != 4:
+            continue
+        left, bottom, right, top = [float(v) for v in rect]
+        if right < left:
+            left, right = right, left
+        if top < bottom:
+            bottom, top = top, bottom
+        normalized.append((left, bottom, right, top))
+
+    normalized.sort(key=lambda r: (-(r[1] + r[3]) / 2.0, r[0]))
+    groups: list[list[tuple[float, float, float, float]]] = []
+    group_mids: list[float] = []
+    group_tols: list[float] = []
+
+    for rect in normalized:
+        mid = (rect[1] + rect[3]) / 2.0
+        height = max(1.0, rect[3] - rect[1])
+        tol = max(2.5, height * 0.45)
+        matched = False
+        for idx, group in enumerate(groups):
+            if abs(mid - group_mids[idx]) <= max(tol, group_tols[idx]):
+                group.append(rect)
+                count = len(group)
+                group_mids[idx] = ((group_mids[idx] * (count - 1)) + mid) / count
+                group_tols[idx] = max(group_tols[idx], tol)
+                matched = True
+                break
+        if not matched:
+            groups.append([rect])
+            group_mids.append(mid)
+            group_tols.append(tol)
+
+    merged: list[tuple[float, float, float, float]] = []
+    for group in groups:
+        left = min(r[0] for r in group)
+        right = max(r[2] for r in group)
+        bottom = min(r[1] for r in group)
+        top = max(r[3] for r in group)
+        height = max(1.0, top - bottom)
+        pad = min(height * 0.08, 2.0)
+        merged.append((left, bottom - pad, right, top + pad))
+    return sorted(merged, key=lambda r: (-r[3], r[0]))
 
 
 def _pdf_date_now() -> pikepdf.String:
@@ -406,6 +468,31 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         if (old && old.parentNode) old.parentNode.removeChild(old);
     }
 
+    function installMenuDismiss(menu) {
+        var keyDismiss = null;
+        var dismiss = function(event) {
+            if (!menu || !menu.parentNode) {
+                document.removeEventListener('mousedown', dismiss, true);
+                document.removeEventListener('keydown', keyDismiss, true);
+                return;
+            }
+            if (event && menu.contains(event.target)) return;
+            closeMenu();
+            document.removeEventListener('mousedown', dismiss, true);
+            document.removeEventListener('keydown', keyDismiss, true);
+        };
+        keyDismiss = function(event) {
+            if (event && event.key !== 'Escape') return;
+            closeMenu();
+            document.removeEventListener('mousedown', dismiss, true);
+            document.removeEventListener('keydown', keyDismiss, true);
+        };
+        setTimeout(function() {
+            document.addEventListener('mousedown', dismiss, true);
+            document.addEventListener('keydown', keyDismiss, true);
+        }, 0);
+    }
+
     function showMenu(note, node, x, y, bridge) {
         closeMenu();
         var menu = document.createElement('div');
@@ -565,6 +652,7 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
                 var height = Math.abs(rect[3] - rect[1]);
                 var el = document.createElement('div');
                 el.className = 'threeTMarkOverlay';
+                if (mark.id) el.dataset.threeTMarkId = mark.id;
                 el.style.left = left + 'px';
                 el.style.width = width + 'px';
                 if (mark.style === 'underline') {
@@ -608,6 +696,13 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         window.__3tNotesDeleteNote = function(noteId) {
             document
                 .querySelectorAll('.threeTNoteOverlay[data-three-t-note-id="' + noteId + '"]')
+                .forEach(function(node) {
+                    if (node && node.parentNode) node.parentNode.removeChild(node);
+                });
+        };
+        window.__3tNotesDeleteMark = function(markId) {
+            document
+                .querySelectorAll('.threeTMarkOverlay[data-three-t-mark-id="' + markId + '"]')
                 .forEach(function(node) {
                     if (node && node.parentNode) node.parentNode.removeChild(node);
                 });
@@ -831,7 +926,32 @@ def _overlay_marks_for_js(window, path: str) -> list[dict]:
         dict(item)
         for item in _overlay_marks(window)
         if os.path.abspath(str(item.get("path") or "")) == current
+        and not item.get("_deleted")
     ]
+
+
+def _annotation_mark_active(window, mark_id: str) -> bool:
+    for item in _overlay_marks(window):
+        if str(item.get("id") or "") == str(mark_id):
+            return not bool(item.get("_deleted"))
+    return False
+
+
+def _remove_overlay_mark(window, mark_id: str) -> None:
+    marks = _overlay_marks(window)
+    for item in marks:
+        if str(item.get("id") or "") == str(mark_id):
+            item["_deleted"] = True
+    try:
+        getter = getattr(window, "_get_webview", None)
+        web_view = getter() if callable(getter) else None
+        if web_view is not None:
+            web_view.page().runJavaScript(
+                "if(window.__3tNotesDeleteMark) window.__3tNotesDeleteMark(%s);"
+                % json.dumps(str(mark_id), ensure_ascii=False)
+            )
+    except Exception:
+        pass
 
 
 def _refresh_annotation_overlays(window) -> None:
@@ -849,8 +969,11 @@ def _add_overlay_mark(
     rects: list[tuple],
     color: str,
     style: str = "highlight",
-) -> None:
+    mark_id: str | None = None,
+) -> str:
+    mark_id = mark_id or f"3t-mark-{uuid.uuid4().hex}"
     _overlay_marks(window).append({
+        "id": mark_id,
         "kind": "mark",
         "path": os.path.abspath(path),
         "page_number": int(page_number),
@@ -859,6 +982,7 @@ def _add_overlay_mark(
         "style": style,
     })
     _refresh_annotation_overlays(window)
+    return mark_id
 
 
 def _update_note_rect_by_id(
@@ -920,6 +1044,75 @@ def _delete_note_by_id(pdf: pikepdf.Pdf, *, note_id: str) -> bool:
             if current_id != note_id:
                 continue
             del annots[idx]
+            return True
+    return False
+
+
+def _delete_annotations_by_ids(pdf: pikepdf.Pdf, annot_ids: list[str]) -> int:
+    targets = {str(item) for item in annot_ids if str(item)}
+    if not targets:
+        return 0
+    deleted = 0
+    for page in pdf.pages:
+        annots = page.get("/Annots", None)
+        if annots is None:
+            continue
+        for idx in range(len(annots) - 1, -1, -1):
+            annot_id = _annotation_id(annots[idx])
+            if annot_id in targets:
+                del annots[idx]
+                deleted += 1
+    return deleted
+
+
+def undo_last_annotation(window) -> bool:
+    """Undo the last lightweight annotation without reloading the whole viewer."""
+    stack = _annotation_undo_stack(window)
+    while stack:
+        item = stack.pop()
+        path = str(item.get("path") or "")
+        if not path or not os.path.exists(path):
+            continue
+
+        kind = item.get("kind")
+        if kind == "mark":
+            mark_id = str(item.get("mark_id") or "")
+            annot_ids = [str(v) for v in item.get("annot_ids", []) if str(v)]
+            if mark_id:
+                _remove_overlay_mark(window, mark_id)
+
+            def _op(pdf):
+                _delete_annotations_by_ids(pdf, annot_ids)
+
+            _queue_annotation_op(window, path, _op, delay_ms=100)
+            if hasattr(window, "status"):
+                window.status.showMessage(f"Đã hoàn tác {item.get('label') or 'chú thích'}.", 2200)
+            return True
+
+        if kind == "note_add":
+            note_id = str(item.get("note_id") or "")
+            if not note_id:
+                continue
+            tombstone = dict(_overlay_notes(window).get(note_id) or {})
+            tombstone["_deleted"] = True
+            _overlay_notes(window)[note_id] = tombstone
+            try:
+                getter = getattr(window, "_get_webview", None)
+                web_view = getter() if callable(getter) else None
+                if web_view is not None:
+                    web_view.page().runJavaScript(
+                        "if(window.__3tNotesDeleteNote) window.__3tNotesDeleteNote(%s);"
+                        % json.dumps(note_id, ensure_ascii=False)
+                    )
+            except Exception:
+                pass
+
+            def _op(pdf):
+                _delete_note_by_id(pdf, note_id=note_id)
+
+            _queue_annotation_op(window, path, _op, delay_ms=100)
+            if hasattr(window, "status"):
+                window.status.showMessage("Đã hoàn tác thêm ghi chú.", 2200)
             return True
     return False
 
@@ -1154,7 +1347,8 @@ def _normalize_box_for_page_rotation(
 
 def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
                          rects: list[tuple], color: list[float],
-                         content: str = ""):
+                         content: str = "",
+                         annot_ids: list[str] | None = None):
     """Add Highlight/Underline/StrikeOut/Text annotation using pikepdf."""
     _SUBTYPE = {
         "Highlight":  "/Highlight",
@@ -1165,7 +1359,7 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
     page = pdf.pages[page_idx]
     new_annots = []
 
-    for (left, bottom, right, top) in rects:
+    for idx, (left, bottom, right, top) in enumerate(rects):
         d = pikepdf.Dictionary(
             Type=pikepdf.Name.Annot,
             Subtype=pikepdf.Name(_SUBTYPE[subtype]),
@@ -1182,6 +1376,8 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
             d["/Name"] = pikepdf.Name("/Note")
         if content:
             d["/Contents"] = pikepdf.String(content)
+        if annot_ids and idx < len(annot_ids):
+            d["/NM"] = pikepdf.String(str(annot_ids[idx]))
         if subtype == "Text":
             d["/Open"] = False
         new_annots.append(pdf.make_indirect(d))
@@ -1222,12 +1418,14 @@ def highlight_text(window):
 def _do_highlight(window, text: str):
     path = window.current_path
     page_no = _get_current_page(window)
-    rects = _search_text_on_page(path, page_no, text)
+    rects = _merge_rects_by_line(_search_text_on_page(path, page_no, text))
     if not rects:
         show_warning(window, "Không tìm thấy",
             f'Không tìm thấy "{text}" trên trang {page_no}.')
         return
     try:
+        mark_id = f"3t-mark-{uuid.uuid4().hex}"
+        annot_ids = [f"{mark_id}-{idx}" for idx in range(len(rects))]
         _add_overlay_mark(
             window,
             path,
@@ -1235,12 +1433,28 @@ def _do_highlight(window, text: str):
             rects=rects,
             color="rgba(250,204,21,.35)",
             style="highlight",
+            mark_id=mark_id,
         )
 
         def _op(pdf):
-            _add_pdf_annotation(pdf, page_no - 1, "Highlight", rects, [1.0, 1.0, 0.0])
+            if _annotation_mark_active(window, mark_id):
+                _add_pdf_annotation(
+                    pdf,
+                    page_no - 1,
+                    "Highlight",
+                    rects,
+                    [1.0, 1.0, 0.0],
+                    annot_ids=annot_ids,
+                )
 
         _queue_annotation_op(window, path, _op, delay_ms=350)
+        _push_annotation_undo(window, {
+            "kind": "mark",
+            "path": os.path.abspath(path),
+            "mark_id": mark_id,
+            "annot_ids": annot_ids,
+            "label": "tô sáng",
+        })
         if hasattr(window, "status"):
             window.status.showMessage(
                 f"Đã tô sáng {len(rects)} chỗ: \"{text}\"", 3000)
@@ -1402,7 +1616,7 @@ def _parse_page_range(text: str, max_page: int) -> list[int]:
 def _do_line_annot(window, text: str, annot_type: str):
     path = window.current_path
     page_no = _get_current_page(window)
-    rects = _search_text_on_page(path, page_no, text)
+    rects = _merge_rects_by_line(_search_text_on_page(path, page_no, text))
     if not rects:
         show_warning(window, "Không tìm thấy",
             f'Không tìm thấy "{text}" trên trang {page_no}.')
@@ -1412,6 +1626,8 @@ def _do_line_annot(window, text: str, annot_type: str):
         color   = [0.0, 0.0, 1.0] if annot_type == "underline" else [1.0, 0.0, 0.0]
         overlay_style = "underline" if annot_type == "underline" else "strikeout"
         overlay_color = "rgba(37,99,235,.9)" if annot_type == "underline" else "rgba(220,38,38,.9)"
+        mark_id = f"3t-mark-{uuid.uuid4().hex}"
+        annot_ids = [f"{mark_id}-{idx}" for idx in range(len(rects))]
         _add_overlay_mark(
             window,
             path,
@@ -1419,12 +1635,28 @@ def _do_line_annot(window, text: str, annot_type: str):
             rects=rects,
             color=overlay_color,
             style=overlay_style,
+            mark_id=mark_id,
         )
 
         def _op(pdf):
-            _add_pdf_annotation(pdf, page_no - 1, subtype, rects, color)
+            if _annotation_mark_active(window, mark_id):
+                _add_pdf_annotation(
+                    pdf,
+                    page_no - 1,
+                    subtype,
+                    rects,
+                    color,
+                    annot_ids=annot_ids,
+                )
 
         _queue_annotation_op(window, path, _op, delay_ms=350)
+        _push_annotation_undo(window, {
+            "kind": "mark",
+            "path": os.path.abspath(path),
+            "mark_id": mark_id,
+            "annot_ids": annot_ids,
+            "label": "gạch dưới" if annot_type == "underline" else "gạch ngang",
+        })
         label = "gạch dưới" if annot_type == "underline" else "gạch ngang"
         if hasattr(window, "status"):
             window.status.showMessage(
@@ -1527,6 +1759,12 @@ def add_comment(window):
             )
 
         _queue_annotation_op(window, path, _op, delay_ms=250)
+        _push_annotation_undo(window, {
+            "kind": "note_add",
+            "path": os.path.abspath(path),
+            "note_id": note_id,
+            "label": "ghi chú",
+        })
         enable_note_tools(window)
         if hasattr(window, "status"):
             window.status.showMessage(

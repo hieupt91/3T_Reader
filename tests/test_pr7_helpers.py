@@ -167,3 +167,50 @@ def test_edit_and_delete_text_note_by_id(tmp_path):
     pdf.save(deleted)
     pdf.close()
     assert load_annotations(str(deleted)) == []
+
+
+def test_merge_rects_by_line_normalizes_fragmented_marks():
+    from app.actions.annotate import _merge_rects_by_line
+
+    rects = [
+        (10.0, 100.0, 25.0, 112.0),
+        (26.0, 99.0, 40.0, 113.5),
+        (11.0, 80.0, 22.0, 92.0),
+    ]
+
+    merged = _merge_rects_by_line(rects)
+
+    assert len(merged) == 2
+    assert merged[0][0] == 10.0
+    assert merged[0][2] == 40.0
+    assert merged[1][0] == 11.0
+    assert merged[1][2] == 22.0
+
+
+def test_delete_mark_annotations_by_ids(tmp_path):
+    import pytest
+
+    pikepdf = pytest.importorskip("pikepdf")
+    from app.actions.annotate import _add_pdf_annotation, _delete_annotations_by_ids
+
+    out = tmp_path / "marks.pdf"
+    pdf = pikepdf.Pdf.new()
+    pdf.add_blank_page(page_size=(200, 200))
+    _add_pdf_annotation(
+        pdf,
+        page_idx=0,
+        subtype="Highlight",
+        rects=[(10, 100, 40, 112), (10, 80, 40, 92)],
+        color=[1.0, 1.0, 0.0],
+        annot_ids=["mark-1", "mark-2"],
+    )
+
+    assert _delete_annotations_by_ids(pdf, ["mark-1"]) == 1
+    pdf.save(out)
+    pdf.close()
+
+    pdf = pikepdf.open(out)
+    annots = pdf.pages[0].get("/Annots", [])
+    assert len(annots) == 1
+    assert str(annots[0].get("/NM")) == "mark-2"
+    pdf.close()

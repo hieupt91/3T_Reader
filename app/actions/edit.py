@@ -982,6 +982,13 @@ def undo_last_edit(window):
     """Hoàn tác thao tác chèn cuối cùng."""
     state = _get_edit_state(window)
     if not state or not state.get("ops"):
+        try:
+            from app.actions.annotate import undo_last_annotation
+
+            if undo_last_annotation(window):
+                return
+        except Exception:
+            pass
         show_warning(window, "Không có gì để hoàn tác", "Chưa có thao tác chèn nào để hoàn tác.")
         return
 
