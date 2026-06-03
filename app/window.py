@@ -1517,9 +1517,19 @@ class PDFReaderApp(QMainWindow):
         queue = getattr(self, "_annotation_op_queue", None)
         if queue is not None:
             try:
-                queue.flush()
-            except Exception:
-                pass
+                target_path = state.get("source_path") if state else None
+                flush_all = getattr(queue, "flush_all", None)
+                ok = flush_all(target_path) if callable(flush_all) else queue.flush()
+                if not ok:
+                    QMessageBox.warning(
+                        self,
+                        "Chua luu xong chu thich",
+                        "Mot so thay doi chu thich chua luu xong. Vui long doi vai giay roi dong tab lai.",
+                    )
+                    return False
+            except Exception as exc:
+                QMessageBox.warning(self, "Chua luu xong chu thich", str(exc))
+                return False
         edit_state = state.get("_pdf_edit_state") if state else None
         if edit_state and edit_state.get("ops"):
             title = self.tab_widget.tabText(index) or "tài liệu"
@@ -2096,9 +2106,22 @@ class PDFReaderApp(QMainWindow):
         queue = getattr(self, "_annotation_op_queue", None)
         if queue is not None:
             try:
-                queue.flush()
-            except Exception:
-                pass
+                flush_all = getattr(queue, "flush_all", None)
+                ok = flush_all() if callable(flush_all) else queue.flush()
+                if not ok:
+                    self._closing = False
+                    QMessageBox.warning(
+                        self,
+                        "Chua luu xong chu thich",
+                        "Mot so thay doi chu thich chua luu xong. Vui long doi vai giay roi thoat lai.",
+                    )
+                    event.ignore()
+                    return
+            except Exception as exc:
+                self._closing = False
+                QMessageBox.warning(self, "Chua luu xong chu thich", str(exc))
+                event.ignore()
+                return
 
         for idx in range(self.tab_widget.count() - 1, -1, -1):
             if not self._close_tab(idx):

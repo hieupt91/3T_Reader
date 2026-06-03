@@ -62,6 +62,7 @@ class _AnnotationOpQueue(QObject):
         super().__init__(window)
         self._window = window
         self._pending: list[tuple[str, object]] = []
+        self._flushing = False
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.flush)
@@ -70,27 +71,40 @@ class _AnnotationOpQueue(QObject):
         self._pending.append((os.path.abspath(target_path), op))
         self._timer.start(max(0, int(delay_ms)))
 
-    def flush(self) -> None:
+    def has_pending(self, target_path: str | None = None) -> bool:
+        if target_path is None:
+            return bool(self._pending)
+        target_path = os.path.abspath(target_path)
+        return any(path == target_path for path, _op in self._pending)
+
+    def flush(self, target_path: str | None = None) -> bool:
+        if self._flushing:
+            return False
         if not self._pending:
-            return
-        target_path = self._pending[0][0]
+            return True
+        requested_target = os.path.abspath(target_path) if target_path else self._pending[0][0]
         same_target: list[tuple[str, object]] = []
         rest: list[tuple[str, object]] = []
         for item in self._pending:
-            if item[0] == target_path:
+            if item[0] == requested_target:
                 same_target.append(item)
             else:
                 rest.append(item)
+        if not same_target:
+            return True
+
+        self._timer.stop()
         self._pending = rest
+        self._flushing = True
 
         staged_path = ""
         try:
-            with pikepdf.open(target_path) as pdf:
+            with pikepdf.open(requested_target) as pdf:
                 for _path, op in same_target:
                     op(pdf)
-                staged_path = make_staged_pdf_path(target_path)
+                staged_path = make_staged_pdf_path(requested_target)
                 pdf.save(staged_path)
-            replace_file_with_retry(staged_path, target_path, attempts=3)
+            replace_file_with_retry(staged_path, requested_target, attempts=3)
             if hasattr(self._window, "status"):
                 self._window.status.showMessage("Da tu dong luu chu thich.", 1800)
         except Exception as exc:
@@ -99,10 +113,22 @@ class _AnnotationOpQueue(QObject):
             if hasattr(self._window, "status"):
                 self._window.status.showMessage(f"Chua luu duoc chu thich, se thu lai: {exc}", 3500)
             self._timer.start(1200)
-            return
+            return False
+        finally:
+            self._flushing = False
 
         if self._pending:
             self._timer.start(50)
+        return True
+
+    def flush_all(self, target_path: str | None = None) -> bool:
+        while self.has_pending(target_path):
+            pending_before = len(self._pending)
+            if not self.flush(target_path):
+                return False
+            if len(self._pending) >= pending_before and self.has_pending(target_path):
+                return False
+        return True
 
 
 def _annotation_queue(window) -> _AnnotationOpQueue:
@@ -117,11 +143,14 @@ def _queue_annotation_op(window, target_path: str, op, *, delay_ms: int = 350) -
     _annotation_queue(window).enqueue(target_path, op, delay_ms=delay_ms)
 
 
-def _flush_annotation_queue(window) -> None:
+def _flush_annotation_queue(window, target_path: str | None = None) -> bool:
     queue = getattr(window, "_annotation_op_queue", None)
     if queue is None:
-        return
-    queue.flush()
+        return True
+    flush_all = getattr(queue, "flush_all", None)
+    if callable(flush_all):
+        return bool(flush_all(target_path))
+    return bool(queue.flush())
 
 
 def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str) -> None:
@@ -936,7 +965,9 @@ class _NoteToolsBridge(QObject):
         if not self._path_is_current():
             return
         try:
-            _flush_annotation_queue(self._window)
+            if not _flush_annotation_queue(self._window, self._pdf_path):
+                show_warning(self._window, "Xoa ghi chu", "Chua luu xong cac thay doi ghi chu truoc do. Vui long thu lai sau vai giay.")
+                return
             note = _overlay_notes(self._window).get(note_id) or _find_note_by_id(self._pdf_path, note_id)
             if not note:
                 show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
