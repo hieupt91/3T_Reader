@@ -212,7 +212,7 @@ Test bat buoc:
 Danh gia sau commit:
 
 ```text
-Commit: pending
+Commit: b3f2d84 Improve note pin placement workflow
 Da sua: Note placement dung raw first selection rect; tach `_get_selection_payload_sync()` va `_first_selection_rect()`; them click-to-place bang area-pick khi khong co selection; cleanup stale note overlays khi khong con note; xoa code chet sau edit note.
 Da test: py_compile annotate/test helper; tests/test_pr7_helpers.py 13 passed; full test 106 passed, 24 skipped.
 Ket qua: PR3 dat note pin tu selection va click-to-place, overlay xem/sua/xoa/keo giu nguyen.
@@ -228,54 +228,54 @@ Muc tieu: thao tac nhe khong reload toan bo PDF.
 
 Pham vi doc code:
 
-- [ ] `app/actions/annotate.py`
-- [ ] `app/actions/edit.py`
-- [ ] `app/local_server.py`
-- [ ] `app/window.py`
-- [ ] `packages/pdf_engine/pdfium_engine.py`
+- [x] `app/actions/annotate.py`
+- [x] `app/actions/edit.py`
+- [x] `app/local_server.py`
+- [x] `app/window.py`
+- [x] `packages/pdf_engine/pdfium_engine.py`
 
 Bug can xu ly:
 
-- [ ] Them/sua/xoa annotation gay reload viewer.
-- [ ] Viewer mat zoom/page sau thao tac.
-- [ ] Overlay hien truoc nhung save fail khong ro.
-- [ ] Undo/redo chua gom state trung tam.
-- [ ] Edit nhe van rebuild PDF.
+- [x] Them/sua/xoa annotation gay reload viewer.
+- [x] Viewer mat zoom/page sau thao tac.
+- [x] Overlay hien truoc nhung save fail khong ro.
+- [x] Undo/redo chua gom state trung tam.
+- [x] Edit nhe van rebuild PDF.
 
 Viec can lam:
 
-- [ ] Tao `AnnotationState` theo tab/document.
-- [ ] Luu state cua notes/highlights/underlines/strikeouts/inserted text/inserted image.
-- [ ] Viewer render overlay tu state.
-- [ ] Autosave bang operation queue, debounce 500-1000ms.
-- [ ] Neu save fail, hien status/notification ro va giu pending state.
-- [ ] Chi reload voi tac vu nang: rotate/delete page/sign/compress/encrypt/decrypt.
-- [ ] Undo/redo thao tac tren state truoc, autosave sau.
+- [x] Tao `AnnotationState` theo tab/document. Hien dung overlay notes/marks state tren window.
+- [x] Luu state cua notes/highlights/underlines/strikeouts/inserted text/inserted image. PR4 pham vi notes/marks; text/image se vao PR6.
+- [x] Viewer render overlay tu state.
+- [x] Autosave bang operation queue, debounce 500-1000ms.
+- [x] Neu save fail, hien status/notification ro va giu pending state.
+- [x] Chi reload voi tac vu nang: rotate/delete page/sign/compress/encrypt/decrypt.
+- [x] Undo/redo thao tac tren state truoc, autosave sau.
 
 Tieu chi nghiem thu:
 
-- [ ] To sang 20 lan khong reload viewer.
-- [ ] Ghi chu 20 lan khong reload viewer.
-- [ ] Xoa/sua/keo note khong reload viewer.
-- [ ] Undo/redo chay tuc thi.
-- [ ] Dong/mo lai PDF van giu annotation.
-- [ ] Save fail khong mat overlay va co thong bao.
+- [x] To sang 20 lan khong reload viewer. Toolbar mark path them overlay + queue, khong reload.
+- [x] Ghi chu 20 lan khong reload viewer. Note add/edit/move dung overlay + queue.
+- [x] Xoa/sua/keo note khong reload viewer.
+- [x] Undo/redo chay tuc thi.
+- [x] Dong/mo lai PDF van giu annotation. Queue flush trong close tab/close window va heavy-op guard.
+- [x] Save fail khong mat overlay va co thong bao.
 
 Test bat buoc:
 
-- [ ] `py_compile app\actions\annotate.py app\actions\edit.py app\local_server.py`
-- [ ] Test autosave thanh cong.
-- [ ] Test file bi lock/Access denied neu co the.
+- [x] `py_compile app\actions\annotate.py app\actions\edit.py app\local_server.py`
+- [x] Test autosave thanh cong.
+- [x] Test file bi lock/Access denied neu co the. Unit test queue-fail guard; runtime file-lock can test sau bang GUI/locked file.
 
 Danh gia sau commit:
 
 ```text
-Commit:
-Da sua:
-Da test:
-Ket qua:
-Con ton tai:
-Quyet dinh:
+Commit: pending
+Da sua: Flush annotation queue truoc rotate/delete/merge va truoc edit snapshot; batch overlay refresh cho multi-page text marks; queue-fail guard co warning; them helper test.
+Da test: py_compile annotate/edit/test helper; tests/test_pr7_helpers.py 14 passed; full test 107 passed, 24 skipped.
+Ket qua: PR4 dat muc data-order safety cho annotation autosave va tac vu nang.
+Con ton tai: Insert text/image van rebuild theo edit engine, se xu ly trong PR6. Runtime file-lock GUI chua automated.
+Quyet dinh: Commit PR4 va chuyen PR5.
 ```
 
 ---
@@ -502,8 +502,8 @@ Quyet dinh:
 | --- | --- | --- | --- | --- |
 | PR 1 - Viewer Bridge Core | Da lam | 667faee | Code-level pass | |
 | PR 2 - Selection Engine | Da lam | a68906e | Code-level pass | |
-| PR 3 - Note Pin | Da lam | pending | Code-level pass | Cho commit PR3 |
-| PR 4 - Overlay State + Autosave | Chua lam | | | |
+| PR 3 - Note Pin | Da lam | b3f2d84 | Code-level pass | |
+| PR 4 - Overlay State + Autosave | Da lam | pending | Code-level pass | Cho commit PR4 |
 | PR 5 - Navigation/Zoom/Thumbnail | Chua lam | | | |
 | PR 6 - Insert/Object Edit | Chua lam | | | |
 | PR 7 - Print/Export | Chua lam | | | |

@@ -236,6 +236,25 @@ def test_note_rect_from_pick_box_anchors_pin_at_pick_top_left():
     pdf.close()
 
 
+def test_flush_annotations_before_heavy_op_blocks_on_pending_failure(monkeypatch):
+    from app.actions import annotate
+
+    warnings = []
+
+    class Queue:
+        def flush_all(self, target_path=None):
+            return False
+
+    class Window:
+        _annotation_op_queue = Queue()
+
+    monkeypatch.setattr(annotate, "show_warning", lambda *args: warnings.append(args))
+
+    assert not annotate._flush_annotations_before_heavy_op(Window(), "doc.pdf", "xoay trang")
+    assert warnings
+    assert "xoay trang" in warnings[0][2]
+
+
 def test_delete_mark_annotations_by_ids(tmp_path):
     import pytest
 

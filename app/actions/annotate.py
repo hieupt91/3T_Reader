@@ -165,6 +165,18 @@ def _flush_annotation_queue(window, target_path: str | None = None) -> bool:
     return bool(queue.flush())
 
 
+def _flush_annotations_before_heavy_op(window, target_path: str, operation_label: str) -> bool:
+    if _flush_annotation_queue(window, target_path):
+        return True
+    show_warning(
+        window,
+        "Chua luu xong chu thich",
+        f"Mot so thay doi chu thich chua luu xong nen chua the {operation_label}. "
+        "Vui long doi vai giay roi thu lai.",
+    )
+    return False
+
+
 def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str) -> None:
     staged_path = ""
     try:
@@ -972,6 +984,31 @@ def _add_overlay_mark(
     return mark_id
 
 
+def _add_overlay_marks_batch(
+    window,
+    path: str,
+    *,
+    marks_by_page: dict[int, list[tuple]],
+    color: str,
+    style: str,
+    mark_id: str,
+) -> None:
+    current = os.path.abspath(path)
+    for page_number, rects in marks_by_page.items():
+        if not rects:
+            continue
+        _overlay_marks(window).append({
+            "id": mark_id,
+            "kind": "mark",
+            "path": current,
+            "page_number": int(page_number),
+            "rects": [[float(v) for v in rect] for rect in rects],
+            "color": color,
+            "style": style,
+        })
+    _refresh_annotation_overlays(window)
+
+
 def _update_note_rect_by_id(
     pdf: pikepdf.Pdf,
     *,
@@ -1610,6 +1647,8 @@ def rotate_page_ccw(window):
 def _rotate_page(window, degrees: int):
     path = window.current_path
     page_no = _get_current_page(window)
+    if not _flush_annotations_before_heavy_op(window, path, "xoay trang"):
+        return
     try:
         with pikepdf.open(path) as pdf:
             page = pdf.pages[page_no - 1]
@@ -1633,6 +1672,8 @@ def delete_current_page(window):
     """Delete the current page from the PDF."""
     path = window.current_path
     page_no = _get_current_page(window)
+    if not _flush_annotations_before_heavy_op(window, path, "xoa trang"):
+        return
     try:
         with pikepdf.open(path) as pdf:
             total = len(pdf.pages)
@@ -1667,6 +1708,8 @@ def merge_pdf(window):
     if not other_path:
         return
     path = window.current_path
+    if not _flush_annotations_before_heavy_op(window, path, "ghep PDF"):
+        return
     try:
         with pikepdf.open(path) as pdf:
             with pikepdf.open(other_path) as other:
@@ -1851,19 +1894,18 @@ def _do_selected_text_mark(window, mark_type: str) -> bool:
                 all_annot_ids.append(annot_id)
             annot_ids_by_page[page_no] = page_ids
             total_rects += len(rects)
-            _add_overlay_mark(
-                window,
-                path,
-                page_number=page_no,
-                rects=rects,
-                color=config["overlay_color"],
-                style=config["overlay_style"],
-                mark_id=mark_id,
-            )
 
         if total_rects <= 0:
             show_warning(window, "Chu thich", "Khong lay duoc vung van ban da boi den.")
             return False
+        _add_overlay_marks_batch(
+            window,
+            path,
+            marks_by_page=rects_by_page,
+            color=config["overlay_color"],
+            style=config["overlay_style"],
+            mark_id=mark_id,
+        )
 
         def _op(pdf):
             if not _annotation_mark_active(window, mark_id):

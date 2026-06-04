@@ -768,6 +768,14 @@ def _ensure_edit_state(window):
     except Exception:
         snapshot_source = current
 
+    try:
+        from app.actions.annotate import _flush_annotations_before_heavy_op
+
+        if not _flush_annotations_before_heavy_op(window, snapshot_source, "chinh sua PDF"):
+            return None
+    except Exception:
+        pass
+
     _reset_edit_state(window)
 
     edit_dir = os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
