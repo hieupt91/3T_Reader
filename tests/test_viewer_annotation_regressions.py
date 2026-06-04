@@ -64,6 +64,7 @@ def test_text_mark_toolbar_uses_pdfjs_selection_rects_without_prompt_or_search()
     underline_src = inspect.getsource(annotate.underline_text)
     strikeout_src = inspect.getsource(annotate.strikeout_text)
     selected_mark_src = inspect.getsource(annotate._do_selected_text_mark)
+    selection_js = annotate._GET_SELECTION_RECTS_JS
 
     assert '_do_selected_text_mark(window, "highlight")' in highlight_src
     assert '_do_selected_text_mark(window, "underline")' in underline_src
@@ -73,6 +74,9 @@ def test_text_mark_toolbar_uses_pdfjs_selection_rects_without_prompt_or_search()
     assert "_search_text_on_page" not in selected_mark_src
     assert "QInputDialog" not in selected_mark_src
     assert "getText" not in selected_mark_src
+    assert "__3tReadSelectionPayload" in selection_js
+    assert "convertToPdfPoint" not in selection_js
+    assert "getClientRects" not in selection_js
 
 
 def test_inline_edit_scripts_use_shared_bridge_not_private_webchannels():

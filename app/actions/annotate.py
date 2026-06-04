@@ -1414,65 +1414,17 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
 
 
 _GET_SELECTION_RECTS_JS = r"""(function() {
-    function fallbackPayload(text) {
-        try {
-            if (typeof window.__3tReadSelectionPayload === 'function') {
-                var cached = window.__3tReadSelectionPayload();
-                if (cached && cached.rects && cached.rects.length > 0) return cached;
-            }
-            var raw = window.__3tLastSelectionPayload;
-            if (raw && raw.rects && raw.rects.length > 0 && Date.now() - (raw.timestamp || 0) < 15000) return raw;
-        } catch (_err) {}
-        return {text: text || '', rects: []};
-    }
+    try {
+        if (typeof window.__3tReadSelectionPayload === 'function') {
+            return window.__3tReadSelectionPayload();
+        }
+        var raw = window.__3tLastSelectionPayload;
+        if (raw && raw.rects && raw.rects.length > 0 && Date.now() - (raw.timestamp || 0) < 15000) {
+            return raw;
+        }
+    } catch (_err) {}
     var sel = window.getSelection ? window.getSelection() : null;
-    var text = sel ? String(sel.toString() || '') : '';
-    var app = window.PDFViewerApplication;
-    var viewer = app && app.pdfViewer;
-    if (!sel || sel.rangeCount <= 0 || !viewer) return fallbackPayload(text);
-
-    function pageViewFor(pageNumber) {
-        return viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
-    }
-    function pageForRect(rect) {
-        var cx = (rect.left + rect.right) / 2;
-        var cy = (rect.top + rect.bottom) / 2;
-        var el = document.elementFromPoint(cx, cy);
-        var pageEl = el && el.closest ? el.closest('.page') : null;
-        if (pageEl) return pageEl;
-        var pages = document.querySelectorAll('.page[data-page-number]');
-        for (var i = 0; i < pages.length; i++) {
-            var pr = pages[i].getBoundingClientRect();
-            if (cx >= pr.left && cx <= pr.right && cy >= pr.top && cy <= pr.bottom) return pages[i];
-        }
-        return null;
-    }
-
-    var out = [];
-    for (var r = 0; r < sel.rangeCount; r++) {
-        var rects = sel.getRangeAt(r).getClientRects();
-        for (var i = 0; i < rects.length; i++) {
-            var cr = rects[i];
-            if (!cr || cr.width < 2 || cr.height < 2) continue;
-            var pageEl = pageForRect(cr);
-            if (!pageEl) continue;
-            var pageNumber = parseInt(pageEl.getAttribute('data-page-number') || '0', 10);
-            var pageView = pageNumber ? pageViewFor(pageNumber) : null;
-            if (!pageView || !pageView.viewport) continue;
-            var pr = pageEl.getBoundingClientRect();
-            var p0 = pageView.viewport.convertToPdfPoint(cr.left - pr.left, cr.top - pr.top);
-            var p1 = pageView.viewport.convertToPdfPoint(cr.right - pr.left, cr.bottom - pr.top);
-            out.push({
-                page_number: pageNumber,
-                rect: [
-                    Math.min(p0[0], p1[0]), Math.min(p0[1], p1[1]),
-                    Math.max(p0[0], p1[0]), Math.max(p0[1], p1[1])
-                ]
-            });
-        }
-    }
-    if (out.length > 0) return {text: text, rects: out};
-    return fallbackPayload(text);
+    return { text: sel ? String(sel.toString() || '') : '', rects: [] };
 })()"""
 
 
@@ -1873,6 +1825,14 @@ def _do_selected_text_mark(window, mark_type: str) -> bool:
 
     selected_text, rects_by_page = _get_selection_page_rects_sync(window)
     if not rects_by_page:
+        if selected_text:
+            show_warning(
+                window,
+                "Chu thich",
+                "Da nhan duoc van ban boi den nhung chua lay duoc toa do tren trang PDF. "
+                "Hay thu chon lai vung van ban ngan hon hoac cuon trang ve dung vi tri dang chon.",
+            )
+            return False
         show_warning(window, "Chu thich", "Hay boi den van ban tren PDF truoc khi thuc hien thao tac nay.")
         return False
 
