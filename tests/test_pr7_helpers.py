@@ -187,6 +187,24 @@ def test_merge_rects_by_line_normalizes_fragmented_marks():
     assert merged[1][2] == 22.0
 
 
+def test_selection_page_rects_groups_pdfjs_payload_by_page():
+    from app.actions.annotate import _selection_page_rects
+
+    text, rects_by_page = _selection_page_rects({
+        "text": "alpha beta gamma",
+        "rects": [
+            {"page_number": 1, "rect": [10.0, 100.0, 20.0, 112.0]},
+            {"page_number": 1, "rect": [21.0, 99.5, 34.0, 113.0]},
+            {"page_number": 2, "rect": [40.0, 50.0, 55.0, 63.0]},
+        ],
+    })
+
+    assert text == "alpha beta gamma"
+    assert sorted(rects_by_page) == [1, 2]
+    assert rects_by_page[1] == [(10.0, 98.42, 34.0, 114.08)]
+    assert rects_by_page[2] == [(40.0, 48.96, 55.0, 64.04)]
+
+
 def test_delete_mark_annotations_by_ids(tmp_path):
     import pytest
 

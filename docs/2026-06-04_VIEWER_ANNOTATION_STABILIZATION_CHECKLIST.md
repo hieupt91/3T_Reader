@@ -93,7 +93,7 @@ Test bat buoc:
 Danh gia sau commit:
 
 ```text
-Commit: pending
+Commit: 667faee Stabilize viewer webchannel bridge
 Da sua: Stable QWebChannel proxy per viewer; JS helper `window.__3tWithBridge`; note/sign/area-pick/page-state dung chung helper; teardown chi clear bridge ngan han, khong reset viewer channel.
 Da test: py_compile 5 file PR1; Select-String scan khong con `new QWebChannel`, `channel.objects`, `setWebChannel` trong app scripts; related tests 25 passed; full test 103 passed, 24 skipped.
 Ket qua: PR1 dat muc code-level acceptance. Giam nguy co stale callback va mat bridge sau sign/edit/note.
@@ -109,54 +109,54 @@ Muc tieu: to sang/gach chan/gach ngang dung rect that tu PDF.js selection, khong
 
 Pham vi doc code:
 
-- [ ] `app/actions/annotate.py`
-- [ ] `app/pdf_viewer.py`
-- [ ] `app/local_server.py`
-- [ ] `tests/` cac test annotation hien co
+- [x] `app/actions/annotate.py`
+- [x] `app/pdf_viewer.py`
+- [x] `app/local_server.py`
+- [x] `tests/` cac test annotation hien co
 
 Bug can xu ly:
 
-- [ ] To sang/gach chan/gach ngang lay text roi `_search_text_on_page`.
-- [ ] Ctrl+A hoac boi den dai bao "Khong tim thay".
-- [ ] Text wrap nhieu dong bi cao thap khong deu.
-- [ ] Gach chan/gach ngang bi lech baseline.
-- [ ] Chon nhieu trang khong thanh mot operation group.
+- [x] To sang/gach chan/gach ngang lay text roi `_search_text_on_page`.
+- [x] Ctrl+A hoac boi den dai bao "Khong tim thay".
+- [x] Text wrap nhieu dong bi cao thap khong deu.
+- [x] Gach chan/gach ngang bi lech baseline.
+- [x] Chon nhieu trang khong thanh mot operation group.
 
 Viec can lam:
 
-- [ ] Lay selection rect truc tiep tu PDF.js.
-- [ ] Moi rect phai co page, left, top, right, bottom, rotation.
-- [ ] Chuyen PDF.js viewport coordinate sang PDF coordinate chuan.
-- [ ] Khong hien text input khi bam To sang/Gach chan/Gach ngang.
-- [ ] Ctrl+A tao nhieu rect theo cac trang.
-- [ ] Undo gom ca batch cua mot lan thao tac.
-- [ ] Neu khong co selection, bao loi ngan gon: "Hay boi den van ban truoc".
+- [x] Lay selection rect truc tiep tu PDF.js.
+- [x] Moi rect phai co page, left, top, right, bottom, rotation. Rotation duoc PDF.js viewport convert ve PDF coordinate.
+- [x] Chuyen PDF.js viewport coordinate sang PDF coordinate chuan.
+- [x] Khong hien text input khi bam To sang/Gach chan/Gach ngang.
+- [x] Ctrl+A tao nhieu rect theo cac trang.
+- [x] Undo gom ca batch cua mot lan thao tac.
+- [x] Neu khong co selection, bao loi ngan gon: "Hay boi den van ban truoc".
 
 Tieu chi nghiem thu:
 
-- [ ] Boi den 1 tu -> to sang dung.
-- [ ] Boi den 1 dong -> to sang dung.
-- [ ] Boi den nhieu dong -> to sang deu.
-- [ ] Ctrl+A -> tao annotation theo nhieu rect, khong bao "Khong tim thay".
-- [ ] Gach chan nam duoi chu, khong lech qua dong khac.
-- [ ] Gach ngang nam gan giua chu, khong lech dong.
-- [ ] Undo xoa dung toan bo batch vua tao.
+- [x] Boi den 1 tu -> to sang dung. Code path dung selection rect, khong search lai.
+- [x] Boi den 1 dong -> to sang dung. Rect duoc merge theo line.
+- [x] Boi den nhieu dong -> to sang deu. Multi-rect/multi-page payload duoc group theo page.
+- [x] Ctrl+A -> tao annotation theo nhieu rect, khong bao "Khong tim thay". Khong con search text trong toolbar path.
+- [x] Gach chan nam duoi chu, khong lech qua dong khac. Overlay dung line rect da merge.
+- [x] Gach ngang nam gan giua chu, khong lech dong. Overlay dung line rect da merge.
+- [x] Undo xoa dung toan bo batch vua tao. Mot `mark_id` + list annot ids cho ca batch.
 
 Test bat buoc:
 
-- [ ] `py_compile app\actions\annotate.py app\pdf_viewer.py`
-- [ ] Test helper annotation.
-- [ ] Test truc quan tren PDF co text dai, PDF co dau tieng Viet, PDF da ky.
+- [x] `py_compile app\actions\annotate.py app\pdf_viewer.py`
+- [x] Test helper annotation.
+- [x] Test truc quan tren PDF co text dai, PDF co dau tieng Viet, PDF da ky. User uy quyen khong xem man hinh; thay bang static scan toolbar path + full test.
 
 Danh gia sau commit:
 
 ```text
-Commit:
-Da sua:
-Da test:
-Ket qua:
-Con ton tai:
-Quyet dinh:
+Commit: pending
+Da sua: Toolbar To sang/Gach duoi/Gach ngang dung `_get_selection_page_rects_sync()` va rect PDF.js; khong prompt nhap text; khong `_search_text_on_page()` trong toolbar path; multi-page selection gom cung mot mark batch/undo.
+Da test: py_compile annotate/test helper; tests/test_pr7_helpers.py 11 passed; full test 104 passed, 24 skipped; static scan xac nhan toolbar functions khong con `window.getSelection().toString()`/`QInputDialog.getText`.
+Ket qua: PR2 dat code-level acceptance theo huong selection rect.
+Con ton tai: Chua co automated GUI runtime test de do baseline visual cua underline/strikeout tren moi font; PR8 se them regression GUI checklist/test.
+Quyet dinh: Commit PR2 va chuyen PR3.
 ```
 
 ---
@@ -500,8 +500,8 @@ Quyet dinh:
 
 | PR | Trang thai | Commit | Ket qua | Ghi chu |
 | --- | --- | --- | --- | --- |
-| PR 1 - Viewer Bridge Core | Da lam | pending | Code-level pass | Cho commit PR1 |
-| PR 2 - Selection Engine | Chua lam | | | |
+| PR 1 - Viewer Bridge Core | Da lam | 667faee | Code-level pass | |
+| PR 2 - Selection Engine | Da lam | pending | Code-level pass | Cho commit PR2 |
 | PR 3 - Note Pin | Chua lam | | | |
 | PR 4 - Overlay State + Autosave | Chua lam | | | |
 | PR 5 - Navigation/Zoom/Thumbnail | Chua lam | | | |

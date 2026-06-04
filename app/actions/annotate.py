@@ -1511,29 +1511,12 @@ def _selected_note_rect(page, selected_rects: list[tuple[float, float, float, fl
 
 @require_document(show_message=True)
 def highlight_text(window):
-    """Highlight selected or searched text on current page."""
-    wv = window._get_webview()
-
-    def _apply(sel_text):
-        text = (sel_text or "").strip()
-        if not text:
-            text, ok = QInputDialog.getText(
-                window, "Tô sáng văn bản",
-                "Nhập từ/cụm từ cần tô sáng:",
-                QLineEdit.EchoMode.Normal,
-            )
-            if not ok or not text.strip():
-                return
-            text = text.strip()
-        _do_highlight(window, text)
-
-    if wv:
-        wv.page().runJavaScript("window.getSelection().toString()", _apply)
-    else:
-        _apply("")
+    """Highlight the current PDF.js text selection."""
+    _do_selected_text_mark(window, "highlight")
 
 
 def _do_highlight(window, text: str):
+    """Legacy search-based highlight kept for non-toolbar callers."""
     path = window.current_path
     page_no = _get_current_page(window)
     rects = _merge_rects_by_line(_search_text_on_page(path, page_no, text))
@@ -1783,52 +1766,118 @@ def _do_line_annot(window, text: str, annot_type: str):
         show_warning(window, "Lỗi chú thích", str(e))
 
 
+def _text_mark_config(mark_type: str) -> dict:
+    if mark_type == "underline":
+        return {
+            "subtype": "Underline",
+            "pdf_color": [0.0, 0.0, 1.0],
+            "overlay_style": "underline",
+            "overlay_color": "rgba(37,99,235,.9)",
+            "label": "gach duoi",
+        }
+    if mark_type == "strikeout":
+        return {
+            "subtype": "StrikeOut",
+            "pdf_color": [1.0, 0.0, 0.0],
+            "overlay_style": "strikeout",
+            "overlay_color": "rgba(220,38,38,.9)",
+            "label": "gach ngang",
+        }
+    return {
+        "subtype": "Highlight",
+        "pdf_color": [1.0, 1.0, 0.0],
+        "overlay_style": "highlight",
+        "overlay_color": "rgba(250,204,21,.35)",
+        "label": "to sang",
+    }
+
+
+def _do_selected_text_mark(window, mark_type: str) -> bool:
+    path = getattr(window, "current_path", None)
+    if not path:
+        show_warning(window, "Chu thich", "Khong tim thay tai lieu dang mo.")
+        return False
+
+    selected_text, rects_by_page = _get_selection_page_rects_sync(window)
+    if not rects_by_page:
+        show_warning(window, "Chu thich", "Hay boi den van ban tren PDF truoc khi thuc hien thao tac nay.")
+        return False
+
+    config = _text_mark_config(mark_type)
+    mark_id = f"3t-mark-{uuid.uuid4().hex}"
+    annot_ids_by_page: dict[int, list[str]] = {}
+    all_annot_ids: list[str] = []
+    total_rects = 0
+
+    try:
+        for page_no in sorted(rects_by_page):
+            rects = rects_by_page[page_no]
+            if not rects:
+                continue
+            page_ids = []
+            for _rect in rects:
+                annot_id = f"{mark_id}-{len(all_annot_ids)}"
+                page_ids.append(annot_id)
+                all_annot_ids.append(annot_id)
+            annot_ids_by_page[page_no] = page_ids
+            total_rects += len(rects)
+            _add_overlay_mark(
+                window,
+                path,
+                page_number=page_no,
+                rects=rects,
+                color=config["overlay_color"],
+                style=config["overlay_style"],
+                mark_id=mark_id,
+            )
+
+        if total_rects <= 0:
+            show_warning(window, "Chu thich", "Khong lay duoc vung van ban da boi den.")
+            return False
+
+        def _op(pdf):
+            if not _annotation_mark_active(window, mark_id):
+                return
+            for page_no, rects in rects_by_page.items():
+                if page_no < 1 or page_no > len(pdf.pages):
+                    continue
+                _add_pdf_annotation(
+                    pdf,
+                    page_no - 1,
+                    config["subtype"],
+                    rects,
+                    config["pdf_color"],
+                    annot_ids=annot_ids_by_page.get(page_no) or [],
+                )
+
+        _queue_annotation_op(window, path, _op, delay_ms=350)
+        _push_annotation_undo(window, {
+            "kind": "mark",
+            "path": os.path.abspath(path),
+            "mark_id": mark_id,
+            "annot_ids": all_annot_ids,
+            "label": config["label"],
+        })
+        if hasattr(window, "status"):
+            text_hint = f": {selected_text[:80]}" if selected_text else ""
+            window.status.showMessage(f"Da {config['label']} {total_rects} vung{text_hint}", 3000)
+        return True
+    except Exception as exc:
+        _remove_overlay_mark(window, mark_id)
+        show_warning(window, "Loi chu thich", str(exc))
+        return False
+
+
 @require_document(show_message=True)
 def underline_text(window):
-    """Gạch dưới văn bản được chọn hoặc nhập."""
-    wv = window._get_webview()
-
-    def _apply(payload):
-        text = (payload or "").strip()
-        if not text:
-            text, ok = QInputDialog.getText(
-                window, "Gạch dưới văn bản",
-                "Nhập từ/cụm từ cần gạch dưới:",
-                QLineEdit.EchoMode.Normal,
-            )
-            if not ok or not text.strip():
-                return
-            text = text.strip()
-        _do_line_annot(window, text, "underline")
-
-    if wv:
-        wv.page().runJavaScript("window.getSelection().toString()", _apply)
-    else:
-        _apply("")
+    """Underline the current PDF.js text selection."""
+    _do_selected_text_mark(window, "underline")
 
 
 @require_document(show_message=True)
 def strikeout_text(window):
-    """Gạch ngang (strikeout) văn bản được chọn hoặc nhập."""
-    wv = window._get_webview()
-
-    def _apply(payload):
-        text = (payload or "").strip()
-        if not text:
-            text, ok = QInputDialog.getText(
-                window, "Gạch ngang văn bản",
-                "Nhập từ/cụm từ cần gạch ngang:",
-                QLineEdit.EchoMode.Normal,
-            )
-            if not ok or not text.strip():
-                return
-            text = text.strip()
-        _do_line_annot(window, text, "strikeout")
-
-    if wv:
-        wv.page().runJavaScript("window.getSelection().toString()", _apply)
-    else:
-        _apply("")
+    """Strike out the current PDF.js text selection."""
+    _do_selected_text_mark(window, "strikeout")
 
 
 # ── Comment (sticky note) ─────────────────────────────────────────────────────
