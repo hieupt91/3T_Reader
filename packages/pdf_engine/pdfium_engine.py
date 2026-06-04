@@ -374,10 +374,14 @@ def _draw_text_box(c, text: str, left: float, bottom: float, width: float, heigh
                    font_size: float, *, font_name: str = "Helvetica",
                    color: tuple[float, float, float] = (0, 0, 0),
                    underline: bool = False) -> None:
+    """Draw *text* inside a box, wrapping at word boundaries using actual string widths.
+
+    Uses ``c.stringWidth()`` for accurate proportional-font measurement instead
+    of the previous character-count heuristic.
+    """
     leading = max(font_size * 1.2, font_size + 2)
     y = bottom + height - font_size
     min_y = bottom
-    max_chars = max(1, int(width / max(font_size * 0.55, 1)))
     c.setFillColorRGB(*color)
     c.setStrokeColorRGB(*color)
     c.setFont(font_name, font_size)
@@ -387,10 +391,25 @@ def _draw_text_box(c, text: str, left: float, bottom: float, width: float, heigh
         while line:
             if y < min_y:
                 return
-            chunk = line[:max_chars]
-            if len(line) > max_chars and " " in chunk:
-                split_at = chunk.rfind(" ")
-                chunk = chunk[:split_at]
+            # Find the longest substring that fits within *width*
+            # by measuring actual string width (handles proportional fonts).
+            if c.stringWidth(line, font_name, font_size) <= width:
+                chunk = line
+            else:
+                # Binary search for the longest prefix that fits
+                lo, hi = 1, len(line)
+                while lo < hi:
+                    mid = (lo + hi + 1) // 2
+                    if c.stringWidth(line[:mid], font_name, font_size) <= width:
+                        lo = mid
+                    else:
+                        hi = mid - 1
+                # Try to break at last space within the fitted prefix
+                chunk = line[:lo]
+                if lo < len(line) and " " in chunk:
+                    split_at = chunk.rfind(" ")
+                    if split_at > 0:
+                        chunk = chunk[:split_at]
             c.drawString(left, y, chunk)
             if underline:
                 text_width = c.stringWidth(chunk, font_name, font_size)
