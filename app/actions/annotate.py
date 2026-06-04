@@ -434,20 +434,11 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
     }
 
     function ensureBridge(callback) {
-        if (typeof QWebChannel === 'undefined') {
-            var script = document.createElement('script');
-            script.src = 'qrc:///qtwebchannel/qwebchannel.js';
-            script.onload = function() { ensureBridge(callback); };
-            document.head.appendChild(script);
+        if (typeof window.__3tWithBridge === 'function') {
+            window.__3tWithBridge('noteToolsBridge', callback);
             return;
         }
-        if (!(window.qt && qt.webChannelTransport)) {
-            setTimeout(function() { ensureBridge(callback); }, 80);
-            return;
-        }
-        new QWebChannel(qt.webChannelTransport, function(channel) {
-            callback(channel.objects.noteToolsBridge || null);
-        });
+        setTimeout(function() { ensureBridge(callback); }, 80);
     }
 
     function ensureStyle() {

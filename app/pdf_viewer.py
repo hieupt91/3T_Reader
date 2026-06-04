@@ -144,6 +144,66 @@ _PDFJS_UI_AND_HOOKS_JS = """
         return readVisiblePage(window.PDFViewerApplication);
     };
 
+    function ensureQWebChannelScript(callback) {
+        if (typeof QWebChannel !== 'undefined') {
+            callback();
+            return;
+        }
+        var existing = document.getElementById('__3t_qwebchannel_script');
+        if (existing) {
+            existing.addEventListener('load', callback, { once: true });
+            return;
+        }
+        var script = document.createElement('script');
+        script.id = '__3t_qwebchannel_script';
+        script.src = 'qrc:///qtwebchannel/qwebchannel.js';
+        script.onload = callback;
+        document.head.appendChild(script);
+    }
+
+    window.__3tWithBridge = function (name, callback) {
+        if (!name || typeof callback !== 'function') return;
+
+        function deliver(channel) {
+            try {
+                callback((channel && channel.objects && channel.objects[name]) || null);
+            } catch (_) {}
+        }
+
+        if (window.__3tSharedWebChannel) {
+            deliver(window.__3tSharedWebChannel);
+            return;
+        }
+
+        if (!window.__3tSharedWebChannelCallbacks) {
+            window.__3tSharedWebChannelCallbacks = [];
+        }
+        window.__3tSharedWebChannelCallbacks.push(function(channel) {
+            deliver(channel);
+        });
+        if (window.__3tSharedWebChannelConnecting) return;
+        window.__3tSharedWebChannelConnecting = true;
+
+        ensureQWebChannelScript(function () {
+            function connectWhenReady() {
+                if (!(window.qt && qt.webChannelTransport) || typeof QWebChannel === 'undefined') {
+                    setTimeout(connectWhenReady, 50);
+                    return;
+                }
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    window.__3tSharedWebChannel = channel;
+                    window.__3tSharedWebChannelConnecting = false;
+                    var callbacks = window.__3tSharedWebChannelCallbacks || [];
+                    window.__3tSharedWebChannelCallbacks = [];
+                    callbacks.forEach(function(fn) {
+                        try { fn(channel); } catch (_) {}
+                    });
+                });
+            }
+            connectWhenReady();
+        });
+    };
+
     function collectSelectionPayload() {
         var sel = window.getSelection ? window.getSelection() : null;
         var text = sel ? String(sel.toString() || '') : '';
@@ -241,24 +301,8 @@ _PDFJS_UI_AND_HOOKS_JS = """
             } catch (_) {}
         }
 
-        if (window.__3tPageStateBridge) {
-            send(window.__3tPageStateBridge);
-            return;
-        }
-        if (typeof QWebChannel === 'undefined') {
-            var existing = document.getElementById('__3t_qwebchannel_script');
-            if (!existing) {
-                var script = document.createElement('script');
-                script.id = '__3t_qwebchannel_script';
-                script.src = 'qrc:///qtwebchannel/qwebchannel.js';
-                script.onload = function () { reportPageState(app, reason); };
-                document.head.appendChild(script);
-            }
-            return;
-        }
-        if (!window.qt || !qt.webChannelTransport) return;
-        new QWebChannel(qt.webChannelTransport, function(channel) {
-            window.__3tPageStateBridge = channel.objects.pageStateBridge || null;
+        window.__3tWithBridge('pageStateBridge', function(bridge) {
+            window.__3tPageStateBridge = bridge || null;
             send(window.__3tPageStateBridge);
         });
     }

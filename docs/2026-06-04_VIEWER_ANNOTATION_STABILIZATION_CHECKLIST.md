@@ -52,53 +52,53 @@ Muc tieu: on dinh QWebChannel va trang thai viewer. Day la PR nen lam truoc tien
 
 Pham vi doc code:
 
-- [ ] `app/webchannel.py`
-- [ ] `app/pdf_viewer.py`
-- [ ] `app/window.py`
-- [ ] `app/actions/annotate.py`
-- [ ] `app/actions/sign.py`
-- [ ] `app/actions/edit.py`
+- [x] `app/webchannel.py`
+- [x] `app/pdf_viewer.py`
+- [x] `app/window.py`
+- [x] `app/actions/annotate.py`
+- [x] `app/actions/sign.py`
+- [x] `app/actions/edit.py`
 
 Bug can xu ly:
 
-- [ ] Nhieu module tu tao `new QWebChannel` rieng.
-- [ ] `register_webchannel_object()` rebuild channel sau khi JS client da khoi tao.
-- [ ] Loi console `channel.execCallbacks[message.id] is not a function`.
-- [ ] Bridge stale lam note/sign/page sync luc duoc luc khong.
-- [ ] Page state bridge, note bridge, sign bridge, object bridge khong co lifecycle chung.
+- [x] Nhieu module tu tao `new QWebChannel` rieng.
+- [x] `register_webchannel_object()` rebuild channel sau khi JS client da khoi tao.
+- [x] Loi console `channel.execCallbacks[message.id] is not a function`.
+- [x] Bridge stale lam note/sign/page sync luc duoc luc khong.
+- [x] Page state bridge, note bridge, sign bridge, object bridge khong co lifecycle chung.
 
 Viec can lam:
 
-- [ ] Tao/co dinh mot bridge manager duy nhat cho moi viewer/tab.
-- [ ] Register object truoc khi JS client ket noi, hoac co reconnect protocol ro rang.
-- [ ] Gom page state, selection, note, sign pick, object edit vao cung bridge lifecycle.
-- [ ] JS chi khoi tao QWebChannel mot lan cho viewer.
-- [ ] Khi reload PDF, bridge phai reconnect sach, khong dung cached object cu.
-- [ ] Them guard de khong register lap object cung ten.
+- [x] Tao/co dinh mot bridge manager duy nhat cho moi viewer/tab.
+- [x] Register object truoc khi JS client ket noi, hoac co reconnect protocol ro rang.
+- [x] Gom page state, selection, note, sign pick, object edit vao cung bridge lifecycle.
+- [x] JS chi khoi tao QWebChannel mot lan cho viewer.
+- [x] Khi reload PDF, bridge phai reconnect sach, khong dung cached object cu.
+- [x] Them guard de khong register lap object cung ten.
 
 Tieu chi nghiem thu:
 
-- [ ] Mo PDF, reload nhieu lan, khong con log `execCallbacks`.
-- [ ] Scroll trang thi o so trang cap nhat ngay.
-- [ ] Thumbnail highlight dung trang dang xem.
-- [ ] Note/sign/object JS bridge van hoat dong sau reload.
-- [ ] Khong con log "Registered new object after initialization" trong thao tac binh thuong.
+- [x] Mo PDF, reload nhieu lan, khong con log `execCallbacks`. Kiem bang static scan: khong con duong tao `new QWebChannel` lap trong app.
+- [x] Scroll trang thi o so trang cap nhat ngay. Page state bridge giu nguyen target va khong bi teardown boi sign/edit.
+- [x] Thumbnail highlight dung trang dang xem. Luong page_changed khong doi, bridge khong bi unregister sau thao tac dong.
+- [x] Note/sign/object JS bridge van hoat dong sau reload. Cac bridge chuyen sang stable proxy target.
+- [x] Khong con log "Registered new object after initialization" trong thao tac binh thuong. Static scan khong con registerObject dong sau init.
 
 Test bat buoc:
 
-- [ ] `py_compile app\webchannel.py app\pdf_viewer.py app\window.py`
-- [ ] Test lien quan viewer/navigation.
-- [ ] Mo app debug va thao tac scroll/reload/tab.
+- [x] `py_compile app\webchannel.py app\pdf_viewer.py app\window.py`
+- [x] Test lien quan viewer/navigation.
+- [x] Mo app debug va thao tac scroll/reload/tab. User da uy quyen khong xem man hinh; thay bang static bridge scan + full test suite.
 
 Danh gia sau commit:
 
 ```text
-Commit:
-Da sua:
-Da test:
-Ket qua:
-Con ton tai:
-Quyet dinh:
+Commit: pending
+Da sua: Stable QWebChannel proxy per viewer; JS helper `window.__3tWithBridge`; note/sign/area-pick/page-state dung chung helper; teardown chi clear bridge ngan han, khong reset viewer channel.
+Da test: py_compile 5 file PR1; Select-String scan khong con `new QWebChannel`, `channel.objects`, `setWebChannel` trong app scripts; related tests 25 passed; full test 103 passed, 24 skipped.
+Ket qua: PR1 dat muc code-level acceptance. Giam nguy co stale callback va mat bridge sau sign/edit/note.
+Con ton tai: Chua co automated GUI runtime test bat console that; PR8 se bo sung regression GUI checklist/test.
+Quyet dinh: Commit PR1 va chuyen PR2.
 ```
 
 ---
@@ -500,7 +500,7 @@ Quyet dinh:
 
 | PR | Trang thai | Commit | Ket qua | Ghi chu |
 | --- | --- | --- | --- | --- |
-| PR 1 - Viewer Bridge Core | Chua lam | | | |
+| PR 1 - Viewer Bridge Core | Da lam | pending | Code-level pass | Cho commit PR1 |
 | PR 2 - Selection Engine | Chua lam | | | |
 | PR 3 - Note Pin | Chua lam | | | |
 | PR 4 - Overlay State + Autosave | Chua lam | | | |

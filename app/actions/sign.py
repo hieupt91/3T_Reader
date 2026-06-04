@@ -40,7 +40,7 @@ def _get_web_view(window):
 
 
 def _setup_webchannel(web_view, parent, name, bridge):
-    """Shared: register a bridge object on a new QWebChannel."""
+    """Shared: update the stable viewer QWebChannel proxy target."""
     from app.webchannel import register_webchannel_object
 
     return register_webchannel_object(web_view, parent, name, bridge)
@@ -234,16 +234,12 @@ SIGNATURE_PICK_SCRIPT = r"""
     window.__readerPdfSignaturePickInstalled = true;
 
     function attachBridge() {
-        if (typeof QWebChannel === 'undefined') {
-            var script = document.createElement('script');
-            script.src = 'qrc:///qtwebchannel/qwebchannel.js';
-            script.onload = attachBridge;
-            document.head.appendChild(script);
+        if (typeof window.__3tWithBridge !== 'function') {
+            setTimeout(attachBridge, 50);
             return;
         }
 
-        new QWebChannel(qt.webChannelTransport, function (channel) {
-            const bridge = channel.objects.sigPickBridge;
+        window.__3tWithBridge('sigPickBridge', function (bridge) {
             if (!bridge) {
                 return;
             }
@@ -441,18 +437,12 @@ def _set_signature_preview(window, placement: dict | None):
         if (window.__readerPdfSigPreviewBridge) {{
             return;
         }}
-        if (typeof QWebChannel === 'undefined') {{
-            const scriptTag = document.createElement('script');
-            scriptTag.src = 'qrc:///qtwebchannel/qwebchannel.js';
-            scriptTag.onload = ensureBridge;
-            document.head.appendChild(scriptTag);
+        if (typeof window.__3tWithBridge !== 'function') {{
+            setTimeout(ensureBridge, 50);
             return;
         }}
-        if (!(window.qt && qt.webChannelTransport)) {{
-            return;
-        }}
-        new QWebChannel(qt.webChannelTransport, function(channel) {{
-            window.__readerPdfSigPreviewBridge = channel.objects.sigPreviewBridge || null;
+        window.__3tWithBridge('sigPreviewBridge', function(bridge) {{
+            window.__readerPdfSigPreviewBridge = bridge || null;
         }});
     }}
 

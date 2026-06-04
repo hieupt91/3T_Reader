@@ -228,15 +228,7 @@ AREA_PICK_SCRIPT = r"""
     }
 
     function attachBridge() {
-        if (typeof QWebChannel === 'undefined') {
-            var script = document.createElement('script');
-            script.src = 'qrc:///qtwebchannel/qwebchannel.js';
-            script.onload = attachBridge;
-            document.head.appendChild(script);
-            return;
-        }
-
-        if (!(window.qt && qt.webChannelTransport)) {
+        if (typeof window.__3tWithBridge !== 'function') {
             setTimeout(attachBridge, 50);
             return;
         }
@@ -248,8 +240,7 @@ AREA_PICK_SCRIPT = r"""
             return;
         }
 
-        new QWebChannel(qt.webChannelTransport, function (channel) {
-            var b = channel.objects.areaPickBridge;
+        window.__3tWithBridge('areaPickBridge', function (b) {
             if (!b) {
                 return;
             }
