@@ -486,7 +486,7 @@ Tieu chi nghiem thu:
 Danh gia sau commit:
 
 ```text
-Commit: pending
+Commit: 91aa02a Add viewer annotation regression checks
 Da sua: Them docs/VIEWER_GUI_REGRESSION_CHECKLIST.md; them tests/test_viewer_annotation_regressions.py de khoa invariant QWebChannel, page/zoom event, text mark selection path va inline edit bridge path.
 Da test: py_compile regression test va viewer/annotation/edit files; tests/test_viewer_annotation_regressions.py + tests/test_pr7_helpers.py 18 passed; full test 111 passed, 24 skipped.
 Ket qua: PR8 dat code-level regression coverage va co checklist GUI ro rang cho test release.
@@ -507,7 +507,7 @@ Quyet dinh: Commit PR8.
 | PR 5 - Navigation/Zoom/Thumbnail | Da lam | 3e7f441 | Code-level pass | |
 | PR 6 - Insert/Object Edit | Da lam | 53d59b1 | Code-level pass | |
 | PR 7 - Print/Export | Da lam | e3c42aa | Code-level pass | |
-| PR 8 - Regression GUI | Da lam | pending | Code-level pass | Cho commit PR8 |
+| PR 8 - Regression GUI | Da lam | 91aa02a | Code-level pass | |
 
 ## Dieu Kien Truoc Khi Ra Ban Va Loi
 
