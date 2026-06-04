@@ -638,77 +638,41 @@ def _persist_api_keys(
     ollama_model: str = "",
     ai_provider: str = "auto",
 ):
-    """Lưu API key và Ollama config vào file config trong thư mục dữ liệu ứng dụng."""
-    import json
+    """Lưu API key và Ollama config vào file config (mã hóa API keys)."""
     try:
-        from packages.platform import get_app_data_dir
+        from packages.platform import get_app_data_dir, load_secure_config, save_secure_config
         config_path = os.path.join(get_app_data_dir(), "ai_config.json")
 
-        data: dict = {}
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except Exception:
-                data = {}
+        data = load_secure_config(config_path) if os.path.exists(config_path) else {}
 
-        if anthropic_key:
-            data["ANTHROPIC_API_KEY"] = anthropic_key
-        else:
-            data.pop("ANTHROPIC_API_KEY", None)
+        # --- API keys (will be encrypted by save_secure_config) ---
+        for key, val in [
+            ("ANTHROPIC_API_KEY", anthropic_key),
+            ("OPENAI_API_KEY", openai_key),
+            ("GEMINI_API_KEY", gemini_key),
+            ("GROQ_API_KEY", groq_key),
+            ("OPENROUTER_API_KEY", openrouter_key),
+            ("HF_API_KEY", hf_key),
+        ]:
+            if val:
+                data[key] = val
+            else:
+                data.pop(key, None)
 
-        if openai_key:
-            data["OPENAI_API_KEY"] = openai_key
-        else:
-            data.pop("OPENAI_API_KEY", None)
-
-        if gemini_key:
-            data["GEMINI_API_KEY"] = gemini_key
-        else:
-            data.pop("GEMINI_API_KEY", None)
-
-        if groq_key:
-            data["GROQ_API_KEY"] = groq_key
-        else:
-            data.pop("GROQ_API_KEY", None)
-        if groq_model:
-            data["GROQ_MODEL"] = groq_model
-        else:
-            data.pop("GROQ_MODEL", None)
-        if groq_base:
-            data["GROQ_BASE_URL"] = groq_base
-        else:
-            data.pop("GROQ_BASE_URL", None)
-
-        if openrouter_key:
-            data["OPENROUTER_API_KEY"] = openrouter_key
-        else:
-            data.pop("OPENROUTER_API_KEY", None)
-        if openrouter_model:
-            data["OPENROUTER_MODEL"] = openrouter_model
-        else:
-            data.pop("OPENROUTER_MODEL", None)
-        if openrouter_base:
-            data["OPENROUTER_BASE_URL"] = openrouter_base
-        else:
-            data.pop("OPENROUTER_BASE_URL", None)
-        if openrouter_ref:
-            data["OPENROUTER_HTTP_REFERER"] = openrouter_ref
-        else:
-            data.pop("OPENROUTER_HTTP_REFERER", None)
-        if openrouter_name:
-            data["OPENROUTER_APP_NAME"] = openrouter_name
-        else:
-            data.pop("OPENROUTER_APP_NAME", None)
-
-        if hf_key:
-            data["HF_API_KEY"] = hf_key
-        else:
-            data.pop("HF_API_KEY", None)
-        if hf_model:
-            data["HF_MODEL"] = hf_model
-        else:
-            data.pop("HF_MODEL", None)
+        # --- Non-sensitive config (stored as plain text) ---
+        for key, val in [
+            ("GROQ_MODEL", groq_model),
+            ("GROQ_BASE_URL", groq_base),
+            ("OPENROUTER_MODEL", openrouter_model),
+            ("OPENROUTER_BASE_URL", openrouter_base),
+            ("OPENROUTER_HTTP_REFERER", openrouter_ref),
+            ("OPENROUTER_APP_NAME", openrouter_name),
+            ("HF_MODEL", hf_model),
+        ]:
+            if val:
+                data[key] = val
+            else:
+                data.pop(key, None)
 
         if ollama_url:
             data["OLLAMA_BASE_URL"] = ollama_url
@@ -721,22 +685,19 @@ def _persist_api_keys(
 
         data["AI_PROVIDER"] = ai_provider or "auto"
 
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
+        save_secure_config(config_path, data)
     except Exception:
         pass
 
 
 def load_ai_config():
     """Tải API key và Ollama config từ file config (gọi lúc khởi động app)."""
-    import json
     try:
-        from packages.platform import get_app_data_dir
+        from packages.platform import get_app_data_dir, load_secure_config
         config_path = os.path.join(get_app_data_dir(), "ai_config.json")
         if not os.path.exists(config_path):
             return
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = load_secure_config(config_path)
         for key in (
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",

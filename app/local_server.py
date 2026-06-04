@@ -16,47 +16,9 @@ from collections import OrderedDict
 from pathlib import Path
 
 
-_PDFJS_RUNTIME_POLYFILL = b"""
-// 3T Reader compatibility shim for Qt WebEngine builds that advertise a newer
-// Chromium version than the embedded V8 feature set actually supports.
-(function () {
-  function installMapHelpers(Ctor) {
-    if (!Ctor || !Ctor.prototype) return;
-    if (!Ctor.prototype.getOrInsert) {
-      Object.defineProperty(Ctor.prototype, 'getOrInsert', {
-        configurable: true,
-        writable: true,
-        value: function (key, defaultValue) {
-          if (!this.has(key)) this.set(key, defaultValue);
-          return this.get(key);
-        }
-      });
-    }
-    if (!Ctor.prototype.getOrInsertComputed) {
-      Object.defineProperty(Ctor.prototype, 'getOrInsertComputed', {
-        configurable: true,
-        writable: true,
-        value: function (key, computeFn) {
-          if (!this.has(key)) this.set(key, computeFn(key));
-          return this.get(key);
-        }
-      });
-    }
-  }
-  installMapHelpers(globalThis.Map);
-  installMapHelpers(globalThis.WeakMap);
-  if (!Promise.withResolvers) {
-    Promise.withResolvers = function () {
-      var resolve, reject;
-      var promise = new Promise(function (res, rej) {
-        resolve = res;
-        reject = rej;
-      });
-      return { promise: promise, resolve: resolve, reject: reject };
-    };
-  }
-})();
-"""
+# Runtime polyfill loaded from shared assets/js/polyfill.js (single source of truth).
+from app.js_loader import load_js as _load_js
+_PDFJS_RUNTIME_POLYFILL = _load_js("polyfill.js").encode("utf-8")
 
 
 def _find_free_port() -> int:
@@ -126,6 +88,17 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
         if not os.path.isabs(pdf_path) or not pdf_path.lower().endswith(".pdf"):
             self.send_error(400, "Invalid path")
             return
+        # Path traversal protection: resolve to canonical real path and
+        # reject if the resolved path differs from the requested one (e.g.
+        # due to ".." segments or symlink tricks).
+        real_path = os.path.realpath(pdf_path)
+        if ".." in pdf_path.replace("\\", "/").split("/"):
+            self.send_error(403, "Path traversal not allowed")
+            return
+        if os.path.normcase(real_path) != os.path.normcase(os.path.normpath(pdf_path)):
+            self.send_error(403, "Path mismatch")
+            return
+        pdf_path = real_path
         if not os.path.isfile(pdf_path):
             self.send_error(404)
             return
@@ -260,7 +233,15 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
 
     def _serve_static(self, url_path: str):
         rel = url_path.lstrip("/")
-        file_path = self.pdfjs_root / rel
+        # Path traversal protection: resolve the canonical path and verify
+        # it stays within pdfjs_root. Reject any ".." segments outright.
+        if ".." in rel.split("/") or ".." in rel.split("\\"):
+            self.send_error(403)
+            return
+        file_path = (self.pdfjs_root / rel).resolve()
+        if not str(file_path).startswith(str(self.pdfjs_root.resolve())):
+            self.send_error(403)
+            return
         if file_path.is_dir():
             file_path = file_path / "index.html"
         if not file_path.exists():
