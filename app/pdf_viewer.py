@@ -158,51 +158,35 @@ _PDFJS_UI_AND_HOOKS_JS = """
         if (!page) return;
         window.__3tCurrentPage = page;
         var zoom = currentZoomPercent(app);
-        window.__3tPendingPageState = { page: page, zoom: zoom || 0 };
 
         function send(bridge) {
             try {
-                var pending = window.__3tPendingPageState;
-                if (!pending) return;
-                window.__3tPendingPageState = null;
                 if (bridge && typeof bridge.reportState === 'function') {
-                    bridge.reportState(pending.page, pending.zoom || 0);
+                    bridge.reportState(page, zoom || 0);
                 }
             } catch (_) {}
         }
 
-        if (window.__3tPageStateReportTimer) {
+        if (window.__3tPageStateBridge) {
+            send(window.__3tPageStateBridge);
             return;
         }
-        window.__3tPageStateReportTimer = setTimeout(function() {
-            window.__3tPageStateReportTimer = null;
-
-            if (window.__3tPageStateBridge) {
-                send(window.__3tPageStateBridge);
-                return;
+        if (typeof QWebChannel === 'undefined') {
+            var existing = document.getElementById('__3t_qwebchannel_script');
+            if (!existing) {
+                var script = document.createElement('script');
+                script.id = '__3t_qwebchannel_script';
+                script.src = 'qrc:///qtwebchannel/qwebchannel.js';
+                script.onload = function () { reportPageState(app, reason); };
+                document.head.appendChild(script);
             }
-            if (window.__3tPageStateBridgeConnecting) {
-                return;
-            }
-            if (typeof QWebChannel === 'undefined') {
-                var existing = document.getElementById('__3t_qwebchannel_script');
-                if (!existing) {
-                    var script = document.createElement('script');
-                    script.id = '__3t_qwebchannel_script';
-                    script.src = 'qrc:///qtwebchannel/qwebchannel.js';
-                    script.onload = function () { reportPageState(app, 'qwebchannel-loaded'); };
-                    document.head.appendChild(script);
-                }
-                return;
-            }
-            if (!window.qt || !qt.webChannelTransport) return;
-            window.__3tPageStateBridgeConnecting = true;
-            new QWebChannel(qt.webChannelTransport, function(channel) {
-                window.__3tPageStateBridgeConnecting = false;
-                window.__3tPageStateBridge = channel.objects.pageStateBridge || null;
-                send(window.__3tPageStateBridge);
-            });
-        }, 80);
+            return;
+        }
+        if (!window.qt || !qt.webChannelTransport) return;
+        new QWebChannel(qt.webChannelTransport, function(channel) {
+            window.__3tPageStateBridge = channel.objects.pageStateBridge || null;
+            send(window.__3tPageStateBridge);
+        });
     }
 
     function installHooks() {
