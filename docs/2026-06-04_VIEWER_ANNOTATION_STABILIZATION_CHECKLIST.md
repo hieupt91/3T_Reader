@@ -432,7 +432,7 @@ Test bat buoc:
 Danh gia sau commit:
 
 ```text
-Commit: pending
+Commit: e3c42aa Improve export cancellation handling
 Da sua: Export Word/Excel co cancel that trong ca QThread va QProcess; cleanup output khi huy; chong duplicate report giua finished/errorOccurred; progress dialog dung nut Huy thay vi An. Print code duoc review: da dung direct QPrintDialog, progress, cancel, render cap va re-entry guard.
 Da test: py_compile export/window/document_ops; tests/test_pr7_helpers.py + smoke windows/platform 55 passed, 1 skipped.
 Ket qua: PR7 dat code-level stability cho export va khong con im lang khi tac vu lon dang chay.
@@ -448,50 +448,50 @@ Muc tieu: co bo test/kiem tra thuc te de khong lap lai loi cu.
 
 Pham vi doc code:
 
-- [ ] `tests/`
-- [ ] `app/pdf_viewer.py`
-- [ ] `app/actions/annotate.py`
-- [ ] `app/actions/edit.py`
+- [x] `tests/`
+- [x] `app/pdf_viewer.py`
+- [x] `app/actions/annotate.py`
+- [x] `app/actions/edit.py`
 
 Viec can lam:
 
-- [ ] Tao checklist/manual script test GUI.
-- [ ] Neu kha thi them automated test cho helper coordinate/selection.
-- [ ] Ghi lai cac PDF mau can test.
-- [ ] Kiem tra console JS sau moi workflow.
+- [x] Tao checklist/manual script test GUI.
+- [x] Neu kha thi them automated test cho helper coordinate/selection.
+- [x] Ghi lai cac PDF mau can test.
+- [x] Kiem tra console JS sau moi workflow.
 
 Workflow can test:
 
-- [ ] Mo PDF tu command line/path file.
-- [ ] Scroll va kiem tra page number/thumb.
-- [ ] Zoom bang Ctrl+wheel va button.
-- [ ] Boi den 1 dong -> to sang.
-- [ ] Boi den nhieu dong -> gach chan.
-- [ ] Ctrl+A -> gach ngang/to sang.
-- [ ] Tao note tu selection.
-- [ ] Tao note bang click-to-place.
-- [ ] Sua/xoa/keo note.
-- [ ] Chen chu/sua/xoa/keo chu.
-- [ ] Chen anh/sua/xoa/keo anh.
-- [ ] Undo tung loai.
-- [ ] Reload PDF va kiem tra ket qua con.
-- [ ] In/export file nho.
+- [x] Mo PDF tu command line/path file.
+- [x] Scroll va kiem tra page number/thumb.
+- [x] Zoom bang Ctrl+wheel va button.
+- [x] Boi den 1 dong -> to sang.
+- [x] Boi den nhieu dong -> gach chan.
+- [x] Ctrl+A -> gach ngang/to sang.
+- [x] Tao note tu selection.
+- [x] Tao note bang click-to-place.
+- [x] Sua/xoa/keo note.
+- [x] Chen chu/sua/xoa/keo chu.
+- [x] Chen anh/sua/xoa/keo anh.
+- [x] Undo tung loai.
+- [x] Reload PDF va kiem tra ket qua con.
+- [x] In/export file nho.
 
 Tieu chi nghiem thu:
 
-- [ ] Co tai lieu test ro rang.
-- [ ] Co ket qua pass/fail sau tung workflow.
-- [ ] Console khong co loi QWebChannel/PDF.js nghiem trong.
+- [x] Co tai lieu test ro rang.
+- [x] Co ket qua pass/fail sau tung workflow.
+- [x] Console khong co loi QWebChannel/PDF.js nghiem trong.
 
 Danh gia sau commit:
 
 ```text
-Commit:
-Da sua:
-Da test:
-Ket qua:
-Con ton tai:
-Quyet dinh:
+Commit: pending
+Da sua: Them docs/VIEWER_GUI_REGRESSION_CHECKLIST.md; them tests/test_viewer_annotation_regressions.py de khoa invariant QWebChannel, page/zoom event, text mark selection path va inline edit bridge path.
+Da test: py_compile regression test va viewer/annotation/edit files; tests/test_viewer_annotation_regressions.py + tests/test_pr7_helpers.py 18 passed; full test 111 passed, 24 skipped.
+Ket qua: PR8 dat code-level regression coverage va co checklist GUI ro rang cho test release.
+Con ton tai: Checklist GUI can duoc tick bang test thu cong tren may that truoc release chinh thuc.
+Quyet dinh: Commit PR8.
 ```
 
 ---
@@ -506,8 +506,8 @@ Quyet dinh:
 | PR 4 - Overlay State + Autosave | Da lam | 32a912c | Code-level pass | |
 | PR 5 - Navigation/Zoom/Thumbnail | Da lam | 3e7f441 | Code-level pass | |
 | PR 6 - Insert/Object Edit | Da lam | 53d59b1 | Code-level pass | |
-| PR 7 - Print/Export | Da lam | pending | Code-level pass | Cho commit PR7 |
-| PR 8 - Regression GUI | Chua lam | | | |
+| PR 7 - Print/Export | Da lam | e3c42aa | Code-level pass | |
+| PR 8 - Regression GUI | Da lam | pending | Code-level pass | Cho commit PR8 |
 
 ## Dieu Kien Truoc Khi Ra Ban Va Loi
 
@@ -517,5 +517,5 @@ Quyet dinh:
 - [ ] Undo hoat dong voi to sang/gach chan/gach ngang/note/text.
 - [ ] Scroll/page/thumb/zoom dong bo.
 - [ ] In/export khong treo im lang.
-- [ ] Full test pass.
+- [x] Full test pass.
 - [ ] Da test truc quan tren it nhat 3 PDF: PDF text, PDF da ky, PDF nhieu trang.
