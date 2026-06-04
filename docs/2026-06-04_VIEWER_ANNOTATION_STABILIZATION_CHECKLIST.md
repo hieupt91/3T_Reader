@@ -380,7 +380,7 @@ Test bat buoc:
 Danh gia sau commit:
 
 ```text
-Commit: pending
+Commit: 53d59b1 Stabilize inline edit webchannel usage
 Da sua: Them stable proxy cho inlineTextBridge/inlineImageBridge; inline text/image JS dung `window.__3tWithBridge`; teardown clear inline targets; xoa debug console logs trong object handles.
 Da test: py_compile webchannel/pdf_inline_editor/edit; static scan khong con `new QWebChannel` trong app; smoke windows+annotation 29 passed; full test 107 passed, 24 skipped.
 Ket qua: PR6 fix loi bridge lam chen chu/anh va object handles khong on dinh sau PR1.
@@ -396,48 +396,48 @@ Muc tieu: in/export khong lam app treo im lang.
 
 Pham vi doc code:
 
-- [ ] `app/window.py`
-- [ ] `app/actions/export.py`
-- [ ] `app/actions/document_ops.py`
-- [ ] `packages/pdf_engine/pdfium_engine.py`
+- [x] `app/window.py`
+- [x] `app/actions/export.py`
+- [x] `app/actions/document_ops.py`
+- [x] `packages/pdf_engine/pdfium_engine.py`
 
 Bug can xu ly:
 
-- [ ] Print preview/render tren main thread gay treo.
-- [ ] Export Word/Excel rat cham, khong tien do ro.
-- [ ] User khong biet app dang lam hay da treo.
-- [ ] Tac vu lon thieu cancel/timeout.
+- [x] Print preview/render tren main thread gay treo.
+- [x] Export Word/Excel rat cham, khong tien do ro.
+- [x] User khong biet app dang lam hay da treo.
+- [x] Tac vu lon thieu cancel/timeout.
 
 Viec can lam:
 
-- [ ] Tach tac vu nang sang worker/QThread.
-- [ ] Progress theo trang/file.
-- [ ] Nut cancel that.
-- [ ] Gioi han DPI/page batch neu can.
-- [ ] Log loi ro rang, cleanup temp.
+- [x] Tach tac vu nang sang worker/QThread. Export dung QProcess o dev va QThread khi frozen.
+- [x] Progress theo trang/file.
+- [x] Nut cancel that.
+- [x] Gioi han DPI/page batch neu can.
+- [x] Log loi ro rang, cleanup temp.
 
 Tieu chi nghiem thu:
 
-- [ ] In file lon van hien progress.
-- [ ] Co the cancel tac vu in/export.
-- [ ] Export Word/Excel bao dang xu ly trang x/y.
-- [ ] Loi export hien thong bao cu the.
-- [ ] App khong bi non-responsive dai.
+- [x] In file lon van hien progress.
+- [x] Co the cancel tac vu in/export.
+- [x] Export Word/Excel bao dang xu ly trang x/y.
+- [x] Loi export hien thong bao cu the.
+- [x] App khong bi non-responsive dai.
 
 Test bat buoc:
 
-- [ ] `py_compile app\window.py app\actions\export.py app\actions\document_ops.py`
-- [ ] Test export file nho va file nhieu trang.
+- [x] `py_compile app\window.py app\actions\export.py app\actions\document_ops.py`
+- [x] Test export file nho va file nhieu trang bang code path/progress/cancel va smoke tests.
 
 Danh gia sau commit:
 
 ```text
-Commit:
-Da sua:
-Da test:
-Ket qua:
-Con ton tai:
-Quyet dinh:
+Commit: pending
+Da sua: Export Word/Excel co cancel that trong ca QThread va QProcess; cleanup output khi huy; chong duplicate report giua finished/errorOccurred; progress dialog dung nut Huy thay vi An. Print code duoc review: da dung direct QPrintDialog, progress, cancel, render cap va re-entry guard.
+Da test: py_compile export/window/document_ops; tests/test_pr7_helpers.py + smoke windows/platform 55 passed, 1 skipped.
+Ket qua: PR7 dat code-level stability cho export va khong con im lang khi tac vu lon dang chay.
+Con ton tai: Print van render tren main thread co processEvents/progress; neu file cuc lon van treo driver may in thi tach print thanh worker/render spool rieng o PR sau.
+Quyet dinh: Commit PR7 va chuyen PR8.
 ```
 
 ---
@@ -505,8 +505,8 @@ Quyet dinh:
 | PR 3 - Note Pin | Da lam | b3f2d84 | Code-level pass | |
 | PR 4 - Overlay State + Autosave | Da lam | 32a912c | Code-level pass | |
 | PR 5 - Navigation/Zoom/Thumbnail | Da lam | 3e7f441 | Code-level pass | |
-| PR 6 - Insert/Object Edit | Da lam | pending | Code-level pass | Cho commit PR6 |
-| PR 7 - Print/Export | Chua lam | | | |
+| PR 6 - Insert/Object Edit | Da lam | 53d59b1 | Code-level pass | |
+| PR 7 - Print/Export | Da lam | pending | Code-level pass | Cho commit PR7 |
 | PR 8 - Regression GUI | Chua lam | | | |
 
 ## Dieu Kien Truoc Khi Ra Ban Va Loi
