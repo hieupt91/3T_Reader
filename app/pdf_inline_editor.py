@@ -4,8 +4,8 @@ Flow:
   Text:  click tool → click on PDF page → type in overlay → Ctrl+Enter / panel button → insert
   Image: click tool → pick file → click on PDF → drag/resize preview → Enter / panel button → insert
 
-Bridge reconnection strategy:
-  Every injection always re-creates the QWebChannel connection so the bridge is never stale.
+Bridge strategy:
+  Inline tools use the stable shared viewer QWebChannel helper/proxy.
   The JS overlay is NOT removed on commit — the PDF viewer reload naturally cleans it up,
   which removes the blank "flash" between overlay disappearing and rebuilt PDF appearing.
 """
@@ -283,7 +283,7 @@ class InlineEditPanel(QFrame):
 
 
 # ── JavaScript: inline text overlay ──────────────────────────────────────────
-# Always re-injects fresh: clears old state, reconnects bridge via new QWebChannel.
+# Always re-injects fresh: clears old state and uses the shared bridge helper.
 # Does NOT remove overlay on commit — page reload naturally clears it (no flash).
 
 INLINE_TEXT_JS = r"""
@@ -295,7 +295,7 @@ INLINE_TEXT_JS = r"""
             _old.overlay.parentNode.removeChild(_old.overlay);
     }
     window.__3TTextState   = { overlay: null, textarea: null, pageNumber: null, pageView: null };
-    window.__3TTextBridge  = null;   /* will be set by fresh QWebChannel below */
+    window.__3TTextBridge  = null;   /* set through shared 3T bridge helper */
 
     var S = window.__3TTextState;
 
@@ -499,21 +499,13 @@ INLINE_TEXT_JS = r"""
         document.addEventListener('click', clickHandler, true);
     }
 
-    /* ── Always re-connect to fresh bridge ── */
     function attach() {
-        if (typeof QWebChannel === 'undefined') {
-            var s = document.createElement('script');
-            s.src = 'qrc:///qtwebchannel/qwebchannel.js';
-            s.onload = attach;
-            document.head.appendChild(s);
-            return;
-        }
-        if (!(window.qt && qt.webChannelTransport)) {
+        if (typeof window.__3tWithBridge !== 'function') {
             setTimeout(attach, 100);
             return;
         }
-        new QWebChannel(qt.webChannelTransport, function (ch) {
-            window.__3TTextBridge = ch.objects.inlineTextBridge || null;
+        window.__3tWithBridge('inlineTextBridge', function (bridge) {
+            window.__3TTextBridge = bridge || null;
             startListen();
         });
     }
@@ -704,19 +696,12 @@ INLINE_IMAGE_JS = r"""
     }
 
     function attach() {
-        if (typeof QWebChannel === 'undefined') {
-            var s = document.createElement('script');
-            s.src = 'qrc:///qtwebchannel/qwebchannel.js';
-            s.onload = attach;
-            document.head.appendChild(s);
-            return;
-        }
-        if (!(window.qt && qt.webChannelTransport)) {
+        if (typeof window.__3tWithBridge !== 'function') {
             setTimeout(attach, 100);
             return;
         }
-        new QWebChannel(qt.webChannelTransport, function (ch) {
-            window.__3TImgBridge = ch.objects.inlineImageBridge || null;
+        window.__3tWithBridge('inlineImageBridge', function (bridge) {
+            window.__3TImgBridge = bridge || null;
             startListen(window.__3TInlineImageUrl || '');
         });
     }

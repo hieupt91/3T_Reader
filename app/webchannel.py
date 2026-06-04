@@ -83,15 +83,51 @@ class _SignaturePreviewBridgeProxy(_BridgeProxyBase):
         self._call("reportAdjusted", page_number, left, bottom, right, top)
 
 
+class _InlineTextBridgeProxy(_BridgeProxyBase):
+    @pyqtSlot(int)
+    def reportReady(self, page_number: int):
+        self._call("reportReady", page_number)
+
+    @pyqtSlot(int, float, float, float, float, str)
+    def confirmText(self, page_number: int, left: float, bottom: float, right: float, top: float, text: str):
+        self._call("confirmText", page_number, left, bottom, right, top, text)
+
+    @pyqtSlot()
+    def cancelEdit(self):
+        self._call("cancelEdit")
+
+
+class _InlineImageBridgeProxy(_BridgeProxyBase):
+    @pyqtSlot(int)
+    def reportReady(self, page_number: int):
+        self._call("reportReady", page_number)
+
+    @pyqtSlot(int, float, float, float, float)
+    def confirmImage(self, page_number: int, left: float, bottom: float, right: float, top: float):
+        self._call("confirmImage", page_number, left, bottom, right, top)
+
+    @pyqtSlot()
+    def cancelEdit(self):
+        self._call("cancelEdit")
+
+
 _PROXY_TYPES = {
     "pageStateBridge": _PageStateBridgeProxy,
     "noteToolsBridge": _NoteToolsBridgeProxy,
     "areaPickBridge": _AreaPickBridgeProxy,
     "sigPickBridge": _SignaturePickBridgeProxy,
     "sigPreviewBridge": _SignaturePreviewBridgeProxy,
+    "inlineTextBridge": _InlineTextBridgeProxy,
+    "inlineImageBridge": _InlineImageBridgeProxy,
 }
 
-_SHORT_LIVED_BRIDGES = {"areaPickBridge", "sigPickBridge", "sigPreviewBridge"}
+_SHORT_LIVED_BRIDGES = {
+    "areaPickBridge",
+    "sigPickBridge",
+    "sigPreviewBridge",
+    "inlineTextBridge",
+    "inlineImageBridge",
+}
 
 
 def _ensure_shared_webchannel(web_view):

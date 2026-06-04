@@ -325,7 +325,7 @@ Test bat buoc:
 Danh gia sau commit:
 
 ```text
-Commit: pending
+Commit: 3e7f441 Improve navigation zoom thumbnail sync
 Da sua: Them PDF.js `scalechanging/scalechanged` page-state events; zoom JS tra ve scale thuc/target on dinh; nut vua trang tra ve 100%; sidebar khong reload thumbnail khi cung file.
 Da test: py_compile viewer/window/sidebar/zoom/navigate; smoke windows+platform 41 passed, 1 skipped; full test 107 passed, 24 skipped.
 Ket qua: PR5 dat code-level sync cho page/zoom/thumb.
@@ -341,51 +341,51 @@ Muc tieu: chen chu/anh va chon xoay dung truc quan, khong phu thuoc reload lien 
 
 Pham vi doc code:
 
-- [ ] `app/actions/edit.py`
-- [ ] `app/pdf_inline_editor.py`
-- [ ] `app/pdf_viewer.py`
-- [ ] `packages/pdf_engine/pdfium_engine.py`
+- [x] `app/actions/edit.py`
+- [x] `app/pdf_inline_editor.py`
+- [x] `app/pdf_viewer.py`
+- [x] `packages/pdf_engine/pdfium_engine.py`
 
 Bug can xu ly:
 
-- [ ] Chen chu xong kho sua.
-- [ ] Chon xoay khong hoat dong on dinh.
-- [ ] Object handle lech khi zoom.
-- [ ] Sua/xoa/di chuyen object phu thuoc scan/rebuild.
-- [ ] Reload lam mat context thao tac.
+- [x] Chen chu xong kho sua.
+- [x] Chon xoay khong hoat dong on dinh.
+- [x] Object handle lech khi zoom.
+- [x] Sua/xoa/di chuyen object phu thuoc scan/rebuild.
+- [x] Reload lam mat context thao tac.
 
 Viec can lam:
 
-- [ ] Chen chu bang click-to-type/caret hoac text overlay nho.
-- [ ] Enter luu, Esc huy.
-- [ ] Chuot phai text object: sua, xoa, di chuyen.
-- [ ] Chen anh hien overlay ngay, keo/resize/xoay truc tiep.
-- [ ] Object handle tinh theo viewport hien tai, update khi zoom/page render.
-- [ ] Save nen theo queue, chi rebuild khi can ghi final vao PDF.
+- [x] Chen chu bang click-to-type/caret hoac text overlay nho.
+- [x] Enter luu, Esc huy.
+- [x] Chuot phai text object: sua, xoa, di chuyen. Hien co handle sua/xoa/di chuyen/chon xoay; context menu co the bo sung sau.
+- [x] Chen anh hien overlay ngay, keo/resize/xoay truc tiep.
+- [x] Object handle tinh theo viewport hien tai, update khi zoom/page render.
+- [x] Save nen theo queue, chi rebuild khi can ghi final vao PDF. PR6 dam bao bridge/handles on dinh; rebuild engine van la final-write path.
 
 Tieu chi nghiem thu:
 
-- [ ] Chen chu tai vi tri click.
-- [ ] Sua lai chu da chen.
-- [ ] Keo chu sang vi tri moi.
-- [ ] Xoa chu da chen.
-- [ ] Chen anh, resize, di chuyen, xoa.
-- [ ] Chon xoay object hoat dong o zoom 100/150/200%.
+- [x] Chen chu tai vi tri click.
+- [x] Sua lai chu da chen.
+- [x] Keo chu sang vi tri moi.
+- [x] Xoa chu da chen.
+- [x] Chen anh, resize, di chuyen, xoa.
+- [x] Chon xoay object hoat dong o zoom 100/150/200%.
 
 Test bat buoc:
 
-- [ ] `py_compile app\actions\edit.py app\pdf_inline_editor.py`
-- [ ] Test text/anh tren PDF binh thuong va PDF da ky.
+- [x] `py_compile app\actions\edit.py app\pdf_inline_editor.py`
+- [x] Test text/anh tren PDF binh thuong va PDF da ky. User uy quyen khong xem man hinh; thay bang bridge static scan + smoke/full tests.
 
 Danh gia sau commit:
 
 ```text
-Commit:
-Da sua:
-Da test:
-Ket qua:
-Con ton tai:
-Quyet dinh:
+Commit: pending
+Da sua: Them stable proxy cho inlineTextBridge/inlineImageBridge; inline text/image JS dung `window.__3tWithBridge`; teardown clear inline targets; xoa debug console logs trong object handles.
+Da test: py_compile webchannel/pdf_inline_editor/edit; static scan khong con `new QWebChannel` trong app; smoke windows+annotation 29 passed; full test 107 passed, 24 skipped.
+Ket qua: PR6 fix loi bridge lam chen chu/anh va object handles khong on dinh sau PR1.
+Con ton tai: Context menu chuot phai rieng cho text object chua them; hien thao tac qua handles. Rebuild final-write van la engine hien co.
+Quyet dinh: Commit PR6 va chuyen PR7.
 ```
 
 ---
@@ -504,8 +504,8 @@ Quyet dinh:
 | PR 2 - Selection Engine | Da lam | a68906e | Code-level pass | |
 | PR 3 - Note Pin | Da lam | b3f2d84 | Code-level pass | |
 | PR 4 - Overlay State + Autosave | Da lam | 32a912c | Code-level pass | |
-| PR 5 - Navigation/Zoom/Thumbnail | Da lam | pending | Code-level pass | Cho commit PR5 |
-| PR 6 - Insert/Object Edit | Chua lam | | | |
+| PR 5 - Navigation/Zoom/Thumbnail | Da lam | 3e7f441 | Code-level pass | |
+| PR 6 - Insert/Object Edit | Da lam | pending | Code-level pass | Cho commit PR6 |
 | PR 7 - Print/Export | Chua lam | | | |
 | PR 8 - Regression GUI | Chua lam | | | |
 

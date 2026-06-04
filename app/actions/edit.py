@@ -292,14 +292,12 @@ _CLEAR_SELECTION_OVERLAY_JS = """(function() {
 # Args (Python % formatting): pageNum, pdfLeft, pdfBottom, pdfRight, pdfTop, currentRotation, hasEdit (true/false JS literal)
 # Communicates with Python via window.__3tPendingAction (polled by QTimer — no QWebChannel needed).
 _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRight, pdfTop, currentRotation, hasEdit) {
-    console.log('[3T] handles IIFE start page=' + pageNum + ' rot=' + currentRotation);
     var _cleanedUp = false;
     var _dragging  = false;
 
     window.__3tPendingAction = null;
 
     function reportAction(obj) {
-        console.log('[3T] reportAction type=' + obj.type + (obj.angle !== undefined ? ' angle=' + obj.angle : ''));
         window.__3tPendingAction = obj;
     }
 
@@ -336,13 +334,12 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
     }, 300);
 
     var app = window.PDFViewerApplication;
-    if (!app || !app.pdfViewer) { console.error('[3T] no PDFViewerApplication'); return; }
+    if (!app || !app.pdfViewer) { return; }
     var pdfViewer = app.pdfViewer;
     var pageView  = pdfViewer.getPageView
         ? pdfViewer.getPageView(pageNum - 1)
         : (pdfViewer._pages && pdfViewer._pages[pageNum - 1]);
     if (!pageView || !pageView.viewport || !pageView.div) {
-        console.warn('[3T] no pageView for page ' + pageNum + ', retry later');
         reportAction({type:'retry'});
         return;
     }
@@ -355,7 +352,6 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
     var by = Math.min(coords[1], coords[3]);
     var bw = Math.abs(coords[2] - coords[0]);
     var bh = Math.abs(coords[3] - coords[1]);
-    console.log('[3T] coords bx=' + bx.toFixed(1) + ' by=' + by.toFixed(1) + ' bw=' + bw.toFixed(1) + ' bh=' + bh.toFixed(1));
     var H  = 13;
     var pad = H;
 
@@ -369,7 +365,6 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
         + 'z-index:50;pointer-events:none;';
     if (currentRotation) grp.style.transform = 'rotate('+currentRotation+'deg)';
     pageEl.appendChild(grp);
-    console.log('[3T] handles group appended to pageEl');
 
     // Selection box
     var box = document.createElement('div');
@@ -429,7 +424,6 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
 
     // Rotation drag
     rotH.addEventListener('mousedown', function(e) {
-        console.log('[3T] rotH mousedown');
         e.preventDefault(); e.stopPropagation();
         _dragging = true;
         rotH.style.cursor = 'grabbing';
@@ -451,7 +445,6 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
             angleLbl.textContent = Math.round(dispAngle) + '°';
         }
         function onUp() {
-            console.log('[3T] rotH mouseup dispAngle=' + dispAngle);
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup',   onUp);
             _dragging = false;
