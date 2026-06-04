@@ -73,7 +73,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 2.1 PDF.js UI hooks
 
-- [ ] **P1** — Tạo `assets/js/pdfjs_ui_hooks.js`
+- [x] **P1** — Tạo `assets/js/pdfjs_ui_hooks.js`
   - **Vấn đề:** `pdf_viewer.py:68-200+` chứa `_PDFJS_UI_AND_HOOKS_JS` — JS dài ẩn toolbar, hook find state, inject CSS
   - **Cách sửa:** Move ra file `.js`, serve qua `local_server.py` hoặc load từ file
 
@@ -97,7 +97,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 2.5 Runtime polyfill
 
-- [ ] **P2** — Gộp `_PDFJS_RUNTIME_POLYFILL` trong `local_server.py:19-59` và `_MAP_POLYFILL_JS` trong `pdf_viewer.py:26-64`
+- [x] **P2** — Gộp `_PDFJS_RUNTIME_POLYFILL` trong `local_server.py:19-59` và `_MAP_POLYFILL_JS` trong `pdf_viewer.py:26-64`
   - **Vấn đề:** Cùng polyfill `Map.getOrInsert` + `Promise.withResolvers` xuất hiện 2 lần
   - **Cách sửa:** 1 file `assets/js/polyfill.js`, cả 2 nơi cùng load
 
@@ -107,7 +107,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 3.1 Icon color constants
 
-- [ ] **P1** — Tạo `styles/icon_colors.py`
+- [x] **P1** — Tạo `styles/icon_colors.py`
   - **Vấn đề:** `window.py:107-184` chứa 2 dict `_ICON_COLORS` và `_ICON_COLORS_LIGHT` với ~30 entries mỗi cái — hardcode hex colors
   - **Cách sửa:**
     ```python
@@ -137,7 +137,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 4.1 PDF Engine tests
 
-- [ ] **P1** — Tạo `tests/test_pdf_engine.py`
+- [x] **P1** — Tạo `tests/test_pdf_engine.py`
   - **Vấn đề:** Không có unit test cho `PdfiumEngine` — watermark, merge, split, rotate, rebuild_with_ops
   - **Cần test:**
     - `create_blank_pdf` tạo file hợp lệ
@@ -181,7 +181,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 4.5 Local server security tests
 
-- [ ] **P1** — Tạo `tests/test_local_server.py`
+- [x] **P1** — Tạo `tests/test_local_server_security.py`
   - **Vấn đề:** `local_server.py` serve files qua HTTP, cần verify path traversal protection
   - **Cần test:**
     - `GET /pdf?p=../etc/passwd` bị reject
@@ -212,7 +212,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 5.1 Local server path traversal
 
-- [ ] **P0** — Audit & fix `_serve_pdf()` trong `local_server.py:119-131`
+- [x] **P0** — Audit & fix `_serve_pdf()` trong `local_server.py:119-131`
   - **Vấn đề:** Kiểm tra `os.path.isabs(pdf_path) and pdf_path.lower().endswith(".pdf")` nhưng KHÔNG verify path nằm trong allowed directory. Attacker có thể đọc bất kỳ file `.pdf` nào trên máy
   - **Cách sửa:** Thêm whitelist directory hoặc reject paths ngoài user documents
   - **Code hiện tại:**
@@ -228,7 +228,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 5.2 API key storage
 
-- [ ] **P1** — Secure storage cho AI API keys
+- [x] **P1** — Secure storage cho AI API keys
   - **Vấn đề:** `packages/ai/provider.py:81-101` lưu API keys vào `ai_config.json` plain text trong app data dir
   - **Cách sửa:** Dùng Windows DPAPI (`cryptprotectdata`) hoặc `keyring` library để encrypt
   - **File ảnh hưởng:** `packages/ai/provider.py`, `app/actions/ai_actions.py`
@@ -272,7 +272,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 6.4 Text wrapping accuracy
 
-- [ ] **P2** — Fix `_draw_text_box()` trong `pdfium_engine.py:373-399`
+- [x] **P2** — Fix `_draw_text_box()` trong `pdfium_engine.py:373-399`
   - **Vấn đề:** `max_chars = int(width / max(font_size * 0.55, 1))` — heuristic không chính xác với proportional fonts, có thể cắt sai từ
   - **Cách sửa:** Dùng `reportlab.paragraph.Paragraph` hoặc `canvas.drawCentredString` với proper text flow
 
@@ -364,7 +364,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 10.2 Clean up debug logs
 
-- [ ] **P2** — Xóa debug log files
+- [x] **P2** — Xóa debug log files
   - **Vấn đề:** `debug_runtime.log`, `debug_runtime_heavy.log`, `debug_runtime_heavy2.log`, `debug_runtime_heavy3.log` nằm trong root
   - **Cách sửa:** Xóa files, thêm vào `.gitignore`
 
