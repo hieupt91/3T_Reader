@@ -1390,11 +1390,22 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
 
 
 _GET_SELECTION_RECTS_JS = r"""(function() {
+    function fallbackPayload(text) {
+        try {
+            if (typeof window.__3tReadSelectionPayload === 'function') {
+                var cached = window.__3tReadSelectionPayload();
+                if (cached && cached.rects && cached.rects.length > 0) return cached;
+            }
+            var raw = window.__3tLastSelectionPayload;
+            if (raw && raw.rects && raw.rects.length > 0 && Date.now() - (raw.timestamp || 0) < 15000) return raw;
+        } catch (_err) {}
+        return {text: text || '', rects: []};
+    }
     var sel = window.getSelection ? window.getSelection() : null;
     var text = sel ? String(sel.toString() || '') : '';
     var app = window.PDFViewerApplication;
     var viewer = app && app.pdfViewer;
-    if (!sel || sel.rangeCount <= 0 || !viewer) return {text: text, rects: []};
+    if (!sel || sel.rangeCount <= 0 || !viewer) return fallbackPayload(text);
 
     function pageViewFor(pageNumber) {
         return viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
@@ -1436,7 +1447,8 @@ _GET_SELECTION_RECTS_JS = r"""(function() {
             });
         }
     }
-    return {text: text, rects: out};
+    if (out.length > 0) return {text: text, rects: out};
+    return fallbackPayload(text);
 })()"""
 
 
@@ -1838,6 +1850,8 @@ def add_comment(window):
         show_warning(window, "Không thể ghi chú", "Không tìm thấy tài liệu đang mở.")
         return
 
+    _sel_text, selected_page_rects = _get_selection_page_rects_sync(window)
+
     content, ok = QInputDialog.getMultiLineText(
         window,
         "Thêm ghi chú",
@@ -1847,7 +1861,6 @@ def add_comment(window):
     if not ok or not content:
         return
 
-    _sel_text, selected_page_rects = _get_selection_page_rects_sync(window)
     page_no = _get_current_page(window)
     try:
         with pikepdf.open(path) as pdf:

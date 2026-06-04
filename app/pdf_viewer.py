@@ -144,6 +144,80 @@ _PDFJS_UI_AND_HOOKS_JS = """
         return readVisiblePage(window.PDFViewerApplication);
     };
 
+    function collectSelectionPayload() {
+        var sel = window.getSelection ? window.getSelection() : null;
+        var text = sel ? String(sel.toString() || '') : '';
+        var app = window.PDFViewerApplication;
+        var viewer = app && app.pdfViewer;
+        if (!sel || sel.rangeCount <= 0 || !viewer) return { text: text, rects: [] };
+
+        function pageViewFor(pageNumber) {
+            return viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
+        }
+        function pageForRect(rect) {
+            var cx = (rect.left + rect.right) / 2;
+            var cy = (rect.top + rect.bottom) / 2;
+            var el = document.elementFromPoint(cx, cy);
+            var pageEl = el && el.closest ? el.closest('.page') : null;
+            if (pageEl) return pageEl;
+            var pages = document.querySelectorAll('.page[data-page-number]');
+            for (var i = 0; i < pages.length; i++) {
+                var pr = pages[i].getBoundingClientRect();
+                if (cx >= pr.left && cx <= pr.right && cy >= pr.top && cy <= pr.bottom) return pages[i];
+            }
+            return null;
+        }
+
+        var out = [];
+        for (var r = 0; r < sel.rangeCount; r++) {
+            var rects = sel.getRangeAt(r).getClientRects();
+            for (var i = 0; i < rects.length; i++) {
+                var cr = rects[i];
+                if (!cr || cr.width < 2 || cr.height < 2) continue;
+                var pageEl = pageForRect(cr);
+                if (!pageEl) continue;
+                var pageNumber = parseInt(pageEl.getAttribute('data-page-number') || '0', 10);
+                var pageView = pageNumber ? pageViewFor(pageNumber) : null;
+                if (!pageView || !pageView.viewport) continue;
+                var pr = pageEl.getBoundingClientRect();
+                var p0 = pageView.viewport.convertToPdfPoint(cr.left - pr.left, cr.top - pr.top);
+                var p1 = pageView.viewport.convertToPdfPoint(cr.right - pr.left, cr.bottom - pr.top);
+                out.push({
+                    page_number: pageNumber,
+                    rect: [
+                        Math.min(p0[0], p1[0]), Math.min(p0[1], p1[1]),
+                        Math.max(p0[0], p1[0]), Math.max(p0[1], p1[1])
+                    ]
+                });
+            }
+        }
+        return { text: text, rects: out };
+    }
+
+    function updateSelectionCache() {
+        try {
+            var payload = collectSelectionPayload();
+            if (payload && payload.rects && payload.rects.length > 0) {
+                payload.timestamp = Date.now();
+                window.__3tLastSelectionPayload = payload;
+            }
+        } catch (_) {}
+    }
+
+    window.__3tReadSelectionPayload = function () {
+        var payload = collectSelectionPayload();
+        if (payload && payload.rects && payload.rects.length > 0) {
+            payload.timestamp = Date.now();
+            window.__3tLastSelectionPayload = payload;
+            return payload;
+        }
+        var cached = window.__3tLastSelectionPayload;
+        if (cached && cached.rects && cached.rects.length > 0 && Date.now() - (cached.timestamp || 0) < 15000) {
+            return cached;
+        }
+        return payload || { text: '', rects: [] };
+    };
+
     function currentZoomPercent(app) {
         try {
             var viewer = app && app.pdfViewer;
@@ -198,6 +272,18 @@ _PDFJS_UI_AND_HOOKS_JS = """
         if (window.__3tHooksInstalled) return;
         window.__3tHooksInstalled = true;
 
+        var selectionTimer = null;
+        var scheduleSelectionCache = function () {
+            if (selectionTimer) clearTimeout(selectionTimer);
+            selectionTimer = setTimeout(function () {
+                selectionTimer = null;
+                updateSelectionCache();
+            }, 60);
+        };
+        document.addEventListener('selectionchange', scheduleSelectionCache, true);
+        document.addEventListener('mouseup', scheduleSelectionCache, true);
+        document.addEventListener('keyup', scheduleSelectionCache, true);
+
         // Track find state
         app.eventBus.on('updatefindcontrolstate', function (data) {
             window.__3tFindState = data.state;
@@ -228,6 +314,7 @@ _PDFJS_UI_AND_HOOKS_JS = """
             }, { passive: true });
         }
         function clear3TOverlays() {
+            window.__3tLastSelectionPayload = null;
             document.querySelectorAll('.reader-pdf-sigfield-marker').forEach(function(el) { el.remove(); });
             var state = window.__readerPdfSignaturePreviewState;
             if (state && state.overlay && state.overlay.parentNode) {
