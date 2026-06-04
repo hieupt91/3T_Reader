@@ -214,6 +214,14 @@ _PDFJS_UI_AND_HOOKS_JS = """
         function pageViewFor(pageNumber) {
             return viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
         }
+        function pageForNode(node) {
+            try {
+                var el = node && (node.nodeType === 1 ? node : node.parentElement);
+                return el && el.closest ? el.closest('.page') : null;
+            } catch (_) {
+                return null;
+            }
+        }
         function pageForRect(rect) {
             var cx = (rect.left + rect.right) / 2;
             var cy = (rect.top + rect.bottom) / 2;
@@ -221,20 +229,31 @@ _PDFJS_UI_AND_HOOKS_JS = """
             var pageEl = el && el.closest ? el.closest('.page') : null;
             if (pageEl) return pageEl;
             var pages = document.querySelectorAll('.page[data-page-number]');
+            var best = null;
+            var bestArea = 0;
             for (var i = 0; i < pages.length; i++) {
                 var pr = pages[i].getBoundingClientRect();
                 if (cx >= pr.left && cx <= pr.right && cy >= pr.top && cy <= pr.bottom) return pages[i];
+                var ix = Math.max(0, Math.min(rect.right, pr.right) - Math.max(rect.left, pr.left));
+                var iy = Math.max(0, Math.min(rect.bottom, pr.bottom) - Math.max(rect.top, pr.top));
+                var area = ix * iy;
+                if (area > bestArea) {
+                    bestArea = area;
+                    best = pages[i];
+                }
             }
-            return null;
+            return bestArea > 0 ? best : null;
         }
 
         var out = [];
         for (var r = 0; r < sel.rangeCount; r++) {
-            var rects = sel.getRangeAt(r).getClientRects();
+            var range = sel.getRangeAt(r);
+            var fallbackPage = pageForNode(range.commonAncestorContainer) || pageForNode(range.startContainer);
+            var rects = range.getClientRects();
             for (var i = 0; i < rects.length; i++) {
                 var cr = rects[i];
                 if (!cr || cr.width < 2 || cr.height < 2) continue;
-                var pageEl = pageForRect(cr);
+                var pageEl = pageForRect(cr) || fallbackPage;
                 if (!pageEl) continue;
                 var pageNumber = parseInt(pageEl.getAttribute('data-page-number') || '0', 10);
                 var pageView = pageNumber ? pageViewFor(pageNumber) : null;
@@ -324,13 +343,14 @@ _PDFJS_UI_AND_HOOKS_JS = """
         var selectionTimer = null;
         var scheduleSelectionCache = function () {
             if (selectionTimer) clearTimeout(selectionTimer);
-            selectionTimer = setTimeout(function () {
-                selectionTimer = null;
-                updateSelectionCache();
-            }, 60);
+            [0, 60, 160, 320, 640].forEach(function(delay) {
+                setTimeout(updateSelectionCache, delay);
+            });
+            selectionTimer = setTimeout(function () { selectionTimer = null; }, 700);
         };
         document.addEventListener('selectionchange', scheduleSelectionCache, true);
         document.addEventListener('mouseup', scheduleSelectionCache, true);
+        document.addEventListener('pointerup', scheduleSelectionCache, true);
         document.addEventListener('keyup', scheduleSelectionCache, true);
 
         // Track find state

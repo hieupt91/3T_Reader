@@ -47,6 +47,16 @@ def test_viewer_pushes_page_and_zoom_state_from_pdfjs_events():
     assert "window.__3tWithBridge('pageStateBridge'" in viewer
 
 
+def test_selection_cache_survives_toolbar_focus_loss():
+    viewer = _read("app/pdf_viewer.py")
+
+    assert "window.__3tLastSelectionPayload" in viewer
+    assert "window.__3tReadSelectionPayload" in viewer
+    assert "document.addEventListener('pointerup'" in viewer
+    assert "[0, 60, 160, 320, 640]" in viewer
+    assert "area > bestArea" in viewer
+
+
 def test_text_mark_toolbar_uses_pdfjs_selection_rects_without_prompt_or_search():
     from app.actions import annotate
 
