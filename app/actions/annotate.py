@@ -1477,6 +1477,59 @@ def _first_selection_rect(payload) -> tuple[int, tuple[float, float, float, floa
     return None
 
 
+def _payload_has_selection_rects(payload) -> bool:
+    raw_rects = payload.get("rects") if isinstance(payload, dict) else []
+    if not isinstance(raw_rects, list):
+        return False
+    for item in raw_rects:
+        if not isinstance(item, dict):
+            continue
+        try:
+            page_no = int(item.get("page_number") or 0)
+            rect = item.get("rect") or []
+            if page_no >= 1 and len(rect) == 4:
+                left, bottom, right, top = [float(v) for v in rect]
+                if abs(right - left) >= 1 and abs(top - bottom) >= 1:
+                    return True
+        except Exception:
+            continue
+    return False
+
+
+def _qt_selected_text(window) -> str:
+    try:
+        getter = getattr(window, "_get_webview", None)
+        web_view = getter() if callable(getter) else None
+        page = web_view.page() if web_view is not None else None
+        if page is not None and hasattr(page, "selectedText"):
+            return str(page.selectedText() or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _fallback_selection_payload_from_text(window, text: str) -> dict:
+    text = (text or "").strip()
+    if not text:
+        return {"text": "", "rects": []}
+    path = getattr(window, "current_path", None)
+    if not path:
+        return {"text": text, "rects": []}
+    page_no = _get_current_page(window)
+    rects = _merge_rects_by_line(_search_text_on_page(path, page_no, text))
+    return {
+        "text": text,
+        "source": "qt_selected_text_search",
+        "rects": [
+            {
+                "page_number": page_no,
+                "rect": [float(v) for v in rect],
+            }
+            for rect in rects
+        ],
+    }
+
+
 def _get_selection_payload_sync(window, *, timeout_ms: int = 350):
     """Read the current PDF.js selection payload synchronously for modal flows."""
     try:
@@ -1500,8 +1553,19 @@ def _get_selection_payload_sync(window, *, timeout_ms: int = 350):
         QTimer.singleShot(timeout_ms, lambda: loop.quit() if loop.isRunning() else None)
         loop.exec()
     except Exception:
-        return {}
-    return holder.get("payload") or {}
+        holder["payload"] = {}
+    payload = holder.get("payload") or {}
+    if _payload_has_selection_rects(payload):
+        return payload
+
+    qt_text = _qt_selected_text(window)
+    if qt_text:
+        fallback = _fallback_selection_payload_from_text(window, qt_text)
+        if _payload_has_selection_rects(fallback):
+            return fallback
+        if not isinstance(payload, dict) or not str(payload.get("text") or "").strip():
+            return fallback
+    return payload
 
 
 def _get_selection_page_rects_sync(window, *, timeout_ms: int = 350) -> tuple[str, dict[int, list[tuple[float, float, float, float]]]]:

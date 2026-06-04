@@ -79,6 +79,22 @@ def test_text_mark_toolbar_uses_pdfjs_selection_rects_without_prompt_or_search()
     assert "getClientRects" not in selection_js
 
 
+def test_annotation_selection_falls_back_to_qt_selected_text(monkeypatch):
+    from app.actions import annotate
+
+    class Window:
+        current_path = "sample.pdf"
+
+    monkeypatch.setattr(annotate, "_get_current_page", lambda _window: 3)
+    monkeypatch.setattr(annotate, "_search_text_on_page", lambda path, page, text: [(10, 20, 30, 40)])
+
+    payload = annotate._fallback_selection_payload_from_text(Window(), "Van phong Dang uy")
+
+    assert payload["source"] == "qt_selected_text_search"
+    assert payload["text"] == "Van phong Dang uy"
+    assert payload["rects"] == [{"page_number": 3, "rect": [10.0, 18.4, 30.0, 41.6]}]
+
+
 def test_inline_edit_scripts_use_shared_bridge_not_private_webchannels():
     inline_editor = _read("app/pdf_inline_editor.py")
     edit_actions = _read("app/actions/edit.py")
