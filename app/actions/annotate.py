@@ -811,14 +811,6 @@ class _NoteToolsBridge(QObject):
             self._run_js(f"if(window.__3tNotesUpdateNote) window.__3tNotesUpdateNote({payload});")
             if hasattr(self._window, "status"):
                 self._window.status.showMessage(f"Da sua ghi chu trang {note.get('page_number') or page_number}.", 1800)
-            return
-            with pikepdf.open(self._pdf_path) as pdf:
-                if not _update_note_content_by_id(pdf, note_id=note_id, content=text):
-                    show_warning(self._window, "Sửa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
-                    return
-                _save_pikepdf_reload(self._window, pdf)
-            if hasattr(self._window, "status"):
-                self._window.status.showMessage(f"Đã sửa ghi chú trang {note.get('page_number') or page_number}", 2500)
         except Exception as exc:
             show_warning(self._window, "Lỗi sửa ghi chú", str(exc))
 
@@ -874,6 +866,10 @@ def enable_note_tools(window):
     notes = _merge_overlay_notes(window, notes)
     notes.extend(_overlay_marks_for_js(window, path))
     if not notes:
+        web_view.page().runJavaScript(
+            "if (typeof window.__3tNoteToolsCleanup === 'function') "
+            "{ try { window.__3tNoteToolsCleanup(); } catch (_err) {} }"
+        )
         return
 
     bridge = _NoteToolsBridge(window, path)
@@ -1443,7 +1439,7 @@ _GET_SELECTION_RECTS_JS = r"""(function() {
 })()"""
 
 
-def _selection_page_rects(payload) -> tuple[str, dict[int, list[tuple[float, float, float, float]]]]:
+def _selection_page_rects(payload, *, merge_lines: bool = True) -> tuple[str, dict[int, list[tuple[float, float, float, float]]]]:
     text = ""
     raw_rects = []
     if isinstance(payload, dict):
@@ -1466,11 +1462,34 @@ def _selection_page_rects(payload) -> tuple[str, dict[int, list[tuple[float, flo
             rects_by_page.setdefault(page_no, []).append((left, bottom, right, top))
         except Exception:
             continue
-    return text, {page: _merge_rects_by_line(rects) for page, rects in rects_by_page.items()}
+    if merge_lines:
+        return text, {page: _merge_rects_by_line(rects) for page, rects in rects_by_page.items()}
+    return text, rects_by_page
 
 
-def _get_selection_page_rects_sync(window, *, timeout_ms: int = 350) -> tuple[str, dict[int, list[tuple[float, float, float, float]]]]:
-    """Read the current PDF.js selection geometry synchronously for modal flows."""
+def _first_selection_rect(payload) -> tuple[int, tuple[float, float, float, float]] | None:
+    raw_rects = payload.get("rects") if isinstance(payload, dict) else []
+    if not isinstance(raw_rects, list):
+        return None
+    for item in raw_rects:
+        if not isinstance(item, dict):
+            continue
+        try:
+            page_no = int(item.get("page_number") or 0)
+            rect = item.get("rect") or []
+            if page_no < 1 or len(rect) != 4:
+                continue
+            left, bottom, right, top = [float(v) for v in rect]
+            if abs(right - left) < 1 or abs(top - bottom) < 1:
+                continue
+            return page_no, (left, bottom, right, top)
+        except Exception:
+            continue
+    return None
+
+
+def _get_selection_payload_sync(window, *, timeout_ms: int = 350):
+    """Read the current PDF.js selection payload synchronously for modal flows."""
     try:
         getter = getattr(window, "_get_webview", None)
         web_view = getter() if callable(getter) else None
@@ -1492,8 +1511,13 @@ def _get_selection_page_rects_sync(window, *, timeout_ms: int = 350) -> tuple[st
         QTimer.singleShot(timeout_ms, lambda: loop.quit() if loop.isRunning() else None)
         loop.exec()
     except Exception:
-        return "", {}
-    return _selection_page_rects(holder.get("payload") or {})
+        return {}
+    return holder.get("payload") or {}
+
+
+def _get_selection_page_rects_sync(window, *, timeout_ms: int = 350) -> tuple[str, dict[int, list[tuple[float, float, float, float]]]]:
+    payload = _get_selection_payload_sync(window, timeout_ms=timeout_ms)
+    return _selection_page_rects(payload)
 
 
 def _selected_note_rect(page, selected_rects: list[tuple[float, float, float, float]]) -> tuple[float, float, float, float] | None:
@@ -1504,6 +1528,12 @@ def _selected_note_rect(page, selected_rects: list[tuple[float, float, float, fl
     first = sorted(selected_rects, key=lambda r: (-float(r[3]), float(r[0])))[0]
     left = float(first[0])
     top = float(first[3])
+    return _clamp_note_rect_to_page(page, (left, top - size, left + size, top))
+
+
+def _note_rect_from_pick_box(page, box: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    size = NOTE_ICON_SIZE_PT
+    left, _bottom, _right, top = [float(v) for v in box]
     return _clamp_note_rect_to_page(page, (left, top - size, left + size, top))
 
 
@@ -1890,7 +1920,9 @@ def add_comment(window):
         show_warning(window, "Không thể ghi chú", "Không tìm thấy tài liệu đang mở.")
         return
 
-    _sel_text, selected_page_rects = _get_selection_page_rects_sync(window)
+    selection_payload = _get_selection_payload_sync(window)
+    _sel_text, selected_page_rects = _selection_page_rects(selection_payload)
+    first_selection = _first_selection_rect(selection_payload)
 
     content, ok = QInputDialog.getMultiLineText(
         window,
@@ -1902,14 +1934,43 @@ def add_comment(window):
         return
 
     page_no = _get_current_page(window)
+    picked_box = None
+    if not first_selection and not selected_page_rects:
+        try:
+            if hasattr(window, "status"):
+                window.status.showMessage("Click hoac keo tren trang de dat vi tri ghi chu... (Esc de huy)", 0)
+            from app.actions.edit import _pick_pdf_area
+
+            picked = _pick_pdf_area(window)
+            if hasattr(window, "status"):
+                window.status.showMessage("", 0)
+            if not picked:
+                return
+            page_no = int(picked.get("page_number") or page_no)
+            picked_box = tuple(float(v) for v in (picked.get("box") or ()))
+            if len(picked_box) != 4:
+                picked_box = None
+        except Exception as exc:
+            if hasattr(window, "status"):
+                window.status.showMessage("", 0)
+            show_warning(window, "Lỗi đặt vị trí ghi chú", str(exc))
+            return
+
     try:
         with pikepdf.open(path) as pdf:
-            if selected_page_rects:
+            if first_selection:
+                page_no = int(first_selection[0])
+            elif selected_page_rects:
                 page_no = sorted(selected_page_rects.keys())[0]
             if page_no < 1 or page_no > len(pdf.pages):
                 page_no = 1
             page = pdf.pages[page_no - 1]
-            rect = _selected_note_rect(page, selected_page_rects.get(page_no) or [])
+            if first_selection and first_selection[0] == page_no:
+                rect = _selected_note_rect(page, [first_selection[1]])
+            elif picked_box is not None:
+                rect = _note_rect_from_pick_box(page, picked_box)
+            else:
+                rect = _selected_note_rect(page, selected_page_rects.get(page_no) or [])
             if rect is None:
                 rect = _note_rect_for_position(page, NOTE_POSITION_TOP_LEFT, _count_text_notes(page))
         note_id = f"3t-note-{uuid.uuid4().hex}"

@@ -205,6 +205,37 @@ def test_selection_page_rects_groups_pdfjs_payload_by_page():
     assert rects_by_page[2] == [(40.0, 48.96, 55.0, 64.04)]
 
 
+def test_first_selection_rect_preserves_pdfjs_order_for_note_pin():
+    from app.actions.annotate import _first_selection_rect, _selection_page_rects
+
+    payload = {
+        "text": "second page then first page",
+        "rects": [
+            {"page_number": 2, "rect": [40.0, 50.0, 55.0, 63.0]},
+            {"page_number": 1, "rect": [10.0, 100.0, 20.0, 112.0]},
+        ],
+    }
+
+    assert _first_selection_rect(payload) == (2, (40.0, 50.0, 55.0, 63.0))
+    _text, raw_by_page = _selection_page_rects(payload, merge_lines=False)
+    assert raw_by_page[2] == [(40.0, 50.0, 55.0, 63.0)]
+    assert raw_by_page[1] == [(10.0, 100.0, 20.0, 112.0)]
+
+
+def test_note_rect_from_pick_box_anchors_pin_at_pick_top_left():
+    import pytest
+
+    pikepdf = pytest.importorskip("pikepdf")
+    from app.actions.annotate import _note_rect_from_pick_box
+
+    pdf = pikepdf.Pdf.new()
+    page = pdf.add_blank_page(page_size=(200, 200))
+
+    assert _note_rect_from_pick_box(page, (40, 50, 41, 51)) == (40.0, 33.0, 58.0, 51.0)
+
+    pdf.close()
+
+
 def test_delete_mark_annotations_by_ids(tmp_path):
     import pytest
 

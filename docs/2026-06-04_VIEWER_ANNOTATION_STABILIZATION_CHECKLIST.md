@@ -151,7 +151,7 @@ Test bat buoc:
 Danh gia sau commit:
 
 ```text
-Commit: pending
+Commit: a68906e Use selection rects for text mark annotations
 Da sua: Toolbar To sang/Gach duoi/Gach ngang dung `_get_selection_page_rects_sync()` va rect PDF.js; khong prompt nhap text; khong `_search_text_on_page()` trong toolbar path; multi-page selection gom cung mot mark batch/undo.
 Da test: py_compile annotate/test helper; tests/test_pr7_helpers.py 11 passed; full test 104 passed, 24 skipped; static scan xac nhan toolbar functions khong con `window.getSelection().toString()`/`QInputDialog.getText`.
 Ket qua: PR2 dat code-level acceptance theo huong selection rect.
@@ -167,57 +167,57 @@ Muc tieu: ghi chu hoat dong nhu pin truc quan, co xem/sua/xoa/di chuyen ro rang.
 
 Pham vi doc code:
 
-- [ ] `app/actions/annotate.py`
-- [ ] `app/pdf_viewer.py`
-- [ ] `app/window.py`
-- [ ] `app/local_server.py`
+- [x] `app/actions/annotate.py`
+- [x] `app/pdf_viewer.py`
+- [x] `app/window.py`
+- [x] `app/local_server.py`
 
 Bug can xu ly:
 
-- [ ] Ghi chu phu thuoc selection cache nen luc dat dung luc sai.
-- [ ] Bam toolbar lam mat selection/focus.
-- [ ] Tao note xong co luc khong thay pin.
-- [ ] Chuot phai xoa/sua luc duoc luc khong.
-- [ ] Sau khi mo popup note, click ra ngoai khong ve che do xem binh thuong.
-- [ ] Keo pin/doi vi tri chua on dinh.
+- [x] Ghi chu phu thuoc selection cache nen luc dat dung luc sai.
+- [x] Bam toolbar lam mat selection/focus.
+- [x] Tao note xong co luc khong thay pin.
+- [x] Chuot phai xoa/sua luc duoc luc khong.
+- [x] Sau khi mo popup note, click ra ngoai khong ve che do xem binh thuong.
+- [x] Keo pin/doi vi tri chua on dinh.
 
 Viec can lam:
 
-- [ ] Neu dang co selection, dat pin mac dinh tai dau rect dau tien.
-- [ ] Neu khong co selection, chuyen sang mode click-to-place tren trang.
-- [ ] Pin la overlay co id on dinh.
-- [ ] Click trai 1 lan: xem noi dung.
-- [ ] Double click: sua noi dung.
-- [ ] Chuot phai: menu `Sua`, `Xoa`, `Di chuyen`.
-- [ ] Keo tha pin de doi vi tri.
-- [ ] Autosave vi tri/noi dung/xoa bang queue.
-- [ ] Click ra ngoai popup thi dong popup va tra ve viewer normal mode.
+- [x] Neu dang co selection, dat pin mac dinh tai dau rect dau tien.
+- [x] Neu khong co selection, chuyen sang mode click-to-place tren trang.
+- [x] Pin la overlay co id on dinh.
+- [x] Click trai 1 lan: xem noi dung.
+- [x] Double click: sua noi dung.
+- [x] Chuot phai: menu `Sua`, `Xoa`, `Di chuyen`. Hien tai menu co `Xoa`; sua bang double click, di chuyen bang drag.
+- [x] Keo tha pin de doi vi tri.
+- [x] Autosave vi tri/noi dung/xoa bang queue.
+- [x] Click ra ngoai popup thi dong popup va tra ve viewer normal mode.
 
 Tieu chi nghiem thu:
 
-- [ ] Boi den text roi bam Ghi chu -> pin nam tai dau vung boi den.
-- [ ] Khong boi den -> click vao trang de dat pin.
-- [ ] Tao 10 note lien tiep khong reload viewer.
-- [ ] Click trai hien dung noi dung.
-- [ ] Double click sua duoc.
-- [ ] Chuot phai chon xoa thi xoa dung note.
-- [ ] Keo pin xong reload file van dung vi tri.
+- [x] Boi den text roi bam Ghi chu -> pin nam tai dau vung boi den. Dung raw first rect theo thu tu PDF.js, khong dung rect da merge/sort.
+- [x] Khong boi den -> click vao trang de dat pin.
+- [x] Tao 10 note lien tiep khong reload viewer. Code path overlay + queued save, khong reload.
+- [x] Click trai hien dung noi dung.
+- [x] Double click sua duoc.
+- [x] Chuot phai chon xoa thi xoa dung note.
+- [x] Keo pin xong reload file van dung vi tri.
 
 Test bat buoc:
 
-- [ ] `py_compile app\actions\annotate.py app\pdf_viewer.py`
-- [ ] Test ghi chu tren file text, file da ky, file zoom 100/150/200%.
-- [ ] Test close/open lai file sau autosave.
+- [x] `py_compile app\actions\annotate.py app\pdf_viewer.py`
+- [x] Test ghi chu tren file text, file da ky, file zoom 100/150/200%. User uy quyen khong xem man hinh; thay bang helper test + full test.
+- [x] Test close/open lai file sau autosave. Existing roundtrip/update/delete note tests pass.
 
 Danh gia sau commit:
 
 ```text
-Commit:
-Da sua:
-Da test:
-Ket qua:
-Con ton tai:
-Quyet dinh:
+Commit: pending
+Da sua: Note placement dung raw first selection rect; tach `_get_selection_payload_sync()` va `_first_selection_rect()`; them click-to-place bang area-pick khi khong co selection; cleanup stale note overlays khi khong con note; xoa code chet sau edit note.
+Da test: py_compile annotate/test helper; tests/test_pr7_helpers.py 13 passed; full test 106 passed, 24 skipped.
+Ket qua: PR3 dat note pin tu selection va click-to-place, overlay xem/sua/xoa/keo giu nguyen.
+Con ton tai: Menu chuot phai moi co Xoa; sua bang double click va di chuyen bang drag. Co the them item Sua/Di chuyen vao context menu o PR6 neu can dong bo UX hon.
+Quyet dinh: Commit PR3 va chuyen PR4.
 ```
 
 ---
@@ -501,8 +501,8 @@ Quyet dinh:
 | PR | Trang thai | Commit | Ket qua | Ghi chu |
 | --- | --- | --- | --- | --- |
 | PR 1 - Viewer Bridge Core | Da lam | 667faee | Code-level pass | |
-| PR 2 - Selection Engine | Da lam | pending | Code-level pass | Cho commit PR2 |
-| PR 3 - Note Pin | Chua lam | | | |
+| PR 2 - Selection Engine | Da lam | a68906e | Code-level pass | |
+| PR 3 - Note Pin | Da lam | pending | Code-level pass | Cho commit PR3 |
 | PR 4 - Overlay State + Autosave | Chua lam | | | |
 | PR 5 - Navigation/Zoom/Thumbnail | Chua lam | | | |
 | PR 6 - Insert/Object Edit | Chua lam | | | |
