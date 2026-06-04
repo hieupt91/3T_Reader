@@ -10,7 +10,7 @@ _JS_ZOOM_IN = """
     var current = Number(viewer.currentScale || 1);
     var target = Math.min(4.0, current * 1.1);
     viewer.currentScaleValue = String(target);
-    return Math.round(target * 100);
+    return Math.round((Number(viewer.currentScale || 0) || target) * 100);
 })()
 """
 
@@ -22,7 +22,7 @@ _JS_ZOOM_OUT = """
     var current = Number(viewer.currentScale || 1);
     var target = Math.max(0.25, current / 1.1);
     viewer.currentScaleValue = String(target);
-    return Math.round(target * 100);
+    return Math.round((Number(viewer.currentScale || 0) || target) * 100);
 })()
 """
 
@@ -31,7 +31,7 @@ _JS_FIT_PAGE = """
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
     app.pdfViewer.currentScaleValue = '1.0';
-    return Math.round((app.pdfViewer.currentScale || 1) * 100);
+    return 100;
 })()
 """
 
@@ -76,7 +76,7 @@ def apply_zoom(window, wv):
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
     app.pdfViewer.currentScaleValue = '{scale}';
-    return Math.round((app.pdfViewer.currentScale || 1) * 100);
+    return Math.round((Number(app.pdfViewer.currentScale || 0) || {scale}) * 100);
 }})()
 """
     _run_zoom_js(window, wv, js)

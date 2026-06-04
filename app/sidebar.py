@@ -107,6 +107,11 @@ class ThumbnailSidebar(QDockWidget):
             self._on_click(self.list.row(item) + 1)
 
     def load_thumbnails(self, pdf_path: str, on_click):
+        if self._pdf_path == pdf_path and self.list.count() > 0:
+            self._on_click = on_click
+            self._schedule_visible_load()
+            return
+
         self._load_token += 1
         self._populate_token = self._load_token
         self.list.clear()

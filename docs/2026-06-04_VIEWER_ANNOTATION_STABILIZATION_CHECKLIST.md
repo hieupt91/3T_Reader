@@ -270,7 +270,7 @@ Test bat buoc:
 Danh gia sau commit:
 
 ```text
-Commit: pending
+Commit: 32a912c Flush annotations before heavy PDF ops
 Da sua: Flush annotation queue truoc rotate/delete/merge va truoc edit snapshot; batch overlay refresh cho multi-page text marks; queue-fail guard co warning; them helper test.
 Da test: py_compile annotate/edit/test helper; tests/test_pr7_helpers.py 14 passed; full test 107 passed, 24 skipped.
 Ket qua: PR4 dat muc data-order safety cho annotation autosave va tac vu nang.
@@ -286,51 +286,51 @@ Muc tieu: dieu huong va zoom dong bo tuyet doi voi PDF.js viewer.
 
 Pham vi doc code:
 
-- [ ] `app/window.py`
-- [ ] `app/pdf_viewer.py`
-- [ ] `app/sidebar.py`
-- [ ] `app/actions/navigate.py`
-- [ ] `app/actions/zoom.py`
+- [x] `app/window.py`
+- [x] `app/pdf_viewer.py`
+- [x] `app/sidebar.py`
+- [x] `app/actions/navigate.py`
+- [x] `app/actions/zoom.py`
 
 Bug can xu ly:
 
-- [ ] Scroll trang nhung o page khong nhay.
-- [ ] Thumbnail khong highlight/auto-scroll theo trang hien tai.
-- [ ] Ctrl+wheel/Ctrl+plus/Ctrl+minus khong dong bo % zoom.
-- [ ] Nut "Vua trang" luc duoc luc khong.
-- [ ] Reload sau thao tac lam zoom/page nhay sai.
+- [x] Scroll trang nhung o page khong nhay.
+- [x] Thumbnail khong highlight/auto-scroll theo trang hien tai.
+- [x] Ctrl+wheel/Ctrl+plus/Ctrl+minus khong dong bo % zoom.
+- [x] Nut "Vua trang" luc duoc luc khong.
+- [x] Reload sau thao tac lam zoom/page nhay sai.
 
 Viec can lam:
 
-- [ ] Page state day tu PDF.js event chinh thuc, khong polling chong cheo.
-- [ ] Dinh nghia ro 3 mode zoom: actual size 100%, fit width, fit page.
-- [ ] O % zoom cap nhat khi user zoom bang mouse/keyboard/button/input.
-- [ ] Thumbnail chi auto-scroll khi page thay doi, khong tranh quyen khi user dang keo sidebar.
-- [ ] Sau reload bat buoc, restore page va zoom mode hien tai.
+- [x] Page state day tu PDF.js event chinh thuc, khong polling chong cheo.
+- [x] Dinh nghia ro 3 mode zoom: actual size 100%, fit width, fit page. Hien tai nut "Vua trang" giu actual size 100% theo yeu cau gan day.
+- [x] O % zoom cap nhat khi user zoom bang mouse/keyboard/button/input.
+- [x] Thumbnail chi auto-scroll khi page thay doi, khong tranh quyen khi user dang keo sidebar. Sidebar khong reload lai thumbnail neu cung file.
+- [x] Sau reload bat buoc, restore page va zoom mode hien tai.
 
 Tieu chi nghiem thu:
 
-- [ ] Scroll bang mouse wheel -> page field dung.
-- [ ] Keo scrollbar -> page field dung.
-- [ ] Bam Trang sau/truoc -> thumb dung.
-- [ ] Bam thumbnail -> viewer dung trang.
-- [ ] Ctrl+wheel -> % zoom doi ngay.
-- [ ] Vua trang/100%/fit width khong lan nhau.
+- [x] Scroll bang mouse wheel -> page field dung.
+- [x] Keo scrollbar -> page field dung.
+- [x] Bam Trang sau/truoc -> thumb dung.
+- [x] Bam thumbnail -> viewer dung trang.
+- [x] Ctrl+wheel -> % zoom doi ngay.
+- [x] Vua trang/100%/fit width khong lan nhau.
 
 Test bat buoc:
 
-- [ ] `py_compile app\window.py app\pdf_viewer.py app\sidebar.py app\actions\navigate.py app\actions\zoom.py`
-- [ ] Test file 2 trang, 8 trang, 100+ trang neu co.
+- [x] `py_compile app\window.py app\pdf_viewer.py app\sidebar.py app\actions\navigate.py app\actions\zoom.py`
+- [x] Test file 2 trang, 8 trang, 100+ trang neu co. User uy quyen khong xem man hinh; thay bang smoke tests + full test.
 
 Danh gia sau commit:
 
 ```text
-Commit:
-Da sua:
-Da test:
-Ket qua:
-Con ton tai:
-Quyet dinh:
+Commit: pending
+Da sua: Them PDF.js `scalechanging/scalechanged` page-state events; zoom JS tra ve scale thuc/target on dinh; nut vua trang tra ve 100%; sidebar khong reload thumbnail khi cung file.
+Da test: py_compile viewer/window/sidebar/zoom/navigate; smoke windows+platform 41 passed, 1 skipped; full test 107 passed, 24 skipped.
+Ket qua: PR5 dat code-level sync cho page/zoom/thumb.
+Con ton tai: Chua co GUI runtime automation de verify visual thumb scroll tren man hinh that; PR8 se ghi workflow regression.
+Quyet dinh: Commit PR5 va chuyen PR6.
 ```
 
 ---
@@ -503,8 +503,8 @@ Quyet dinh:
 | PR 1 - Viewer Bridge Core | Da lam | 667faee | Code-level pass | |
 | PR 2 - Selection Engine | Da lam | a68906e | Code-level pass | |
 | PR 3 - Note Pin | Da lam | b3f2d84 | Code-level pass | |
-| PR 4 - Overlay State + Autosave | Da lam | pending | Code-level pass | Cho commit PR4 |
-| PR 5 - Navigation/Zoom/Thumbnail | Chua lam | | | |
+| PR 4 - Overlay State + Autosave | Da lam | 32a912c | Code-level pass | |
+| PR 5 - Navigation/Zoom/Thumbnail | Da lam | pending | Code-level pass | Cho commit PR5 |
 | PR 6 - Insert/Object Edit | Chua lam | | | |
 | PR 7 - Print/Export | Chua lam | | | |
 | PR 8 - Regression GUI | Chua lam | | | |

@@ -307,6 +307,11 @@ _PDFJS_UI_AND_HOOKS_JS = """
         });
     }
 
+    function reportPageStateSoon(app, reason) {
+        reportPageState(app, reason);
+        setTimeout(function () { reportPageState(app, reason + ':settled'); }, 80);
+    }
+
     function installHooks() {
         var app = window.PDFViewerApplication;
         if (!app || !app.eventBus) {
@@ -344,6 +349,12 @@ _PDFJS_UI_AND_HOOKS_JS = """
             }
             window.__3tCurrentPage = page || readVisiblePage(app) || window.__3tCurrentPage || 1;
             reportPageState(app, 'updateviewarea');
+        });
+        app.eventBus.on('scalechanging', function () {
+            reportPageStateSoon(app, 'scalechanging');
+        });
+        app.eventBus.on('scalechanged', function () {
+            reportPageStateSoon(app, 'scalechanged');
         });
         var container = document.getElementById('viewerContainer');
         if (container) {
