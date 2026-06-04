@@ -81,7 +81,7 @@ from app.language_manager import (
     set_selected_language,
 )
 from app.platform_ui import shortcut_label, use_native_menubar, fullscreen_shortcut_hint
-from core.recent import load_recent, clear_recent
+from packages.platform.recent import load_recent, clear_recent
 from packages.pdf_engine import get_pdf_engine
 
 PDFJS_HIDE_TOOLBAR_CSS = """
