@@ -40,7 +40,7 @@
 
 ### 1.5 Thay thế `_global_state` dict bằng dataclass
 
-- [ ] **P1** — Tạo `app/tab_state.py`
+- [x] **P1** — Tạo `app/tab_state.py`
   - **Vấn đề:** `window.py:238-244` dùng dict `_global_state` với keys `"source_path"`, `"display_path"`, `"web_view"`, `"search_query"`, `"temp_path"` — dễ gõ sai key, không có type safety
   - **Cách sửa:**
     ```python
@@ -266,7 +266,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 6.3 Deduplicate polyfill code
 
-- [ ] **P1** — Gộp duplicate polyfills
+- [x] **P1** — Gộp duplicate polyfills
   - **Vấn đề:** `_PDFJS_RUNTIME_POLYFILL` trong `local_server.py:19-59` và `_MAP_POLYFILL_JS` trong `pdf_viewer.py:26-64` — cùng nội dung
   - **Cách sửa:** 1 file `assets/js/polyfill.js`, load từ cả 2 nơi
 
