@@ -85,13 +85,13 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 2.3 Inline text/image bridge scripts
 
-- [ ] **P2** — Tạo `assets/js/inline_text_bridge.js`, `assets/js/inline_image_bridge.js`
+- [x] **P2** — Tạo `assets/js/inline_text_bridge.js`, `assets/js/inline_image_bridge.js`
   - **Vấn đề:** `pdf_inline_editor.py` chứa nhiều JS inline cho text/image overlay
   - **Cách sửa:** Tách từng script ra file riêng
 
 ### 2.4 CSS strings
 
-- [ ] **P2** — Tạo `assets/css/pdfjs_overrides.css`
+- [x] **P2** — Tạo `assets/css/pdfjs_overrides.css`
   - **Vấn đề:** `PDFJS_HIDE_TOOLBAR_CSS` trong `window.py:87-103` và `pdf_viewer.py:68-80` — CSS inline trùng lặp
   - **Cách sửa:** File CSS riêng, inject 1 lần
 
@@ -358,7 +358,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 10.1 Remove legacy PyMuPDF code path
 
-- [ ] **P2** — Audit `THREET_READER_PDF_ENGINE=pymupdf` code path
+- [x] **P2** — Audit `THREET_READER_PDF_ENGINE=pymupdf` code path (optional extra, guarded by env var)
   - **Vấn đề:** `pymupdf_engine.py` vẫn tồn tại, `pyproject.toml` có optional `legacy-pymupdf` dependency
   - **Cách sửa:** Nếu đã quyết định dùng PdfiumEngine, xóa PyMuPDF code path
 
@@ -376,7 +376,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 10.4 Consolidate `core/` into `packages/`
 
-- [ ] **P2** — Move `core/pkcs11.py` và `core/recent.py` vào `packages/`
+- [x] **P2** — Move `core/pkcs11.py` và `core/recent.py` vào `packages/` (pkcs11 already a shim, recent already moved)
   - **Vấn đề:** `core/` chỉ có 2 files, kiến trúc đã chuyển sang `packages/`
   - **Cách sửa:** Move files, update imports
 
