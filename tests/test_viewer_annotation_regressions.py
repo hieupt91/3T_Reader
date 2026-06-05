@@ -16,23 +16,18 @@ def _app_python_files() -> list[Path]:
 
 
 def test_qwebchannel_is_initialized_only_by_viewer_helper():
-    matches: list[str] = []
-    qrc_matches: list[str] = []
-
-    for path in _app_python_files():
-        text = path.read_text(encoding="utf-8")
-        rel = path.relative_to(ROOT).as_posix()
-        if "new QWebChannel" in text:
-            matches.append(rel)
-        if "qrc:///qtwebchannel/qwebchannel.js" in text:
-            qrc_matches.append(rel)
-
-    assert matches == ["app/pdf_viewer.py"]
-    assert qrc_matches == ["app/pdf_viewer.py"]
+    """QWebChannel code lives in the external JS file, loaded by pdf_viewer.py."""
+    js_hooks = _read("assets/js/pdfjs_ui_hooks.js")
+    assert "new QWebChannel" in js_hooks
+    assert "qrc:///qtwebchannel/qwebchannel.js" in js_hooks
+    # Verify pdf_viewer.py loads the JS file
+    viewer = _read("app/pdf_viewer.py")
+    assert "pdfjs_ui_hooks.js" in viewer
 
 
 def test_viewer_pushes_page_and_zoom_state_from_pdfjs_events():
-    viewer = _read("app/pdf_viewer.py")
+    """Event hooks are in the external JS file, loaded by pdf_viewer.py."""
+    js_hooks = _read("assets/js/pdfjs_ui_hooks.js")
 
     for event_name in (
         "pagechanging",
@@ -40,21 +35,22 @@ def test_viewer_pushes_page_and_zoom_state_from_pdfjs_events():
         "scalechanging",
         "scalechanged",
     ):
-        assert event_name in viewer
+        assert event_name in js_hooks
 
-    assert "addEventListener('scroll'" in viewer
-    assert "reportPageState(app, 'scroll')" in viewer
-    assert "window.__3tWithBridge('pageStateBridge'" in viewer
+    assert "addEventListener('scroll'" in js_hooks
+    assert "reportPageState(app, 'scroll')" in js_hooks
+    assert "window.__3tWithBridge('pageStateBridge'" in js_hooks
 
 
 def test_selection_cache_survives_toolbar_focus_loss():
-    viewer = _read("app/pdf_viewer.py")
+    """Selection cache logic is in the external JS file."""
+    js_hooks = _read("assets/js/pdfjs_ui_hooks.js")
 
-    assert "window.__3tLastSelectionPayload" in viewer
-    assert "window.__3tReadSelectionPayload" in viewer
-    assert "document.addEventListener('pointerup'" in viewer
-    assert "[0, 60, 160, 320, 640]" in viewer
-    assert "area > bestArea" in viewer
+    assert "window.__3tLastSelectionPayload" in js_hooks
+    assert "window.__3tReadSelectionPayload" in js_hooks
+    assert "document.addEventListener('pointerup'" in js_hooks
+    assert "[0, 60, 160, 320, 640]" in js_hooks
+    assert "area > bestArea" in js_hooks
 
 
 def test_text_mark_toolbar_uses_pdfjs_selection_rects_without_prompt_or_search():
@@ -96,11 +92,22 @@ def test_annotation_selection_falls_back_to_qt_selected_text(monkeypatch):
 
 
 def test_inline_edit_scripts_use_shared_bridge_not_private_webchannels():
+    """Bridge code lives in external JS files, loaded by pdf_inline_editor.py."""
+    inline_text_js = _read("assets/js/inline_text_bridge.js")
+    inline_image_js = _read("assets/js/inline_image_bridge.js")
+    area_pick_js = _read("assets/js/area_pick.js")
     inline_editor = _read("app/pdf_inline_editor.py")
     edit_actions = _read("app/actions/edit.py")
 
-    assert "new QWebChannel" not in inline_editor
-    assert "new QWebChannel" not in edit_actions
-    assert "__3tWithBridge('inlineTextBridge'" in inline_editor
-    assert "__3tWithBridge('inlineImageBridge'" in inline_editor
-    assert "__3tWithBridge('areaPickBridge'" in edit_actions
+    # Verify JS files use shared bridge helper
+    assert "__3tWithBridge('inlineTextBridge'" in inline_text_js
+    assert "__3tWithBridge('inlineImageBridge'" in inline_image_js
+    assert "__3tWithBridge('areaPickBridge'" in area_pick_js
+    # Verify no private QWebChannel in JS files
+    assert "new QWebChannel" not in inline_text_js
+    assert "new QWebChannel" not in inline_image_js
+    assert "new QWebChannel" not in area_pick_js
+    # Verify Python files load from external JS
+    assert "inline_text_bridge.js" in inline_editor
+    assert "inline_image_bridge.js" in inline_editor
+    assert "area_pick.js" in edit_actions
