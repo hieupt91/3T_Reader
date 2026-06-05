@@ -235,7 +235,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 5.3 3T AI token storage
 
-- [ ] **P1** — Secure token cho 3T AI
+- [x] **P1** — Secure token cho 3T AI
   - **Vấn đề:** `provider.py:385` lưu token vào `os.environ["3T_AI_TOKEN"]` — process-wide, visible trong `/proc`
   - **Cách sửa:** Lưu vào secure storage thay vì env var
 
@@ -251,7 +251,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 6.1 Remove unused imports
 
-- [ ] **P2** — Audit unused imports
+- [x] **P2** — Audit unused imports
   - **Vấn đề:** `edit.py:1` import `asyncio` nhưng không dùng async ở đâu
   - **Cách sửa:** Chạy `ruff` hoặc `pylint` để detect unused imports
 
