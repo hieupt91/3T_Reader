@@ -150,7 +150,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 4.2 Atomic save tests
 
-- [ ] **P1** — Tạo `tests/test_pdf_save_helpers.py` (mở rộng)
+- [x] **P1** — Tạo `tests/test_pdf_save_helpers.py` (mở rộng)
   - **Vấn đề:** `_pdf_save.py` có logic quan trọng (atomic copy, staged path, retry replace) nhưng test chưa đủ
   - **Cần test:**
     - `make_staged_pdf_path` tạo path đúng thư mục
@@ -170,7 +170,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 4.4 AI provider tests
 
-- [ ] **P2** — Tạo `tests/test_ai_provider.py` (mở rộng)
+- [x] **P2** — Tạo `tests/test_ai_provider.py` (mở rộng)
   - **Vấn đề:** `provider.py` có logic fallback qua 7 providers, auth error detection, quota error detection
   - **Cần test:**
     - `_is_auth_error_text` nhận đúng các loại auth error
@@ -192,7 +192,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 4.6 Single instance tests
 
-- [ ] **P2** — Tạo `tests/test_single_instance.py`
+- [x] **P2** — Tạo `tests/test_single_instance.py`
   - **Vấn đề:** `single_instance.py` dùng kernel32 mutex trên Windows, fcntl trên POSIX — cần test cả 2 path
   - **Cần test:**
     - Gọi 2 lần `acquire_single_instance()` — lần 2 trả False
@@ -200,7 +200,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 4.7 License client tests
 
-- [ ] **P2** — Tạo `tests/test_license_client.py`
+- [x] **P2** — Tạo `tests/test_license_client.py`
   - **Vấn đề:** `license_client/` có Protocol + models nhưng chưa có test cho `NotConfiguredLicenseClient`
   - **Cần test:**
     - `validate_cached()` trả `active=True` trong phase 0
@@ -241,7 +241,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 5.4 Static file serving scope
 
-- [ ] **P2** — Restrict static file serving trong `local_server.py`
+- [x] **P2** — Restrict static file serving trong `local_server.py`
   - **Vấn đề:** `_serve_static()` serve bất kỳ file nào trong `pdfjs_root` — có thể expose source maps, debug files
   - **Cách sửa:** Whitelist chỉ cho phép `.html`, `.js`, `.css`, `.wasm`, `.properties`
 
@@ -278,7 +278,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 6.5 Remove duplicate icon color dicts
 
-- [ ] **P1** — Gộp `_ICON_COLORS` và `_ICON_COLORS_LIGHT`
+- [x] **P1** — Gộp `_ICON_COLORS` và `_ICON_COLORS_LIGHT`
   - **Vấn đề:** 2 dict gần giống nhau trong `window.py:107-184`
   - **Cách sửa:** 1 dict base + transform function cho light/dark
 
@@ -310,7 +310,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 7.4 Dependency pinning
 
-- [ ] **P2** — Pin tất cả dependencies
+- [x] **P2** — Pin tất cả dependencies
   - **Vấn đề:** `requirements.txt` có một số deps dùng `>=` thay vì `==` (pytesseract, pdf2docx, pdfplumber, openpyxl)
   - **Cách sửa:** Pin exact versions trong requirements.txt, dùng `>=` chỉ trong pyproject.toml
 
@@ -370,7 +370,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 10.3 Clean up pytest temp files
 
-- [ ] **P3** — Xóa `pytest_tmp/` directory
+- [x] **P3** — Xóa `pytest_tmp/` directory
   - **Vấn đề:** Temp files từ test runs nằm trong repo
   - **Cách sửa:** Xóa, thêm vào `.gitignore`
 
