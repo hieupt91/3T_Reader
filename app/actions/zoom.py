@@ -4,6 +4,8 @@ from app.actions._guard import require_webview
 
 _JS_ZOOM_IN = """
 (function() {
+    window.__3tZoomInProgress = true;
+    setTimeout(function() { window.__3tZoomInProgress = false; }, 500);
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
     var viewer = app.pdfViewer;
@@ -42,6 +44,8 @@ _JS_ZOOM_IN = """
 
 _JS_ZOOM_OUT = """
 (function() {
+    window.__3tZoomInProgress = true;
+    setTimeout(function() { window.__3tZoomInProgress = false; }, 500);
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
     var viewer = app.pdfViewer;
@@ -97,14 +101,14 @@ def _update_spinner(window, pct):
             window.zoom_spin.blockSignals(False)
 
 
-def _run_zoom_js(window, wv, js: str, *, attempts: int = 8):
+def _run_zoom_js(window, wv, js: str, *, attempts: int = 3):
     def _handle(pct, remaining: int):
         if pct and pct > 0:
             _update_spinner(window, pct)
             return
         if remaining <= 0:
             return
-        QTimer.singleShot(120, lambda: wv.page().runJavaScript(js, lambda r: _handle(r, remaining - 1)))
+        QTimer.singleShot(150, lambda: wv.page().runJavaScript(js, lambda r: _handle(r, remaining - 1)))
 
     wv.page().runJavaScript(js, lambda pct: _handle(pct, attempts - 1))
 

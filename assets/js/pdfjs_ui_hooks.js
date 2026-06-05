@@ -244,6 +244,9 @@
     }
 
     function reportPageState(app, reason) {
+        // Suppress page state reports during zoom to reduce QWebChannel overhead
+        if (window.__3tZoomInProgress) return;
+
         var page = readVisiblePage(app) || window.__3tCurrentPage || 0;
         if (!page) return;
         window.__3tCurrentPage = page;
@@ -257,10 +260,15 @@
             } catch (_) {}
         }
 
-        window.__3tWithBridge('pageStateBridge', function(bridge) {
-            window.__3tPageStateBridge = bridge || null;
+        // Cache bridge to avoid repeated QWebChannel lookups
+        if (window.__3tPageStateBridge) {
             send(window.__3tPageStateBridge);
-        });
+        } else {
+            window.__3tWithBridge('pageStateBridge', function(bridge) {
+                window.__3tPageStateBridge = bridge || null;
+                send(window.__3tPageStateBridge);
+            });
+        }
     }
 
     function reportPageStateSoon(app, reason) {
