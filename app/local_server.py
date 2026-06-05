@@ -234,6 +234,7 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
     _ALLOWED_STATIC_EXTENSIONS = frozenset({
         ".html", ".js", ".mjs", ".css", ".wasm", ".properties",
         ".svg", ".png", ".json", ".map", ".ico",
+        ".bcmap", ".ftl", ".pfb", ".ttf", ".woff", ".woff2",
     })
 
     def _serve_static(self, url_path: str):
