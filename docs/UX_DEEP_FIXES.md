@@ -277,6 +277,93 @@ def contextMenuEvent(self, event):
 
 ---
 
+## FIX 13: Highlight/Underline/Strikeout icons giống nhau (P1)
+
+**File:** `app/window.py:662-670`
+**Vấn đề:** Cả 3 nút dùng cùng `highlight.svg`, chỉ khác màu (vàng/xanh/đỏ) — ở 28px rất khó phân biệt
+**So sánh:** Foxit dùng icon khác nhau cho mỗi tool
+**Cách sửa:**
+- [ ] Tạo `underline.svg`, `strikeout.svg` riêng biệt
+- [ ] Hoặc thêm text label rõ ràng hơn
+
+---
+
+## FIX 14: Thiếu keyboard shortcuts cho annotation tools (P1)
+
+**File:** `app/window.py:599-766`
+**Vấn đề:** Highlight, underline, strikeout, insert text, insert image không có phím tắt
+**So sánh:** Acrobat có Ctrl+U cho underline
+**Cách sửa:**
+- [ ] Ctrl+Alt+H (highlight), Ctrl+Alt+U (underline), Ctrl+Alt+K (strikeout)
+- [ ] Hiển thị shortcut trong tooltip
+
+---
+
+## FIX 15: Text edit dialog nói "Lưu thay đổi" khi tạo mới (P1)
+
+**File:** `app/actions/edit.py:1101`
+**Vấn đề:** Button nói "Lưu thay đổi" ngay cả khi tạo text mới
+**Cách sửa:**
+- [ ] Truyền `is_edit` flag vào dialog
+- [ ] "Chèn văn bản" khi tạo mới, "Lưu thay đổi" khi edit
+
+---
+
+## FIX 16: InlineEditPanel không hỗ trợ light theme (P1)
+
+**File:** `app/pdf_inline_editor.py:92-103`
+**Vấn đề:** Panel hardcode dark theme — user light theme thấy panel đen trên nền trắng
+**Cách sửa:**
+- [ ] Thêm light theme styles
+- [ ] Detect `is_dark()` và apply phù hợp
+
+---
+
+## FIX 17: Signature pad thiếu pen size control (P1)
+
+**File:** `app/signature_pad.py:34`
+**Vấn đề:** Pen size cố định 2px, không có slider — chữ ký quá mỏng
+**Cách sửa:**
+- [ ] Thêm pen size slider (1-10) vào SignaturePadDialog
+
+---
+
+## FIX 18: Bookmark tree expandAll() overwhelming (P2)
+
+**File:** `app/sidebar.py:341`
+**Vấn đề:** `expandAll()` mở tất cả — PDF outline sâu sẽ rất dài
+**Cách sửa:**
+- [ ] Chỉ expand level 1, collapse sâu hơn
+
+---
+
+## FIX 19: AI Chat WindowStaysOnTop quá aggressive (P2)
+
+**File:** `app/ai_chat_dialog.py:136`
+**Vấn đề:** Dialog nổi trên tất cả apps
+**Cách sửa:**
+- [ ] Bỏ WindowStaysOnTopHint, hoặc thêm toggle
+
+---
+
+## FIX 20: "Xóa obj" dùng developer jargon (P2)
+
+**File:** `app/window.py:681`
+**Vấn đề:** Label "Xóa obj" — user không hiểu
+**Cách sửa:**
+- [ ] Đổi thành "Xóa đối tượng"
+
+---
+
+## FIX 21: Minimum box enforcement silent (P2)
+
+**File:** `app/actions/edit.py:1267-1270`
+**Vấn đề:** Tự expand vùng quá nhỏ mà không告知 user
+**Cách sửa:**
+- [ ] Hiện toast: "Vùng quá nhỏ, đã tự động mở rộng"
+
+---
+
 ## ƯU TIÊN THỰC HIỆN
 
 ### Tuần 1 — P0 blockers
@@ -292,12 +379,21 @@ def contextMenuEvent(self, event):
 - [ ] FIX 6: Highlight color picker
 - [ ] FIX 9: Annotation list panel
 - [ ] FIX 10: AI settings refactor
+- [ ] FIX 13: Distinct icons for highlight/underline/strikeout
+- [ ] FIX 14: Keyboard shortcuts for annotation tools
+- [ ] FIX 15: Text edit dialog button label
+- [ ] FIX 16: InlineEditPanel light theme
+- [ ] FIX 17: Signature pen size control
 
 ### Tuần 4 — P2 polish
 - [ ] FIX 7: Thumbnail quality
 - [ ] FIX 8: Page context menu
 - [ ] FIX 11: Unsaved annotation warning
 - [ ] FIX 12: Zoom centered on cursor
+- [ ] FIX 18: Bookmark expand behavior
+- [ ] FIX 19: AI Chat stays-on-top
+- [ ] FIX 20: "Xóa obj" label
+- [ ] FIX 21: Minimum box enforcement feedback
 
 ---
 
