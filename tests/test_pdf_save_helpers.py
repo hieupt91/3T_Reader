@@ -124,3 +124,52 @@ def test_pick_context_matches_rejects_tab_switch(tmp_path):
         "_pdf_edit_state": None,
     }
     assert edit._pick_context_matches(window, expected_state, str(source)) is False
+
+
+# --- Additional unit tests for _pdf_save helpers ---
+
+
+def test_atomic_copy_file_copies_content(tmp_path):
+    src = tmp_path / "source.pdf"
+    dst = tmp_path / "dest.pdf"
+    src.write_bytes(b"PDF content here")
+    _pdf_save.atomic_copy_file(str(src), str(dst))
+    assert dst.read_bytes() == b"PDF content here"
+
+
+def test_atomic_copy_file_cleans_staged_on_failure(tmp_path):
+    src = tmp_path / "source.pdf"
+    src.write_bytes(b"content")
+    dst = str(tmp_path / "nonexistent_dir" / "dest.pdf")
+    try:
+        _pdf_save.atomic_copy_file(str(src), dst)
+    except Exception:
+        pass
+    # Staged files should be cleaned up
+    staged_files = [f for f in tmp_path.glob(".3t_stage_*")]
+    assert len(staged_files) == 0
+
+
+def test_replace_file_with_retry_replaces(tmp_path):
+    src = tmp_path / "src.pdf"
+    dst = tmp_path / "dst.pdf"
+    src.write_bytes(b"new")
+    dst.write_bytes(b"old")
+    _pdf_save.replace_file_with_retry(str(src), str(dst), attempts=3)
+    assert dst.read_bytes() == b"new"
+    assert not src.exists()
+
+
+def test_remove_path_quietly_removes(tmp_path):
+    f = tmp_path / "to_delete.pdf"
+    f.write_bytes(b"delete me")
+    _pdf_save.remove_path_quietly(str(f))
+    assert not f.exists()
+
+
+def test_remove_path_quietly_no_error_on_missing(tmp_path):
+    _pdf_save.remove_path_quietly(str(tmp_path / "nonexistent.pdf"))
+
+
+def test_remove_path_quietly_no_error_on_none():
+    _pdf_save.remove_path_quietly(None)

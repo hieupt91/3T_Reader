@@ -121,3 +121,25 @@ def test_openai_compatible_auth_error_is_normalized(monkeypatch):
 
     assert resp.success is False
     assert "không hợp lệ" in resp.error
+
+
+# --- Unit tests for helper functions ---
+
+
+def test_is_auth_error_text():
+    assert provider._is_auth_error_text("Error 401: Unauthorized") is True
+    assert provider._is_auth_error_text("Invalid API key provided") is True
+    assert provider._is_auth_error_text("Rate limit exceeded") is False
+
+
+def test_is_quota_error_text():
+    assert provider._is_quota_error_text("Error 429: Too Many Requests") is True
+    assert provider._is_quota_error_text("Quota exceeded") is True
+    assert provider._is_quota_error_text("Insufficient quota") is True
+    assert provider._is_quota_error_text("Invalid API key") is False
+
+
+def test_normalize_provider_name():
+    assert provider._normalize_provider_name("hf") == "huggingface"
+    assert provider._normalize_provider_name("ollama") == "ollama"
+    assert provider._normalize_provider_name("OpenAI") == "openai"
