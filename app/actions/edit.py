@@ -447,7 +447,6 @@ def _set_edit_state(window, value):
 
 
 def _reset_edit_state(window):
-    from app.actions.edit_overlays import clear_edit_overlays
     state = _get_edit_state(window)
     if not state:
         return
@@ -458,7 +457,6 @@ def _reset_edit_state(window):
                 os.remove(path)
             except OSError:
                 pass
-    clear_edit_overlays(window)
     _set_edit_state(window, None)
 
 
@@ -758,8 +756,6 @@ def _adjust_placement(window, initial_placement: dict, title: str = "Xác nhận
 @require_document(show_message=True)
 def undo_last_edit(window):
     """Hoàn tác thao tác chèn cuối cùng."""
-    from app.actions.edit_overlays import remove_edit_overlay, clear_edit_overlays
-
     state = _get_edit_state(window)
     if not state or not state.get("ops"):
         try:
@@ -774,21 +770,16 @@ def undo_last_edit(window):
 
     removed = state["ops"].pop()
     op_type = "văn bản" if removed.get("type") == "text" else "ảnh"
-    removed_id = f"edit-{removed.get('id')}"
-
-    # Remove overlay for the undone operation
-    remove_edit_overlay(window, removed_id)
 
     if not state["ops"]:
         # Không còn ops → dọn dẹp state và quay về file gốc
         original = state.get("original_path")
         _reset_edit_state(window)  # xóa temp files, clear state
-        clear_edit_overlays(window)
         if original and os.path.exists(original):
             _reload_viewer(window, original)
         window.status.showMessage(f"Đã hoàn tác chèn {op_type} — về trạng thái ban đầu", 3000)
     else:
-        window.status.showMessage(f"Đã hoàn tác chèn {op_type}  ·  Ctrl+S để lưu ({len(state['ops'])} thao tác)", 3000)
+        _render_edit_state(window, state, f"Đã hoàn tác chèn {op_type}")
 
 
 
@@ -1267,7 +1258,6 @@ def create_new_pdf(window):
 @require_document(show_message=True)
 def insert_text_to_pdf(window):
     from app.pdf_inline_editor import run_inline_text
-    from app.actions.edit_overlays import add_edit_overlay
 
     result = run_inline_text(window)
     if not result:
@@ -1291,7 +1281,6 @@ def insert_text_to_pdf(window):
     if not state:
         return
 
-    op_id = f"edit-{state['next_id']}"
     op = {
         "id":         state["next_id"],
         "type":       "text",
@@ -1307,37 +1296,15 @@ def insert_text_to_pdf(window):
     state["next_id"] += 1
     state["ops"].append(op)
 
-    # Show overlay immediately — no PDF rebuild, no viewer reload
-    color_hex = "#{:02x}{:02x}{:02x}".format(
-        int(op["font_color"][0] * 255),
-        int(op["font_color"][1] * 255),
-        int(op["font_color"][2] * 255),
-    )
-    add_edit_overlay(
-        window,
-        op_id=op_id,
-        op_type="text",
-        page_number=page_number,
-        rect=(left, bottom, right, top),
-        text=result["text"],
-        font_size=op["font_size"],
-        color_hex=color_hex,
-        bold=op["bold"],
-        underline=op["underline"],
-        rotation=op["rotation"],
-    )
-
-    op_count = len(state["ops"])
-    window.status.showMessage(
-        f"Đã chèn văn bản  ·  Ctrl+S để lưu, Ctrl+Z để hoàn tác ({op_count} thao tác)",
-        4000,
-    )
+    _render_edit_state(window, state,
+        "Đã chèn văn bản  ·  Dùng nút 'Chọn & Xoay' để xoay/di chuyển/sửa",
+        focus_page=page_number,
+        auto_select_op=op)
 
 
 @require_document(show_message=True)
 def insert_image_to_pdf(window):
     from app.pdf_inline_editor import run_inline_image
-    from app.actions.edit_overlays import add_edit_overlay
 
     image_path, _ = QFileDialog.getOpenFileName(
         window,
@@ -1382,7 +1349,6 @@ def insert_image_to_pdf(window):
     if not state:
         return
 
-    op_id = f"edit-{state['next_id']}"
     op = {
         "id":          state["next_id"],
         "type":        "image",
@@ -1394,30 +1360,16 @@ def insert_image_to_pdf(window):
     state["next_id"] += 1
     state["ops"].append(op)
 
-    # Show overlay immediately — no PDF rebuild, no viewer reload
-    add_edit_overlay(
-        window,
-        op_id=op_id,
-        op_type="image",
-        page_number=page_number,
-        rect=box,
-        image_path=image_path,
-        rotation=op["rotation"],
-    )
-
-    op_count = len(state["ops"])
-    window.status.showMessage(
-        f"Đã chèn ảnh  ·  Ctrl+S để lưu, Ctrl+Z để hoàn tác ({op_count} thao tác)",
-        4000,
-    )
+    _render_edit_state(window, state,
+        "Đã chèn ảnh  ·  Dùng nút 'Chọn & Xoay' để xoay/di chuyển",
+        focus_page=page_number,
+        auto_select_op=op)
 
 
 
 @require_document(show_message=True)
 def save_edits(window, *, reload_viewer: bool = True) -> bool:
     """Lưu các thay đổi (text/ảnh đã chèn) vào file gốc."""
-    from app.actions.edit_overlays import clear_edit_overlays
-
     state = _get_edit_state(window)
     if not state:
         # Không có edit state — lưu thông thường
@@ -1434,9 +1386,6 @@ def save_edits(window, *, reload_viewer: bool = True) -> bool:
     if not working or not base or not os.path.exists(base):
         show_warning(window, "Không lưu được", "Không tìm thấy file làm việc.")
         return False
-
-    # Clear overlays before rebuild
-    clear_edit_overlays(window)
 
     # Rebuild lần cuối vào working file
     try:
