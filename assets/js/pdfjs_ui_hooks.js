@@ -308,6 +308,7 @@
             reportPageState(app, 'pagechanging');
         });
         app.eventBus.on('updateviewarea', function (data) {
+            if (window.__3tZoomInProgress) return;
             var page = 0;
             if (data && data.location && data.location.pageNumber) {
                 page = parseInt(data.location.pageNumber, 10) || 0;
@@ -316,10 +317,10 @@
             reportPageState(app, 'updateviewarea');
         });
         app.eventBus.on('scalechanging', function () {
-            reportPageStateSoon(app, 'scalechanging');
+            if (!window.__3tZoomInProgress) reportPageStateSoon(app, 'scalechanging');
         });
         app.eventBus.on('scalechanged', function () {
-            reportPageStateSoon(app, 'scalechanged');
+            if (!window.__3tZoomInProgress) reportPageStateSoon(app, 'scalechanged');
         });
         var container = document.getElementById('viewerContainer');
         if (container) {
@@ -333,11 +334,13 @@
             }, { passive: true });
             container.addEventListener('scroll', function () {
                 if (scrollTimer) clearTimeout(scrollTimer);
+                // Longer debounce during zoom to reduce QWebChannel overhead
+                var delay = window.__3tZoomInProgress ? 500 : 80;
                 scrollTimer = setTimeout(function () {
                     scrollTimer = null;
                     window.__3tCurrentPage = readVisiblePage(app) || window.__3tCurrentPage || 1;
                     reportPageState(app, 'scroll');
-                }, 50);
+                }, delay);
             }, { passive: true });
         }
         function clear3TOverlays() {

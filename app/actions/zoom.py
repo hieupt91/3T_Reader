@@ -5,7 +5,7 @@ from app.actions._guard import require_webview
 _JS_ZOOM_IN = """
 (function() {
     window.__3tZoomInProgress = true;
-    setTimeout(function() { window.__3tZoomInProgress = false; }, 500);
+    setTimeout(function() { window.__3tZoomInProgress = false; }, 800);
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
     var viewer = app.pdfViewer;
@@ -45,7 +45,7 @@ _JS_ZOOM_IN = """
 _JS_ZOOM_OUT = """
 (function() {
     window.__3tZoomInProgress = true;
-    setTimeout(function() { window.__3tZoomInProgress = false; }, 500);
+    setTimeout(function() { window.__3tZoomInProgress = false; }, 800);
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
     var viewer = app.pdfViewer;
