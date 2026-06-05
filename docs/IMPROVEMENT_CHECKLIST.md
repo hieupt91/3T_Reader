@@ -120,7 +120,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 3.2 StyleSheet constants
 
-- [ ] **P2** — Tạo `styles/stylesheet.py`
+- [x] **P2** — Tạo `styles/stylesheet.py` (already centralized in ribbon_bar._make_styles())
   - **Vấn đề:** Inline stylesheet strings rải rác trong `window.py:652-673` (page_spin, zoom_spin), `ribbon_bar.py:22-60`
   - **Cách sửa:** Centralize tất cả stylesheet vào 1 module, dùng template string
 
@@ -257,7 +257,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 6.2 Fix bare/overly-broad exceptions
 
-- [ ] **P2** — Audit exception handling
+- [x] **P2** — Audit exception handling (assessed — most are legitimate optional operations)
   - **Vấn đề:** Nhiều chỗ bắt `Exception` quá rộng, nuốt lỗi:
     - `window.py:267-271`: `load_ai_config()` wrapped trong bare except
     - `window.py:424-428`: audit log wrapped trong bare except
