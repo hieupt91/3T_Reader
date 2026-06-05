@@ -231,6 +231,11 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
                 self.display_cache.popitem(last=False)
         return display_data
 
+    _ALLOWED_STATIC_EXTENSIONS = frozenset({
+        ".html", ".js", ".mjs", ".css", ".wasm", ".properties",
+        ".svg", ".png", ".json", ".map", ".ico",
+    })
+
     def _serve_static(self, url_path: str):
         rel = url_path.lstrip("/")
         # Path traversal protection: resolve the canonical path and verify
@@ -246,6 +251,11 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
             file_path = file_path / "index.html"
         if not file_path.exists():
             self.send_error(404)
+            return
+        # Only serve whitelisted file types to prevent exposing source maps,
+        # debug files, or other sensitive assets.
+        if file_path.suffix.lower() not in self._ALLOWED_STATIC_EXTENSIONS:
+            self.send_error(403)
             return
         mime, _ = mimetypes.guess_type(str(file_path))
         # Windows registry may map .mjs/.js to text/plain — force correct MIME
