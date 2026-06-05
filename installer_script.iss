@@ -31,6 +31,12 @@ VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=3T Reader Windows Installer
 VersionInfoProductName={#MyAppName}
 SetupLogging=yes
+SignedUninstaller=yes
+; Configure this in Inno Setup IDE/ISCC environment when a certificate is installed:
+;   3t_signtool=signtool sign /fd sha256 /td sha256 /tr http://timestamp.digicert.com /a $f
+; Or sign output after build with:
+;   python scripts\sign_windows.py --file build\installer\Setup_3T_Reader_v{#MyAppVersion}.exe --cert-subject "3T Company"
+; SignTool=3t_signtool
 
 ; Output
 OutputDir=build\installer

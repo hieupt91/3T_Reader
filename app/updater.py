@@ -6,9 +6,43 @@ import threading
 import urllib.parse
 import urllib.request
 
+from packages.qt_compat.QtCore import QObject, pyqtSignal
+
 from app.config import UPDATE_MANIFEST_URL
 from app.version import APP_VERSION
 from packages.updater.update_client import UpdateInfo, download_update
+
+
+class UpdateCheckWorker(QObject):
+    finished = pyqtSignal()
+    available = pyqtSignal(object)
+    up_to_date = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, base_url: str, current_version: str, channel: str):
+        super().__init__()
+        self._base_url = base_url
+        self._current_version = current_version
+        self._channel = channel
+
+    def run(self):
+        try:
+            from app.config import VPS_LICENSE_BASE_URL
+            from app.version import APP_VERSION
+            from packages.updater.update_client import check_for_update
+
+            base_url = self._base_url or VPS_LICENSE_BASE_URL
+            current_version = self._current_version or APP_VERSION
+            platform = "win" if sys.platform == "win32" else "mac"
+            info = check_for_update(base_url, current_version, platform=platform)
+            if info.available:
+                self.available.emit(info)
+            else:
+                self.up_to_date.emit(info)
+        except Exception as exc:
+            self.error.emit(str(exc))
+        finally:
+            self.finished.emit()
 
 
 def _get_latest_release() -> dict | None:

@@ -8,15 +8,11 @@ from packages.qt_compat.QtWidgets import (
     QMainWindow,
     QToolBar,
     QLabel,
-    QStatusBar,
     QSpinBox,
-    QFrame,
     QHBoxLayout,
-    QLineEdit,
     QToolButton,
     QWidget,
     QVBoxLayout,
-    QTabWidget,
     QMenu,
     QSizePolicy,
     QMessageBox,
@@ -24,7 +20,7 @@ from packages.qt_compat.QtWidgets import (
     QColorDialog,
 )
 from packages.qt_compat.QtGui import QAction, QKeySequence, QCloseEvent, QImage, QPainter, QColor
-from packages.qt_compat.QtCore import Qt, QSize, QPoint, QTimer, QThread, QObject, pyqtSignal, QRect
+from packages.qt_compat.QtCore import Qt, QSize, QPoint, QTimer, QThread, QRect
 from packages.qt_compat.QtWebEngineWidgets import QWebEngineView
 from app.pdf_viewer import PDFViewerWidget
 
@@ -73,6 +69,18 @@ from app.actions.document_ops import (
 )
 from app.sidebar import ThumbnailSidebar, BookmarkSidebar
 from app.annotation_sidebar import AnnotationSidebar
+from app.menu_builder import build_menubar
+from app.ribbon_builder import RibbonBuilder
+from app.search_panel import (
+    build_search_panel,
+    hide_search_panel,
+    reposition_search_panel,
+    search_from_panel,
+    show_search_panel,
+)
+from app.status_bar_builder import build_status_bar
+from app.tab_manager import TabManager
+from app.updater import UpdateCheckWorker
 from app.icon_utils import svg_icon, app_logo_icon
 from app.dialogs import show_warning, show_info
 from app.config import WINDOW_TITLE
@@ -100,38 +108,6 @@ document.head.appendChild(style);
 
 # Icon colors are centralized in styles/icon_colors.py
 from styles.icon_colors import get_icon_color as _get_icon_color
-
-
-class _UpdateCheckWorker(QObject):
-    finished = pyqtSignal()
-    available = pyqtSignal(object)
-    up_to_date = pyqtSignal(object)
-    error = pyqtSignal(str)
-
-    def __init__(self, base_url: str, current_version: str, channel: str):
-        super().__init__()
-        self._base_url = base_url
-        self._current_version = current_version
-        self._channel = channel  # reserved — check_for_update reads channel from module const
-
-    def run(self):
-        try:
-            from app.config import VPS_LICENSE_BASE_URL
-            from app.version import APP_VERSION
-            from packages.updater.update_client import check_for_update
-
-            base_url = self._base_url or VPS_LICENSE_BASE_URL
-            current_version = self._current_version or APP_VERSION
-            platform = "win" if sys.platform == "win32" else "mac"
-            info = check_for_update(base_url, current_version, platform=platform)
-            if info.available:
-                self.available.emit(info)
-            else:
-                self.up_to_date.emit(info)
-        except Exception as exc:
-            self.error.emit(str(exc))
-        finally:
-            self.finished.emit()
 
 
 class PDFReaderApp(QMainWindow):
@@ -220,13 +196,7 @@ class PDFReaderApp(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def _build_tab_host(self):
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setTabsClosable(True)
-        self.tab_widget.setMovable(True)
-        self.tab_widget.setDocumentMode(True)
-        tab_bar = self.tab_widget.tabBar()
-        tab_bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        tab_bar.customContextMenuRequested.connect(self._show_tab_context_menu)
+        self.tab_widget = TabManager(self, on_context_menu=self._show_tab_context_menu)
         self.setCentralWidget(self.tab_widget)
         self._show_welcome_tab()
 
@@ -235,7 +205,9 @@ class PDFReaderApp(QMainWindow):
         from app.actions.file import open_file, show_recent_menu
         self._welcome_tab = WelcomeWidget(
             on_open=lambda: open_file(self),
+            on_new=lambda: create_new_pdf(self),
             on_recent=lambda: show_recent_menu(self),
+            on_recent_file=lambda path: self.open_document(path),
         )
         idx = self.tab_widget.addTab(self._welcome_tab, "Trang chủ")
         self.tab_widget.tabBar().setTabButton(idx, self.tab_widget.tabBar().ButtonPosition.RightSide, None)
@@ -407,100 +379,28 @@ class PDFReaderApp(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def _build_search_panel(self):
-        self.search_panel = QFrame(self.tab_widget)
-        self.search_panel.setObjectName("SearchPanel")
-        self.search_panel.setVisible(False)
-
-        row = QHBoxLayout(self.search_panel)
-        row.setContentsMargins(10, 8, 10, 8)
-        row.setSpacing(8)
-
-        title = QLabel("Tìm")
-        title.setObjectName("SearchTitle")
-        row.addWidget(title)
-
-        self.search_input = QLineEdit()
-        self.search_input.setObjectName("SearchInput")
-        self.search_input.setPlaceholderText("Nhập từ khóa, Enter để tìm")
-        self.search_input.returnPressed.connect(
-            lambda: self._search_from_panel(find_previous=False, force_new=False)
-        )
-        row.addWidget(self.search_input, 1)
-
-        self.btn_search_prev = QToolButton()
-        self.btn_search_prev.setObjectName("SearchBtn")
-        self.btn_search_prev.setToolTip("Tìm trước đó (Shift+F3)")
-        self.btn_search_prev.setIcon(svg_icon("chevron_left.svg", size=16, color=self._search_arrow_color()))
-        self.btn_search_prev.clicked.connect(
-            lambda: self._search_from_panel(find_previous=True, force_new=False)
-        )
-        row.addWidget(self.btn_search_prev)
-
-        self.btn_search_next = QToolButton()
-        self.btn_search_next.setObjectName("SearchBtn")
-        self.btn_search_next.setToolTip("Tìm tiếp (F3)")
-        self.btn_search_next.setIcon(svg_icon("chevron_right.svg", size=16, color=self._search_arrow_color()))
-        self.btn_search_next.clicked.connect(
-            lambda: self._search_from_panel(find_previous=False, force_new=False)
-        )
-        row.addWidget(self.btn_search_next)
-
-        self.btn_search_close = QToolButton()
-        self.btn_search_close.setObjectName("SearchBtnClose")
-        self.btn_search_close.setToolTip("Đóng tìm kiếm (Esc)")
-        self.btn_search_close.setText("Đóng")
-        self.btn_search_close.clicked.connect(self.hide_search_panel)
-        row.addWidget(self.btn_search_close)
-
-        self.search_panel.adjustSize()
-        self._reposition_search_panel()
+        return build_search_panel(self)
 
     def _reposition_search_panel(self):
-        if not hasattr(self, "search_panel"):
-            return
-
-        margin    = 14
-        tab_bar_h = self.tab_widget.tabBar().height() if self.tab_widget.count() > 0 else 0
-        self.search_panel.adjustSize()
-
-        max_width  = max(340, self.tab_widget.width() - (margin * 2))
-        panel_width = min(500, max_width)
-        self.search_panel.setFixedWidth(panel_width)
-
-        x = max(margin, self.tab_widget.width() - self.search_panel.width() - margin)
-        y = tab_bar_h + margin
-        self.search_panel.move(x, y)
+        return reposition_search_panel(self)
 
     def show_search_panel(self):
-        if not self.current_path:
-            self.status.showMessage("Vui lòng mở tệp PDF trước khi tìm kiếm", 3000)
-            return
-
-        self._reposition_search_panel()
-        self.search_panel.show()
-        self.search_panel.raise_()
-        if self.search_query and not self.search_input.text().strip():
-            self.search_input.setText(self.search_query)
-        self.search_input.setFocus()
-        self.search_input.selectAll()
+        return show_search_panel(self)
 
     def hide_search_panel(self):
-        self.search_panel.hide()
+        return hide_search_panel(self)
 
     def _search_from_panel(self, *, find_previous: bool, force_new: bool):
-        query = self.search_input.text().strip()
-        if not query:
-            self.status.showMessage("Nhập từ khóa để tìm kiếm", 2500)
-            return
-
-        is_new = force_new or (query != (self.search_query or ""))
-        execute_search(self, query, find_previous=find_previous, new_search=is_new)
+        return search_from_panel(self, find_previous=find_previous, force_new=force_new)
 
     # ------------------------------------------------------------------ #
     #  Toolbar                                                             #
     # ------------------------------------------------------------------ #
 
     def _build_toolbar(self):
+        return RibbonBuilder(self).build()
+
+    def _build_toolbar_impl(self):
         # ── QToolBar chứa ribbon (không hiện widget riêng lẻ) ─────────────
         self.toolbar = QToolBar("Thanh công cụ")
         self.toolbar.setMovable(False)
@@ -665,6 +565,7 @@ class PDFReaderApp(QMainWindow):
         self.act_lang_ko_tb.triggered.connect(lambda: self._set_language("ko"))
         self.act_lang_th_tb.triggered.connect(lambda: self._set_language("th"))
         self.act_lang_refresh_tb.triggered.connect(lambda: self._refresh_language_pack())
+        self._ensure_action_tooltips(lang_menu)
         g_view.add(self._lang_toolbar_button)
         p0.add_group(g_view, add_sep=False)
         p0.add_stretch()
@@ -981,10 +882,19 @@ class PDFReaderApp(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def _build_menubar(self):
+        return build_menubar(self)
+
+    def _build_menubar_impl(self):
         bar = self.menuBar()
         bar.setNativeMenuBar(use_native_menubar())
 
-        self.menu_file = bar.addMenu(self._t("menu.file", "Tệp"))
+        def top_menu(attr: str, title: str) -> QMenu:
+            menu = QMenu(title, self)
+            setattr(self, attr, menu)
+            bar.addMenu(menu)
+            return menu
+
+        self.menu_file = top_menu("menu_file", self._t("menu.file", "Tệp"))
         menu_file = self.menu_file
         menu_file.addAction(self.act_new_pdf)
         menu_file.addAction(self.act_open)
@@ -1029,7 +939,7 @@ class PDFReaderApp(QMainWindow):
         act_exit.setShortcut(QKeySequence("Ctrl+Q"))
         act_exit.triggered.connect(self.close)
 
-        self.menu_nav = bar.addMenu(self._t("menu.navigate", "Điều hướng"))
+        self.menu_nav = top_menu("menu_nav", self._t("menu.navigate", "Điều hướng"))
         menu_nav = self.menu_nav
         menu_nav.addAction(self.act_prev)
         menu_nav.addAction(self.act_next)
@@ -1037,7 +947,7 @@ class PDFReaderApp(QMainWindow):
         act_goto.setIcon(svg_icon("chevron_right.svg", size=16, color="#9b9bc0"))
         act_goto.triggered.connect(self._focus_page_input)
 
-        self.menu_view = bar.addMenu(self._t("menu.view", "Xem"))
+        self.menu_view = top_menu("menu_view", self._t("menu.view", "Xem"))
         menu_view = self.menu_view
         menu_view.addAction(self.act_zoom_in)
         menu_view.addAction(self.act_zoom_out)
@@ -1059,7 +969,7 @@ class PDFReaderApp(QMainWindow):
         menu_view.addAction(self.act_theme_toggle)
         menu_view.addAction(self.act_fullscreen)
 
-        self.menu_tools = bar.addMenu(self._t("menu.tools", "Công cụ"))
+        self.menu_tools = top_menu("menu_tools", self._t("menu.tools", "Công cụ"))
         menu_tools = self.menu_tools
 
         # Chèn nội dung
@@ -1112,7 +1022,7 @@ class PDFReaderApp(QMainWindow):
         act_find_prev.triggered.connect(lambda: search_previous(self))
         act_find_prev.setIcon(svg_icon("chevron_left.svg", size=16, color="#9b9bc0"))
 
-        menu_tabs = bar.addMenu("Tab")
+        menu_tabs = top_menu("menu_tabs", "Tab")
         act_tab_next = menu_tabs.addAction("Tab kế tiếp")
         act_tab_next.setShortcut(QKeySequence("Ctrl+Tab"))
         act_tab_next.triggered.connect(self._activate_next_tab)
@@ -1121,7 +1031,7 @@ class PDFReaderApp(QMainWindow):
         act_tab_prev.triggered.connect(self._activate_prev_tab)
         menu_tabs.addAction(act_close_tab)
 
-        self.menu_pages = bar.addMenu(self._t("menu.page", "Trang"))
+        self.menu_pages = top_menu("menu_pages", self._t("menu.page", "Trang"))
         menu_pages = self.menu_pages
 
         act_rotate_cw = menu_pages.addAction("Xoay phải 90°")
@@ -1151,7 +1061,7 @@ class PDFReaderApp(QMainWindow):
         act_extract.triggered.connect(lambda: extract_pages(self))
         act_extract.setIcon(svg_icon("extract.svg", size=16, color="#f07858"))
 
-        self.menu_security = bar.addMenu(self._t("menu.security", "Bảo mật"))
+        self.menu_security = top_menu("menu_security", self._t("menu.security", "Bảo mật"))
         menu_security = self.menu_security
 
         act_watermark = menu_security.addAction("Thêm watermark…")
@@ -1178,7 +1088,7 @@ class PDFReaderApp(QMainWindow):
         act_compress.setIcon(svg_icon("save.svg", size=16, color="#4fc080"))
         act_compress.triggered.connect(lambda: compress_pdf(self))
 
-        self.menu_sign = bar.addMenu(self._t("menu.sign", "Chữ ký số"))
+        self.menu_sign = top_menu("menu_sign", self._t("menu.sign", "Chữ ký số"))
         menu_sign = self.menu_sign
 
         act_sign_draw = menu_sign.addAction("Ký tay / chèn dấu...")
@@ -1190,7 +1100,7 @@ class PDFReaderApp(QMainWindow):
         menu_sign.addAction(self.act_sign)
         menu_sign.addAction(self.act_verify_signature)
 
-        self.menu_ocr = bar.addMenu(self._t("menu.ocr", "OCR"))
+        self.menu_ocr = top_menu("menu_ocr", self._t("menu.ocr", "OCR"))
         menu_ocr = self.menu_ocr
         act_ocr_page = menu_ocr.addAction("🔍  OCR trang hiện tại")
         act_ocr_page.setShortcut(QKeySequence("Ctrl+Shift+O"))
@@ -1200,7 +1110,7 @@ class PDFReaderApp(QMainWindow):
         act_ocr_all.setShortcut(QKeySequence("Ctrl+Shift+A"))
         act_ocr_all.triggered.connect(lambda: self._ocr_full_document())
 
-        self.menu_ai = bar.addMenu(self._t("menu.ai", "AI"))
+        self.menu_ai = top_menu("menu_ai", self._t("menu.ai", "AI"))
         menu_ai = self.menu_ai
 
         act_ai_chat = menu_ai.addAction("💬  Chat với PDF...")
@@ -1223,10 +1133,10 @@ class PDFReaderApp(QMainWindow):
         act_ai_settings = menu_ai.addAction("⚙️  Cài đặt AI (API Key)...")
         act_ai_settings.triggered.connect(lambda: open_ai_settings(self))
 
-        self.menu_license = bar.addMenu(self._t("menu.license", "License"))
+        self.menu_license = top_menu("menu_license", self._t("menu.license", "License"))
         menu_license = self.menu_license
 
-        self.menu_language = bar.addMenu(self._t("menu.language", "Ngôn ngữ"))
+        self.menu_language = top_menu("menu_language", self._t("menu.language", "Ngôn ngữ"))
         self.act_lang_vi = self.menu_language.addAction(self._t("lang.vietnamese", "Tiếng Việt"))
         self.act_lang_en = self.menu_language.addAction(self._t("lang.english", "English"))
         self.act_lang_fr = self.menu_language.addAction(self._t("lang.french", "Français"))
@@ -1246,7 +1156,7 @@ class PDFReaderApp(QMainWindow):
         act_activate.setShortcut(QKeySequence("Ctrl+Shift+L"))
         act_activate.triggered.connect(lambda: self._open_license_dialog())
 
-        self.menu_help = bar.addMenu(self._t("menu.help", "Trợ giúp"))
+        self.menu_help = top_menu("menu_help", self._t("menu.help", "Trợ giúp"))
         menu_help = self.menu_help
         act_shortcuts = menu_help.addAction("Xem phím tắt")
         act_shortcuts.setIcon(svg_icon("history.svg", size=16, color="#9b9bc0"))
@@ -1277,18 +1187,31 @@ class PDFReaderApp(QMainWindow):
             act_merge, act_extract, act_sign_draw, self.act_toggle_toc_btn, self.act_toggle_annotations_btn,
         ):
             action.setIconVisibleInMenu(True)
+        self._ensure_action_tooltips(bar)
+
+    def _ensure_action_tooltips(self, root):
+        """Fill missing tooltips/status tips for menu actions."""
+        actions = root.actions() if hasattr(root, "actions") else []
+        for action in actions:
+            menu = action.menu()
+            if menu:
+                self._ensure_action_tooltips(menu)
+            if action.isSeparator():
+                continue
+            label = (action.text() or "").replace("&", "").split("\t", 1)[0].strip()
+            if not label:
+                continue
+            if not action.toolTip():
+                action.setToolTip(label)
+            if not action.statusTip():
+                action.setStatusTip(label)
 
     # ------------------------------------------------------------------ #
     #  Statusbar                                                           #
     # ------------------------------------------------------------------ #
 
     def _build_statusbar(self):
-        self.status = QStatusBar()
-        self.setStatusBar(self.status)
-        self.file_label = QLabel("Chưa mở tệp")
-        self.page_label = QLabel("Trang: -")
-        self.status.addWidget(self.file_label)
-        self.status.addPermanentWidget(self.page_label)
+        return build_status_bar(self)
 
     # ------------------------------------------------------------------ #
     #  Signals                                                             #
@@ -1631,7 +1554,7 @@ class PDFReaderApp(QMainWindow):
 
         self.status.showMessage("Đang kiểm tra cập nhật...", 0 if show_errors else 3000)
 
-        worker = _UpdateCheckWorker(VPS_LICENSE_BASE_URL, APP_VERSION, UPDATE_CHANNEL)
+        worker = UpdateCheckWorker(VPS_LICENSE_BASE_URL, APP_VERSION, UPDATE_CHANNEL)
         thread = QThread(self)
         worker.moveToThread(thread)
         worker.available.connect(self._show_update_dialog)

@@ -45,6 +45,8 @@ build = [
 dev = [
   "pip-licenses",
   "cyclonedx-bom",
+  "sphinx",
+  "sphinx-rtd-theme",
 ]
 [tool.3t-reader.phase0]
 commercial_release_blockers = [

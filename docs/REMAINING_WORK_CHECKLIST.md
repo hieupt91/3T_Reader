@@ -6,6 +6,34 @@
 
 ---
 
+## STATUS UPDATE — 2026-06-05
+
+Verification đã chạy:
+
+- `python -m py_compile` cho các file mới/sửa: pass.
+- Qt offscreen smoke `WelcomeWidget`: pass.
+- Qt offscreen smoke `PDFReaderApp`: pass sau khi sửa ownership của top-level `QMenu`.
+- `sphinx-build -E docs/api docs/api/_build`: pass, không còn warning.
+- Full test suite: `171 passed, 24 skipped`.
+
+| # | Mục | Trạng thái | Ghi chú |
+|---|---|---|---|
+| 1 | Tách ribbon_builder.py | Partial | Đã tạo `RibbonBuilder` và `window.py` gọi qua builder; phần body lớn vẫn còn trong `_build_toolbar_impl()` để giữ ổn định hành vi. |
+| 2 | Tách tab_manager.py | Partial | Đã tạo `TabManager(QTabWidget)` và chuyển phần tab host; lifecycle nặng vẫn còn ở `window.py`. |
+| 3 | Tách search_panel.py | Done | Đã tách `SearchPanel`, show/hide/search/reposition. |
+| 4 | Tách status_bar_builder.py | Done | Đã tách `build_status_bar(window)`. |
+| 5 | Tách menu_builder.py | Partial | Đã có builder entrypoint và sửa ownership menu; body lớn vẫn còn trong `_build_menubar_impl()`. |
+| 6 | Move UpdateCheckWorker | Done | `UpdateCheckWorker` nằm trong `app/updater.py`, `window.py` import lại. |
+| 7 | Hardcoded strings audit | Done | Đã tạo `scripts/audit_hardcoded_strings.py` và `docs/HARDCODED_STRINGS.md` với 1.594 entries. |
+| 8 | Windows code signing | Blocked external | Đã tạo script/signing hooks; chưa thể mua/install certificate hoặc verify SmartScreen trong repo. |
+| 9 | Tesseract bundle size | Blocked runtime check | Đã audit 87 files và tạo `docs/TESSERACT_BUNDLE_AUDIT.md`; chưa xóa DLL vì cần Process Monitor/OCR runtime trace. |
+| 10 | Audit tooltips | Done | Đã thêm helper tự điền tooltip/status tip thiếu cho toàn bộ menu action. |
+| 11 | Welcome widget | Done | Đã thêm recent list, Open/New/Recent, version info, What's New link. |
+| 12 | ADR docs | Done | Đã tạo 5 ADR và cập nhật `docs/README.md`. |
+| 13 | API docs | Done | Đã tạo Sphinx API docs, build HTML pass, `_build` đã ignore. |
+
+---
+
 ## 1. TÁCH RIBBON BUILDER (P1)
 
 **Mục tiêu:** Tách `_build_toolbar()` (280 dòng) từ `window.py` ra `app/ribbon_builder.py`

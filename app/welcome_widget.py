@@ -6,22 +6,29 @@ import os
 from packages.qt_compat.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
 )
-from packages.qt_compat.QtCore import Qt, QSize, QEvent
+from packages.qt_compat.QtCore import Qt, QSize, QEvent, QUrl
+from packages.qt_compat.QtGui import QDesktopServices
 from packages.qt_compat.QtSvgWidgets import QSvgWidget
+from packages.platform.recent import load_recent
+from app.version import APP_VERSION
 
 _ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
+_ROOT = os.path.dirname(os.path.dirname(__file__))
 
 
 class WelcomeWidget(QWidget):
     """Landing page shown on the empty tab before any PDF is opened."""
 
-    def __init__(self, parent=None, *, on_open=None, on_recent=None):
+    def __init__(self, parent=None, *, on_open=None, on_new=None, on_recent=None, on_recent_file=None):
         super().__init__(parent)
         self._on_open = on_open
+        self._on_new = on_new
         self._on_recent = on_recent
+        self._on_recent_file = on_recent_file
         self._cards: list[QFrame] = []
         self._card_title_labels: list[QLabel] = []
         self._card_desc_labels: list[QLabel] = []
+        self._secondary_labels: list[QLabel] = []
         self._setup_ui()
 
     # ── Theme-aware re-styling ──────────────────────────────────────────────
@@ -69,6 +76,10 @@ class WelcomeWidget(QWidget):
         for lbl in self._card_desc_labels:
             lbl.setStyleSheet(
                 f"font-size:10px; color:{desc_color}; background:transparent; border:none;"
+            )
+        for lbl in self._secondary_labels:
+            lbl.setStyleSheet(
+                f"font-size:11px; color:{desc_color}; background:transparent; border:none;"
             )
         if hasattr(self, "_hint_lbl"):
             self._hint_lbl.setStyleSheet(f"color:{hint_color}; font-size:11px;")
@@ -187,6 +198,19 @@ class WelcomeWidget(QWidget):
             btn_open.clicked.connect(self._on_open)
         btn_row.addWidget(btn_open)
 
+        btn_new = QPushButton("   Tạo PDF mới   ")
+        btn_new.setFixedHeight(44)
+        btn_new.setStyleSheet(
+            "QPushButton { background:transparent; color:#4FC080; font-size:14px;"
+            "  font-weight:700; border-radius:8px; padding:0 24px;"
+            "  border:2px solid #4FC080; }"
+            "QPushButton:hover { background:rgba(79,192,128,0.1); }"
+            "QPushButton:pressed { background:rgba(79,192,128,0.2); }"
+        )
+        if self._on_new:
+            btn_new.clicked.connect(self._on_new)
+        btn_row.addWidget(btn_new)
+
         btn_recent = QPushButton("   Mở gần đây   ")
         btn_recent.setFixedHeight(44)
         btn_recent.setStyleSheet(
@@ -203,7 +227,55 @@ class WelcomeWidget(QWidget):
         btn_row.addStretch()
         root.addLayout(btn_row)
 
-        root.addSpacing(20)
+        root.addSpacing(18)
+
+        recent_title = QLabel("Tệp gần đây")
+        recent_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._secondary_labels.append(recent_title)
+        root.addWidget(recent_title)
+
+        recent_row = QHBoxLayout()
+        recent_row.setSpacing(8)
+        recent_row.addStretch()
+        for path in self._recent_files():
+            btn = QPushButton(os.path.basename(path))
+            btn.setFixedHeight(30)
+            btn.setMaximumWidth(180)
+            btn.setToolTip(path)
+            btn.setStyleSheet(
+                "QPushButton { background:transparent; color:#C8D8F8; font-size:11px;"
+                " border:1px solid #3A4F6A; border-radius:6px; padding:0 10px; }"
+                "QPushButton:hover { border-color:#FF7700; color:#FF7700; }"
+            )
+            btn.clicked.connect(lambda _checked=False, p=path: self._open_recent_file(p))
+            recent_row.addWidget(btn)
+        if recent_row.count() == 1:
+            empty = QLabel("Chưa có tệp gần đây")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._secondary_labels.append(empty)
+            recent_row.addWidget(empty)
+        recent_row.addStretch()
+        root.addLayout(recent_row)
+
+        root.addSpacing(16)
+
+        meta_row = QHBoxLayout()
+        meta_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        meta_row.setSpacing(12)
+        version_lbl = QLabel(f"Phiên bản {APP_VERSION}")
+        self._secondary_labels.append(version_lbl)
+        meta_row.addWidget(version_lbl)
+
+        whats_new = QPushButton("Có gì mới")
+        whats_new.setFixedHeight(28)
+        whats_new.setStyleSheet(
+            "QPushButton { background:transparent; color:#FF7700; border:none;"
+            " font-size:11px; font-weight:700; padding:0 8px; }"
+            "QPushButton:hover { text-decoration: underline; }"
+        )
+        whats_new.clicked.connect(self._open_whats_new)
+        meta_row.addWidget(whats_new)
+        root.addLayout(meta_row)
 
         # Hint
         self._hint_lbl = QLabel("hoặc kéo & thả tệp PDF vào cửa sổ này")
@@ -212,3 +284,21 @@ class WelcomeWidget(QWidget):
 
         # Apply initial styles
         self._apply_theme_styles()
+
+    def _recent_files(self) -> list[str]:
+        recent = load_recent()
+        if not isinstance(recent, list):
+            return []
+        return [p for p in recent[:5] if isinstance(p, str) and os.path.isfile(p)]
+
+    def _open_recent_file(self, path: str):
+        if self._on_recent_file:
+            self._on_recent_file(path)
+        elif self._on_open:
+            self._on_open()
+
+    def _open_whats_new(self):
+        doc_path = os.path.join(_ROOT, "docs", "2026-05-30_BASELINE_STATUS_HANDOFF.md")
+        if not os.path.exists(doc_path):
+            doc_path = os.path.join(_ROOT, "docs", "PHASE1_WIN_STATUS.md")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(doc_path))

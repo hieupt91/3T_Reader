@@ -14,6 +14,7 @@ env/
 # Build artifacts
 /build/
 /dist/
+docs/api/_build/
 *.manifest
 *.pkg
 *.dmg
