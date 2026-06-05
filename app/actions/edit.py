@@ -4,16 +4,13 @@ import tempfile
 import uuid
 
 from packages.qt_compat.QtCore import QObject, QEventLoop, QTimer, pyqtSignal, pyqtSlot
-from packages.qt_compat.QtWebChannel import QWebChannel
 from packages.qt_compat.QtWidgets import (
     QColorDialog,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QPushButton,
     QSpinBox,
