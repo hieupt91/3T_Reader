@@ -84,21 +84,13 @@ from app.platform_ui import shortcut_label, use_native_menubar, fullscreen_short
 from packages.platform.recent import load_recent, clear_recent
 from packages.pdf_engine import get_pdf_engine
 
-PDFJS_HIDE_TOOLBAR_CSS = """
+# CSS overrides loaded from assets/css/pdfjs_overrides.css
+from pathlib import Path as _Path
+_PDFJS_OVERRIDES_CSS_PATH = _Path(__file__).resolve().parent.parent / "assets" / "css" / "pdfjs_overrides.css"
+_PDFJS_OVERRIDES_CSS = _PDFJS_OVERRIDES_CSS_PATH.read_text(encoding="utf-8")
+PDFJS_HIDE_TOOLBAR_CSS = f"""
 var style = document.createElement('style');
-style.innerHTML = `
-#toolbarContainer { display: none !important; }
-#loadingBar { display: none !important; }
-#mainContainer { top: 0 !important; }
-#viewerContainer { top: 0 !important; }
-body { background-color: #0f0f13 !important; }
-#viewer .page {
-border: none !important;
-box-shadow: 0 4px 24px rgba(0,0,0,0.5) !important;
-margin: 16px auto !important;
-border-radius: 4px !important;
-}
-`;
+style.innerHTML = `{_PDFJS_OVERRIDES_CSS}`;
 document.head.appendChild(style);
 """
 
