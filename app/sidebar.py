@@ -1,6 +1,7 @@
 from packages.qt_compat.QtWidgets import (
     QDockWidget, QListWidget, QListWidgetItem,
     QTreeWidget, QTreeWidgetItem, QWidget, QVBoxLayout, QLabel,
+    QMenu,
 )
 from packages.qt_compat.QtGui import QPixmap, QImage, QIcon
 from packages.qt_compat.QtCore import Qt, QSize, QThread, QTimer, pyqtSignal
@@ -28,7 +29,7 @@ class ThumbnailLoader(QThread):
             for page_number in self.page_numbers:
                 if self.isInterruptionRequested():
                     break
-                rendered = doc.render_page_rgb(page_number, scale=0.3)
+                rendered = doc.render_page_rgb(page_number, scale=0.45)
                 image = QImage(
                     rendered.samples,
                     rendered.width,
@@ -47,10 +48,10 @@ class ThumbnailSidebar(QDockWidget):
         super().__init__("Trang", parent)
         self.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea)
         self.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
-        self.setFixedWidth(180)
+        self.setFixedWidth(190)
 
         self.list = QListWidget()
-        self.list.setIconSize(QSize(132, 176))
+        self.list.setIconSize(QSize(144, 192))
         self.list.setSpacing(8)
         self.list.setUniformItemSizes(True)
         self.list.setStyleSheet("""
@@ -101,10 +102,27 @@ class ThumbnailSidebar(QDockWidget):
         self._populate_timer.timeout.connect(self._populate_next_batch)
         self.list.itemClicked.connect(self._handle_click)
         self.list.verticalScrollBar().valueChanged.connect(self._schedule_visible_load)
+        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self._show_context_menu)
 
     def _handle_click(self, item):
         if self._on_click:
             self._on_click(self.list.row(item) + 1)
+
+    def _show_context_menu(self, pos):
+        item = self.list.itemAt(pos)
+        if not item:
+            return
+        page_number = self.list.row(item) + 1
+        menu = QMenu(self)
+        act_goto = menu.addAction(f"Đi tới trang {page_number}")
+        act_reload = menu.addAction("Tải lại thumbnail")
+        chosen = menu.exec(self.list.viewport().mapToGlobal(pos))
+        if chosen == act_goto and self._on_click:
+            self._on_click(page_number)
+        elif chosen == act_reload:
+            self._loaded_pages.discard(page_number)
+            self._start_loader([page_number])
 
     def load_thumbnails(self, pdf_path: str, on_click):
         if self._pdf_path == pdf_path and self.list.count() > 0:
@@ -301,17 +319,26 @@ class BookmarkSidebar(QDockWidget):
         self.setWidget(container)
 
         self._on_navigate = None
+        self._page_items: dict[int, list[QTreeWidgetItem]] = {}
         self._tree.itemClicked.connect(self._handle_click)
         self._tree.setVisible(False)
 
     def _handle_click(self, item: QTreeWidgetItem, _col: int):
+        self._expand_to_item(item)
         page = item.data(0, Qt.ItemDataRole.UserRole)
         if page and self._on_navigate:
             self._on_navigate(page)
 
+    def _expand_to_item(self, item: QTreeWidgetItem):
+        parent = item.parent()
+        while parent is not None:
+            parent.setExpanded(True)
+            parent = parent.parent()
+
     def load_outline(self, pdf_path: str, on_navigate):
         self._on_navigate = on_navigate
         self._tree.clear()
+        self._page_items = {}
         outline = self._read_outline(pdf_path)
 
         if not outline:
@@ -327,6 +354,7 @@ class BookmarkSidebar(QDockWidget):
             item = QTreeWidgetItem([title.strip() or f"Trang {page}"])
             item.setData(0, Qt.ItemDataRole.UserRole, page)
             item.setToolTip(0, f"Trang {page}  —  {title.strip()}")
+            self._page_items.setdefault(int(page), []).append(item)
 
             while stack and stack[-1][0] >= level:
                 stack.pop()
@@ -338,7 +366,8 @@ class BookmarkSidebar(QDockWidget):
 
             stack.append((level, item))
 
-        self._tree.expandAll()
+        for i in range(self._tree.topLevelItemCount()):
+            self._tree.topLevelItem(i).setExpanded(True)
 
     def clear(self):
         self._tree.clear()

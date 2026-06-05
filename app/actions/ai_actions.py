@@ -496,72 +496,30 @@ def open_ai_settings(window):
         ollama_url    = edit_ollama_url.text().strip()
         ollama_model  = edit_ollama_model.text().strip()
 
-        if anthropic_key:
-            os.environ["ANTHROPIC_API_KEY"] = anthropic_key
-        elif "ANTHROPIC_API_KEY" in os.environ:
-            del os.environ["ANTHROPIC_API_KEY"]
+        def _set_env(key: str, value: str) -> None:
+            if value:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
 
-        if openai_key:
-            os.environ["OPENAI_API_KEY"] = openai_key
-        elif "OPENAI_API_KEY" in os.environ:
-            del os.environ["OPENAI_API_KEY"]
-
-        if gemini_key:
-            os.environ["GEMINI_API_KEY"] = gemini_key
-        elif "GEMINI_API_KEY" in os.environ:
-            del os.environ["GEMINI_API_KEY"]
-
-        if groq_key:
-            os.environ["GROQ_API_KEY"] = groq_key
-        elif "GROQ_API_KEY" in os.environ:
-            del os.environ["GROQ_API_KEY"]
-        if groq_model:
-            os.environ["GROQ_MODEL"] = groq_model
-        else:
-            os.environ.pop("GROQ_MODEL", None)
-        if groq_base:
-            os.environ["GROQ_BASE_URL"] = groq_base
-        else:
-            os.environ.pop("GROQ_BASE_URL", None)
-
-        if openrouter_key:
-            os.environ["OPENROUTER_API_KEY"] = openrouter_key
-        elif "OPENROUTER_API_KEY" in os.environ:
-            del os.environ["OPENROUTER_API_KEY"]
-        if openrouter_model:
-            os.environ["OPENROUTER_MODEL"] = openrouter_model
-        else:
-            os.environ.pop("OPENROUTER_MODEL", None)
-        if openrouter_base:
-            os.environ["OPENROUTER_BASE_URL"] = openrouter_base
-        else:
-            os.environ.pop("OPENROUTER_BASE_URL", None)
-        if openrouter_ref:
-            os.environ["OPENROUTER_HTTP_REFERER"] = openrouter_ref
-        else:
-            os.environ.pop("OPENROUTER_HTTP_REFERER", None)
-        if openrouter_name:
-            os.environ["OPENROUTER_APP_NAME"] = openrouter_name
-        else:
-            os.environ.pop("OPENROUTER_APP_NAME", None)
-
-        if hf_key:
-            os.environ["HF_API_KEY"] = hf_key
-        elif "HF_API_KEY" in os.environ:
-            del os.environ["HF_API_KEY"]
-        if hf_model:
-            os.environ["HF_MODEL"] = hf_model
-        else:
-            os.environ.pop("HF_MODEL", None)
-
-        if ollama_url:
-            os.environ["OLLAMA_BASE_URL"] = ollama_url
-        else:
-            os.environ.pop("OLLAMA_BASE_URL", None)
-        if ollama_model:
-            os.environ["OLLAMA_MODEL"] = ollama_model
-        else:
-            os.environ.pop("OLLAMA_MODEL", None)
+        for key, value in {
+            "ANTHROPIC_API_KEY": anthropic_key,
+            "OPENAI_API_KEY": openai_key,
+            "GEMINI_API_KEY": gemini_key,
+            "GROQ_API_KEY": groq_key,
+            "GROQ_MODEL": groq_model,
+            "GROQ_BASE_URL": groq_base,
+            "OPENROUTER_API_KEY": openrouter_key,
+            "OPENROUTER_MODEL": openrouter_model,
+            "OPENROUTER_BASE_URL": openrouter_base,
+            "OPENROUTER_HTTP_REFERER": openrouter_ref,
+            "OPENROUTER_APP_NAME": openrouter_name,
+            "HF_API_KEY": hf_key,
+            "HF_MODEL": hf_model,
+            "OLLAMA_BASE_URL": ollama_url,
+            "OLLAMA_MODEL": ollama_model,
+        }.items():
+            _set_env(key, value)
 
         os.environ["AI_PROVIDER"] = ai_provider
 

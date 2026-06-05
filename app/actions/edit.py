@@ -988,6 +988,10 @@ class _ObjectPlacementDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button is not None:
+            title_lc = title.lower()
+            ok_button.setText("Lưu thay đổi" if ("sửa" in title_lc or "cập nhật" in title_lc) else "Chèn")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -1264,10 +1268,15 @@ def insert_text_to_pdf(window):
     left, bottom, right, top = result["box"]
 
     # Đảm bảo vùng tối thiểu
+    expanded_box = False
     if abs(right - left) < 20:
         right = left + 180
+        expanded_box = True
     if abs(top - bottom) < 12:
         top = bottom + 44
+        expanded_box = True
+    if expanded_box and hasattr(window, "status"):
+        window.status.showMessage("Vùng chèn quá nhỏ, đã tự mở rộng đến kích thước tối thiểu.", 3000)
 
     state = _ensure_edit_state(window)
     if not state:
@@ -1326,10 +1335,15 @@ def insert_image_to_pdf(window):
     left, bottom, right, top = result["box"]
 
     # Đảm bảo vùng tối thiểu
+    expanded_box = False
     if abs(right - left) < 20:
         right = left + 150
+        expanded_box = True
     if abs(top - bottom) < 20:
         top = bottom + 120
+        expanded_box = True
+    if expanded_box and hasattr(window, "status"):
+        window.status.showMessage("Vùng chèn ảnh quá nhỏ, đã tự mở rộng đến kích thước tối thiểu.", 3000)
     box = (left, bottom, right, top)
 
     state = _ensure_edit_state(window)
@@ -1537,7 +1551,7 @@ def redact_area(window):
     left, bottom, right, top = placement["box"]
 
     if abs(right - left) < 4 or abs(top - bottom) < 4:
-        show_warning(window, "Vùng quá nhỏ", "Hãy kéo để chọn vùng rộng hơn.")
+        show_warning(window, "Vùng quá nhỏ", "Vùng chọn tối thiểu là 4 x 4 pt. Hãy kéo để chọn vùng rộng hơn.")
         return
 
     state = _ensure_edit_state(window)

@@ -106,12 +106,12 @@ class _AnnotationOpQueue(QObject):
                 pdf.save(staged_path)
             replace_file_with_retry(staged_path, requested_target, attempts=3)
             if hasattr(self._window, "status"):
-                self._window.status.showMessage("Da tu dong luu chu thich.", 1800)
+                self._window.status.showMessage("Đã tự động lưu chú thích.", 1800)
         except Exception as exc:
             remove_path_quietly(staged_path)
             self._pending = same_target + self._pending
             if hasattr(self._window, "status"):
-                self._window.status.showMessage(f"Chua luu duoc chu thich, se thu lai: {exc}", 3500)
+                self._window.status.showMessage(f"Chưa lưu được chú thích, sẽ thử lại: {exc}", 3500)
             self._timer.start(1200)
             return False
         finally:
@@ -170,9 +170,9 @@ def _flush_annotations_before_heavy_op(window, target_path: str, operation_label
         return True
     show_warning(
         window,
-        "Chua luu xong chu thich",
-        f"Mot so thay doi chu thich chua luu xong nen chua the {operation_label}. "
-        "Vui long doi vai giay roi thu lai.",
+        "Chưa lưu xong chú thích",
+        f"Một số thay đổi chú thích chưa lưu xong nên chưa thể {operation_label}. "
+        "Vui lòng đợi vài giây rồi thử lại.",
     )
     return False
 
@@ -822,7 +822,7 @@ class _NoteToolsBridge(QObject):
             payload = json.dumps({"id": note_id, "content": text}, ensure_ascii=False)
             self._run_js(f"if(window.__3tNotesUpdateNote) window.__3tNotesUpdateNote({payload});")
             if hasattr(self._window, "status"):
-                self._window.status.showMessage(f"Da sua ghi chu trang {note.get('page_number') or page_number}.", 1800)
+                self._window.status.showMessage(f"Đã sửa ghi chú trang {note.get('page_number') or page_number}.", 1800)
         except Exception as exc:
             show_warning(self._window, "Lỗi sửa ghi chú", str(exc))
 
@@ -832,7 +832,7 @@ class _NoteToolsBridge(QObject):
             return
         try:
             if not _flush_annotation_queue(self._window, self._pdf_path):
-                show_warning(self._window, "Xoa ghi chu", "Chua luu xong cac thay doi ghi chu truoc do. Vui long thu lai sau vai giay.")
+                show_warning(self._window, "Xóa ghi chú", "Chưa lưu xong các thay đổi ghi chú trước đó. Vui lòng thử lại sau vài giây.")
                 return
             note = _overlay_notes(self._window).get(note_id) or _find_note_by_id(self._pdf_path, note_id)
             if not note:
@@ -852,7 +852,7 @@ class _NoteToolsBridge(QObject):
                 % json.dumps(note_id, ensure_ascii=False)
             )
             if hasattr(self._window, "status"):
-                self._window.status.showMessage(f"Da xoa ghi chu trang {note.get('page_number') or page_number}.", 1800)
+                self._window.status.showMessage(f"Đã xóa ghi chú trang {note.get('page_number') or page_number}.", 1800)
             return
         except Exception as exc:
             show_warning(self._window, "Lỗi xóa ghi chú", str(exc))
@@ -1862,7 +1862,7 @@ def _text_mark_config(mark_type: str) -> dict:
             "pdf_color": [0.0, 0.0, 1.0],
             "overlay_style": "underline",
             "overlay_color": "rgba(37,99,235,.9)",
-            "label": "gach duoi",
+            "label": "gạch dưới",
         }
     if mark_type == "strikeout":
         return {
@@ -1870,21 +1870,21 @@ def _text_mark_config(mark_type: str) -> dict:
             "pdf_color": [1.0, 0.0, 0.0],
             "overlay_style": "strikeout",
             "overlay_color": "rgba(220,38,38,.9)",
-            "label": "gach ngang",
+            "label": "gạch ngang",
         }
     return {
         "subtype": "Highlight",
         "pdf_color": [1.0, 1.0, 0.0],
         "overlay_style": "highlight",
         "overlay_color": "rgba(250,204,21,.35)",
-        "label": "to sang",
+        "label": "tô sáng",
     }
 
 
 def _do_selected_text_mark(window, mark_type: str) -> bool:
     path = getattr(window, "current_path", None)
     if not path:
-        show_warning(window, "Chu thich", "Khong tim thay tai lieu dang mo.")
+        show_warning(window, "Chú thích", "Không tìm thấy tài liệu đang mở.")
         return False
 
     selected_text, rects_by_page = _get_selection_page_rects_sync(window)
@@ -1892,15 +1892,18 @@ def _do_selected_text_mark(window, mark_type: str) -> bool:
         if selected_text:
             show_warning(
                 window,
-                "Chu thich",
-                "Da nhan duoc van ban boi den nhung chua lay duoc toa do tren trang PDF. "
-                "Hay thu chon lai vung van ban ngan hon hoac cuon trang ve dung vi tri dang chon.",
+                "Chú thích",
+                "Đã nhận được văn bản bôi đen nhưng chưa lấy được tọa độ trên trang PDF. "
+                "Hãy chọn lại đoạn ngắn hơn hoặc cuộn trang về đúng vị trí đang chọn.",
             )
             return False
-        show_warning(window, "Chu thich", "Hay boi den van ban tren PDF truoc khi thuc hien thao tac nay.")
+        show_warning(window, "Chú thích", "Hãy bôi đen văn bản trên PDF trước khi thực hiện thao tác này.")
         return False
 
     config = _text_mark_config(mark_type)
+    if mark_type == "highlight":
+        config["pdf_color"] = list(getattr(window, "_highlight_color_pdf", config["pdf_color"]))
+        config["overlay_color"] = getattr(window, "_highlight_color_overlay", config["overlay_color"])
     mark_id = f"3t-mark-{uuid.uuid4().hex}"
     annot_ids_by_page: dict[int, list[str]] = {}
     all_annot_ids: list[str] = []
@@ -1920,7 +1923,7 @@ def _do_selected_text_mark(window, mark_type: str) -> bool:
             total_rects += len(rects)
 
         if total_rects <= 0:
-            show_warning(window, "Chu thich", "Khong lay duoc vung van ban da boi den.")
+            show_warning(window, "Chú thích", "Không lấy được vùng văn bản đã bôi đen.")
             return False
         _add_overlay_marks_batch(
             window,
@@ -1956,11 +1959,11 @@ def _do_selected_text_mark(window, mark_type: str) -> bool:
         })
         if hasattr(window, "status"):
             text_hint = f": {selected_text[:80]}" if selected_text else ""
-            window.status.showMessage(f"Da {config['label']} {total_rects} vung{text_hint}", 3000)
+            window.status.showMessage(f"Đã {config['label']} {total_rects} vùng{text_hint}", 3000)
         return True
     except Exception as exc:
         _remove_overlay_mark(window, mark_id)
-        show_warning(window, "Loi chu thich", str(exc))
+        show_warning(window, "Lỗi chú thích", str(exc))
         return False
 
 

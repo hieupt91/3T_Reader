@@ -126,9 +126,17 @@
             ta.addEventListener('input', function () {
                 ta.style.height = 'auto';
                 ta.style.height = ta.scrollHeight + 'px';
-                ov.style.height = (ta.scrollHeight + 20) + 'px';
+                ov.style.height = (ta.scrollHeight + 36) + 'px';
             });
             ov.appendChild(ta);
+
+            var hint = document.createElement('div');
+            hint.textContent = 'Ctrl+Enter để chèn · Esc để hủy';
+            hint.style.cssText =
+                'position:absolute;left:7px;right:22px;bottom:4px;' +
+                'font-size:10px;line-height:14px;color:#475569;' +
+                'pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+            ov.appendChild(hint);
 
             /* resize corner */
             var rh = document.createElement('div');
@@ -166,7 +174,7 @@
                     ov.style.width  = Math.max(80,  sw + e.clientX - sx) + 'px';
                     var nh = Math.max(36, sh + e.clientY - sy);
                     ov.style.height = nh + 'px';
-                    ta.style.height = (nh - 20) + 'px';
+                    ta.style.height = (nh - 36) + 'px';
                 }
                 function onU() {
                     document.removeEventListener('mousemove', onM, true);

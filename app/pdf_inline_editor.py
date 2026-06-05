@@ -95,9 +95,9 @@ class InlineEditPanel(QFrame):
         self._mode  = mode
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setStyleSheet(
-            "QFrame { background:#1A1E30; border:1.5px solid #2A5090; border-radius:10px; }"
-            "QLabel { color:#B0C8F0; font-size:12px; background:transparent; border:none; padding:0; }"
-            "QSpinBox { background:#10121C; color:#D8E8FF; border:1px solid #304080; "
+            "QFrame { background:#F8FAFC; border:1.5px solid #CBD5E1; border-radius:8px; }"
+            "QLabel { color:#334155; font-size:12px; background:transparent; border:none; padding:0; }"
+            "QSpinBox { background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; "
             "           border-radius:4px; padding:2px 6px; }"
             "QPushButton { border-radius:5px; padding:5px 14px; font-size:12px; font-weight:600; }"
         )
@@ -113,7 +113,7 @@ class InlineEditPanel(QFrame):
         title = "Chèn văn bản vào PDF" if self._mode == "text" else "Chèn ảnh vào PDF"
         lbl   = QLabel(f"{icon}  {title}")
         lbl.setStyleSheet(
-            "color:#7AAAE8; font-size:11px; font-weight:700; background:transparent; border:none;"
+            "color:#1D4ED8; font-size:11px; font-weight:700; background:transparent; border:none;"
         )
         root.addWidget(lbl)
 
@@ -133,10 +133,10 @@ class InlineEditPanel(QFrame):
             row.addWidget(self._color_btn)
 
             _fmt_ss = (
-                "QToolButton{background:#10121C;color:#D8E8FF;border:1px solid #304080;"
+                "QToolButton{background:#FFFFFF;color:#0F172A;border:1px solid #CBD5E1;"
                 "border-radius:4px;font-size:13px;font-weight:700;}"
-                "QToolButton:checked{background:#2A4080;border-color:#6080C0;color:#FFFFFF;}"
-                "QToolButton:hover{border-color:#4060A0;}"
+                "QToolButton:checked{background:#DBEAFE;border-color:#2563EB;color:#1D4ED8;}"
+                "QToolButton:hover{border-color:#2563EB;}"
             )
             self._bold_btn = QToolButton()
             self._bold_btn.setText("B")
@@ -195,14 +195,14 @@ class InlineEditPanel(QFrame):
             else QLabel("Kéo di chuyển  ·  Kéo góc resize  ·  Enter xác nhận  ·  Esc hủy")
         )
 
-        hint.setStyleSheet("color:#3A4E6A; font-size:10px; background:transparent; border:none;")
+        hint.setStyleSheet("color:#64748B; font-size:10px; background:transparent; border:none;")
         root.addWidget(hint)
 
         row2 = QHBoxLayout(); row2.setSpacing(8); row2.addStretch()
         btn_cancel = QPushButton("Hủy")
         btn_cancel.setStyleSheet(
-            "QPushButton{background:transparent;color:#FF6655;border:1.5px solid #FF6655;}"
-            "QPushButton:hover{background:#3A1010;}"
+            "QPushButton{background-color:#FFFFFF;color:#B91C1C;border:1.5px solid #FCA5A5;}"
+            "QPushButton:hover{background-color:#FEE2E2;}"
         )
         btn_cancel.clicked.connect(self.cancelled)
         row2.addWidget(btn_cancel)
@@ -210,9 +210,8 @@ class InlineEditPanel(QFrame):
         ok_lbl = "Chèn vào PDF" if self._mode == "text" else "Đặt ảnh vào PDF"
         btn_ok = QPushButton(ok_lbl)
         btn_ok.setStyleSheet(
-            "QPushButton{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #FF7700,stop:1 #FF4400);color:white;border:none;}"
-            "QPushButton:hover{background:#FF9900;}"
+            "QPushButton{background-color:#2563EB;color:white;border:none;}"
+            "QPushButton:hover{background-color:#1D4ED8;}"
         )
         btn_ok.setDefault(True)
         btn_ok.clicked.connect(self.committed)
@@ -231,8 +230,8 @@ class InlineEditPanel(QFrame):
         luma = 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()
         txt  = "#000" if luma > 128 else "#FFF"
         self._color_btn.setStyleSheet(
-            f"QPushButton{{background:{c.name()};color:{txt};border:1px solid #555;"
-            "border-radius:4px;font-size:11px;}}"
+            f"background-color:{c.name()};color:{txt};border:1px solid #555555;"
+            "border-radius:4px;font-size:11px;"
         )
         self._color_btn.setText("Màu chữ")
 

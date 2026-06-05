@@ -21,8 +21,9 @@ from packages.qt_compat.QtWidgets import (
     QSizePolicy,
     QMessageBox,
     QDialog,
+    QColorDialog,
 )
-from packages.qt_compat.QtGui import QAction, QKeySequence, QCloseEvent, QImage, QPainter
+from packages.qt_compat.QtGui import QAction, QKeySequence, QCloseEvent, QImage, QPainter, QColor
 from packages.qt_compat.QtCore import Qt, QSize, QPoint, QTimer, QThread, QObject, pyqtSignal, QRect
 from packages.qt_compat.QtWebEngineWidgets import QWebEngineView
 from app.pdf_viewer import PDFViewerWidget
@@ -70,6 +71,7 @@ from app.actions.document_ops import (
     export_pdf_to_text, add_page_numbers,
 )
 from app.sidebar import ThumbnailSidebar, BookmarkSidebar
+from app.annotation_sidebar import AnnotationSidebar
 from app.icon_utils import svg_icon, app_logo_icon
 from app.dialogs import show_warning, show_info
 from app.config import WINDOW_TITLE
@@ -142,6 +144,8 @@ class PDFReaderApp(QMainWindow):
         self._tab_context_index = -1
         self._usb_token_detected = False
         self._closing = False
+        self._highlight_color_pdf = [1.0, 1.0, 0.0]
+        self._highlight_color_overlay = "rgba(250,204,21,.35)"
 
         self._brightness = 100
         self._action_icons: dict = {}   # {QAction: svg_filename} for theme refresh
@@ -168,6 +172,10 @@ class PDFReaderApp(QMainWindow):
         self.toc_sidebar = BookmarkSidebar(self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.toc_sidebar)
         self.toc_sidebar.hide()
+
+        self.annotation_sidebar = AnnotationSidebar(self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.annotation_sidebar)
+        self.annotation_sidebar.hide()
 
         self._build_search_panel()
         self._build_toolbar()
@@ -238,6 +246,8 @@ class PDFReaderApp(QMainWindow):
             self.sidebar.hide()
         if hasattr(self, "toc_sidebar"):
             self.toc_sidebar.hide()
+        if hasattr(self, "annotation_sidebar"):
+            self.annotation_sidebar.hide()
 
     def _remove_welcome_tab(self):
         if not hasattr(self, "_welcome_tab"):
@@ -531,11 +541,13 @@ class PDFReaderApp(QMainWindow):
         self.act_fit    = make("Vừa trang",   "fit_page.svg",      f"Vừa trang ({shortcut_label('Ctrl+0')})", "Ctrl+0", lambda: zoom_fit(self))
 
         self.act_highlight    = make("Tô sáng",   "highlight.svg",    f"Tô sáng ({shortcut_label('Ctrl+H')})", "Ctrl+H", lambda: highlight_text(self))
-        self.act_insert_text  = make("Chèn chữ",  "insert_text.svg",  "Chèn văn bản vào PDF",   None,          lambda: insert_text_to_pdf(self))
-        self.act_insert_image = make("Chèn ảnh",  "insert_image.svg", "Chèn ảnh vào PDF",        None,          lambda: insert_image_to_pdf(self))
-        self.act_draw         = make("Vẽ tự do",  "pen.svg",          "Vẽ tự do lên PDF",         None,          lambda: draw_on_pdf(self))
+        self.act_highlight_color = make("Màu tô", "highlight.svg", f"Chọn màu tô sáng ({shortcut_label('Ctrl+Shift+H')})", "Ctrl+Shift+H", self._pick_highlight_color)
+        self.act_highlight_color.setIcon(svg_icon("highlight.svg", color="#facc15"))
+        self.act_insert_text  = make("Chèn chữ",  "insert_text.svg",  f"Chèn văn bản vào PDF ({shortcut_label('Ctrl+T')})",   "Ctrl+T",          lambda: insert_text_to_pdf(self))
+        self.act_insert_image = make("Chèn ảnh",  "insert_image.svg", f"Chèn ảnh vào PDF ({shortcut_label('Ctrl+I')})",        "Ctrl+I",          lambda: insert_image_to_pdf(self))
+        self.act_draw         = make("Vẽ tự do",  "pen.svg",          f"Vẽ tự do lên PDF ({shortcut_label('Ctrl+D')})",         "Ctrl+D",          lambda: draw_on_pdf(self))
         self.act_redact       = make("Xóa trắng", "redact.svg",       "Che/tẩy vùng nội dung",   None,          lambda: redact_area(self))
-        self.act_delete_object= make("Xóa obj",   "trash.svg",        "Xóa text/ảnh đã chèn",    None,          lambda: delete_inserted_object(self))
+        self.act_delete_object= make("Xóa đối tượng",   "trash.svg",        "Xóa text/ảnh đã chèn",    None,          lambda: delete_inserted_object(self))
         self.act_select_inserted = make("Chọn & Xoay","edit_object.svg", "Chọn text/ảnh đã chèn → hiện nút ↻ Xoay, ✎ Sửa, × Xóa, ✥ Di chuyển", None,  lambda: select_inserted_object(self))
         self.act_undo         = make("Hoàn tác",  "undo.svg",         f"Hoàn tác ({shortcut_label('Ctrl+Z')})", "Ctrl+Z", lambda: undo_last_edit(self))
 
@@ -544,6 +556,8 @@ class PDFReaderApp(QMainWindow):
         self.act_toggle_toc_btn     = make("Mục lục","history.svg",  "Mục lục PDF (Ctrl+Alt+T)", "Ctrl+Alt+T", self._toggle_toc)
         self.act_toggle_toc_btn.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self._action_icons[self.act_toggle_toc_btn] = "history.svg"
+        self.act_toggle_annotations_btn = make("Chú thích", "sidebar_panel.svg", "Danh sách chú thích (Ctrl+Alt+A)", "Ctrl+Alt+A", self._toggle_annotations)
+        self.act_toggle_annotations_btn.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
 
         self.act_theme_toggle = make("Giao diện","sun.svg", "Đổi chủ đề sáng/tối", None, self._toggle_theme)
         self.act_theme_toggle.setIcon(svg_icon("sun.svg", color="#f0c050"))
@@ -622,6 +636,7 @@ class PDFReaderApp(QMainWindow):
         g_view = RibbonGroup("Giao diện")
         g_view.add(make_action_btn(self.act_toggle_sidebar_btn, "Thumb"))
         g_view.add(make_action_btn(self.act_toggle_toc_btn,     "Mục lục"))
+        g_view.add(make_action_btn(self.act_toggle_annotations_btn, "Chú thích"))
         g_view.add(make_action_btn(self.act_theme_toggle,       "Chủ đề"))
         g_view.add(make_action_btn(self.act_fullscreen,         "Toàn màn"))
 
@@ -660,14 +675,15 @@ class PDFReaderApp(QMainWindow):
 
         g_mark = RibbonGroup("Đánh dấu")
         g_mark.add(make_action_btn(self.act_highlight, "Tô sáng"))
-        _act_underline = make("Gạch dưới", "highlight.svg", "Gạch dưới văn bản", None, lambda: underline_text(self))
-        _act_underline.setIcon(svg_icon("highlight.svg", color="#60BFFF"))
-        self._action_icons[_act_underline] = "highlight.svg"
-        g_mark.add(make_action_btn(_act_underline, "Gạch dưới"))
-        _act_strike = make("Gạch ngang", "highlight.svg", "Gạch ngang văn bản", None, lambda: strikeout_text(self))
-        _act_strike.setIcon(svg_icon("highlight.svg", color="#FF7070"))
-        self._action_icons[_act_strike] = "highlight.svg"
-        g_mark.add(make_action_btn(_act_strike, "Gạch ngang"))
+        g_mark.add(make_action_btn(self.act_highlight_color, "Màu tô"))
+        self.act_underline = make("Gạch dưới", "underline.svg", f"Gạch dưới văn bản ({shortcut_label('Ctrl+U')})", "Ctrl+U", lambda: underline_text(self))
+        self.act_underline.setIcon(svg_icon("underline.svg", color="#2563eb"))
+        self._action_icons[self.act_underline] = "underline.svg"
+        g_mark.add(make_action_btn(self.act_underline, "Gạch dưới"))
+        self.act_strikeout = make("Gạch ngang", "strikeout.svg", f"Gạch ngang văn bản ({shortcut_label('Ctrl+Shift+X')})", "Ctrl+Shift+X", lambda: strikeout_text(self))
+        self.act_strikeout.setIcon(svg_icon("strikeout.svg", color="#dc2626"))
+        self._action_icons[self.act_strikeout] = "strikeout.svg"
+        g_mark.add(make_action_btn(self.act_strikeout, "Gạch ngang"))
         _act_comment = make("Ghi chú", "insert_text.svg", "Thêm ghi chú", None, lambda: add_comment(self))
         g_mark.add(make_action_btn(_act_comment, "Ghi chú"))
         p1.add_group(g_mark)
@@ -678,7 +694,7 @@ class PDFReaderApp(QMainWindow):
         g_edit.add(make_action_btn(self.act_draw,         "Vẽ tự do"))
         g_edit.add(make_action_btn(self.act_redact,       "Xóa trắng"))
         g_edit.add(make_action_btn(self.act_select_inserted, "Chọn & Xoay"))
-        g_edit.add(make_action_btn(self.act_delete_object,"Xóa obj"))
+        g_edit.add(make_action_btn(self.act_delete_object,"Xóa đối tượng"))
         p1.add_group(g_edit)
 
         g_undo = RibbonGroup("Lịch sử")
@@ -1031,6 +1047,7 @@ class PDFReaderApp(QMainWindow):
         menu_view.addSeparator()
         menu_view.addAction(self.act_toggle_sidebar_btn)
         menu_view.addAction(self.act_toggle_toc_btn)
+        menu_view.addAction(self.act_toggle_annotations_btn)
         act_toggle_toolbar = self.toolbar.toggleViewAction()
         act_toggle_toolbar.setText("Thanh công cụ")
         act_toggle_toolbar.setShortcut(QKeySequence("Ctrl+B"))
@@ -1063,14 +1080,9 @@ class PDFReaderApp(QMainWindow):
 
         # Chú thích văn bản
         menu_tools.addAction(self.act_highlight)
-
-        act_underline = menu_tools.addAction("Gạch dưới văn bản")
-        act_underline.setIcon(svg_icon("highlight.svg", size=16, color="#4a90d9"))
-        act_underline.triggered.connect(lambda: underline_text(self))
-
-        act_strikeout = menu_tools.addAction("Gạch ngang văn bản")
-        act_strikeout.setIcon(svg_icon("highlight.svg", size=16, color="#e05050"))
-        act_strikeout.triggered.connect(lambda: strikeout_text(self))
+        menu_tools.addAction(self.act_highlight_color)
+        menu_tools.addAction(self.act_underline)
+        menu_tools.addAction(self.act_strikeout)
 
         act_comment = menu_tools.addAction("Thêm ghi chú (Note)…")
         act_comment.setIcon(svg_icon("history.svg", size=16, color="#f0a030"))
@@ -1261,7 +1273,7 @@ class PDFReaderApp(QMainWindow):
             act_file_info, act_close_tab, act_tab_next, act_tab_prev,
             act_goto, self.act_toggle_sidebar_btn, act_shortcuts, act_exit,
             self.act_highlight, self.act_undo, act_rotate_cw, act_rotate_ccw, act_del_page,
-            act_merge, act_extract, act_sign_draw, self.act_toggle_toc_btn,
+            act_merge, act_extract, act_sign_draw, self.act_toggle_toc_btn, self.act_toggle_annotations_btn,
         ):
             action.setIconVisibleInMenu(True)
 
@@ -1306,6 +1318,7 @@ class PDFReaderApp(QMainWindow):
             self.search_input.clear()
             QTimer.singleShot(0, self._update_chrome_for_active_tab)
             QTimer.singleShot(0, self._load_toc_for_active)
+            QTimer.singleShot(0, self._load_annotations_for_active)
 
     def _on_page_ready(self, viewer):
         if viewer is not self.viewer:
@@ -1357,10 +1370,26 @@ class PDFReaderApp(QMainWindow):
             on_navigate=lambda page, v=viewer: v.goto_page(page),
         )
 
+    def _load_annotations_for_active(self):
+        state = self._active_state()
+        if not state:
+            self.annotation_sidebar.clear()
+            return
+        pdf_path = state.get("source_path")
+        if not pdf_path:
+            self.annotation_sidebar.clear()
+            return
+        viewer = state["viewer"]
+        self.annotation_sidebar.load_annotations(
+            pdf_path,
+            on_navigate=lambda page, v=viewer: v.goto_page(page),
+        )
+
     def _on_tab_changed(self, _index):
         self._update_chrome_for_active_tab()
         self._reposition_search_panel()
         self._load_toc_for_active()
+        self._load_annotations_for_active()
         # Thông báo chat dialog khi đổi tài liệu
         try:
             from app.actions.ai_actions import notify_pdf_changed
@@ -1384,6 +1413,7 @@ class PDFReaderApp(QMainWindow):
             self.search_input.clear()
             self.hide_search_panel()
             self.sidebar.list.clear()
+            self.annotation_sidebar.clear()
             return
 
         display_name = os.path.basename(state["display_path"]) if state["display_path"] else "PDF"
@@ -1445,12 +1475,12 @@ class PDFReaderApp(QMainWindow):
                 if not ok:
                     QMessageBox.warning(
                         self,
-                        "Chua luu xong chu thich",
-                        "Mot so thay doi chu thich chua luu xong. Vui long doi vai giay roi dong tab lai.",
+                        "Chưa lưu xong chú thích",
+                        "Một số thay đổi chú thích chưa lưu xong. Vui lòng đợi vài giây rồi đóng tab lại.",
                     )
                     return False
             except Exception as exc:
-                QMessageBox.warning(self, "Chua luu xong chu thich", str(exc))
+                QMessageBox.warning(self, "Chưa lưu xong chú thích", str(exc))
                 return False
         edit_state = state.get("_pdf_edit_state") if state else None
         if edit_state and edit_state.get("ops"):
@@ -1483,6 +1513,7 @@ class PDFReaderApp(QMainWindow):
             self.hide_search_panel()
             self._update_chrome_for_active_tab()
             self.toc_sidebar.clear()
+            self.annotation_sidebar.clear()
         return True
 
     def _can_close_tab_state(self, state) -> bool:
@@ -1773,7 +1804,11 @@ class PDFReaderApp(QMainWindow):
         _set_action("act_insert_image", "action.insert_image", "Chèn ảnh")
         _set_action("act_draw", "action.draw", "Vẽ tự do")
         _set_action("act_redact", "action.redact", "Xóa trắng")
-        _set_action("act_delete_object", "action.delete_object", "Xóa obj")
+        _set_action("act_delete_object", "action.delete_object", "Xóa đối tượng")
+        _set_action("act_highlight_color", "action.highlight_color", "Màu tô")
+        _set_action("act_underline", "action.underline", "Gạch dưới")
+        _set_action("act_strikeout", "action.strikeout", "Gạch ngang")
+        _set_action("act_toggle_annotations_btn", "action.annotations", "Chú thích")
         _set_action("act_select_inserted", "action.select_object", "Chọn & Xoay")
         _set_action("act_undo", "action.undo", "Hoàn tác")
         _set_action("act_sign", "action.sign", "Ký số")
@@ -1918,6 +1953,36 @@ class PDFReaderApp(QMainWindow):
         visible = self.toc_sidebar.isVisible()
         self.toc_sidebar.setVisible(not visible)
 
+    def _toggle_annotations(self):
+        visible = self.annotation_sidebar.isVisible()
+        self.annotation_sidebar.setVisible(not visible)
+        if not visible:
+            self._load_annotations_for_active()
+
+    def _pick_highlight_color(self):
+        current = getattr(self, "_highlight_color_pdf", [1.0, 1.0, 0.0])
+        color = QColor(
+            int(max(0.0, min(1.0, current[0])) * 255),
+            int(max(0.0, min(1.0, current[1])) * 255),
+            int(max(0.0, min(1.0, current[2])) * 255),
+        )
+        picked = QColorDialog.getColor(color, self, "Chọn màu tô sáng")
+        if not picked.isValid():
+            return
+        self._highlight_color_pdf = [
+            round(picked.red() / 255.0, 4),
+            round(picked.green() / 255.0, 4),
+            round(picked.blue() / 255.0, 4),
+        ]
+        self._highlight_color_overlay = (
+            f"rgba({picked.red()},{picked.green()},{picked.blue()},.35)"
+        )
+        if hasattr(self, "act_highlight_color"):
+            self.act_highlight_color.setIcon(svg_icon("highlight.svg", color=picked.name()))
+            self.act_highlight_color.setToolTip("Màu tô sáng hiện tại: " + picked.name())
+        if hasattr(self, "status"):
+            self.status.showMessage("Đã đổi màu tô sáng.", 1800)
+
     def _toggle_theme(self):
         toggle_theme()
         self._refresh_icons()
@@ -2040,14 +2105,14 @@ class PDFReaderApp(QMainWindow):
                     self._closing = False
                     QMessageBox.warning(
                         self,
-                        "Chua luu xong chu thich",
-                        "Mot so thay doi chu thich chua luu xong. Vui long doi vai giay roi thoat lai.",
+                        "Chưa lưu xong chú thích",
+                        "Một số thay đổi chú thích chưa lưu xong. Vui lòng đợi vài giây rồi thoát lại.",
                     )
                     event.ignore()
                     return
             except Exception as exc:
                 self._closing = False
-                QMessageBox.warning(self, "Chua luu xong chu thich", str(exc))
+                QMessageBox.warning(self, "Chưa lưu xong chú thích", str(exc))
                 event.ignore()
                 return
 

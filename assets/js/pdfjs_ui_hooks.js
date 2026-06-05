@@ -228,7 +228,7 @@
             return payload;
         }
         var cached = window.__3tLastSelectionPayload;
-        if (cached && cached.rects && cached.rects.length > 0 && Date.now() - (cached.timestamp || 0) < 15000) {
+        if (cached && cached.rects && cached.rects.length > 0 && Date.now() - (cached.timestamp || 0) < 60000) {
             return cached;
         }
         return payload || { text: '', rects: [] };
@@ -316,6 +316,13 @@
         var container = document.getElementById('viewerContainer');
         if (container) {
             var scrollTimer = null;
+            container.addEventListener('pointermove', function (event) {
+                window.__3tLastPointer = {
+                    x: event.clientX,
+                    y: event.clientY,
+                    timestamp: Date.now()
+                };
+            }, { passive: true });
             container.addEventListener('scroll', function () {
                 if (scrollTimer) clearTimeout(scrollTimer);
                 scrollTimer = setTimeout(function () {

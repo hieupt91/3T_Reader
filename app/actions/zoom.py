@@ -7,9 +7,35 @@ _JS_ZOOM_IN = """
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
     var viewer = app.pdfViewer;
+    var container = document.getElementById('viewerContainer');
+    var pointer = window.__3tLastPointer || null;
+    var before = Number(viewer.currentScale || 1);
+    var anchor = null;
+    if (container) {
+        var vr = container.getBoundingClientRect();
+        var px = vr.left + vr.width / 2;
+        var py = vr.top + vr.height / 2;
+        if (pointer && Date.now() - (pointer.timestamp || 0) < 2000 &&
+            pointer.x >= vr.left && pointer.x <= vr.right && pointer.y >= vr.top && pointer.y <= vr.bottom) {
+            px = pointer.x;
+            py = pointer.y;
+        }
+        anchor = {
+            viewX: px - vr.left,
+            viewY: py - vr.top,
+            docX: container.scrollLeft + px - vr.left,
+            docY: container.scrollTop + py - vr.top
+        };
+    }
     var current = Number(viewer.currentScale || 1);
     var target = Math.min(4.0, current * 1.1);
     viewer.currentScaleValue = String(target);
+    if (container && anchor && before > 0) {
+        var after = Number(viewer.currentScale || target);
+        var ratio = after / before;
+        container.scrollLeft = Math.max(0, anchor.docX * ratio - anchor.viewX);
+        container.scrollTop = Math.max(0, anchor.docY * ratio - anchor.viewY);
+    }
     return Math.round((Number(viewer.currentScale || 0) || target) * 100);
 })()
 """
@@ -19,9 +45,35 @@ _JS_ZOOM_OUT = """
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
     var viewer = app.pdfViewer;
+    var container = document.getElementById('viewerContainer');
+    var pointer = window.__3tLastPointer || null;
+    var before = Number(viewer.currentScale || 1);
+    var anchor = null;
+    if (container) {
+        var vr = container.getBoundingClientRect();
+        var px = vr.left + vr.width / 2;
+        var py = vr.top + vr.height / 2;
+        if (pointer && Date.now() - (pointer.timestamp || 0) < 2000 &&
+            pointer.x >= vr.left && pointer.x <= vr.right && pointer.y >= vr.top && pointer.y <= vr.bottom) {
+            px = pointer.x;
+            py = pointer.y;
+        }
+        anchor = {
+            viewX: px - vr.left,
+            viewY: py - vr.top,
+            docX: container.scrollLeft + px - vr.left,
+            docY: container.scrollTop + py - vr.top
+        };
+    }
     var current = Number(viewer.currentScale || 1);
     var target = Math.max(0.25, current / 1.1);
     viewer.currentScaleValue = String(target);
+    if (container && anchor && before > 0) {
+        var after = Number(viewer.currentScale || target);
+        var ratio = after / before;
+        container.scrollLeft = Math.max(0, anchor.docX * ratio - anchor.viewX);
+        container.scrollTop = Math.max(0, anchor.docY * ratio - anchor.viewY);
+    }
     return Math.round((Number(viewer.currentScale || 0) || target) * 100);
 })()
 """
@@ -75,8 +127,35 @@ def apply_zoom(window, wv):
 (function() {{
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
-    app.pdfViewer.currentScaleValue = '{scale}';
-    return Math.round((Number(app.pdfViewer.currentScale || 0) || {scale}) * 100);
+    var viewer = app.pdfViewer;
+    var container = document.getElementById('viewerContainer');
+    var before = Number(viewer.currentScale || 1);
+    var anchor = null;
+    if (container) {{
+        var vr = container.getBoundingClientRect();
+        var pointer = window.__3tLastPointer || null;
+        var px = vr.left + vr.width / 2;
+        var py = vr.top + vr.height / 2;
+        if (pointer && Date.now() - (pointer.timestamp || 0) < 2000 &&
+            pointer.x >= vr.left && pointer.x <= vr.right && pointer.y >= vr.top && pointer.y <= vr.bottom) {{
+            px = pointer.x;
+            py = pointer.y;
+        }}
+        anchor = {{
+            viewX: px - vr.left,
+            viewY: py - vr.top,
+            docX: container.scrollLeft + px - vr.left,
+            docY: container.scrollTop + py - vr.top
+        }};
+    }}
+    viewer.currentScaleValue = '{scale}';
+    if (container && anchor && before > 0) {{
+        var after = Number(viewer.currentScale || {scale});
+        var ratio = after / before;
+        container.scrollLeft = Math.max(0, anchor.docX * ratio - anchor.viewX);
+        container.scrollTop = Math.max(0, anchor.docY * ratio - anchor.viewY);
+    }}
+    return Math.round((Number(viewer.currentScale || 0) || {scale}) * 100);
 }})()
 """
     _run_zoom_js(window, wv, js)
