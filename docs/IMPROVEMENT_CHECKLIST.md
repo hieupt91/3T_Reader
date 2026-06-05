@@ -160,7 +160,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 4.3 Annotation operation queue tests
 
-- [ ] **P1** — Tạo `tests/test_annotation_queue.py`
+- [x] **P1** — Tạo `tests/test_annotation_queue.py`
   - **Vấn đề:** `_AnnotationOpQueue` trong `annotate.py:60-100` có logic enqueue/flush phức tạp, chưa có test
   - **Cần test:**
     - enqueue + flush đúng thứ tự
