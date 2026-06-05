@@ -537,7 +537,6 @@ class PDFReaderApp(QMainWindow):
         g_view = RibbonGroup("Giao diện")
         g_view.add(make_action_btn(self.act_toggle_sidebar_btn, "Thumb"))
         g_view.add(make_action_btn(self.act_toggle_toc_btn,     "Mục lục"))
-        g_view.add(make_action_btn(self.act_toggle_annotations_btn, "Chú thích"))
         g_view.add(make_action_btn(self.act_theme_toggle,       "Chủ đề"))
         g_view.add(make_action_btn(self.act_fullscreen,         "Toàn màn"))
 
@@ -576,16 +575,17 @@ class PDFReaderApp(QMainWindow):
         p1 = RibbonPanel()
 
         g_mark = RibbonGroup("Đánh dấu")
-        g_mark.add(make_action_btn(self.act_highlight, "Tô sáng"))
+        _highlight_btn = make_action_btn(self.act_highlight, "Tô sáng")
+        _highlight_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        _highlight_btn.customContextMenuRequested.connect(lambda: self._show_highlight_context_menu())
+        g_mark.add(_highlight_btn)
         g_mark.add(make_action_btn(self.act_highlight_color, "Màu tô"))
         self.act_underline = make("Gạch dưới", "underline.svg", f"Gạch dưới văn bản ({shortcut_label('Ctrl+U')})", "Ctrl+U", lambda: underline_text(self))
         self.act_underline.setIcon(svg_icon("underline.svg", color="#2563eb"))
         self._action_icons[self.act_underline] = "underline.svg"
-        g_mark.add(make_action_btn(self.act_underline, "Gạch dưới"))
         self.act_strikeout = make("Gạch ngang", "strikeout.svg", f"Gạch ngang văn bản ({shortcut_label('Ctrl+Shift+X')})", "Ctrl+Shift+X", lambda: strikeout_text(self))
         self.act_strikeout.setIcon(svg_icon("strikeout.svg", color="#dc2626"))
         self._action_icons[self.act_strikeout] = "strikeout.svg"
-        g_mark.add(make_action_btn(self.act_strikeout, "Gạch ngang"))
         _act_comment = make("Ghi chú", "insert_text.svg", "Thêm ghi chú", None, lambda: add_comment(self))
         g_mark.add(make_action_btn(_act_comment, "Ghi chú"))
         p1.add_group(g_mark)
@@ -1893,6 +1893,35 @@ class PDFReaderApp(QMainWindow):
         self.annotation_sidebar.setVisible(not visible)
         if not visible:
             self._load_annotations_for_active()
+
+    def _show_highlight_context_menu(self):
+        """Right-click menu on highlight button: underline, strikeout, color picker."""
+        from app.actions.annotate import underline_text, strikeout_text
+        menu = QMenu(self)
+        # Underline & Strikeout
+        menu.addAction(self.act_underline)
+        menu.addAction(self.act_strikeout)
+        menu.addSeparator()
+        # Color presets
+        presets = {
+            "Vàng": "#facc15",
+            "Xanh lá": "#22c55e",
+            "Xanh dương": "#38bdf8",
+            "Hồng": "#f472b6",
+            "Cam": "#fb923c",
+        }
+        for label, hex_color in presets.items():
+            action = menu.addAction(label)
+            action.setIcon(svg_icon("highlight.svg", color=hex_color))
+            action.triggered.connect(lambda _checked=False, c=hex_color: self._set_highlight_color(QColor(c)))
+        menu.addSeparator()
+        custom = menu.addAction("Màu khác...")
+        custom.triggered.connect(self._pick_custom_highlight_color)
+        button = self.toolbar.widgetForAction(self.act_highlight) if hasattr(self, "toolbar") else None
+        if button:
+            menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
+        else:
+            menu.exec(self.cursor().pos())
 
     def _pick_highlight_color(self):
         presets = {
