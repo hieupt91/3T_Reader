@@ -79,7 +79,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 2.2 Area pick script
 
-- [ ] **P1** — Tạo `assets/js/area_pick.js`
+- [x] **P1** — Tạo `assets/js/area_pick.js`
   - **Vấn đề:** `edit.py:34-200+` chứa `AREA_PICK_SCRIPT` — JS dài xử lý drag-to-select area trên PDF
   - **Cách sửa:** Tách ra file riêng, inject qua `runJavaScript`
 
@@ -288,7 +288,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 7.1 GitHub Actions CI
 
-- [ ] **P1** — Tạo `.github/workflows/ci.yml`
+- [x] **P1** — Tạo `.github/workflows/ci.yml`
   - **Vấn đề:** Không có CI pipeline, test chỉ chạy manual
   - **Cần:**
     - Run `pytest` trên mỗi push/PR
@@ -320,7 +320,7 @@ Nhiều file Python nhúng JavaScript dài, khó maintain.
 
 ### 8.1 Keyboard shortcuts documentation
 
-- [ ] **P2** — Tạo `docs/KEYBOARD_SHORTCUTS.md`
+- [x] **P2** — Tạo `docs/KEYBOARD_SHORTCUTS.md`
   - **Vấn đề:** Shortcuts rải rác trong code (`Ctrl+O`, `Ctrl+S`, `Ctrl+H`, `F11`, etc.) nhưng không có docs tập trung
   - **Cách sửa:** Tổng hợp tất cả shortcuts, thêm vào Help menu
 
