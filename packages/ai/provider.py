@@ -369,6 +369,45 @@ def ask_3t_ai(prompt: str, system: str = "", max_tokens: int = 2048) -> AIRespon
         return AIResponse(text="", error=f"3T AI lỗi: {e}", success=False)
 
 
+def _save_3t_token(token: str, email: str) -> None:
+    """Persist 3T AI token securely (encrypted at rest)."""
+    try:
+        from packages.platform import get_app_data_dir, save_secure_config, load_secure_config
+        config_path = os.path.join(get_app_data_dir(), "ai_config.json")
+        data = load_secure_config(config_path) if os.path.exists(config_path) else {}
+        data["3T_AI_TOKEN"] = token
+        data["3T_AI_EMAIL"] = email
+        save_secure_config(config_path, data)
+    except Exception:
+        pass
+
+
+def _clear_3t_token() -> None:
+    """Remove 3T AI token from secure storage."""
+    try:
+        from packages.platform import get_app_data_dir, save_secure_config, load_secure_config
+        config_path = os.path.join(get_app_data_dir(), "ai_config.json")
+        data = load_secure_config(config_path) if os.path.exists(config_path) else {}
+        data.pop("3T_AI_TOKEN", None)
+        data.pop("3T_AI_EMAIL", None)
+        save_secure_config(config_path, data)
+    except Exception:
+        pass
+
+
+def _load_3t_token() -> tuple[str, str]:
+    """Load 3T AI token from secure storage. Returns (token, email)."""
+    try:
+        from packages.platform import get_app_data_dir, load_secure_config
+        config_path = os.path.join(get_app_data_dir(), "ai_config.json")
+        if os.path.exists(config_path):
+            data = load_secure_config(config_path)
+            return data.get("3T_AI_TOKEN", ""), data.get("3T_AI_EMAIL", "")
+    except Exception:
+        pass
+    return "", ""
+
+
 def login_3t_ai(email: str, password: str) -> dict:
     """Đăng nhập tài khoản 3T, trả về {'token': ..., 'email': ..., 'error': ...}."""
     try:
@@ -382,8 +421,10 @@ def login_3t_ai(email: str, password: str) -> dict:
         if resp.status_code == 200:
             data = resp.json()
             token = data.get("token", "")
+            # Store in env var for runtime use + persist encrypted to disk
             os.environ["3T_AI_TOKEN"] = token
             os.environ["3T_AI_EMAIL"] = email
+            _save_3t_token(token, email)
             return {"token": token, "email": email, "error": None}
         elif resp.status_code == 401:
             return {"token": "", "email": "", "error": "Sai email hoặc mật khẩu."}
@@ -396,10 +437,18 @@ def login_3t_ai(email: str, password: str) -> dict:
 def logout_3t_ai():
     os.environ.pop("3T_AI_TOKEN", None)
     os.environ.pop("3T_AI_EMAIL", None)
+    _clear_3t_token()
 
 
 def is_3t_ai_logged_in() -> bool:
-    return bool(os.environ.get("3T_AI_TOKEN", ""))
+    # Check env var first (runtime), then secure storage (persisted)
+    if os.environ.get("3T_AI_TOKEN"):
+        return True
+    token, _ = _load_3t_token()
+    if token:
+        os.environ["3T_AI_TOKEN"] = token
+        return True
+    return False
 
 
 def ask_gemini(prompt: str, system: str = "", max_tokens: int = 2048) -> AIResponse:
