@@ -5,7 +5,10 @@ from packages.qt_compat.QtWidgets import (
     QColorDialog, QSlider, QSizePolicy, QMessageBox, QInputDialog,
     QListWidget, QListWidgetItem, QFileDialog,
 )
-from packages.qt_compat.QtGui import QPainter, QPen, QColor, QImage, QPixmap, QPainterPath
+from packages.qt_compat.QtGui import (
+    QPainter, QPen, QColor, QImage, QPixmap, QPainterPath,
+    QKeySequence, QShortcut,
+)
 from packages.qt_compat.QtCore import Qt, QPoint, QPointF
 
 from app.dialogs import show_info, show_warning
@@ -116,6 +119,7 @@ class SignaturePadDialog(QDialog):
         self.setModal(True)
         self._pixmap: QPixmap | None = None
         self._setup_ui()
+        QShortcut(QKeySequence("Ctrl+Z"), self, activated=self.canvas.undo)
         self.adjustSize()
 
     def _setup_ui(self):

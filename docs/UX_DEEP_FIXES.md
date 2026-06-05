@@ -1,4 +1,4 @@
-# 3T Reader — Deep UX Fixes (Code-Level Checklist)
+﻿# 3T Reader — Deep UX Fixes (Code-Level Checklist)
 
 > Checklist chi tiết đến file, dòng code, cách sửa cụ thể cho từng vấn đề UX.
 
@@ -9,9 +9,9 @@
 **File:** `app/pdf_viewer.py` + `assets/js/pdfjs_ui_hooks.js`
 **Vấn đề:** PDF.js selection bị garbage collect khi scroll → `_get_selection_payload_sync()` trả về rỗng
 **Cách sửa:**
-- [ ] Trong `pdfjs_ui_hooks.js`: cache selection rects ngay khi `selectionchange` fire, không đợi Python query
-- [ ] Tăng cache timeout từ 15s lên 60s
-- [ ] Thêm fallback: nếu rects rỗng, dùng `window.getSelection().getRangeAt(0).getClientRects()` để rebuild
+- [x] Trong `pdfjs_ui_hooks.js`: cache selection rects ngay khi `selectionchange` fire, không đợi Python query
+- [x] Tăng cache timeout từ 15s lên 60s
+- [x] Thêm fallback: nếu rects rỗng, dùng `window.getSelection().getRangeAt(0).getClientRects()` để rebuild
 
 ```javascript
 // Trong selectionchange handler — cache ngay:
@@ -34,9 +34,9 @@ document.addEventListener('selectionchange', function() {
 **File:** `app/window.py`
 **Vấn đề:** Đóng tab/file khi có edits chưa lưu → mất dữ liệu
 **Cách sửa:**
-- [ ] Override `closeEvent()` trong `PDFReaderApp`
-- [ ] Check `_get_edit_state()` hoặc `_annotation_undo_stack`
-- [ ] Hiện confirmation dialog: "Bạn có thay đổi chưa lưu. Lưu trước khi đóng?"
+- [x] Override `closeEvent()` trong `PDFReaderApp`
+- [x] Check `_get_edit_state()` hoặc `_annotation_undo_stack`
+- [x] Hiện confirmation dialog: "Bạn có thay đổi chưa lưu. Lưu trước khi đóng?"
 
 ```python
 def closeEvent(self, event):
@@ -86,8 +86,8 @@ def closeEvent(self, event):
 **File:** `assets/js/inline_text_bridge.js`
 **Vấn đề:** User không biết Ctrl+Enter để chèn
 **Cách sửa:**
-- [ ] Thêm hint badge trong overlay: `"✏️ Ctrl+Enter để chèn · Esc để hủy"`
-- [ ] Thêm hint trong image overlay: `"🖼️ Enter để chèn · Esc để hủy"`
+- [x] Thêm hint badge trong overlay: `"✏️ Ctrl+Enter để chèn · Esc để hủy"`
+- [x] Thêm hint trong image overlay: `"🖼️ Enter để chèn · Esc để hủy"`
 
 ```javascript
 // Trong inline_text_bridge.js — thêm hint badge:
@@ -107,10 +107,10 @@ ov.appendChild(hint);
 **Cách sửa:**
 
 ### 5a. Undo
-- [ ] Thêm `_strokes: list[list[QPoint]]` trong `DrawingCanvas`
-- [ ] Mỗi `mouseReleaseEvent` → append stroke mới
-- [ ] `undo()` → pop stroke cuối, redraw
-- [ ] Thêm Ctrl+Z shortcut
+- [x] Thêm `_strokes: list[list[QPoint]]` trong `DrawingCanvas`
+- [x] Mỗi `mouseReleaseEvent` → append stroke mới
+- [x] `undo()` → pop stroke cuối, redraw
+- [x] Thêm Ctrl+Z shortcut
 
 ```python
 def __init__(self, ...):
@@ -150,7 +150,7 @@ def _redraw_all(self):
 ```
 
 ### 5b. Line smoothing
-- [ ] Thêm Catmull-Rom smoothing trong `mouseMoveEvent`
+- [x] Thêm Catmull-Rom smoothing trong `mouseMoveEvent`
 
 ```python
 def mouseMoveEvent(self, event):
@@ -178,9 +178,9 @@ def mouseMoveEvent(self, event):
 **File:** `app/actions/annotate.py`
 **Vấn đề:** Chỉ có 1 màu vàng mặc định
 **Cách sửa:**
-- [ ] Thêm `_highlight_colors` dict với 5+ màu
-- [ ] Hiện popup menu khi click highlight button
-- [ ] Lưu preference user
+- [x] Thêm `_highlight_colors` dict với 5+ màu
+- [x] Hiện popup menu khi click highlight button
+- [x] Lưu preference user
 
 ```python
 _HIGHLIGHT_COLORS = {
@@ -199,7 +199,7 @@ _HIGHLIGHT_COLORS = {
 **File:** `app/sidebar.py:31`
 **Vấn đề:** `scale=0.3` rất mờ trên HiDPI
 **Cách sửa:**
-- [ ] Dùng `devicePixelRatio()` để tính scale phù hợp
+- [x] Dùng `devicePixelRatio()` để tính scale phù hợp
 
 ```python
 from packages.qt_compat.QtWidgets import QApplication
@@ -216,8 +216,8 @@ rendered = doc.render_page_rgb(page_number, scale=scale)
 **File:** `app/sidebar.py`
 **Vấn đề:** Right-click thumbnail không có menu
 **Cách sửa:**
-- [ ] Thêm `contextMenuEvent` trong `ThumbnailSidebar`
-- [ ] Menu items: Xóa trang, Xoay, Trích xuất, Chèn trang sau
+- [x] Thêm `contextMenuEvent` trong `ThumbnailSidebar`
+- [x] Menu items: Xóa trang, Xoay, Trích xuất, Chèn trang sau
 
 ```python
 def contextMenuEvent(self, event):
@@ -239,10 +239,10 @@ def contextMenuEvent(self, event):
 **File:** Tạo mới `app/annotation_panel.py`
 **Vấn đề:** Không xem được danh sách annotations
 **Cách sửa:**
-- [ ] Tạo `AnnotationPanel(QDockWidget)` hiển thị list annotations
-- [ ] Filter theo type (highlight/note/underline/strikeout)
-- [ ] Click → navigate đến annotation
-- [ ] Right-click → edit/delete
+- [x] Tạo `AnnotationPanel(QDockWidget)` hiển thị list annotations
+- [x] Filter theo type (highlight/note/underline/strikeout)
+- [x] Click → navigate đến annotation
+- [x] Right-click → edit/delete
 
 ---
 
@@ -251,9 +251,9 @@ def contextMenuEvent(self, event):
 **File:** `app/actions/ai_actions.py`
 **Vấn đề:** Settings dialog quá dài, 7 providers trong 1 scroll
 **Cách sửa:**
-- [ ] Tách thành tabs: "OpenAI" | "Anthropic" | "Gemini" | "Khác"
-- [ ] Mỗi tab chỉ hiện fields cho provider đó
-- [ ] Thêm "Test Connection" button cho mỗi provider
+- [x] Tách thành tabs: "OpenAI" | "Anthropic" | "Gemini" | "Khác"
+- [x] Mỗi tab chỉ hiện fields cho provider đó
+- [x] Thêm "Test Connection" button cho mỗi provider
 
 ---
 
@@ -262,8 +262,8 @@ def contextMenuEvent(self, event):
 **File:** `app/actions/annotate.py`
 **Vấn đề:** Annotations trong queue chưa flush → user đóng file → mất
 **Cách sửa:**
-- [ ] Trong `_AnnotationOpQueue.flush()`: nếu fail, hiện warning rõ ràng
-- [ ] Thêm `_has_pending_annotations()` check trước khi đóng file
+- [x] Trong `_AnnotationOpQueue.flush()`: nếu fail, hiện warning rõ ràng
+- [x] Thêm `_has_pending_annotations()` check trước khi đóng file
 
 ---
 
@@ -272,8 +272,8 @@ def contextMenuEvent(self, event):
 **File:** `app/window.py` (zoom handlers)
 **Vấn đề:** Ctrl+Scroll zoom về góc trái trên
 **Cách sửa:**
-- [ ] Lấy cursor position trước khi zoom
-- [ ] Sau zoom, scroll để cursor position giữ nguyên
+- [x] Lấy cursor position trước khi zoom
+- [x] Sau zoom, scroll để cursor position giữ nguyên
 
 ---
 
@@ -283,8 +283,8 @@ def contextMenuEvent(self, event):
 **Vấn đề:** Cả 3 nút dùng cùng `highlight.svg`, chỉ khác màu (vàng/xanh/đỏ) — ở 28px rất khó phân biệt
 **So sánh:** Foxit dùng icon khác nhau cho mỗi tool
 **Cách sửa:**
-- [ ] Tạo `underline.svg`, `strikeout.svg` riêng biệt
-- [ ] Hoặc thêm text label rõ ràng hơn
+- [x] Tạo `underline.svg`, `strikeout.svg` riêng biệt
+- [x] Hoặc thêm text label rõ ràng hơn
 
 ---
 
@@ -294,8 +294,8 @@ def contextMenuEvent(self, event):
 **Vấn đề:** Highlight, underline, strikeout, insert text, insert image không có phím tắt
 **So sánh:** Acrobat có Ctrl+U cho underline
 **Cách sửa:**
-- [ ] Ctrl+Alt+H (highlight), Ctrl+Alt+U (underline), Ctrl+Alt+K (strikeout)
-- [ ] Hiển thị shortcut trong tooltip
+- [x] Ctrl+Alt+H (highlight), Ctrl+Alt+U (underline), Ctrl+Alt+K (strikeout)
+- [x] Hiển thị shortcut trong tooltip
 
 ---
 
@@ -304,8 +304,8 @@ def contextMenuEvent(self, event):
 **File:** `app/actions/edit.py:1101`
 **Vấn đề:** Button nói "Lưu thay đổi" ngay cả khi tạo text mới
 **Cách sửa:**
-- [ ] Truyền `is_edit` flag vào dialog
-- [ ] "Chèn văn bản" khi tạo mới, "Lưu thay đổi" khi edit
+- [x] Truyền `is_edit` flag vào dialog
+- [x] "Chèn văn bản" khi tạo mới, "Lưu thay đổi" khi edit
 
 ---
 
@@ -314,8 +314,8 @@ def contextMenuEvent(self, event):
 **File:** `app/pdf_inline_editor.py:92-103`
 **Vấn đề:** Panel hardcode dark theme — user light theme thấy panel đen trên nền trắng
 **Cách sửa:**
-- [ ] Thêm light theme styles
-- [ ] Detect `is_dark()` và apply phù hợp
+- [x] Thêm light theme styles
+- [x] Detect `is_dark()` và apply phù hợp
 
 ---
 
@@ -324,7 +324,7 @@ def contextMenuEvent(self, event):
 **File:** `app/signature_pad.py:34`
 **Vấn đề:** Pen size cố định 2px, không có slider — chữ ký quá mỏng
 **Cách sửa:**
-- [ ] Thêm pen size slider (1-10) vào SignaturePadDialog
+- [x] Thêm pen size slider (1-10) vào SignaturePadDialog
 
 ---
 
@@ -333,7 +333,7 @@ def contextMenuEvent(self, event):
 **File:** `app/sidebar.py:341`
 **Vấn đề:** `expandAll()` mở tất cả — PDF outline sâu sẽ rất dài
 **Cách sửa:**
-- [ ] Chỉ expand level 1, collapse sâu hơn
+- [x] Chỉ expand level 1, collapse sâu hơn
 
 ---
 
@@ -342,7 +342,7 @@ def contextMenuEvent(self, event):
 **File:** `app/ai_chat_dialog.py:136`
 **Vấn đề:** Dialog nổi trên tất cả apps
 **Cách sửa:**
-- [ ] Bỏ WindowStaysOnTopHint, hoặc thêm toggle
+- [x] Bỏ WindowStaysOnTopHint, hoặc thêm toggle
 
 ---
 
@@ -351,7 +351,7 @@ def contextMenuEvent(self, event):
 **File:** `app/window.py:681`
 **Vấn đề:** Label "Xóa obj" — user không hiểu
 **Cách sửa:**
-- [ ] Đổi thành "Xóa đối tượng"
+- [x] Đổi thành "Xóa đối tượng"
 
 ---
 
@@ -360,40 +360,40 @@ def contextMenuEvent(self, event):
 **File:** `app/actions/edit.py:1267-1270`
 **Vấn đề:** Tự expand vùng quá nhỏ mà không告知 user
 **Cách sửa:**
-- [ ] Hiện toast: "Vùng quá nhỏ, đã tự động mở rộng"
+- [x] Hiện toast: "Vùng quá nhỏ, đã tự động mở rộng"
 
 ---
 
 ## ƯU TIÊN THỰC HIỆN
 
 ### Tuần 1 — P0 blockers
-- [ ] FIX 1: Selection loss
-- [ ] FIX 2: Unsaved changes confirmation
+- [x] FIX 1: Selection loss
+- [x] FIX 2: Unsaved changes confirmation
 
 ### Tuần 2 — P1 critical
-- [ ] FIX 3: Error messages có dấu
-- [ ] FIX 4: Overlay hint text
-- [ ] FIX 5: Signature undo + smoothing
+- [x] FIX 3: Error messages có dấu
+- [x] FIX 4: Overlay hint text
+- [x] FIX 5: Signature undo + smoothing
 
 ### Tuần 3 — P1 important
-- [ ] FIX 6: Highlight color picker
-- [ ] FIX 9: Annotation list panel
-- [ ] FIX 10: AI settings refactor
-- [ ] FIX 13: Distinct icons for highlight/underline/strikeout
-- [ ] FIX 14: Keyboard shortcuts for annotation tools
-- [ ] FIX 15: Text edit dialog button label
-- [ ] FIX 16: InlineEditPanel light theme
-- [ ] FIX 17: Signature pen size control
+- [x] FIX 6: Highlight color picker
+- [x] FIX 9: Annotation list panel
+- [x] FIX 10: AI settings refactor
+- [x] FIX 13: Distinct icons for highlight/underline/strikeout
+- [x] FIX 14: Keyboard shortcuts for annotation tools
+- [x] FIX 15: Text edit dialog button label
+- [x] FIX 16: InlineEditPanel light theme
+- [x] FIX 17: Signature pen size control
 
 ### Tuần 4 — P2 polish
-- [ ] FIX 7: Thumbnail quality
-- [ ] FIX 8: Page context menu
-- [ ] FIX 11: Unsaved annotation warning
-- [ ] FIX 12: Zoom centered on cursor
-- [ ] FIX 18: Bookmark expand behavior
-- [ ] FIX 19: AI Chat stays-on-top
-- [ ] FIX 20: "Xóa obj" label
-- [ ] FIX 21: Minimum box enforcement feedback
+- [x] FIX 7: Thumbnail quality
+- [x] FIX 8: Page context menu
+- [x] FIX 11: Unsaved annotation warning
+- [x] FIX 12: Zoom centered on cursor
+- [x] FIX 18: Bookmark expand behavior
+- [x] FIX 19: AI Chat stays-on-top
+- [x] FIX 20: "Xóa obj" label
+- [x] FIX 21: Minimum box enforcement feedback
 
 ---
 

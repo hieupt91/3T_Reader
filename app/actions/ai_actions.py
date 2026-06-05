@@ -69,6 +69,7 @@ def open_ai_settings(window):
     from packages.qt_compat.QtWidgets import (
         QDialog, QVBoxLayout, QHBoxLayout, QLabel,
         QLineEdit, QPushButton, QFrame, QComboBox, QScrollArea, QWidget,
+        QTabWidget,
     )
     from packages.qt_compat.QtCore import Qt, QTimer
     from styles.theme import is_dark
@@ -216,61 +217,108 @@ def open_ai_settings(window):
     hint_provider.setObjectName("hint")
     root.addWidget(hint_provider)
 
+    tabs = QTabWidget()
+    tab_anthropic = QWidget()
+    tab_openai = QWidget()
+    tab_gemini = QWidget()
+    tab_other = QWidget()
+    tab_ollama = QWidget()
+    anthropic_root = QVBoxLayout(tab_anthropic)
+    openai_root = QVBoxLayout(tab_openai)
+    gemini_root = QVBoxLayout(tab_gemini)
+    other_root = QVBoxLayout(tab_other)
+    ollama_root = QVBoxLayout(tab_ollama)
+    for tab_root in (anthropic_root, openai_root, gemini_root, other_root, ollama_root):
+        tab_root.setContentsMargins(10, 10, 10, 10)
+        tab_root.setSpacing(8)
+    tabs.addTab(tab_anthropic, "Anthropic")
+    tabs.addTab(tab_openai, "OpenAI")
+    tabs.addTab(tab_gemini, "Gemini")
+    tabs.addTab(tab_other, "Khác")
+    tabs.addTab(tab_ollama, "Ollama")
+    root.addWidget(tabs)
+
+    def _add_key_test(tab_root, field, provider_name: str, *, model_field=None):
+        row = QHBoxLayout()
+        row.addStretch()
+        btn = QPushButton("Kiểm tra kết nối")
+        btn.setObjectName("btn_test")
+
+        def _test():
+            key_ok = bool(field.text().strip())
+            model_ok = True if model_field is None else bool(model_field.text().strip())
+            if key_ok and model_ok:
+                lbl_status.setText(f"{provider_name}: cấu hình tối thiểu đã sẵn sàng.")
+                lbl_status.setStyleSheet("color:#166534;font-size:12px;")
+            elif not key_ok:
+                lbl_status.setText(f"{provider_name}: chưa nhập API key/token.")
+                lbl_status.setStyleSheet("color:#b45309;font-size:12px;")
+            else:
+                lbl_status.setText(f"{provider_name}: chưa nhập model.")
+                lbl_status.setStyleSheet("color:#b45309;font-size:12px;")
+
+        btn.clicked.connect(_test)
+        row.addWidget(btn)
+        tab_root.addLayout(row)
+
     # Anthropic API key
     lbl_anthropic = QLabel(_t("ai.settings.anthropic", "Anthropic API Key (Claude — ưu tiên 1):"))
     lbl_anthropic.setObjectName("lbl")
-    root.addWidget(lbl_anthropic)
+    anthropic_root.addWidget(lbl_anthropic)
 
     edit_anthropic = QLineEdit()
     edit_anthropic.setPlaceholderText("sk-ant-…")
     edit_anthropic.setEchoMode(QLineEdit.EchoMode.Password)
     edit_anthropic.setText(os.environ.get("ANTHROPIC_API_KEY", ""))
-    root.addWidget(edit_anthropic)
+    anthropic_root.addWidget(edit_anthropic)
 
     hint_anthropic = QLabel(_t("ai.settings.anthropic_hint", "Lấy key tại: console.anthropic.com"))
     hint_anthropic.setObjectName("hint")
-    root.addWidget(hint_anthropic)
+    anthropic_root.addWidget(hint_anthropic)
+    _add_key_test(anthropic_root, edit_anthropic, "Anthropic")
 
     # OpenAI API key
     lbl_openai = QLabel(_t("ai.settings.openai", "OpenAI API Key (GPT — ưu tiên 2):"))
     lbl_openai.setObjectName("lbl")
-    root.addWidget(lbl_openai)
+    openai_root.addWidget(lbl_openai)
 
     edit_openai = QLineEdit()
     edit_openai.setPlaceholderText("sk-…")
     edit_openai.setEchoMode(QLineEdit.EchoMode.Password)
     edit_openai.setText(os.environ.get("OPENAI_API_KEY", ""))
-    root.addWidget(edit_openai)
+    openai_root.addWidget(edit_openai)
 
     hint_openai = QLabel(_t("ai.settings.openai_hint", "Lấy key tại: platform.openai.com"))
     hint_openai.setObjectName("hint")
-    root.addWidget(hint_openai)
+    openai_root.addWidget(hint_openai)
+    _add_key_test(openai_root, edit_openai, "OpenAI")
 
     # Gemini
     lbl_gemini = QLabel(_t("ai.settings.gemini", "Google Gemini API Key:"))
     lbl_gemini.setObjectName("lbl")
-    root.addWidget(lbl_gemini)
+    gemini_root.addWidget(lbl_gemini)
 
     edit_gemini = QLineEdit()
     edit_gemini.setPlaceholderText("AIza...")
     edit_gemini.setEchoMode(QLineEdit.EchoMode.Password)
     edit_gemini.setText(os.environ.get("GEMINI_API_KEY", ""))
-    root.addWidget(edit_gemini)
+    gemini_root.addWidget(edit_gemini)
 
     hint_gemini = QLabel(_t("ai.settings.gemini_hint", "Lấy key tại: ai.google.dev"))
     hint_gemini.setObjectName("hint")
-    root.addWidget(hint_gemini)
+    gemini_root.addWidget(hint_gemini)
+    _add_key_test(gemini_root, edit_gemini, "Gemini")
 
     # Groq
     lbl_groq = QLabel(_t("ai.settings.groq", "Groq API Key:"))
     lbl_groq.setObjectName("lbl")
-    root.addWidget(lbl_groq)
+    other_root.addWidget(lbl_groq)
 
     edit_groq_key = QLineEdit()
     edit_groq_key.setPlaceholderText("gsk_...")
     edit_groq_key.setEchoMode(QLineEdit.EchoMode.Password)
     edit_groq_key.setText(os.environ.get("GROQ_API_KEY", ""))
-    root.addWidget(edit_groq_key)
+    other_root.addWidget(edit_groq_key)
 
     row_groq = QHBoxLayout(); row_groq.setSpacing(8)
     edit_groq_model = QLineEdit()
@@ -281,22 +329,23 @@ def open_ai_settings(window):
     edit_groq_base.setPlaceholderText("https://api.groq.com/openai/v1")
     edit_groq_base.setText(os.environ.get("GROQ_BASE_URL", ""))
     row_groq.addWidget(edit_groq_base, 1)
-    root.addLayout(row_groq)
+    other_root.addLayout(row_groq)
 
     hint_groq = QLabel(_t("ai.settings.groq_hint", "Groq dùng OpenAI-compatible API, có thể đổi model/base URL nếu cần."))
     hint_groq.setObjectName("hint")
-    root.addWidget(hint_groq)
+    other_root.addWidget(hint_groq)
+    _add_key_test(other_root, edit_groq_key, "Groq", model_field=edit_groq_model)
 
     # OpenRouter
     lbl_openrouter = QLabel(_t("ai.settings.openrouter", "OpenRouter API Key:"))
     lbl_openrouter.setObjectName("lbl")
-    root.addWidget(lbl_openrouter)
+    other_root.addWidget(lbl_openrouter)
 
     edit_openrouter_key = QLineEdit()
     edit_openrouter_key.setPlaceholderText("sk-or-v1-...")
     edit_openrouter_key.setEchoMode(QLineEdit.EchoMode.Password)
     edit_openrouter_key.setText(os.environ.get("OPENROUTER_API_KEY", ""))
-    root.addWidget(edit_openrouter_key)
+    other_root.addWidget(edit_openrouter_key)
 
     row_openrouter = QHBoxLayout(); row_openrouter.setSpacing(8)
     edit_openrouter_model = QLineEdit()
@@ -307,7 +356,7 @@ def open_ai_settings(window):
     edit_openrouter_base.setPlaceholderText("https://openrouter.ai/api/v1")
     edit_openrouter_base.setText(os.environ.get("OPENROUTER_BASE_URL", ""))
     row_openrouter.addWidget(edit_openrouter_base, 1)
-    root.addLayout(row_openrouter)
+    other_root.addLayout(row_openrouter)
 
     row_openrouter_meta = QHBoxLayout(); row_openrouter_meta.setSpacing(8)
     edit_openrouter_ref = QLineEdit()
@@ -318,41 +367,43 @@ def open_ai_settings(window):
     edit_openrouter_name.setPlaceholderText("X-Title")
     edit_openrouter_name.setText(os.environ.get("OPENROUTER_APP_NAME", ""))
     row_openrouter_meta.addWidget(edit_openrouter_name, 1)
-    root.addLayout(row_openrouter_meta)
+    other_root.addLayout(row_openrouter_meta)
 
     hint_openrouter = QLabel(_t("ai.settings.openrouter_hint", "OpenRouter cần key + model; nên giữ referer/app name để tránh bị chặn."))
     hint_openrouter.setObjectName("hint")
-    root.addWidget(hint_openrouter)
+    other_root.addWidget(hint_openrouter)
+    _add_key_test(other_root, edit_openrouter_key, "OpenRouter", model_field=edit_openrouter_model)
 
     # HuggingFace
     lbl_hf = QLabel(_t("ai.settings.hf", "HuggingFace API Token:"))
     lbl_hf.setObjectName("lbl")
-    root.addWidget(lbl_hf)
+    other_root.addWidget(lbl_hf)
 
     edit_hf_key = QLineEdit()
     edit_hf_key.setPlaceholderText("hf_...")
     edit_hf_key.setEchoMode(QLineEdit.EchoMode.Password)
     edit_hf_key.setText(os.environ.get("HF_API_KEY", ""))
-    root.addWidget(edit_hf_key)
+    other_root.addWidget(edit_hf_key)
 
     row_hf = QHBoxLayout(); row_hf.setSpacing(8)
     edit_hf_model = QLineEdit()
     edit_hf_model.setPlaceholderText("Qwen/Qwen2.5-7B-Instruct")
     edit_hf_model.setText(os.environ.get("HF_MODEL", ""))
     row_hf.addWidget(edit_hf_model, 1)
-    root.addLayout(row_hf)
+    other_root.addLayout(row_hf)
 
     hint_hf = QLabel(_t("ai.settings.hf_hint", "HuggingFace Inference API có thể dùng khi cần thêm fallback miễn phí."))
     hint_hf.setObjectName("hint")
-    root.addWidget(hint_hf)
+    other_root.addWidget(hint_hf)
+    _add_key_test(other_root, edit_hf_key, "HuggingFace", model_field=edit_hf_model)
 
     div2 = QFrame(); div2.setObjectName("divider"); div2.setFixedHeight(1)
-    root.addWidget(div2)
+    other_root.addStretch(1)
 
     # Ollama (offline local LLM)
     lbl_ollama = QLabel(_t("ai.settings.ollama", "Ollama — AI offline/nội bộ (ưu tiên 3, không cần internet):"))
     lbl_ollama.setObjectName("lbl")
-    root.addWidget(lbl_ollama)
+    ollama_root.addWidget(lbl_ollama)
 
     row_ollama = QHBoxLayout(); row_ollama.setSpacing(8)
     edit_ollama_url = QLineEdit()
@@ -385,20 +436,20 @@ def open_ai_settings(window):
     btn_test_ollama.clicked.connect(_test_ollama)
     row_ollama.addWidget(btn_test_ollama)
     row_ollama.addWidget(lbl_ollama_status)
-    root.addLayout(row_ollama)
+    ollama_root.addLayout(row_ollama)
 
     lbl_ollama_model = QLabel(_t("ai.settings.ollama_model", "Model Ollama:"))
     lbl_ollama_model.setObjectName("lbl")
-    root.addWidget(lbl_ollama_model)
+    ollama_root.addWidget(lbl_ollama_model)
 
     edit_ollama_model = QLineEdit()
     edit_ollama_model.setPlaceholderText("llama3")
     edit_ollama_model.setText(os.environ.get("OLLAMA_MODEL", ""))
-    root.addWidget(edit_ollama_model)
+    ollama_root.addWidget(edit_ollama_model)
 
     hint_ollama = QLabel(_t("ai.settings.ollama_hint", "Cài Ollama tại ollama.com  •  Gõ: ollama pull llama3  •  Tự động phát hiện khi khởi động app"))
     hint_ollama.setObjectName("hint")
-    root.addWidget(hint_ollama)
+    ollama_root.addWidget(hint_ollama)
 
     div3 = QFrame(); div3.setObjectName("divider"); div3.setFixedHeight(1)
     root.addWidget(div3)

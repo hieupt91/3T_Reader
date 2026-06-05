@@ -13,10 +13,11 @@ class ThumbnailLoader(QThread):
     thumbnailReady = pyqtSignal(int, QImage)
     finishedLoading = pyqtSignal()
 
-    def __init__(self, pdf_path: str, page_numbers: list[int]):
+    def __init__(self, pdf_path: str, page_numbers: list[int], render_scale: float = 0.45):
         super().__init__()
         self.pdf_path = pdf_path
         self.page_numbers = page_numbers
+        self.render_scale = max(0.3, min(0.9, float(render_scale)))
 
     def run(self):
         try:
@@ -29,7 +30,7 @@ class ThumbnailLoader(QThread):
             for page_number in self.page_numbers:
                 if self.isInterruptionRequested():
                     break
-                rendered = doc.render_page_rgb(page_number, scale=0.45)
+                rendered = doc.render_page_rgb(page_number, scale=self.render_scale)
                 image = QImage(
                     rendered.samples,
                     rendered.width,
@@ -82,6 +83,7 @@ class ThumbnailSidebar(QDockWidget):
         """)
         self.setWidget(self.list)
         self._on_click = None
+        self._context_actions = {}
         self._pdf_path = None
         self._page_count = 0
         self._loaded_pages = set()
@@ -105,6 +107,13 @@ class ThumbnailSidebar(QDockWidget):
         self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self._show_context_menu)
 
+    def _thumbnail_render_scale(self) -> float:
+        try:
+            dpr = float(self.list.devicePixelRatioF())
+        except Exception:
+            dpr = 1.0
+        return max(0.45, min(0.9, 0.45 * dpr))
+
     def _handle_click(self, item):
         if self._on_click:
             self._on_click(self.list.row(item) + 1)
@@ -117,16 +126,34 @@ class ThumbnailSidebar(QDockWidget):
         menu = QMenu(self)
         act_goto = menu.addAction(f"Đi tới trang {page_number}")
         act_reload = menu.addAction("Tải lại thumbnail")
+        menu.addSeparator()
+        act_rotate = menu.addAction("Xoay trang")
+        act_delete = menu.addAction("Xóa trang")
+        act_extract = menu.addAction("Trích xuất trang")
+        act_insert_after = menu.addAction("Chèn trang sau")
+        extra_actions = {
+            act_rotate: "rotate",
+            act_delete: "delete",
+            act_extract: "extract",
+            act_insert_after: "insert_after",
+        }
+        for action, key in extra_actions.items():
+            action.setEnabled(callable(self._context_actions.get(key)))
         chosen = menu.exec(self.list.viewport().mapToGlobal(pos))
         if chosen == act_goto and self._on_click:
             self._on_click(page_number)
         elif chosen == act_reload:
             self._loaded_pages.discard(page_number)
             self._start_loader([page_number])
+        elif chosen in extra_actions:
+            callback = self._context_actions.get(extra_actions[chosen])
+            if callable(callback):
+                callback(page_number)
 
-    def load_thumbnails(self, pdf_path: str, on_click):
+    def load_thumbnails(self, pdf_path: str, on_click, context_actions: dict | None = None):
         if self._pdf_path == pdf_path and self.list.count() > 0:
             self._on_click = on_click
+            self._context_actions = context_actions or {}
             self._schedule_visible_load()
             return
 
@@ -134,6 +161,7 @@ class ThumbnailSidebar(QDockWidget):
         self._populate_token = self._load_token
         self.list.clear()
         self._on_click = on_click
+        self._context_actions = context_actions or {}
         self._pdf_path = pdf_path
         self._loaded_pages.clear()
         self._requested_pages = []
@@ -218,7 +246,7 @@ class ThumbnailSidebar(QDockWidget):
 
         current_token = self._load_token
         pdf_path = self._pdf_path
-        self._loader = ThumbnailLoader(self._pdf_path, page_numbers)
+        self._loader = ThumbnailLoader(self._pdf_path, page_numbers, self._thumbnail_render_scale())
         self._loader.thumbnailReady.connect(
             lambda page_number, image, token=current_token, path=pdf_path: self._append_thumbnail(token, path, page_number, image)
         )

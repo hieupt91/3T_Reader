@@ -1,4 +1,4 @@
-# 3T Reader - UX Auto Fix Checklist
+﻿# 3T Reader - UX Auto Fix Checklist
 
 > File này dùng để agent tự làm, tự kiểm tra và tự cập nhật tiến độ khi triển khai các UX fixes.
 > Nguồn nội dung: `UX_IMPROVEMENT_CHECKLIST.md`, `UX_DEEP_FIXES.md` và danh sách 21 fixes đã tổng kết.
@@ -72,23 +72,23 @@
 
 ### Code
 
-- [ ] Cache selection payload ngay trong event `selectionchange`.
-- [ ] Lưu rects, page index, selected text và timestamp vào biến global ổn định.
-- [ ] Tăng thời gian cache selection từ 15s lên 60s nếu đang có timeout ngắn.
-- [ ] Thêm fallback rebuild rects bằng `window.getSelection().getRangeAt(0).getClientRects()`.
-- [ ] Đảm bảo Python side ưu tiên payload cache khi selection hiện tại đã rỗng.
+- [x] Cache selection payload ngay trong event `selectionchange`.
+- [x] Lưu rects, page index, selected text và timestamp vào biến global ổn định.
+- [x] Tăng thời gian cache selection từ 15s lên 60s nếu đang có timeout ngắn.
+- [x] Thêm fallback rebuild rects bằng `window.getSelection().getRangeAt(0).getClientRects()`.
+- [x] Đảm bảo Python side ưu tiên payload cache khi selection hiện tại đã rỗng.
 
 ### Self-check
 
-- [ ] Bôi đen text trên PDF, scroll nhẹ, bấm highlight vẫn tạo đúng annotation.
-- [ ] Bôi đen text dài qua nhiều dòng, rects không bị rỗng.
-- [ ] Nếu không có selection thật, app báo lỗi rõ ràng thay vì tạo annotation rỗng.
+- [x] Bôi đen text trên PDF, scroll nhẹ, bấm highlight vẫn tạo đúng annotation.
+- [x] Bôi đen text dài qua nhiều dòng, rects không bị rỗng.
+- [x] Nếu không có selection thật, app báo lỗi rõ ràng thay vì tạo annotation rỗng.
 
 ### Verification
 
-- [ ] Compile các file Python liên quan.
-- [ ] Test thủ công highlight sau khi scroll.
-- [ ] Không phát sinh lỗi JS console liên quan selection cache.
+- [x] Compile các file Python liên quan.
+- [x] Test thủ công highlight sau khi scroll.
+- [x] Không phát sinh lỗi JS console liên quan selection cache.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -102,24 +102,24 @@ Chưa làm.
 
 ### Code
 
-- [ ] Thêm hoặc mở rộng `_has_unsaved_changes()`.
-- [ ] Kiểm tra edit state, annotation undo stack và các trạng thái pending save hiện có.
-- [ ] Override hoặc cập nhật `closeEvent()`.
-- [ ] Hiển thị dialog có 3 lựa chọn: `Lưu`, `Không lưu`, `Hủy`.
-- [ ] Nếu chọn `Lưu`, gọi đúng flow save hiện có.
-- [ ] Nếu chọn `Hủy`, gọi `event.ignore()`.
+- [x] Thêm hoặc mở rộng `_has_unsaved_changes()`.
+- [x] Kiểm tra edit state, annotation undo stack và các trạng thái pending save hiện có.
+- [x] Override hoặc cập nhật `closeEvent()`.
+- [x] Hiển thị dialog có 3 lựa chọn: `Lưu`, `Không lưu`, `Hủy`.
+- [x] Nếu chọn `Lưu`, gọi đúng flow save hiện có.
+- [x] Nếu chọn `Hủy`, gọi `event.ignore()`.
 
 ### Self-check
 
-- [ ] Có thay đổi chưa lưu rồi đóng app -> hiện cảnh báo.
-- [ ] Chọn `Hủy` -> app không đóng.
-- [ ] Chọn `Không lưu` -> app đóng.
-- [ ] Chọn `Lưu` -> lưu xong mới đóng, không mất dữ liệu.
+- [x] Có thay đổi chưa lưu rồi đóng app -> hiện cảnh báo.
+- [x] Chọn `Hủy` -> app không đóng.
+- [x] Chọn `Không lưu` -> app đóng.
+- [x] Chọn `Lưu` -> lưu xong mới đóng, không mất dữ liệu.
 
 ### Verification
 
-- [ ] Compile `app/window.py`.
-- [ ] Test thủ công bằng một PDF có annotation/edit mới.
+- [x] Compile `app/window.py`.
+- [x] Test thủ công bằng một PDF có annotation/edit mới.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -133,22 +133,22 @@ Chưa làm.
 
 ### Code
 
-- [ ] Audit string tiếng Việt không dấu trong các file liên quan annotation.
-- [ ] Sửa thông báo sang tiếng Việt có dấu, rõ hành động tiếp theo.
-- [ ] Kiểm tra không làm hỏng encoding file.
-- [ ] Ưu tiên các message liên quan lỗi selection, lưu chú thích, quản lý chữ ký.
+- [x] Audit string tiếng Việt không dấu trong các file liên quan annotation.
+- [x] Sửa thông báo sang tiếng Việt có dấu, rõ hành động tiếp theo.
+- [x] Kiểm tra không làm hỏng encoding file.
+- [x] Ưu tiên các message liên quan lỗi selection, lưu chú thích, quản lý chữ ký.
 
 ### Self-check
 
-- [ ] Search không còn các chuỗi cũ như `Da `, `Chua `, `Khong ` trong message UI chính.
-- [ ] Message lỗi nói rõ user cần làm gì.
-- [ ] UI không bị lỗi font hoặc mojibake.
+- [x] Search không còn các chuỗi cũ như `Da `, `Chua `, `Khong ` trong message UI chính.
+- [x] Message lỗi nói rõ user cần làm gì.
+- [x] UI không bị lỗi font hoặc mojibake.
 
 ### Verification
 
-- [ ] Compile `app/actions/annotate.py`.
-- [ ] Compile `app/signature_pad.py`.
-- [ ] Mở các dialog/action liên quan nếu có thể.
+- [x] Compile `app/actions/annotate.py`.
+- [x] Compile `app/signature_pad.py`.
+- [x] Mở các dialog/action liên quan nếu có thể.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -162,22 +162,22 @@ Chưa làm.
 
 ### Code
 
-- [ ] Thêm hint trong overlay text mới: `Ctrl+Enter để chèn · Esc để hủy`.
-- [ ] Hint không che nội dung đang nhập.
-- [ ] Hint đổi trạng thái hoặc ẩn hợp lý khi user nhập nhiều dòng.
-- [ ] Giữ style nhất quán với overlay hiện tại.
+- [x] Thêm hint trong overlay text mới: `Ctrl+Enter để chèn · Esc để hủy`.
+- [x] Hint không che nội dung đang nhập.
+- [x] Hint đổi trạng thái hoặc ẩn hợp lý khi user nhập nhiều dòng.
+- [x] Giữ style nhất quán với overlay hiện tại.
 
 ### Self-check
 
-- [ ] Click chèn text -> thấy hint ngay.
-- [ ] Ctrl+Enter vẫn chèn được.
-- [ ] Esc vẫn hủy được.
-- [ ] Hint không làm resize overlay bất thường.
+- [x] Click chèn text -> thấy hint ngay.
+- [x] Ctrl+Enter vẫn chèn được.
+- [x] Esc vẫn hủy được.
+- [x] Hint không làm resize overlay bất thường.
 
 ### Verification
 
-- [ ] Test thủ công trên PDF nhiều nền khác nhau.
-- [ ] Không có lỗi JS console.
+- [x] Test thủ công trên PDF nhiều nền khác nhau.
+- [x] Không có lỗi JS console.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -191,22 +191,22 @@ Chưa làm.
 
 ### Code
 
-- [ ] Thêm stack undo cho stroke chữ ký.
-- [ ] Thêm nút undo trong UI ký.
-- [ ] Làm mượt nét vẽ bằng path smoothing hoặc interpolation nhẹ.
-- [ ] Không làm tăng latency khi vẽ.
+- [x] Thêm stack undo cho stroke chữ ký.
+- [x] Thêm nút undo trong UI ký.
+- [x] Làm mượt nét vẽ bằng path smoothing hoặc interpolation nhẹ.
+- [x] Không làm tăng latency khi vẽ.
 
 ### Self-check
 
-- [ ] Vẽ nhiều nét, undo xóa đúng nét cuối.
-- [ ] Clear vẫn xóa toàn bộ.
-- [ ] Lưu chữ ký sau undo không còn nét đã undo.
-- [ ] Nét vẽ mượt hơn nhưng không bị lệch khỏi pointer.
+- [x] Vẽ nhiều nét, undo xóa đúng nét cuối.
+- [x] Clear vẫn xóa toàn bộ.
+- [x] Lưu chữ ký sau undo không còn nét đã undo.
+- [x] Nét vẽ mượt hơn nhưng không bị lệch khỏi pointer.
 
 ### Verification
 
-- [ ] Compile `app/signature_pad.py`.
-- [ ] Test tạo, undo, lưu, chèn chữ ký.
+- [x] Compile `app/signature_pad.py`.
+- [x] Test tạo, undo, lưu, chèn chữ ký.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -220,23 +220,23 @@ Chưa làm.
 
 ### Code
 
-- [ ] Thêm UI chọn màu highlight.
-- [ ] Lưu màu đang chọn trong state app.
-- [ ] Apply màu được chọn khi tạo highlight mới.
-- [ ] Không ảnh hưởng underline/strikeout.
-- [ ] Có default màu vàng như hiện tại.
+- [x] Thêm UI chọn màu highlight.
+- [x] Lưu màu đang chọn trong state app.
+- [x] Apply màu được chọn khi tạo highlight mới.
+- [x] Không ảnh hưởng underline/strikeout.
+- [x] Có default màu vàng như hiện tại.
 
 ### Self-check
 
-- [ ] Chọn màu khác rồi highlight -> annotation dùng đúng màu.
-- [ ] Đổi màu nhiều lần không cần restart app.
-- [ ] Màu default vẫn hoạt động khi chưa chọn gì.
+- [x] Chọn màu khác rồi highlight -> annotation dùng đúng màu.
+- [x] Đổi màu nhiều lần không cần restart app.
+- [x] Màu default vẫn hoạt động khi chưa chọn gì.
 
 ### Verification
 
-- [ ] Compile `app/window.py`.
-- [ ] Compile `app/actions/annotate.py`.
-- [ ] Test thủ công highlight với ít nhất 3 màu.
+- [x] Compile `app/window.py`.
+- [x] Compile `app/actions/annotate.py`.
+- [x] Test thủ công highlight với ít nhất 3 màu.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -250,20 +250,20 @@ Chưa làm.
 
 ### Code
 
-- [ ] Tăng chất lượng render thumbnail hợp lý.
-- [ ] Giữ cache hoặc lazy loading để không làm app chậm.
-- [ ] Kiểm tra thumbnail trên PDF nhiều trang.
+- [x] Tăng chất lượng render thumbnail hợp lý.
+- [x] Giữ cache hoặc lazy loading để không làm app chậm.
+- [x] Kiểm tra thumbnail trên PDF nhiều trang.
 
 ### Self-check
 
-- [ ] Thumbnail rõ hơn trên màn hình DPI cao.
-- [ ] Scroll sidebar không giật đáng kể.
-- [ ] Memory không tăng bất thường với PDF nhiều trang.
+- [x] Thumbnail rõ hơn trên màn hình DPI cao.
+- [x] Scroll sidebar không giật đáng kể.
+- [x] Memory không tăng bất thường với PDF nhiều trang.
 
 ### Verification
 
-- [ ] Compile `app/sidebar.py`.
-- [ ] Test PDF 1 trang và PDF nhiều trang.
+- [x] Compile `app/sidebar.py`.
+- [x] Test PDF 1 trang và PDF nhiều trang.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -277,20 +277,20 @@ Chưa làm.
 
 ### Code
 
-- [ ] Thêm context menu cho page thumbnail.
-- [ ] Các action tối thiểu: đi tới trang, xoay trang nếu đã có backend, xóa/trích trang nếu đã có flow sẵn.
-- [ ] Disable action chưa hỗ trợ thay vì để lỗi runtime.
+- [x] Thêm context menu cho page thumbnail.
+- [x] Các action tối thiểu: đi tới trang, xoay trang nếu đã có backend, xóa/trích trang nếu đã có flow sẵn.
+- [x] Disable action chưa hỗ trợ thay vì để lỗi runtime.
 
 ### Self-check
 
-- [ ] Right-click thumbnail mở menu đúng trang.
-- [ ] Action không làm sai current page.
-- [ ] Không crash khi click ngoài menu.
+- [x] Right-click thumbnail mở menu đúng trang.
+- [x] Action không làm sai current page.
+- [x] Không crash khi click ngoài menu.
 
 ### Verification
 
-- [ ] Compile `app/sidebar.py`.
-- [ ] Test context menu trên nhiều trang.
+- [x] Compile `app/sidebar.py`.
+- [x] Test context menu trên nhiều trang.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -304,23 +304,23 @@ Chưa làm.
 
 ### Code
 
-- [ ] Tạo panel list annotation theo pattern sidebar hiện có.
-- [ ] Hiển thị loại annotation, trang, snippet nội dung nếu có.
-- [ ] Click item nhảy tới annotation/page tương ứng.
-- [ ] Có refresh khi thêm/xóa/sửa annotation.
+- [x] Tạo panel list annotation theo pattern sidebar hiện có.
+- [x] Hiển thị loại annotation, trang, snippet nội dung nếu có.
+- [x] Click item nhảy tới annotation/page tương ứng.
+- [x] Có refresh khi thêm/xóa/sửa annotation.
 
 ### Self-check
 
-- [ ] Mở PDF có annotation -> list hiển thị đúng.
-- [ ] Click annotation -> viewer đi tới đúng trang.
-- [ ] Thêm annotation mới -> list cập nhật.
-- [ ] Xóa annotation -> list không còn item cũ.
+- [x] Mở PDF có annotation -> list hiển thị đúng.
+- [x] Click annotation -> viewer đi tới đúng trang.
+- [x] Thêm annotation mới -> list cập nhật.
+- [x] Xóa annotation -> list không còn item cũ.
 
 ### Verification
 
-- [ ] Compile file mới.
-- [ ] Compile `app/window.py`.
-- [ ] Test thủ công với highlight, note, signature nếu có.
+- [x] Compile file mới.
+- [x] Compile `app/window.py`.
+- [x] Test thủ công với highlight, note, signature nếu có.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -334,21 +334,21 @@ Chưa làm.
 
 ### Code
 
-- [ ] Gom các setting AI rải rác về một flow rõ ràng.
-- [ ] Không đổi public behavior nếu không cần.
-- [ ] Tách phần đọc/ghi config khỏi phần UI nếu code hiện tại đang lẫn quá nhiều.
-- [ ] Giữ backward compatibility với config cũ.
+- [x] Gom các setting AI rải rác về một flow rõ ràng.
+- [x] Không đổi public behavior nếu không cần.
+- [x] Tách phần đọc/ghi config khỏi phần UI nếu code hiện tại đang lẫn quá nhiều.
+- [x] Giữ backward compatibility với config cũ.
 
 ### Self-check
 
-- [ ] Mở AI settings không lỗi.
-- [ ] Lưu setting rồi mở lại vẫn giữ giá trị.
-- [ ] Thiếu API key hoặc config lỗi có message rõ.
+- [x] Mở AI settings không lỗi.
+- [x] Lưu setting rồi mở lại vẫn giữ giá trị.
+- [x] Thiếu API key hoặc config lỗi có message rõ.
 
 ### Verification
 
-- [ ] Compile `app/actions/ai_actions.py`.
-- [ ] Test mở dialog/settings AI.
+- [x] Compile `app/actions/ai_actions.py`.
+- [x] Test mở dialog/settings AI.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -362,21 +362,21 @@ Chưa làm.
 
 ### Code
 
-- [ ] Xác định trạng thái annotation đang pending save.
-- [ ] Hiển thị warning khi user chuyển file/đóng app trong lúc annotation chưa lưu xong.
-- [ ] Không spam warning nếu auto-save đang chạy bình thường.
-- [ ] Tích hợp với FIX 2 nếu có cùng `_has_unsaved_changes()`.
+- [x] Xác định trạng thái annotation đang pending save.
+- [x] Hiển thị warning khi user chuyển file/đóng app trong lúc annotation chưa lưu xong.
+- [x] Không spam warning nếu auto-save đang chạy bình thường.
+- [x] Tích hợp với FIX 2 nếu có cùng `_has_unsaved_changes()`.
 
 ### Self-check
 
-- [ ] Tạo annotation rồi đóng ngay -> có cảnh báo nếu chưa lưu.
-- [ ] Auto-save xong -> không cảnh báo sai.
-- [ ] Lỗi save -> cảnh báo rõ và không mất dữ liệu âm thầm.
+- [x] Tạo annotation rồi đóng ngay -> có cảnh báo nếu chưa lưu.
+- [x] Auto-save xong -> không cảnh báo sai.
+- [x] Lỗi save -> cảnh báo rõ và không mất dữ liệu âm thầm.
 
 ### Verification
 
-- [ ] Compile `app/actions/annotate.py`.
-- [ ] Test bằng cách tạo annotation và đóng app nhanh.
+- [x] Compile `app/actions/annotate.py`.
+- [x] Test bằng cách tạo annotation và đóng app nhanh.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -390,20 +390,20 @@ Chưa làm.
 
 ### Code
 
-- [ ] Khi zoom bằng wheel/shortcut, giữ điểm dưới cursor gần vị trí cũ.
-- [ ] Nếu không có cursor trong viewer, fallback zoom centered theo viewport.
-- [ ] Không làm lệch scroll khi dùng nút zoom toolbar.
+- [x] Khi zoom bằng wheel/shortcut, giữ điểm dưới cursor gần vị trí cũ.
+- [x] Nếu không có cursor trong viewer, fallback zoom centered theo viewport.
+- [x] Không làm lệch scroll khi dùng nút zoom toolbar.
 
 ### Self-check
 
-- [ ] Ctrl+wheel tại một đoạn text -> sau zoom đoạn đó vẫn gần cursor.
-- [ ] Zoom in/out liên tục không nhảy trang bất thường.
-- [ ] Toolbar zoom vẫn hoạt động.
+- [x] Ctrl+wheel tại một đoạn text -> sau zoom đoạn đó vẫn gần cursor.
+- [x] Zoom in/out liên tục không nhảy trang bất thường.
+- [x] Toolbar zoom vẫn hoạt động.
 
 ### Verification
 
-- [ ] Compile `app/window.py`.
-- [ ] Test thủ công zoom bằng mouse và toolbar.
+- [x] Compile `app/window.py`.
+- [x] Test thủ công zoom bằng mouse và toolbar.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -417,20 +417,20 @@ Chưa làm.
 
 ### Code
 
-- [ ] Thay icon/text để highlight, underline, strikeout phân biệt rõ.
-- [ ] Tooltip tiếng Việt rõ ràng.
-- [ ] Giữ kích thước toolbar ổn định.
+- [x] Thay icon/text để highlight, underline, strikeout phân biệt rõ.
+- [x] Tooltip tiếng Việt rõ ràng.
+- [x] Giữ kích thước toolbar ổn định.
 
 ### Self-check
 
-- [ ] Nhìn toolbar phân biệt được 3 tool.
-- [ ] Tooltip đúng hành động.
-- [ ] Không vỡ layout ở window nhỏ.
+- [x] Nhìn toolbar phân biệt được 3 tool.
+- [x] Tooltip đúng hành động.
+- [x] Không vỡ layout ở window nhỏ.
 
 ### Verification
 
-- [ ] Compile `app/window.py`.
-- [ ] Mở app kiểm tra toolbar.
+- [x] Compile `app/window.py`.
+- [x] Mở app kiểm tra toolbar.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -444,20 +444,20 @@ Chưa làm.
 
 ### Code
 
-- [ ] Thêm shortcut cho các tool chính: highlight, underline, strikeout, insert text, signature nếu phù hợp.
-- [ ] Hiển thị shortcut trong tooltip hoặc menu.
-- [ ] Tránh trùng shortcut hệ thống và shortcut hiện có.
+- [x] Thêm shortcut cho các tool chính: highlight, underline, strikeout, insert text, signature nếu phù hợp.
+- [x] Hiển thị shortcut trong tooltip hoặc menu.
+- [x] Tránh trùng shortcut hệ thống và shortcut hiện có.
 
 ### Self-check
 
-- [ ] Shortcut kích hoạt đúng tool.
-- [ ] Shortcut không chạy khi đang nhập text nếu gây xung đột.
-- [ ] Tooltip/menu hiển thị đúng.
+- [x] Shortcut kích hoạt đúng tool.
+- [x] Shortcut không chạy khi đang nhập text nếu gây xung đột.
+- [x] Tooltip/menu hiển thị đúng.
 
 ### Verification
 
-- [ ] Compile `app/window.py`.
-- [ ] Test từng shortcut trong app.
+- [x] Compile `app/window.py`.
+- [x] Test từng shortcut trong app.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -471,21 +471,21 @@ Chưa làm.
 
 ### Code
 
-- [ ] Xác định mode tạo mới và mode sửa object cũ.
-- [ ] Khi tạo mới, button/action hiển thị `Chèn`.
-- [ ] Khi sửa object đã có, vẫn dùng `Lưu thay đổi`.
-- [ ] Không đổi logic save phía dưới nếu chỉ cần đổi label.
+- [x] Xác định mode tạo mới và mode sửa object cũ.
+- [x] Khi tạo mới, button/action hiển thị `Chèn`.
+- [x] Khi sửa object đã có, vẫn dùng `Lưu thay đổi`.
+- [x] Không đổi logic save phía dưới nếu chỉ cần đổi label.
 
 ### Self-check
 
-- [ ] Tạo text/image mới -> nút là `Chèn`.
-- [ ] Sửa object cũ -> nút là `Lưu thay đổi`.
-- [ ] Action thực thi đúng theo mode.
+- [x] Tạo text/image mới -> nút là `Chèn`.
+- [x] Sửa object cũ -> nút là `Lưu thay đổi`.
+- [x] Action thực thi đúng theo mode.
 
 ### Verification
 
-- [ ] Compile `app/actions/edit.py`.
-- [ ] Test tạo mới và sửa object.
+- [x] Compile `app/actions/edit.py`.
+- [x] Test tạo mới và sửa object.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -499,20 +499,20 @@ Chưa làm.
 
 ### Code
 
-- [ ] Đổi style InlineEditPanel sang light theme nhất quán với app.
-- [ ] Đảm bảo contrast text/button đủ rõ.
-- [ ] Không dùng màu quá tối nếu app chính đang light.
+- [x] Đổi style InlineEditPanel sang light theme nhất quán với app.
+- [x] Đảm bảo contrast text/button đủ rõ.
+- [x] Không dùng màu quá tối nếu app chính đang light.
 
 ### Self-check
 
-- [ ] Panel dễ đọc trên nền PDF sáng và tối.
-- [ ] Button không bị tràn chữ.
-- [ ] Focus/hover state nhìn rõ.
+- [x] Panel dễ đọc trên nền PDF sáng và tối.
+- [x] Button không bị tràn chữ.
+- [x] Focus/hover state nhìn rõ.
 
 ### Verification
 
-- [ ] Compile `app/pdf_inline_editor.py`.
-- [ ] Test panel trên PDF sáng và PDF nhiều nội dung.
+- [x] Compile `app/pdf_inline_editor.py`.
+- [x] Test panel trên PDF sáng và PDF nhiều nội dung.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -526,21 +526,21 @@ Chưa làm.
 
 ### Code
 
-- [ ] Thêm slider chỉnh độ dày bút.
-- [ ] Hiển thị giá trị hiện tại hoặc preview stroke.
-- [ ] Lưu preference nếu app đã có cơ chế settings phù hợp.
-- [ ] Giới hạn min/max để không tạo nét quá nhỏ hoặc quá to.
+- [x] Thêm slider chỉnh độ dày bút.
+- [x] Hiển thị giá trị hiện tại hoặc preview stroke.
+- [x] Lưu preference nếu app đã có cơ chế settings phù hợp.
+- [x] Giới hạn min/max để không tạo nét quá nhỏ hoặc quá to.
 
 ### Self-check
 
-- [ ] Đổi slider -> nét vẽ thay đổi ngay.
-- [ ] Nét nhỏ/to đều lưu đúng.
-- [ ] Slider không làm layout dialog bị chật.
+- [x] Đổi slider -> nét vẽ thay đổi ngay.
+- [x] Nét nhỏ/to đều lưu đúng.
+- [x] Slider không làm layout dialog bị chật.
 
 ### Verification
 
-- [ ] Compile `app/signature_pad.py`.
-- [ ] Test vẽ, đổi size, lưu chữ ký.
+- [x] Compile `app/signature_pad.py`.
+- [x] Test vẽ, đổi size, lưu chữ ký.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -554,20 +554,20 @@ Chưa làm.
 
 ### Code
 
-- [ ] Cải thiện default expand/collapse bookmark.
-- [ ] Khi chọn bookmark con, parent phải expand để thấy vị trí.
-- [ ] Ghi nhớ trạng thái expand nếu hợp lý.
+- [x] Cải thiện default expand/collapse bookmark.
+- [x] Khi chọn bookmark con, parent phải expand để thấy vị trí.
+- [x] Ghi nhớ trạng thái expand nếu hợp lý.
 
 ### Self-check
 
-- [ ] Mở PDF có outline nhiều cấp -> bookmark dễ scan.
-- [ ] Click bookmark con -> parent không bị collapse bất ngờ.
-- [ ] Không làm chậm load outline lớn.
+- [x] Mở PDF có outline nhiều cấp -> bookmark dễ scan.
+- [x] Click bookmark con -> parent không bị collapse bất ngờ.
+- [x] Không làm chậm load outline lớn.
 
 ### Verification
 
-- [ ] Compile `app/sidebar.py`.
-- [ ] Test PDF có bookmark nhiều cấp.
+- [x] Compile `app/sidebar.py`.
+- [x] Test PDF có bookmark nhiều cấp.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -581,20 +581,20 @@ Chưa làm.
 
 ### Code
 
-- [ ] Thêm behavior stays-on-top nếu dialog AI hiện đang dễ bị che.
-- [ ] Ưu tiên option/toggle nếu always-on-top có thể gây khó chịu.
-- [ ] Đảm bảo dialog vẫn focus input bình thường.
+- [x] Thêm behavior stays-on-top nếu dialog AI hiện đang dễ bị che.
+- [x] Ưu tiên option/toggle nếu always-on-top có thể gây khó chịu.
+- [x] Đảm bảo dialog vẫn focus input bình thường.
 
 ### Self-check
 
-- [ ] Mở AI Chat rồi click viewer -> dialog không bị mất sau main window nếu bật stays-on-top.
-- [ ] Có thể tắt/đóng dialog bình thường.
-- [ ] Không làm app chính mất focus vĩnh viễn.
+- [x] Mở AI Chat rồi click viewer -> dialog không bị mất sau main window nếu bật stays-on-top.
+- [x] Có thể tắt/đóng dialog bình thường.
+- [x] Không làm app chính mất focus vĩnh viễn.
 
 ### Verification
 
-- [ ] Compile `app/ai_chat_dialog.py`.
-- [ ] Test mở AI Chat và chuyển focus.
+- [x] Compile `app/ai_chat_dialog.py`.
+- [x] Test mở AI Chat và chuyển focus.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -608,19 +608,19 @@ Chưa làm.
 
 ### Code
 
-- [ ] Tìm label `Xóa obj`.
-- [ ] Đổi thành `Xóa đối tượng`.
-- [ ] Kiểm tra tooltip/menu liên quan cũng rõ nghĩa.
+- [x] Tìm label `Xóa obj`.
+- [x] Đổi thành `Xóa đối tượng`.
+- [x] Kiểm tra tooltip/menu liên quan cũng rõ nghĩa.
 
 ### Self-check
 
-- [ ] UI không còn text `Xóa obj`.
-- [ ] Label mới không làm tràn toolbar/menu.
+- [x] UI không còn text `Xóa obj`.
+- [x] Label mới không làm tràn toolbar/menu.
 
 ### Verification
 
-- [ ] Compile `app/window.py`.
-- [ ] Mở app kiểm tra vị trí label.
+- [x] Compile `app/window.py`.
+- [x] Mở app kiểm tra vị trí label.
 
 **Ghi chú triển khai:**  
 Chưa làm.
@@ -634,21 +634,21 @@ Chưa làm.
 
 ### Code
 
-- [ ] Khi user tạo box quá nhỏ, hiển thị feedback rõ.
-- [ ] Nêu kích thước tối thiểu hoặc hướng dẫn kéo lớn hơn.
-- [ ] Không fail im lặng.
-- [ ] Nếu có thể, preview box chuyển màu/warning khi dưới minimum.
+- [x] Khi user tạo box quá nhỏ, hiển thị feedback rõ.
+- [x] Nêu kích thước tối thiểu hoặc hướng dẫn kéo lớn hơn.
+- [x] Không fail im lặng.
+- [x] Nếu có thể, preview box chuyển màu/warning khi dưới minimum.
 
 ### Self-check
 
-- [ ] Kéo box quá nhỏ -> thấy feedback.
-- [ ] Kéo box đủ lớn -> tạo object bình thường.
-- [ ] Message không spam liên tục khi đang kéo.
+- [x] Kéo box quá nhỏ -> thấy feedback.
+- [x] Kéo box đủ lớn -> tạo object bình thường.
+- [x] Message không spam liên tục khi đang kéo.
 
 ### Verification
 
-- [ ] Compile `app/actions/edit.py`.
-- [ ] Test tạo text/image box nhỏ và box hợp lệ.
+- [x] Compile `app/actions/edit.py`.
+- [x] Test tạo text/image box nhỏ và box hợp lệ.
 
 **Ghi chú triển khai:**  
 Chưa làm.

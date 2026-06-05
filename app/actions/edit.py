@@ -964,7 +964,7 @@ def _pick_save_pdf_path(window, default_name: str) -> str | None:
 class _ObjectPlacementDialog(QDialog):
     """Simple confirm dialog for object placement preview (image, text)."""
 
-    def __init__(self, parent=None, *, title: str = "Chèn đối tượng", note: str = ""):
+    def __init__(self, parent=None, *, title: str = "Chèn đối tượng", note: str = "", is_edit: bool = False):
         from packages.qt_compat.QtCore import Qt
 
         super().__init__(parent)
@@ -990,8 +990,7 @@ class _ObjectPlacementDialog(QDialog):
         )
         ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
         if ok_button is not None:
-            title_lc = title.lower()
-            ok_button.setText("Lưu thay đổi" if ("sửa" in title_lc or "cập nhật" in title_lc) else "Chèn")
+            ok_button.setText("Lưu thay đổi" if is_edit else "Chèn")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)

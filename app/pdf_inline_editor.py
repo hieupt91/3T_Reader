@@ -22,6 +22,7 @@ from packages.qt_compat.QtWidgets import (
 )
 
 from app.dialogs import show_warning
+from styles.theme import is_dark
 
 
 def _place_near_parent(parent, width: int, height: int, *, dx: int = 24, dy: int = 80):
@@ -94,13 +95,24 @@ class InlineEditPanel(QFrame):
         self._color = QColor(0, 0, 0)
         self._mode  = mode
         self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setStyleSheet(
-            "QFrame { background:#F8FAFC; border:1.5px solid #CBD5E1; border-radius:8px; }"
-            "QLabel { color:#334155; font-size:12px; background:transparent; border:none; padding:0; }"
-            "QSpinBox { background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; "
-            "           border-radius:4px; padding:2px 6px; }"
-            "QPushButton { border-radius:5px; padding:5px 14px; font-size:12px; font-weight:600; }"
-        )
+        dark = is_dark()
+        self._panel_dark = dark
+        if dark:
+            self.setStyleSheet(
+                "QFrame { background:#1A1E30; border:1.5px solid #2A5090; border-radius:8px; }"
+                "QLabel { color:#B0C8F0; font-size:12px; background:transparent; border:none; padding:0; }"
+                "QSpinBox { background:#10121C; color:#D8E8FF; border:1px solid #304080; "
+                "           border-radius:4px; padding:2px 6px; }"
+                "QPushButton { border-radius:5px; padding:5px 14px; font-size:12px; font-weight:600; }"
+            )
+        else:
+            self.setStyleSheet(
+                "QFrame { background:#F8FAFC; border:1.5px solid #CBD5E1; border-radius:8px; }"
+                "QLabel { color:#334155; font-size:12px; background:transparent; border:none; padding:0; }"
+                "QSpinBox { background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; "
+                "           border-radius:4px; padding:2px 6px; }"
+                "QPushButton { border-radius:5px; padding:5px 14px; font-size:12px; font-weight:600; }"
+            )
         self._setup_ui()
         self.adjustSize()
 
@@ -113,7 +125,8 @@ class InlineEditPanel(QFrame):
         title = "Chèn văn bản vào PDF" if self._mode == "text" else "Chèn ảnh vào PDF"
         lbl   = QLabel(f"{icon}  {title}")
         lbl.setStyleSheet(
-            "color:#1D4ED8; font-size:11px; font-weight:700; background:transparent; border:none;"
+            ("color:#7AAAE8;" if self._panel_dark else "color:#1D4ED8;")
+            + " font-size:11px; font-weight:700; background:transparent; border:none;"
         )
         root.addWidget(lbl)
 
@@ -132,12 +145,20 @@ class InlineEditPanel(QFrame):
             self._refresh_color_btn()
             row.addWidget(self._color_btn)
 
-            _fmt_ss = (
-                "QToolButton{background:#FFFFFF;color:#0F172A;border:1px solid #CBD5E1;"
-                "border-radius:4px;font-size:13px;font-weight:700;}"
-                "QToolButton:checked{background:#DBEAFE;border-color:#2563EB;color:#1D4ED8;}"
-                "QToolButton:hover{border-color:#2563EB;}"
-            )
+            if self._panel_dark:
+                _fmt_ss = (
+                    "QToolButton{background:#10121C;color:#D8E8FF;border:1px solid #304080;"
+                    "border-radius:4px;font-size:13px;font-weight:700;}"
+                    "QToolButton:checked{background:#2A4080;border-color:#6080C0;color:#FFFFFF;}"
+                    "QToolButton:hover{border-color:#4060A0;}"
+                )
+            else:
+                _fmt_ss = (
+                    "QToolButton{background:#FFFFFF;color:#0F172A;border:1px solid #CBD5E1;"
+                    "border-radius:4px;font-size:13px;font-weight:700;}"
+                    "QToolButton:checked{background:#DBEAFE;border-color:#2563EB;color:#1D4ED8;}"
+                    "QToolButton:hover{border-color:#2563EB;}"
+                )
             self._bold_btn = QToolButton()
             self._bold_btn.setText("B")
             self._bold_btn.setCheckable(True)
@@ -195,24 +216,39 @@ class InlineEditPanel(QFrame):
             else QLabel("Kéo di chuyển  ·  Kéo góc resize  ·  Enter xác nhận  ·  Esc hủy")
         )
 
-        hint.setStyleSheet("color:#64748B; font-size:10px; background:transparent; border:none;")
+        hint.setStyleSheet(
+            ("color:#7C8DB8;" if self._panel_dark else "color:#64748B;")
+            + " font-size:10px; background:transparent; border:none;"
+        )
         root.addWidget(hint)
 
         row2 = QHBoxLayout(); row2.setSpacing(8); row2.addStretch()
         btn_cancel = QPushButton("Hủy")
-        btn_cancel.setStyleSheet(
-            "QPushButton{background-color:#FFFFFF;color:#B91C1C;border:1.5px solid #FCA5A5;}"
-            "QPushButton:hover{background-color:#FEE2E2;}"
-        )
+        if self._panel_dark:
+            btn_cancel.setStyleSheet(
+                "QPushButton{background-color:transparent;color:#FF6655;border:1.5px solid #FF6655;}"
+                "QPushButton:hover{background-color:#3A1010;}"
+            )
+        else:
+            btn_cancel.setStyleSheet(
+                "QPushButton{background-color:#FFFFFF;color:#B91C1C;border:1.5px solid #FCA5A5;}"
+                "QPushButton:hover{background-color:#FEE2E2;}"
+            )
         btn_cancel.clicked.connect(self.cancelled)
         row2.addWidget(btn_cancel)
 
         ok_lbl = "Chèn vào PDF" if self._mode == "text" else "Đặt ảnh vào PDF"
         btn_ok = QPushButton(ok_lbl)
-        btn_ok.setStyleSheet(
-            "QPushButton{background-color:#2563EB;color:white;border:none;}"
-            "QPushButton:hover{background-color:#1D4ED8;}"
-        )
+        if self._panel_dark:
+            btn_ok.setStyleSheet(
+                "QPushButton{background-color:#FF6600;color:white;border:none;}"
+                "QPushButton:hover{background-color:#FF9900;}"
+            )
+        else:
+            btn_ok.setStyleSheet(
+                "QPushButton{background-color:#2563EB;color:white;border:none;}"
+                "QPushButton:hover{background-color:#1D4ED8;}"
+            )
         btn_ok.setDefault(True)
         btn_ok.clicked.connect(self.committed)
         row2.addWidget(btn_ok)

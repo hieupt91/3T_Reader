@@ -165,6 +165,16 @@ def _flush_annotation_queue(window, target_path: str | None = None) -> bool:
     return bool(queue.flush())
 
 
+def has_pending_annotations(window, target_path: str | None = None) -> bool:
+    queue = getattr(window, "_annotation_op_queue", None)
+    if queue is None:
+        return False
+    has_pending = getattr(queue, "has_pending", None)
+    if callable(has_pending):
+        return bool(has_pending(target_path))
+    return False
+
+
 def _flush_annotations_before_heavy_op(window, target_path: str, operation_label: str) -> bool:
     if _flush_annotation_queue(window, target_path):
         return True
@@ -503,7 +513,7 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         menu.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:10050;min-width:150px;background:#fff;color:#111827;border:1px solid rgba(15,23,42,.18);box-shadow:0 10px 28px rgba(15,23,42,.22);border-radius:6px;padding:4px;font:13px sans-serif';
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.textContent = 'Xoa ghi chu';
+        btn.textContent = 'Xóa ghi chú';
         btn.style.cssText = 'display:block;width:100%;border:0;background:transparent;color:#dc2626;text-align:left;padding:7px 9px;border-radius:4px;cursor:pointer';
         btn.addEventListener('mouseenter', function() { btn.style.background = '#fef2f2'; });
         btn.addEventListener('mouseleave', function() { btn.style.background = 'transparent'; });

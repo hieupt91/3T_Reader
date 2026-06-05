@@ -5,6 +5,7 @@ from packages.qt_compat.QtCore import Qt
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QPushButton, QFrame, QLineEdit, QSizePolicy, QApplication,
+    QCheckBox,
 )
 from app.ai_task_runner import dialog_task_running, start_dialog_task
 from styles.theme import is_dark
@@ -132,9 +133,6 @@ class AIChatDialog(QDialog):
         self.resize(680, 600)
         self._theme = _build_theme(is_dark())
         self.setStyleSheet(self._theme["dialog_style"])
-        self.setWindowFlags(
-            self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint
-        )
 
         self._pdf_path = pdf_path
         self._session  = None
@@ -161,6 +159,11 @@ class AIChatDialog(QDialog):
         title.setObjectName("title")
         hdr.addWidget(title)
         hdr.addStretch()
+
+        self._chk_stays_on_top = QCheckBox("Luôn nổi")
+        self._chk_stays_on_top.setToolTip("Giữ cửa sổ chat nổi trên cửa sổ đọc PDF")
+        self._chk_stays_on_top.toggled.connect(self._set_stays_on_top)
+        hdr.addWidget(self._chk_stays_on_top)
 
         self._btn_clear = QPushButton("Xóa lịch sử")
         self._btn_clear.setObjectName("btn_clear")
@@ -201,6 +204,19 @@ class AIChatDialog(QDialog):
         self._btn_send.clicked.connect(self._on_send)
         input_row.addWidget(self._btn_send)
         root.addLayout(input_row)
+
+    def _set_stays_on_top(self, enabled: bool):
+        flags = self.windowFlags()
+        if enabled:
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        else:
+            flags &= ~Qt.WindowType.WindowStaysOnTopHint
+        was_visible = self.isVisible()
+        self.setWindowFlags(flags)
+        if was_visible:
+            self.show()
+            self.raise_()
+            self.activateWindow()
 
     def _append_html(self, html: str):
         self._chat_area.append(html)

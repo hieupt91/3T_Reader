@@ -51,6 +51,7 @@ from app.actions.annotate import (
     highlight_text, rotate_page_cw, rotate_page_ccw,
     delete_current_page, merge_pdf, extract_pages,
     underline_text, strikeout_text, add_comment, enable_note_tools,
+    has_pending_annotations,
 )
 from app.actions.sign import (
     check_token,
@@ -1458,6 +1459,17 @@ class PDFReaderApp(QMainWindow):
         if index >= 0:
             self._close_tab(index)
 
+    def _has_unsaved_changes(self, state: dict | None = None) -> bool:
+        if state is None:
+            state = self._active_state()
+        if not state:
+            return False
+        edit_state = state.get("_pdf_edit_state")
+        if edit_state and edit_state.get("ops"):
+            return True
+        target_path = state.get("source_path")
+        return has_pending_annotations(self, target_path)
+
     def _close_tab(self, index) -> bool:
         tab = self.tab_widget.widget(index)
         if not tab:
@@ -1467,9 +1479,9 @@ class PDFReaderApp(QMainWindow):
         if not self._can_close_tab_state(state):
             return False
         queue = getattr(self, "_annotation_op_queue", None)
-        if queue is not None:
+        target_path = state.get("source_path") if state else None
+        if queue is not None or has_pending_annotations(self, target_path):
             try:
-                target_path = state.get("source_path") if state else None
                 flush_all = getattr(queue, "flush_all", None)
                 ok = flush_all(target_path) if callable(flush_all) else queue.flush()
                 if not ok:
@@ -1483,7 +1495,7 @@ class PDFReaderApp(QMainWindow):
                 QMessageBox.warning(self, "Chưa lưu xong chú thích", str(exc))
                 return False
         edit_state = state.get("_pdf_edit_state") if state else None
-        if edit_state and edit_state.get("ops"):
+        if self._has_unsaved_changes(state) and edit_state and edit_state.get("ops"):
             title = self.tab_widget.tabText(index) or "tài liệu"
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Warning)
@@ -1960,6 +1972,28 @@ class PDFReaderApp(QMainWindow):
             self._load_annotations_for_active()
 
     def _pick_highlight_color(self):
+        presets = {
+            "Vàng": "#facc15",
+            "Xanh lá": "#22c55e",
+            "Xanh dương": "#38bdf8",
+            "Hồng": "#f472b6",
+            "Cam": "#fb923c",
+        }
+        menu = QMenu(self)
+        for label, hex_color in presets.items():
+            action = menu.addAction(label)
+            action.setIcon(svg_icon("highlight.svg", color=hex_color))
+            action.triggered.connect(lambda _checked=False, c=hex_color: self._set_highlight_color(QColor(c)))
+        menu.addSeparator()
+        custom = menu.addAction("Màu khác...")
+        custom.triggered.connect(self._pick_custom_highlight_color)
+        button = self.toolbar.widgetForAction(self.act_highlight_color) if hasattr(self, "toolbar") else None
+        if button:
+            menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
+        else:
+            menu.exec(self.cursor().pos())
+
+    def _pick_custom_highlight_color(self):
         current = getattr(self, "_highlight_color_pdf", [1.0, 1.0, 0.0])
         color = QColor(
             int(max(0.0, min(1.0, current[0])) * 255),
@@ -1969,6 +2003,9 @@ class PDFReaderApp(QMainWindow):
         picked = QColorDialog.getColor(color, self, "Chọn màu tô sáng")
         if not picked.isValid():
             return
+        self._set_highlight_color(picked)
+
+    def _set_highlight_color(self, picked: QColor):
         self._highlight_color_pdf = [
             round(picked.red() / 255.0, 4),
             round(picked.green() / 255.0, 4),
@@ -2097,7 +2134,7 @@ class PDFReaderApp(QMainWindow):
             self._update_check_thread.wait(2000)
 
         queue = getattr(self, "_annotation_op_queue", None)
-        if queue is not None:
+        if queue is not None or has_pending_annotations(self):
             try:
                 flush_all = getattr(queue, "flush_all", None)
                 ok = flush_all() if callable(flush_all) else queue.flush()
