@@ -749,7 +749,7 @@ class PDFReaderApp(QMainWindow):
         self.ribbon.set_theme(is_dark())
 
     # ------------------------------------------------------------------ #
-    #  Print — QPrintDialog + PyMuPDF, KHÔNG dùng ShellExecute            #
+    #  Print — QPrintDialog + PDF engine, KHÔNG dùng ShellExecute         #
     # ------------------------------------------------------------------ #
 
     def print_current_pdf(self):

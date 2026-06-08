@@ -45,6 +45,13 @@ Cap nhat sau batch trien khai thu ba trong ngay 2026-06-08:
 - Da them regression tests cho pending/flushing state, status message khi flush dang chay va noi dung canh bao heavy-op.
 - Ket qua verify moi: `.\.venv313\Scripts\python.exe -m pytest` => `183 passed, 24 skipped`.
 
+Cap nhat sau batch trien khai thu tu trong ngay 2026-06-08:
+
+- Da chuyen fallback doc text trong `packages/ai/chat_pdf.py` tu `fitz`/PyMuPDF sang `pypdfium2`, de AI chat khong con di qua runtime AGPL path.
+- Da them tests xac nhan fallback pdfium cua AI chat va contract khong con `import fitz` trong module nay.
+- Da sua comment cu trong `app/window.py` ve print path de khong con ghi nham PyMuPDF.
+- Ket qua verify moi: `.\.venv313\Scripts\python.exe -m pytest` => `185 passed, 24 skipped`.
+
 ## 2. Du lieu da kiem tra
 
 ### 2.1 Code va module chinh

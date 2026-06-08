@@ -67,14 +67,23 @@ class PDFChatSession:
 
         if not text.strip():
             try:
-                import fitz
+                import pypdfium2 as pdfium
+
                 parts = []
-                doc = fitz.open(self.pdf_path)
+                doc = pdfium.PdfDocument(self.pdf_path)
                 try:
-                    for i in range(doc.page_count):
-                        t = (doc.load_page(i).get_text("text") or "").strip()
-                        if t:
-                            parts.append(f"[Trang {i+1}]\n{t}")
+                    for i in range(len(doc)):
+                        page = doc[i]
+                        textpage = None
+                        try:
+                            textpage = page.get_textpage()
+                            t = (textpage.get_text_range() or "").strip()
+                            if t:
+                                parts.append(f"[Trang {i+1}]\n{t}")
+                        finally:
+                            if textpage is not None:
+                                textpage.close()
+                            page.close()
                 finally:
                     doc.close()
                 text = "\n\n".join(parts)

@@ -1,4 +1,50 @@
 from types import SimpleNamespace
+import sys
+
+
+def test_pdf_chat_text_fallback_uses_pdfium_not_fitz(monkeypatch):
+    from packages.ai import chat_pdf
+
+    class FakeTextPage:
+        def get_text_range(self):
+            return "noi dung pdfium"
+
+        def close(self):
+            pass
+
+    class FakePage:
+        def get_textpage(self):
+            return FakeTextPage()
+
+        def close(self):
+            pass
+
+    class FakeDoc:
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, index):
+            return FakePage()
+
+        def close(self):
+            pass
+
+    def raise_pdfplumber(_path):
+        raise RuntimeError("pdfplumber unavailable")
+
+    monkeypatch.setitem(sys.modules, "pdfplumber", SimpleNamespace(open=raise_pdfplumber))
+    monkeypatch.setitem(sys.modules, "pypdfium2", SimpleNamespace(PdfDocument=lambda _path: FakeDoc()))
+
+    session = chat_pdf.PDFChatSession("dummy.pdf")
+
+    assert session._load_text() == "[Trang 1]\nnoi dung pdfium"
+
+
+def test_pdf_chat_module_does_not_import_fitz():
+    from pathlib import Path
+
+    source = Path("packages/ai/chat_pdf.py").read_text(encoding="utf-8")
+    assert "import fitz" not in source
 
 
 def test_wrap_untrusted_pdf_text_adds_tags():
