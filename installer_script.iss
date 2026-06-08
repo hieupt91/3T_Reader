@@ -2,7 +2,7 @@
 ; Kịch bản tạo bộ cài đặt chuyên nghiệp cho 3T Reader
 ; ================================================================
 #define MyAppName      "3T Reader"
-#define MyAppVersion   "1.0.7"
+#define MyAppVersion   "1.0.8"
 #define MyAppPublisher "3T Company"
 #define MyAppExeName   "3T_Reader.exe"
 
@@ -31,7 +31,7 @@ VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=3T Reader Windows Installer
 VersionInfoProductName={#MyAppName}
 SetupLogging=yes
-SignedUninstaller=yes
+SignedUninstaller=no
 ; Configure this in Inno Setup IDE/ISCC environment when a certificate is installed:
 ;   3t_signtool=signtool sign /fd sha256 /td sha256 /tr http://timestamp.digicert.com /a $f
 ; Or sign output after build with:
