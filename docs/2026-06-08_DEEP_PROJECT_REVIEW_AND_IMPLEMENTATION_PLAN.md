@@ -52,6 +52,13 @@ Cap nhat sau batch trien khai thu tu trong ngay 2026-06-08:
 - Da sua comment cu trong `app/window.py` ve print path de khong con ghi nham PyMuPDF.
 - Ket qua verify moi: `.\.venv313\Scripts\python.exe -m pytest` => `185 passed, 24 skipped`.
 
+Cap nhat sau batch trien khai thu nam trong ngay 2026-06-08:
+
+- Da bien `packages/update_client/checker.py` thanh compatibility wrapper sang `packages.updater.update_client`.
+- Import cu `packages.update_client` van giu ten `UpdateInfo`, `UpdateResult`, `check_for_update`, `download_update`, nhung khong con implementation download thieu SHA/signature verification.
+- Da them test xac nhan legacy checker delegate sang updater signed path.
+- Ket qua verify moi: `.\.venv313\Scripts\python.exe -m pytest` => `186 passed, 24 skipped`.
+
 ## 2. Du lieu da kiem tra
 
 ### 2.1 Code va module chinh

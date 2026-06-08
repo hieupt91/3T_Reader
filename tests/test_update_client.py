@@ -106,3 +106,31 @@ def test_download_update_rejects_unsigned_manifest():
 
     assert result.success is False
     assert "thieu chu ky" in result.error.lower()
+
+
+def test_legacy_update_client_checker_delegates_to_signed_updater(monkeypatch):
+    from packages.update_client import checker as legacy_checker
+
+    calls = []
+
+    def fake_check(base_url, current_version, *, platform):
+        calls.append((base_url, current_version, platform))
+        return update_client.UpdateInfo(
+            available=True,
+            current_version=current_version,
+            latest_version="1.0.8",
+            download_url="https://example.test/update.exe",
+            sha256="abc",
+            signature="sig",
+        )
+
+    monkeypatch.setattr(legacy_checker, "_check_for_update", fake_check)
+
+    info = legacy_checker.check_for_update("https://example.test", "1.0.7")
+
+    assert info.latest_version == "1.0.8"
+    assert calls[0][0] == "https://example.test"
+    assert calls[0][1] == "1.0.7"
+    assert calls[0][2] in {"win", "mac", "linux"}
+    assert legacy_checker.download_update is update_client.download_update
+    assert legacy_checker.UpdateInfo is update_client.UpdateInfo
