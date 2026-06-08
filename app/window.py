@@ -1,6 +1,5 @@
 ﻿import os
 import sys
-import subprocess
 import gc
 
 from packages.qt_compat.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog
@@ -20,7 +19,7 @@ from packages.qt_compat.QtWidgets import (
     QColorDialog,
 )
 from packages.qt_compat.QtGui import QAction, QKeySequence, QCloseEvent, QImage, QPainter, QColor
-from packages.qt_compat.QtCore import Qt, QSize, QPoint, QTimer, QThread, QRect
+from packages.qt_compat.QtCore import Qt, QSize, QPoint, QTimer, QThread, QRect, QObject, pyqtSignal, pyqtSlot
 from packages.qt_compat.QtWebEngineWidgets import QWebEngineView
 from app.pdf_viewer import PDFViewerWidget
 
@@ -109,6 +108,28 @@ document.head.appendChild(style);
 # Icon colors are centralized in styles/icon_colors.py
 from styles.icon_colors import get_icon_color as _get_icon_color
 
+AI_SUMMARIZE_SHORTCUT = "Ctrl+Alt+S"
+
+
+class _TokenPresenceWorker(QObject):
+    result = pyqtSignal(bool)
+    error = pyqtSignal(str)
+    finished = pyqtSignal()
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            from packages.signing import get_signing_provider
+
+            provider = get_signing_provider()
+            checker = getattr(provider, "is_token_present", None)
+            token_found = bool(checker()) if callable(checker) else provider.detect_driver() is not None
+            self.result.emit(token_found)
+        except Exception as exc:
+            self.error.emit(str(exc))
+        finally:
+            self.finished.emit()
+
 
 class PDFReaderApp(QMainWindow):
     def __init__(self):
@@ -131,6 +152,9 @@ class PDFReaderApp(QMainWindow):
         self._update_check_thread = None
         self._update_check_worker = None
         self._pending_manual_update_check = False
+        self._token_monitor_timer = None
+        self._token_check_thread = None
+        self._token_check_worker = None
         self._global_state = {
             "source_path": None,
             "display_path": None,
@@ -583,9 +607,11 @@ class PDFReaderApp(QMainWindow):
         self.act_underline = make("Gạch dưới", "underline.svg", f"Gạch dưới văn bản ({shortcut_label('Ctrl+U')})", "Ctrl+U", lambda: underline_text(self))
         self.act_underline.setIcon(svg_icon("underline.svg", color="#2563eb"))
         self._action_icons[self.act_underline] = "underline.svg"
+        g_mark.add(make_action_btn(self.act_underline, "Gạch dưới"))
         self.act_strikeout = make("Gạch ngang", "strikeout.svg", f"Gạch ngang văn bản ({shortcut_label('Ctrl+Shift+X')})", "Ctrl+Shift+X", lambda: strikeout_text(self))
         self.act_strikeout.setIcon(svg_icon("strikeout.svg", color="#dc2626"))
         self._action_icons[self.act_strikeout] = "strikeout.svg"
+        g_mark.add(make_action_btn(self.act_strikeout, "Gạch ngang"))
         _act_comment = make("Ghi chú", "insert_text.svg", "Thêm ghi chú", None, lambda: add_comment(self))
         g_mark.add(make_action_btn(_act_comment, "Ghi chú"))
         p1.add_group(g_mark)
@@ -673,7 +699,7 @@ class PDFReaderApp(QMainWindow):
 
         g_ai = RibbonGroup("AI")
         _act_chat  = make("Chat PDF",    "pen.svg",          "Chat với PDF (Ctrl+Shift+C)", "Ctrl+Shift+C", lambda: open_chat_dialog(self))
-        _act_sum   = make("Tóm tắt",     "insert_text.svg",  "Tóm tắt tài liệu",           "Ctrl+Shift+S", lambda: open_summarize_dialog(self))
+        _act_sum   = make("Tóm tắt",     "insert_text.svg",  f"Tóm tắt tài liệu ({shortcut_label(AI_SUMMARIZE_SHORTCUT)})", AI_SUMMARIZE_SHORTCUT, lambda: open_summarize_dialog(self))
         _act_trans = make("Dịch",        "sidebar.svg",      "Dịch trang hiện tại",         "Ctrl+Shift+T", lambda: open_translate_dialog(self))
         _act_srch  = make("Tìm nghĩa",   "zoom_in.svg",      "Tìm kiếm theo nghĩa",         "Ctrl+Shift+F", lambda: open_search_dialog(self))
         _act_aiset = make("Cài đặt AI",  "save.svg",         "Cài đặt AI (API Key)",         None,           lambda: open_ai_settings(self))
@@ -1118,7 +1144,7 @@ class PDFReaderApp(QMainWindow):
         act_ai_chat.triggered.connect(lambda: open_chat_dialog(self))
 
         act_ai_summarize = menu_ai.addAction("📋  Tóm tắt tài liệu...")
-        act_ai_summarize.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        act_ai_summarize.setShortcut(QKeySequence(AI_SUMMARIZE_SHORTCUT))
         act_ai_summarize.triggered.connect(lambda: open_summarize_dialog(self))
 
         act_ai_translate = menu_ai.addAction("🌐  Dịch trang hiện tại...")
@@ -2085,6 +2111,13 @@ class PDFReaderApp(QMainWindow):
             self._update_check_thread.quit()
             self._update_check_thread.wait(2000)
 
+        if self._token_monitor_timer is not None:
+            self._token_monitor_timer.stop()
+
+        if self._token_check_thread is not None and self._token_check_thread.isRunning():
+            self._token_check_thread.quit()
+            self._token_check_thread.wait(1000)
+
         queue = getattr(self, "_annotation_op_queue", None)
         if queue is not None or has_pending_annotations(self):
             try:
@@ -2126,36 +2159,48 @@ class PDFReaderApp(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def _start_token_monitor(self):
-        """Khởi tạo biến theo dõi USB token."""
-        pass
+        """Theo dõi USB token trong nền mà không khóa luồng UI."""
+        if self._token_monitor_timer is not None:
+            return
+        timer = QTimer(self)
+        timer.setInterval(15_000)
+        timer.timeout.connect(self._check_token_presence)
+        self._token_monitor_timer = timer
+        timer.start()
+        QTimer.singleShot(1500, self._check_token_presence)
 
     def _check_token_presence(self):
-        """Kiểm tra USB token — FIX: dùng sys.executable thay vì 'python'."""
-        try:
-            result = subprocess.run(
-                [
-                    sys.executable,   # ✅ Đúng exe đang chạy, không hardcode "python"
-                    "-c",
-                    "from packages.signing import get_signing_provider; "
-                    "print(get_signing_provider().detect_driver() is not None)",
-                ],
-                cwd=os.path.dirname(os.path.abspath(sys.executable)),
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            token_found = result.stdout.strip() == "True"
+        """Bắt đầu một lượt kiểm tra token nếu lượt trước đã hoàn tất."""
+        if self._token_check_thread is not None and self._token_check_thread.isRunning():
+            return
 
-            if token_found and not self._usb_token_detected:
-                self._usb_token_detected = True
-                show_info(
-                    self,
-                    "USB ký số được phát hiện",
-                    "Thiết bị ký số đã được cắm vào.\nBạn có thể sử dụng tính năng ký số.",
-                )
-                self.status.showMessage("✓ Đã phát hiện USB ký số", 3000)
-            elif not token_found and self._usb_token_detected:
-                self._usb_token_detected = False
-                self.status.showMessage("✗ USB ký số đã bị rút ra", 3000)
-        except Exception:
-            pass
+        worker = _TokenPresenceWorker()
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        worker.result.connect(self._on_token_presence_result)
+        worker.error.connect(self._on_token_presence_error)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._cleanup_token_presence_worker)
+        thread.started.connect(worker.run)
+
+        self._token_check_worker = worker
+        self._token_check_thread = thread
+        thread.start()
+
+    def _cleanup_token_presence_worker(self):
+        self._token_check_worker = None
+        self._token_check_thread = None
+
+    def _on_token_presence_result(self, token_found: bool):
+        if token_found and not self._usb_token_detected:
+            self._usb_token_detected = True
+            self.status.showMessage("✓ Đã phát hiện USB ký số", 3000)
+        elif not token_found and self._usb_token_detected:
+            self._usb_token_detected = False
+            self.status.showMessage("✗ USB ký số đã bị rút ra", 3000)
+
+    def _on_token_presence_error(self, message: str):
+        if message:
+            self.status.showMessage("Không kiểm tra được USB ký số", 3000)

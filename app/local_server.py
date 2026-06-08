@@ -57,6 +57,8 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
     """
 
     pdfjs_root: Path = Path(".")  # set by factory
+    allowed_pdf_paths: set[str] | None = None  # set by factory; None keeps direct unit tests simple
+    allowed_pdf_paths_lock = threading.RLock()
     display_cache: OrderedDict = OrderedDict()  # (path,mtime,size) -> bytes, LRU
     signature_probe_cache: OrderedDict = OrderedDict()  # (path,mtime,size) -> bool, LRU
     _MAX_CACHE_ENTRIES = 6
@@ -99,6 +101,9 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(403, "Path mismatch")
             return
         pdf_path = real_path
+        if not self._is_registered_pdf_path(pdf_path):
+            self.send_error(403, "PDF path is not registered for this viewer session")
+            return
         if not os.path.isfile(pdf_path):
             self.send_error(404)
             return
@@ -110,6 +115,21 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
             self._serve_pdf_bytes(data, send_body=send_body)
         except OSError:
             self.send_error(500)
+
+    @staticmethod
+    def _normalise_allowed_path_key(pdf_path: str) -> str:
+        return os.path.normcase(os.path.normpath(os.path.realpath(pdf_path)))
+
+    def _is_registered_pdf_path(self, pdf_path: str) -> bool:
+        allowed = getattr(self, "allowed_pdf_paths", None)
+        if allowed is None:
+            return True
+        key = self._normalise_allowed_path_key(pdf_path)
+        lock = getattr(self, "allowed_pdf_paths_lock", None)
+        if lock is None:
+            return key in allowed
+        with lock:
+            return key in allowed
 
     def _parse_range_header(self, content_length: int) -> tuple[int, int, int] | None:
         range_header = self.headers.get("Range", "")
@@ -290,6 +310,8 @@ class LocalPDFJSServer:
         self._server: http.server.HTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._root: Path | None = _pdfjs_root()
+        self._allowed_pdf_paths: set[str] = set()
+        self._allowed_pdf_paths_lock = threading.RLock()
 
     def start(self):
         if self._server:
@@ -301,6 +323,8 @@ class LocalPDFJSServer:
 
         class Handler(_PDFJSHandler):
             pdfjs_root = root
+            allowed_pdf_paths = self._allowed_pdf_paths
+            allowed_pdf_paths_lock = self._allowed_pdf_paths_lock
 
         self._port = _find_free_port()
         self._server = http.server.ThreadingHTTPServer(("127.0.0.1", self._port), Handler)
@@ -314,7 +338,7 @@ class LocalPDFJSServer:
     def viewer_url(self, pdf_path: str, *, page: int = 1, zoom: str = "page-width", pagemode: str | None = None) -> str | None:
         if not self._server or not self._root:
             return None
-        abs_path = os.path.abspath(pdf_path)
+        abs_path = self.register_pdf(pdf_path)
         encoded_path = urllib.parse.quote(abs_path)
         try:
             cache_key = str(os.stat(abs_path).st_mtime_ns)
@@ -336,10 +360,30 @@ class LocalPDFJSServer:
             url += f"&pagemode={pagemode}"
         return url
 
+    def register_pdf(self, pdf_path: str) -> str:
+        abs_path = os.path.realpath(os.path.abspath(pdf_path))
+        key = _PDFJSHandler._normalise_allowed_path_key(abs_path)
+        if not hasattr(self, "_allowed_pdf_paths_lock"):
+            self._allowed_pdf_paths_lock = threading.RLock()
+        if not hasattr(self, "_allowed_pdf_paths"):
+            self._allowed_pdf_paths = set()
+        with self._allowed_pdf_paths_lock:
+            self._allowed_pdf_paths.add(key)
+        return abs_path
+
+    def unregister_pdf(self, pdf_path: str) -> None:
+        key = _PDFJSHandler._normalise_allowed_path_key(pdf_path)
+        if not hasattr(self, "_allowed_pdf_paths_lock") or not hasattr(self, "_allowed_pdf_paths"):
+            return
+        with self._allowed_pdf_paths_lock:
+            self._allowed_pdf_paths.discard(key)
+
     def stop(self):
         if self._server:
             self._server.shutdown()
             self._server = None
+        with self._allowed_pdf_paths_lock:
+            self._allowed_pdf_paths.clear()
 
     @classmethod
     def get(cls) -> "LocalPDFJSServer":

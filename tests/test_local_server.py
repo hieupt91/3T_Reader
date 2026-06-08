@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import threading
 import tempfile
+import urllib.parse
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -69,6 +71,34 @@ class TestServePDFSecurity:
         handler.send_error.assert_called_once()
         assert handler.send_error.call_args[0][0] == 404
 
+    def test_reject_unregistered_pdf_when_registry_enabled(self, tmp_path):
+        handler = self._make_handler()
+        handler.allowed_pdf_paths = set()
+        handler.allowed_pdf_paths_lock = threading.RLock()
+        pdf_path = tmp_path / "registered-only.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4\n%%EOF")
+
+        handler._serve_pdf("p=" + urllib.parse.quote(str(pdf_path)))
+
+        handler.send_error.assert_called_once()
+        assert handler.send_error.call_args[0][0] == 403
+
+    def test_allow_registered_pdf_when_registry_enabled(self, tmp_path):
+        handler = self._make_handler()
+        pdf_path = tmp_path / "allowed.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4\n%%EOF")
+        handler.allowed_pdf_paths = {
+            handler._normalise_allowed_path_key(str(pdf_path))
+        }
+        handler.allowed_pdf_paths_lock = threading.RLock()
+        handler._serve_pdf_file = MagicMock()
+
+        with patch.object(handler, "_has_signature_field_cached", return_value=False):
+            handler._serve_pdf("p=" + urllib.parse.quote(str(pdf_path)))
+
+        handler.send_error.assert_not_called()
+        handler._serve_pdf_file.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # _serve_static path traversal tests
@@ -126,3 +156,17 @@ class TestViewerURL:
         assert "127.0.0.1:8765" in url
         # The space is encoded as %20 (possibly double-encoded as %2520)
         assert "test" in url and "file.pdf" in url
+
+    def test_viewer_url_registers_pdf_path(self, tmp_path):
+        from app.local_server import LocalPDFJSServer, _PDFJSHandler
+        server = LocalPDFJSServer.__new__(LocalPDFJSServer)
+        server._server = MagicMock()
+        server._root = tmp_path
+        server._port = 8765
+        pdf_path = tmp_path / "session.pdf"
+
+        url = server.viewer_url(str(pdf_path))
+
+        assert url
+        key = _PDFJSHandler._normalise_allowed_path_key(str(pdf_path))
+        assert key in server._allowed_pdf_paths

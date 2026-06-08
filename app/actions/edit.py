@@ -3,7 +3,7 @@ import shutil
 import tempfile
 import uuid
 
-from packages.qt_compat.QtCore import QObject, QEventLoop, QTimer, pyqtSignal, pyqtSlot
+from packages.qt_compat.QtCore import QObject, QEventLoop, QThread, QTimer, pyqtSignal, pyqtSlot
 from packages.qt_compat.QtWidgets import (
     QColorDialog,
     QDialog,
@@ -1429,41 +1429,7 @@ def save_edits(window, *, reload_viewer: bool = True) -> bool:
 
 def save_edits_quiet(window) -> bool:
     """Save current edit session without reloading the viewer."""
-    state = _get_edit_state(window)
-    if not state:
-        try:
-            window.viewer.save_pdf()
-        except Exception:
-            return False
-        return True
-
-    working = state.get("working_file")
-    base = state.get("base_snapshot")
-    original = state.get("original_path")
-
-    if not working or not base or not os.path.exists(base):
-        return False
-
-    try:
-        get_pdf_engine().rebuild_pdf_with_ops(base, working, state.get("ops", []))
-    except Exception:
-        return False
-
-    save_path = original
-    if not save_path or not os.path.exists(os.path.dirname(save_path) or "."):
-        save_path = _pick_save_pdf_path(window, "document.pdf")
-    if not save_path:
-        return False
-
-    try:
-        atomic_copy_file(working, save_path)
-    except Exception:
-        return False
-
-    _set_edit_state(window, None)
-    reload_document(window, save_path, display_path=save_path, temp_path=None)
-    window.status.showMessage(f"Đã lưu: {os.path.basename(save_path)}", 5000)
-    return True
+    return save_edits(window, reload_viewer=False)
 
 
 @require_document(show_message=True)

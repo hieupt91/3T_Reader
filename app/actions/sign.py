@@ -1891,7 +1891,6 @@ def _show_signature_report_vn(window, title: str, report: dict, *, path: str | N
 @require_document(show_message=True)
 def sign_handwritten(window):
     """Draw or import a signature image and place it on the current PDF."""
-    import fitz
     import shutil
     import uuid
     import os as _os
@@ -2089,16 +2088,20 @@ def sign_handwritten(window):
     box = placement["box"]
 
     try:
-        doc = fitz.open(window.current_path)
-        page = doc[page_no - 1]
-        page_h = page.rect.height
-        left, bottom, right, top_pt = box
-        rect = fitz.Rect(left, page_h - top_pt, right, page_h - bottom)
-        page.insert_image(rect, filename=sig_img_path, keep_proportion=True)
+        from packages.pdf_engine import get_pdf_engine
 
         out_path = make_staged_pdf_path(window.current_path, prefix=".3t_handwritten_", suffix=".pdf")
-        doc.save(out_path)
-        doc.close()
+        get_pdf_engine().rebuild_pdf_with_ops(
+            window.current_path,
+            out_path,
+            [{
+                "type": "image",
+                "page_number": page_no,
+                "box": box,
+                "image_path": sig_img_path,
+                "rotation": 0,
+            }],
+        )
 
         replace_document_with_staged(
             window,
