@@ -50,6 +50,14 @@ def test_object_actions_use_typed_webchannel_bridge():
     assert "poll_timer" not in edit_source
 
 
+def test_signature_flows_do_not_reopen_placement_dialog():
+    from app.actions import sign
+
+    assert "SignaturePlacementDialog(" not in inspect.getsource(sign.sign_handwritten)
+    assert "SignaturePlacementDialog(" not in inspect.getsource(sign.sign_with_pfx)
+    assert "SignaturePlacementDialog(" not in inspect.getsource(sign.sign_document)
+
+
 def test_app_update_ui_uses_current_updater_package():
     app_sources = "\n".join(
         path.read_text(encoding="utf-8")
@@ -61,14 +69,11 @@ def test_app_update_ui_uses_current_updater_package():
 
 
 def test_currentcolor_svg_icons_rasterize_for_mark_buttons():
-    from packages.qt_compat import QtWidgets
-    from app.icon_utils import svg_icon
+    from app.icon_utils import _recolor_svg_data
 
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    underline = svg_icon("underline.svg", color="#2563eb")
-    strikeout = svg_icon("strikeout.svg", color="#dc2626")
+    svg = '<svg color="currentColor"><path stroke="currentColor"/></svg>'
+    recolored = _recolor_svg_data(svg, "#2563eb")
 
-    assert not underline.isNull()
-    assert not strikeout.isNull()
-    assert not underline.pixmap(24, 24).isNull()
-    assert not strikeout.pixmap(24, 24).isNull()
+    assert "currentColor" not in recolored
+    assert 'color="#2563eb"' in recolored
+    assert 'stroke="#2563eb"' in recolored

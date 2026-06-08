@@ -58,6 +58,14 @@ def _teardown_webchannel(web_view):
         pass
 
 
+def _cleanup_signature_preview(window, web_view=None):
+    """Remove temporary signature preview UI and detach its WebChannel bridge."""
+    _set_signature_preview(window, None)
+    if web_view is None:
+        web_view = _get_web_view(window)
+    _teardown_webchannel(web_view)
+
+
 def _refresh_document_view(window, output_path: str, *, page_number: int = 1):
     """Update the active document paths and reopen the rendered PDF on the next tick."""
     try:
@@ -200,6 +208,57 @@ DEFAULT_SIGNATURE_WIDTH_PT = 600.0
 DEFAULT_SIGNATURE_HEIGHT_PT = 160.0
 
 
+def _build_stamp_preview_html(
+    signer_display_name: str,
+    *,
+    tax_code: str = "",
+    signed_at: str = "",
+    issuer_name: str = "",
+    token_serial: str = "",
+    cert_serial: str = "",
+) -> str:
+    """Build HTML preview matching the digital stamp from build_vietnamese_stamp_style."""
+    import textwrap as _tw
+    from html import escape as _esc
+
+    safe_name = str(signer_display_name or "").strip() or "Không rõ"
+    display_tax = tax_code or ""
+
+    def _wrap_value(label: str, value: str, *, width: int = 33, max_lines: int = 2) -> list[str]:
+        value = (value or "Không rõ").strip()
+        chunks = _tw.wrap(value, width=width, break_long_words=True, break_on_hyphens=False)[:max_lines] or ["Không rõ"]
+        return [f"{label}: {chunks[0]}"] + [f"  {c}" for c in chunks[1:]]
+
+    issuer = str(issuer_name or "").strip() or "Không rõ"
+    serial = token_serial or cert_serial or ""
+    lines = [
+        "ĐÃ KÝ SỐ",
+        *_wrap_value("Tên chủ thể chứng thư số", safe_name, width=31, max_lines=2),
+        *_wrap_value("Tên nhà cung cấp chữ ký số", issuer, width=34, max_lines=1),
+        f"Thời điểm ký: {signed_at or 'Không rõ'}",
+        f"Mã số thuế / CCCD: {display_tax or 'Không có'}",
+    ]
+    if serial:
+        lines.extend(_wrap_value("Số serial chứng thư số", serial, width=34, max_lines=1))
+    lines.append("Trạng thái: Hợp lệ; tài liệu chưa bị sửa")
+
+    html_lines = []
+    for i, line in enumerate(lines):
+        esc = _esc(line)
+        if i == 0:
+            html_lines.append(f'<div style="text-align:center;font-weight:bold;color:#168038;font-size:11px;margin-bottom:2px">{esc}</div>')
+        elif i == len(lines) - 1:
+            html_lines.append(f'<div style="color:#168038;font-size:8px;margin-top:1px">{esc}</div>')
+        else:
+            html_lines.append(f'<div style="color:#222;font-size:8px;line-height:1.2">{esc}</div>')
+
+    return (
+        '<div style="font-family:Consolas,monospace;padding:4px;box-sizing:border-box">'
+        + "".join(html_lines)
+        + "</div>"
+    )
+
+
 class SignaturePickBridge(QObject):
     picked = pyqtSignal(int, float, float, float, float)
     area_picked = pyqtSignal(int, float, float, float, float, float, float)
@@ -226,83 +285,124 @@ class SignaturePreviewAdjustBridge(QObject):
         self.adjusted.emit(page_number, left, bottom, right, top)
 
 
-SIGNATURE_PICK_SCRIPT = r"""
-(function () {
-    if (window.__readerPdfSignaturePickCleanup) {
-        try { window.__readerPdfSignaturePickCleanup(); } catch (_err) {}
-    }
+def _make_pick_script(*, sig_image_url: str = "", sig_text_html: str = "") -> str:
+    """Generate the pick-phase JS script, optionally with preview content."""
+    img_url_json = json.dumps(sig_image_url) if sig_image_url else "''"
+    text_html_json = json.dumps(sig_text_html) if sig_text_html else "''"
+
+    return f"""
+(function () {{
+    if (window.__readerPdfSignaturePickCleanup) {{
+        try {{ window.__readerPdfSignaturePickCleanup(); }} catch (_err) {{}}
+    }}
     window.__readerPdfSignaturePickInstalled = true;
 
-    function attachBridge() {
-        if (typeof window.__3tWithBridge !== 'function') {
+    var _pickSigImgUrl = {img_url_json};
+    var _pickSigTextHtml = {text_html_json};
+
+    function attachBridge() {{
+        if (typeof window.__3tWithBridge !== 'function') {{
             setTimeout(attachBridge, 50);
             return;
-        }
+        }}
 
-        window.__3tWithBridge('sigPickBridge', function (bridge) {
-            if (!bridge) {
+        window.__3tWithBridge('sigPickBridge', function (bridge) {{
+            if (!bridge) {{
                 return;
-            }
+            }}
 
             let selection = null;
 
-            function cleanupSelection() {
+            function cleanupSelection() {{
                 document.removeEventListener('mousedown', mouseDownHandler, true);
                 document.removeEventListener('mousemove', mouseMoveHandler, true);
                 document.removeEventListener('mouseup', mouseUpHandler, true);
                 window.removeEventListener('keydown', keyHandler, true);
-                if (selection && selection.box && selection.box.parentNode) {
+                if (selection && selection.box && selection.box.parentNode) {{
                     selection.box.parentNode.removeChild(selection.box);
-                }
+                }}
                 selection = null;
                 window.__readerPdfSignaturePickCleanup = null;
-            }
+            }}
 
             window.__readerPdfSignaturePickCleanup = cleanupSelection;
 
-            const keyHandler = function (event) {
-                if (event.key === 'Escape') {
+            const keyHandler = function (event) {{
+                if (event.key === 'Escape') {{
                     cleanupSelection();
                     bridge.cancelPick();
-                }
-            };
+                }}
+            }};
 
-            function makeSelectionBox(page) {
+            function makeSelectionBox(page) {{
                 const box = document.createElement('div');
                 box.style.position = 'absolute';
                 box.style.zIndex = '10000';
                 box.style.pointerEvents = 'none';
-                box.style.background = 'rgba(11, 132, 243, 0.3)';
                 box.style.boxSizing = 'border-box';
+                box.style.overflow = 'hidden';
+                box.style.display = 'flex';
+                box.style.alignItems = 'center';
+                box.style.justifyContent = 'center';
+                box.style.borderRadius = '4px';
+
+                if (_pickSigImgUrl) {{
+                    box.style.background = '#ffffff';
+                    box.style.border = '2px solid rgba(11,132,243,0.5)';
+                    box.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+                    const img = document.createElement('img');
+                    img.src = _pickSigImgUrl;
+                    img.style.maxWidth = '90%';
+                    img.style.maxHeight = '90%';
+                    img.style.objectFit = 'contain';
+                    img.style.pointerEvents = 'none';
+                    img.draggable = false;
+                    box.appendChild(img);
+                }} else if (_pickSigTextHtml) {{
+                    box.style.background = 'rgba(255,255,255,0.15)';
+                    box.style.border = '2px solid #168038';
+                    box.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)';
+                    const textDiv = document.createElement('div');
+                    textDiv.innerHTML = _pickSigTextHtml;
+                    textDiv.style.maxWidth = '95%';
+                    textDiv.style.maxHeight = '95%';
+                    textDiv.style.overflow = 'hidden';
+                    textDiv.style.pointerEvents = 'none';
+                    box.appendChild(textDiv);
+                }} else {{
+                    box.style.background = 'rgba(11, 132, 243, 0.3)';
+                    box.style.border = '2px dashed rgba(11,132,243,0.4)';
+                }}
+
                 page.appendChild(box);
                 return box;
-            }
+            }}
 
-            function applySelectionBox() {
+            function applySelectionBox() {{
                 if (!selection || !selection.box) return;
                 const left = Math.min(selection.startX, selection.currentX);
                 const top = Math.min(selection.startY, selection.currentY);
                 const width = Math.abs(selection.currentX - selection.startX);
                 const height = Math.abs(selection.currentY - selection.startY);
-                selection.box.style.left = `${left}px`;
-                selection.box.style.top = `${top}px`;
-                selection.box.style.width = `${Math.max(1, width)}px`;
-                selection.box.style.height = `${Math.max(1, height)}px`;
-            }
+                selection.box.style.left = `${{left}}px`;
+                selection.box.style.top = `${{top}}px`;
+                selection.box.style.width = `${{Math.max(1, width)}}px`;
+                selection.box.style.height = `${{Math.max(1, height)}}px`;
+            }}
 
-            const mouseDownHandler = function(event) {
+            const mouseDownHandler = function(event) {{
                 const page = event.target.closest('.page');
-                if (!page || !page.dataset || !page.dataset.pageNumber) {
+                if (!page || !page.dataset || !page.dataset.pageNumber) {{
                     return;
-                }
+                }}
                 const pageNumber = parseInt(page.dataset.pageNumber, 10);
                 const pdfViewer = window.PDFViewerApplication && PDFViewerApplication.pdfViewer;
                 const pageView = pdfViewer && (pdfViewer.getPageView
                     ? pdfViewer.getPageView(pageNumber - 1)
                     : (pdfViewer._pages && pdfViewer._pages[pageNumber - 1]));
-                if (!pageView || !pageView.viewport || !pageView.pdfPage) {
+                if (!pageView || !pageView.viewport || !pageView.pdfPage) {{
                     return;
-                }
+                }}
 
                 event.preventDefault();
                 event.stopPropagation();
@@ -311,7 +411,7 @@ SIGNATURE_PICK_SCRIPT = r"""
                 const rect = page.getBoundingClientRect();
                 const localX = Math.max(0, Math.min(event.clientX - rect.left, page.clientWidth));
                 const localY = Math.max(0, Math.min(event.clientY - rect.top, page.clientHeight));
-                selection = {
+                selection = {{
                     page,
                     pageNumber,
                     pageView,
@@ -321,11 +421,11 @@ SIGNATURE_PICK_SCRIPT = r"""
                     currentY: localY,
                     box: makeSelectionBox(page),
                     dragging: true
-                };
+                }};
                 applySelectionBox();
-            };
+            }};
 
-            const mouseMoveHandler = function(event) {
+            const mouseMoveHandler = function(event) {{
                 if (!selection || !selection.dragging) return;
                 event.preventDefault();
                 event.stopPropagation();
@@ -335,29 +435,28 @@ SIGNATURE_PICK_SCRIPT = r"""
                 selection.currentX = Math.max(0, Math.min(event.clientX - rect.left, selection.page.clientWidth));
                 selection.currentY = Math.max(0, Math.min(event.clientY - rect.top, selection.page.clientHeight));
                 applySelectionBox();
-            };
+            }};
 
-            const mouseUpHandler = function(event) {
+            const mouseUpHandler = function(event) {{
                 if (!selection || !selection.dragging) return;
                 event.preventDefault();
                 event.stopPropagation();
                 event.stopImmediatePropagation();
 
                 selection.dragging = false;
-                
+
                 const leftPx = Math.min(selection.startX, selection.currentX);
                 const topPx = Math.min(selection.startY, selection.currentY);
                 const rightPx = Math.max(selection.startX, selection.currentX);
                 const bottomPx = Math.max(selection.startY, selection.currentY);
-                
+
                 const dx = rightPx - leftPx;
                 const dy = bottomPx - topPx;
-                
-                const baseViewport = selection.pageView.pdfPage.getViewport({ scale: 1 });
+
+                const baseViewport = selection.pageView.pdfPage.getViewport({{ scale: 1 }});
                 const pageNumber = selection.pageNumber;
-                
-                if (dx < 5 && dy < 5) {
-                    // Treat as click
+
+                if (dx < 5 && dy < 5) {{
                     const pdfPoint = selection.pageView.viewport.convertToPdfPoint(selection.startX, selection.startY);
                     cleanupSelection();
                     bridge.reportPick(
@@ -367,11 +466,10 @@ SIGNATURE_PICK_SCRIPT = r"""
                         baseViewport.width,
                         baseViewport.height
                     );
-                } else {
-                    // Area drag
+                }} else {{
                     const p1 = selection.pageView.viewport.convertToPdfPoint(leftPx, topPx);
                     const p2 = selection.pageView.viewport.convertToPdfPoint(rightPx, bottomPx);
-                    
+
                     cleanupSelection();
                     bridge.reportArea(
                         pageNumber,
@@ -382,26 +480,26 @@ SIGNATURE_PICK_SCRIPT = r"""
                         baseViewport.width,
                         baseViewport.height
                     );
-                }
-            };
+                }}
+            }};
 
             document.addEventListener('mousedown', mouseDownHandler, true);
             document.addEventListener('mousemove', mouseMoveHandler, true);
             document.addEventListener('mouseup', mouseUpHandler, true);
             window.addEventListener('keydown', keyHandler, true);
-        });
-    }
+        }});
+    }}
 
-    if (document.readyState === 'complete') {
+    if (document.readyState === 'complete') {{
         attachBridge();
-    } else {
+    }} else {{
         window.addEventListener('load', attachBridge);
-    }
-})();
+    }}
+}})();
 """
 
 
-def _set_signature_preview(window, placement: dict | None):
+def _set_signature_preview(window, placement: dict | None, *, sig_image_url: str = "", sig_text_html: str = ""):
     web_view = _get_web_view(window)
     if web_view is None:
         return
@@ -585,28 +683,68 @@ def _set_signature_preview(window, placement: dict | None):
     const width = Math.abs(rect[2] - rect[0]);
     const height = Math.abs(rect[3] - rect[1]);
 
+    const sigImgUrl = {json.dumps(sig_image_url) if sig_image_url else "''"};
+    const sigTextHtml = {json.dumps(sig_text_html) if sig_text_html else "''"};
+    console.log('[3T] sig_preview: imgUrl=' + (sigImgUrl ? 'YES' : 'NO') + ', textHtml=' + (sigTextHtml ? 'YES(len=' + sigTextHtml.length + ')' : 'NO'));
+
     let overlay = state.overlay;
     if (!overlay) {{
         overlay = document.createElement('div');
         overlay.style.position = 'absolute';
         overlay.style.pointerEvents = 'auto';
         overlay.style.zIndex = '40';
-        overlay.style.border = 'none';
-        overlay.style.background = 'rgba(11, 132, 243, 0.22)';
         overlay.style.boxSizing = 'border-box';
         overlay.style.cursor = 'move';
         overlay.style.userSelect = 'none';
         overlay.style.touchAction = 'none';
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        overlay.style.overflow = 'hidden';
+        overlay.style.borderRadius = '4px';
 
+        if (sigImgUrl) {{
+            overlay.style.background = '#ffffff';
+            overlay.style.border = '2px solid rgba(11,132,243,0.5)';
+            overlay.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+        }} else if (sigTextHtml) {{
+            overlay.style.background = 'rgba(255,255,255,0.15)';
+            overlay.style.border = '2px solid #168038';
+            overlay.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)';
+        }} else {{
+            overlay.style.background = 'rgba(11, 132, 243, 0.22)';
+            overlay.style.border = '2px dashed rgba(11,132,243,0.5)';
+        }}
+
+        if (sigImgUrl) {{
+            const img = document.createElement('img');
+            img.src = sigImgUrl;
+            img.style.maxWidth = '90%';
+            img.style.maxHeight = '90%';
+            img.style.objectFit = 'contain';
+            img.style.pointerEvents = 'none';
+            img.draggable = false;
+            overlay.appendChild(img);
+        }} else if (sigTextHtml) {{
+            const textDiv = document.createElement('div');
+            textDiv.innerHTML = sigTextHtml;
+            textDiv.style.maxWidth = '95%';
+            textDiv.style.maxHeight = '95%';
+            textDiv.style.overflow = 'hidden';
+            textDiv.style.pointerEvents = 'none';
+            overlay.appendChild(textDiv);
+        }}
+
+        console.log('[3T] overlay created, children:', overlay.children.length);
         const badge = document.createElement('div');
-        badge.textContent = 'Preview chữ ký';
+        badge.textContent = sigImgUrl ? 'Chữ ký mẫu' : (sigTextHtml ? 'Preview chữ ký số' : 'Preview chữ ký');
         badge.style.position = 'absolute';
         badge.style.left = '0';
         badge.style.top = '-20px';
         badge.style.padding = '1px 6px';
         badge.style.fontSize = '11px';
         badge.style.color = '#ffffff';
-        badge.style.background = '#0B84F3';
+        badge.style.background = sigImgUrl ? '#22c55e' : (sigTextHtml ? '#168038' : '#0B84F3');
         badge.style.borderRadius = '10px';
         badge.style.pointerEvents = 'none';
         overlay.appendChild(badge);
@@ -775,6 +913,7 @@ class SignaturePlacementDialog(QDialog):
         page_count: int = 1,
         current_page: int = 1,
         initial_placement: dict | None = None,
+        signature_image_path: str = "",
     ):
         super().__init__(parent)
         self.setWindowTitle("Chọn vị trí ký")
@@ -788,6 +927,37 @@ class SignaturePlacementDialog(QDialog):
         self.setMinimumWidth(320)
 
         root = QVBoxLayout(self)
+
+        # ── Signature image preview ──
+        self._sig_image_path = signature_image_path
+        if signature_image_path and os.path.isfile(signature_image_path):
+            preview_frame = QFrame()
+            preview_frame.setStyleSheet(
+                "QFrame { background: #ffffff; border: 1px solid #ccc; "
+                "border-radius: 6px; padding: 8px; }"
+            )
+            preview_layout = QVBoxLayout(preview_frame)
+            preview_layout.setContentsMargins(8, 8, 8, 8)
+
+            preview_label = QLabel("Mẫu chữ ký:")
+            preview_label.setStyleSheet("font-weight: bold; font-size: 11px; color: #333;")
+            preview_layout.addWidget(preview_label)
+
+            img_label = QLabel()
+            img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            img_label.setMinimumHeight(60)
+            img_label.setMaximumHeight(140)
+            img_label.setStyleSheet("background: #fafafa; border: 1px dashed #ddd; border-radius: 4px;")
+            pixmap = QPixmap(signature_image_path)
+            if not pixmap.isNull():
+                scaled = pixmap.scaledToHeight(
+                    120, Qt.TransformationMode.SmoothTransformation
+                )
+                img_label.setPixmap(scaled)
+            else:
+                img_label.setText("(Không đọc được ảnh)")
+            preview_layout.addWidget(img_label)
+            root.addWidget(preview_frame)
 
         note = QLabel(
             "Chọn vị trí/kích thước nhanh hoặc kéo trực tiếp khung preview trên PDF."
@@ -1141,7 +1311,7 @@ def _clamp_box(page_width: float, page_height: float, center_x: float, center_y:
     return (left, bottom, left + box_width, bottom + box_height)
 
 
-def _pick_signature_placement(window):
+def _pick_signature_placement(window, *, sig_image_url: str = "", sig_text_html: str = ""):
     web_view = _get_web_view(window)
     if web_view is None:
         return None
@@ -1197,7 +1367,8 @@ def _pick_signature_placement(window):
     prompt.activateWindow()
 
     try:
-        web_view.page().runJavaScript(SIGNATURE_PICK_SCRIPT)
+        pick_script = _make_pick_script(sig_image_url=sig_image_url, sig_text_html=sig_text_html)
+        web_view.page().runJavaScript(pick_script)
         loop.exec()
     finally:
         _teardown_webchannel(web_view)
@@ -1357,112 +1528,16 @@ def create_signature_field(window):
 @require_document(show_message=True)
 def sign_with_pfx(window):
     """Sign current PDF using a local PKCS#12 / PFX certificate file."""
-    placement = _pick_signature_placement(window)
-
-    page_count = 1
-    current_page = 1
-    if window.viewer:
-        try:
-            page_count = max(1, window.viewer.get_page_count())
-            current_page = max(1, window.viewer.get_current_page())
-        except Exception:
-            page_count = 1
-            current_page = 1
-
-    placement_dialog = SignaturePlacementDialog(
-        window,
-        page_count=page_count,
-        current_page=placement["page_number"] if placement else current_page,
-        initial_placement=placement,
+    from datetime import datetime as _dt
+    _pfx_stamp_html = _build_stamp_preview_html(
+        "(Người ký sẽ xác định)",
+        signed_at=_dt.now().strftime("%d/%m/%Y %H:%M:%S"),
     )
-
-    web_view = _get_web_view(window)
-    preview_channel = None
-    preview_bridge = None
-    if web_view is not None:
-        preview_bridge = SignaturePreviewAdjustBridge(placement_dialog)
-        preview_channel = _setup_webchannel(web_view, placement_dialog, "sigPreviewBridge", preview_bridge)
-        placement_dialog._sig_preview_bridge = preview_bridge
-        placement_dialog._sig_preview_channel = preview_channel
-
-        def _apply_preview_adjustment(page_number, left, bottom, right, top):
-            width = max(1.0, right - left)
-            height = max(1.0, top - bottom)
-            page_number = max(1, int(page_number))
-
-            for spin in (
-                placement_dialog.page_spin,
-                placement_dialog.x_spin,
-                placement_dialog.y_spin,
-                placement_dialog.width_spin,
-                placement_dialog.height_spin,
-            ):
-                spin.blockSignals(True)
-
-            try:
-                placement_dialog.page_spin.setValue(
-                    min(page_number, placement_dialog.page_spin.maximum())
-                )
-                placement_dialog.x_spin.setValue(left / MM_TO_PT)
-                placement_dialog.y_spin.setValue(bottom / MM_TO_PT)
-                placement_dialog.width_spin.setValue(width / MM_TO_PT)
-                placement_dialog.height_spin.setValue(height / MM_TO_PT)
-            finally:
-                for spin in (
-                    placement_dialog.page_spin,
-                    placement_dialog.x_spin,
-                    placement_dialog.y_spin,
-                    placement_dialog.width_spin,
-                    placement_dialog.height_spin,
-                ):
-                    spin.blockSignals(False)
-
-        preview_bridge.adjusted.connect(_apply_preview_adjustment)
-
-    def _navigate_to_page(page_no: int):
-        wv = _get_web_view(window)
-        if wv:
-            wv.page().runJavaScript(
-                f"(function(){{var app=window.PDFViewerApplication;"
-                f"if(app&&app.pdfViewer){{app.pdfViewer.currentPageNumber={int(page_no)};}}}})()"
-            )
-
-    last_preview_page = {"value": None}
-
-    def _refresh_preview(*_args):
-        pl = placement_dialog.placement()
-        _set_signature_preview(window, pl)
-        page_no = int(pl["page_number"])
-        if last_preview_page["value"] != page_no:
-            last_preview_page["value"] = page_no
-            _navigate_to_page(page_no)
-
-    placement_dialog.page_spin.valueChanged.connect(_refresh_preview)
-    placement_dialog.x_spin.valueChanged.connect(_refresh_preview)
-    placement_dialog.y_spin.valueChanged.connect(_refresh_preview)
-    placement_dialog.width_spin.valueChanged.connect(_refresh_preview)
-    placement_dialog.height_spin.valueChanged.connect(_refresh_preview)
-
-    _refresh_preview()
-    accepted_placement = False
-    try:
-        loop = QEventLoop(placement_dialog)
-        placement_dialog.finished.connect(
-            lambda _code: loop.quit() if loop.isRunning() else None
-        )
-        placement_dialog.show()
-        placement_dialog.raise_()
-        placement_dialog.activateWindow()
-        loop.exec()
-
-        if placement_dialog.result() != QDialog.DialogCode.Accepted:
-            return
-        placement = placement_dialog.placement()
-        accepted_placement = True
-    finally:
-        if not accepted_placement:
-            _set_signature_preview(window, None)
-        _teardown_webchannel(web_view)
+    placement = _pick_signature_placement(window, sig_text_html=_pfx_stamp_html)
+    if not placement or "box" not in placement or "page_number" not in placement:
+        _cleanup_signature_preview(window)
+        return
+    _set_signature_preview(window, placement, sig_text_html=_pfx_stamp_html)
 
     pfx_path, _ = QFileDialog.getOpenFileName(
         window,
@@ -1471,7 +1546,7 @@ def sign_with_pfx(window):
         "PKCS#12 Files (*.p12 *.pfx);;All Files (*)",
     )
     if not pfx_path:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
         return
 
     pin, ok = QInputDialog.getText(
@@ -1481,7 +1556,7 @@ def sign_with_pfx(window):
         QLineEdit.EchoMode.Password,
     )
     if not ok:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
         return
 
     identity_dialog = SignatureIdentityDialog(
@@ -1489,7 +1564,7 @@ def sign_with_pfx(window):
         default_signer_name=os.path.splitext(os.path.basename(pfx_path))[0],
     )
     if identity_dialog.exec() != QDialog.DialogCode.Accepted:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
         return
     signer_name = identity_dialog.signer_name()
 
@@ -1501,7 +1576,7 @@ def sign_with_pfx(window):
         "PDF Files (*.pdf)",
     )
     if not output_path:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
         return
 
     in_place_output = os.path.normcase(os.path.abspath(output_path)) == os.path.normcase(os.path.abspath(window.current_path))
@@ -1583,7 +1658,7 @@ def sign_with_pfx(window):
         msg.setDetailedText(traceback.format_exc())
         msg.exec()
     finally:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
 
 
 @require_document(show_message=True)
@@ -1598,108 +1673,20 @@ def sign_document(window):
     if not signer_info:
         return
 
-    placement = _pick_signature_placement(window)
-
-    page_count = 1
-    current_page = 1
-    if window.viewer:
-        try:
-            page_count = max(1, window.viewer.get_page_count())
-            current_page = max(1, window.viewer.get_current_page())
-        except Exception:
-            page_count = 1
-            current_page = 1
-
-    placement_dialog = SignaturePlacementDialog(
-        window,
-        page_count=page_count,
-        current_page=placement["page_number"] if placement else current_page,
-        initial_placement=placement,
+    from datetime import datetime as _dt
+    _token_stamp_html = _build_stamp_preview_html(
+        _token_display_name(signer_info),
+        tax_code=_token_text(signer_info, "tax_code"),
+        issuer_name=_token_text(signer_info, "issuer_name"),
+        token_serial=_token_text(signer_info, "serial"),
+        cert_serial=_token_text(signer_info, "cert_serial"),
+        signed_at=_dt.now().strftime("%d/%m/%Y %H:%M:%S"),
     )
-
-    web_view = _get_web_view(window)
-    preview_channel = None
-    preview_bridge = None
-    if web_view is not None:
-        preview_bridge = SignaturePreviewAdjustBridge(placement_dialog)
-        preview_channel = _setup_webchannel(web_view, placement_dialog, "sigPreviewBridge", preview_bridge)
-        placement_dialog._sig_preview_bridge = preview_bridge
-        placement_dialog._sig_preview_channel = preview_channel
-
-        def _apply_preview_adjustment(page_number, left, bottom, right, top):
-            width = max(1.0, right - left)
-            height = max(1.0, top - bottom)
-            page_number = max(1, int(page_number))
-
-            for spin in (
-                placement_dialog.page_spin,
-                placement_dialog.x_spin,
-                placement_dialog.y_spin,
-                placement_dialog.width_spin,
-                placement_dialog.height_spin,
-            ):
-                spin.blockSignals(True)
-
-            try:
-                placement_dialog.page_spin.setValue(
-                    min(page_number, placement_dialog.page_spin.maximum())
-                )
-                placement_dialog.x_spin.setValue(left / MM_TO_PT)
-                placement_dialog.y_spin.setValue(bottom / MM_TO_PT)
-                placement_dialog.width_spin.setValue(width / MM_TO_PT)
-                placement_dialog.height_spin.setValue(height / MM_TO_PT)
-            finally:
-                for spin in (
-                    placement_dialog.page_spin,
-                    placement_dialog.x_spin,
-                    placement_dialog.y_spin,
-                    placement_dialog.width_spin,
-                    placement_dialog.height_spin,
-                ):
-                    spin.blockSignals(False)
-
-        preview_bridge.adjusted.connect(_apply_preview_adjustment)
-
-    def _navigate_to_page(page_no: int):
-        """Cuộn PDF viewer đến trang chỉ định."""
-        wv = _get_web_view(window)
-        if wv:
-            wv.page().runJavaScript(
-                f"(function(){{var app=window.PDFViewerApplication;"
-                f"if(app&&app.pdfViewer){{app.pdfViewer.currentPageNumber={int(page_no)};}}}})()"
-            )
-
-    def _refresh_preview(*_args):
-        pl = placement_dialog.placement()
-        _set_signature_preview(window, pl)
-        _navigate_to_page(pl["page_number"])
-
-    placement_dialog.page_spin.valueChanged.connect(_refresh_preview)
-    placement_dialog.x_spin.valueChanged.connect(_refresh_preview)
-    placement_dialog.y_spin.valueChanged.connect(_refresh_preview)
-    placement_dialog.width_spin.valueChanged.connect(_refresh_preview)
-    placement_dialog.height_spin.valueChanged.connect(_refresh_preview)
-
-    _refresh_preview()
-    accepted_placement = False
-    try:
-        loop = QEventLoop(placement_dialog)
-        placement_dialog.finished.connect(
-            lambda _code: loop.quit() if loop.isRunning() else None
-        )
-        placement_dialog.show()
-        placement_dialog.raise_()
-        placement_dialog.activateWindow()
-        loop.exec()
-
-        if placement_dialog.result() != QDialog.DialogCode.Accepted:
-            return
-        placement = placement_dialog.placement()
-        accepted_placement = True
-    finally:
-        if not accepted_placement:
-            _set_signature_preview(window, None)
-        _teardown_webchannel(web_view)
+    placement = _pick_signature_placement(window, sig_text_html=_token_stamp_html)
+    if not placement or "box" not in placement or "page_number" not in placement:
+        _cleanup_signature_preview(window)
+        return
+    _set_signature_preview(window, placement, sig_text_html=_token_stamp_html)
 
     default_signer_name = signer_info.signer_name if signer_info else ""
 
@@ -1708,7 +1695,7 @@ def sign_document(window):
         default_signer_name=default_signer_name,
     )
     if identity_dialog.exec() != QDialog.DialogCode.Accepted:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
         return
     signer_name = identity_dialog.signer_name()
 
@@ -1722,7 +1709,7 @@ def sign_document(window):
         "PDF Files (*.pdf)"
     )
     if not output_path:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
         return
 
     pin, ok = QInputDialog.getText(
@@ -1730,7 +1717,7 @@ def sign_document(window):
         QLineEdit.EchoMode.Password
     )
     if not ok or not pin:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
         return
 
     if signer_name == "Khong ro":
@@ -1842,7 +1829,7 @@ def sign_document(window):
             msg.setDetailedText(traceback.format_exc())
             msg.exec()
     finally:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
 
 
 def _format_signature_report_vn(report: dict, path: str | None = None) -> str:
@@ -1996,93 +1983,27 @@ def sign_handwritten(window):
         except OSError:
             sig_img_path = image_path
 
-    placement = _pick_signature_placement(window)
-    # Nếu huỷ click chọn vị trí thì placement=None, dùng vị trí mặc định
-    # (không bắt buộc phải click — có thể chọn qua spinbox)
-
-    page_count, current_page = 1, 1
-    if window.viewer:
+    # Convert signature image to data URL early for pick-phase preview
+    _sig_data_url = ""
+    if sig_img_path and _os.path.isfile(sig_img_path):
         try:
-            page_count = max(1, window.viewer.get_page_count())
-            current_page = max(1, window.viewer.get_current_page())
+            import base64
+            with open(sig_img_path, "rb") as _f:
+                _b64 = base64.b64encode(_f.read()).decode("ascii")
+            _ext = _os.path.splitext(sig_img_path)[1].lower()
+            _mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                     "bmp": "image/bmp", "webp": "image/webp"}.get(_ext.lstrip("."), "image/png")
+            _sig_data_url = f"data:{_mime};base64,{_b64}"
         except Exception:
             pass
 
-    initial_page = current_page
-    if placement and "page_number" in placement:
-        initial_page = int(placement["page_number"])
-
-    placement_dialog = SignaturePlacementDialog(
-        window,
-        page_count=page_count,
-        current_page=initial_page,
-        initial_placement=placement,
-    )
-
-    web_view = _get_web_view(window)
-    preview_bridge = None
-    if web_view is not None:
-        preview_bridge = SignaturePreviewAdjustBridge(placement_dialog)
-        _setup_webchannel(web_view, placement_dialog, "sigPreviewBridge", preview_bridge)
-
-        def _apply_adj(page_number, left, bottom, right, top):
-            width = max(1.0, right - left)
-            height = max(1.0, top - bottom)
-            for spin in (placement_dialog.page_spin, placement_dialog.x_spin,
-                         placement_dialog.y_spin, placement_dialog.width_spin,
-                         placement_dialog.height_spin):
-                spin.blockSignals(True)
-            try:
-                placement_dialog.page_spin.setValue(
-                    min(int(page_number), placement_dialog.page_spin.maximum()))
-                placement_dialog.x_spin.setValue(left / MM_TO_PT)
-                placement_dialog.y_spin.setValue(bottom / MM_TO_PT)
-                placement_dialog.width_spin.setValue(width / MM_TO_PT)
-                placement_dialog.height_spin.setValue(height / MM_TO_PT)
-            finally:
-                for spin in (placement_dialog.page_spin, placement_dialog.x_spin,
-                             placement_dialog.y_spin, placement_dialog.width_spin,
-                             placement_dialog.height_spin):
-                    spin.blockSignals(False)
-
-        preview_bridge.adjusted.connect(_apply_adj)
-
-    def _nav_page(page_no: int):
-        wv2 = _get_web_view(window)
-        if wv2:
-            wv2.page().runJavaScript(
-                f"(function(){{var app=window.PDFViewerApplication;"
-                f"if(app&&app.pdfViewer){{app.pdfViewer.currentPageNumber={int(page_no)};}}}})()"
-            )
-
-    def _refresh_prev(*_):
-        pl = placement_dialog.placement()
-        _set_signature_preview(window, pl)
-        _nav_page(pl["page_number"])
-
-    for spin in (placement_dialog.page_spin, placement_dialog.x_spin,
-                 placement_dialog.y_spin, placement_dialog.width_spin,
-                 placement_dialog.height_spin):
-        spin.valueChanged.connect(_refresh_prev)
-
-    _refresh_prev()
-    loop = QEventLoop(placement_dialog)
-    placement_dialog.finished.connect(
-        lambda _code: loop.quit() if loop.isRunning() else None)
-    placement_dialog.show()
-    placement_dialog.raise_()
-    placement_dialog.activateWindow()
-    try:
-        loop.exec()
-        if placement_dialog.result() != QDialog.DialogCode.Accepted:
-            return
-        placement = placement_dialog.placement()
-    finally:
-        _set_signature_preview(window, None)
-        _teardown_webchannel(web_view)
-
+    placement = _pick_signature_placement(window, sig_image_url=_sig_data_url)
+    # Nếu huỷ click chọn vị trí thì placement=None, dùng vị trí mặc định
+    # (không bắt buộc phải click — có thể chọn qua spinbox)
     if not placement or "box" not in placement or "page_number" not in placement:
+        _cleanup_signature_preview(window)
         return
+    _set_signature_preview(window, placement, sig_image_url=_sig_data_url)
 
     page_no = placement["page_number"]
     box = placement["box"]
@@ -2111,9 +2032,11 @@ def sign_handwritten(window):
         )
         if hasattr(window, "status"):
             window.status.showMessage("Đã đặt chữ ký tay lên PDF", 3000)
-    except Exception as exc:
+    except Exception:
         import traceback
         show_warning(window, "Lỗi chèn chữ ký", traceback.format_exc())
+    finally:
+        _cleanup_signature_preview(window)
 class SignatureStatusDialog(QDialog):
     def __init__(self, parent, report: dict, *, path: str | None = None):
         super().__init__(parent)
