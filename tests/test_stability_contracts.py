@@ -58,3 +58,17 @@ def test_app_update_ui_uses_current_updater_package():
 
     assert "packages.updater" in app_sources
     assert "packages.update_client" not in app_sources
+
+
+def test_currentcolor_svg_icons_rasterize_for_mark_buttons():
+    from packages.qt_compat import QtWidgets
+    from app.icon_utils import svg_icon
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    underline = svg_icon("underline.svg", color="#2563eb")
+    strikeout = svg_icon("strikeout.svg", color="#dc2626")
+
+    assert not underline.isNull()
+    assert not strikeout.isNull()
+    assert not underline.pixmap(24, 24).isNull()
+    assert not strikeout.pixmap(24, 24).isNull()

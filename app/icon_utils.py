@@ -57,6 +57,12 @@ def svg_icon(filename: str, size: int = 20, color: str = "#9090b8") -> QIcon:
         svg_data = svg_data.replace(f'fill={old}', f'fill="{color}"')
         svg_data = svg_data.replace(f'stroke={old}', f'stroke="{color}"')
 
+    # Nhiều icon Lucide/Feather dùng currentColor thay vì mã màu cố định.
+    # Đổi cả `color` lẫn currentColor để SVG stroke/fill đều hiện đúng.
+    svg_data = svg_data.replace('currentColor', color)
+    if 'color="' not in svg_data and "color='" not in svg_data:
+        svg_data = svg_data.replace("<svg ", f'<svg color="{color}" ', 1)
+
     # Nếu SVG không có fill cụ thể nào → thêm vào thẻ <svg>
     if color not in svg_data:
         svg_data = svg_data.replace("<svg ", f'<svg fill="{color}" ', 1)
