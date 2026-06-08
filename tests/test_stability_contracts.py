@@ -38,3 +38,23 @@ def test_save_edits_quiet_does_not_reload_viewer():
     source = inspect.getsource(edit.save_edits_quiet)
     assert "reload_document" not in source
     assert "reload_viewer=False" in source
+
+
+def test_object_actions_use_typed_webchannel_bridge():
+    edit_source = _read("app/actions/edit.py")
+    webchannel_source = _read("app/webchannel.py")
+
+    assert "objectActionBridge" in edit_source
+    assert "class _ObjectActionBridgeProxy" in webchannel_source
+    assert "window.__3tPendingAction" not in edit_source
+    assert "poll_timer" not in edit_source
+
+
+def test_app_update_ui_uses_current_updater_package():
+    app_sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (ROOT / "app").glob("*.py")
+    )
+
+    assert "packages.updater" in app_sources
+    assert "packages.update_client" not in app_sources

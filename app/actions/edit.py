@@ -3,7 +3,7 @@ import shutil
 import tempfile
 import uuid
 
-from packages.qt_compat.QtCore import QObject, QEventLoop, QThread, QTimer, pyqtSignal, pyqtSlot
+from packages.qt_compat.QtCore import QObject, QEventLoop, QTimer, pyqtSignal, pyqtSlot
 from packages.qt_compat.QtWidgets import (
     QColorDialog,
     QDialog,
@@ -69,15 +69,39 @@ _CLEAR_SELECTION_OVERLAY_JS = """(function() {
 # JS for Foxit-style handles overlay — drag ↻ to rotate live.
 # Handle layout: ↻ top-right, ✥ move top-left, × delete bottom-left, ✎ edit bottom-right.
 # Args (Python % formatting): pageNum, pdfLeft, pdfBottom, pdfRight, pdfTop, currentRotation, hasEdit (true/false JS literal)
-# Communicates with Python via window.__3tPendingAction (polled by QTimer — no QWebChannel needed).
+# Communicates with Python via QWebChannel objectActionBridge.
 _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRight, pdfTop, currentRotation, hasEdit) {
     var _cleanedUp = false;
     var _dragging  = false;
+    var _actionBridge = null;
 
-    window.__3tPendingAction = null;
+    function withActionBridge(callback) {
+        if (_actionBridge) {
+            callback(_actionBridge);
+            return;
+        }
+        if (typeof window.__3tWithBridge !== 'function') {
+            setTimeout(function() { withActionBridge(callback); }, 50);
+            return;
+        }
+        window.__3tWithBridge('objectActionBridge', function(bridge) {
+            _actionBridge = bridge || null;
+            callback(_actionBridge);
+        });
+    }
 
     function reportAction(obj) {
-        window.__3tPendingAction = obj;
+        withActionBridge(function(bridge) {
+            if (!bridge) return;
+            try {
+                if (obj.type === 'rotate') bridge.reportRotation(Number(obj.angle || 0));
+                else if (obj.type === 'delete') bridge.reportDelete();
+                else if (obj.type === 'edit') bridge.reportEdit();
+                else if (obj.type === 'move') bridge.reportMove();
+                else if (obj.type === 'retry') bridge.reportRetry();
+                else bridge.reportDismiss();
+            } catch (_err) {}
+        });
     }
 
     function onDocClick(e) {
@@ -113,7 +137,10 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
     }, 300);
 
     var app = window.PDFViewerApplication;
-    if (!app || !app.pdfViewer) { return; }
+    if (!app || !app.pdfViewer) {
+        reportAction({type:'retry'});
+        return;
+    }
     var pdfViewer = app.pdfViewer;
     var pageView  = pdfViewer.getPageView
         ? pdfViewer.getPageView(pageNum - 1)
@@ -253,7 +280,6 @@ _CLEAR_OBJECT_HANDLES_JS = """(function() {
     var el = document.getElementById('__3tObjGroup');
     if (el && el.parentNode) el.parentNode.removeChild(el);
     if (typeof window.__3tObjCleanup === 'function') window.__3tObjCleanup();
-    window.__3tPendingAction = null;
 })();"""
 
 _SHOW_CANCEL_BTN_JS = r"""(function() {
@@ -297,6 +323,7 @@ class ObjectActionBridge(QObject):
     editConfirmed   = pyqtSignal()
     moveRequested   = pyqtSignal()
     dismissed       = pyqtSignal()
+    retryRequested  = pyqtSignal()
 
     @pyqtSlot(float)
     def reportRotation(self, angle):
@@ -317,6 +344,10 @@ class ObjectActionBridge(QObject):
     @pyqtSlot()
     def reportDismiss(self):
         self.dismissed.emit()
+
+    @pyqtSlot()
+    def reportRetry(self):
+        self.retryRequested.emit()
 
 
 def _pick_context_matches(window, expected_state, expected_path: str | None) -> bool:
@@ -830,24 +861,25 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
 
     _show_object_overlay(window, target_op)
 
-    # Poll window.__3tPendingAction every 80 ms â€” no QWebChannel needed.
+    # Wait for the typed QWebChannel object action result.
     action_result = {}
     loop = QEventLoop(window)
-    poll_timer = QTimer(window)
-    poll_timer.setInterval(80)
+    action_bridge = ObjectActionBridge(window)
+    _setup_webchannel(web_view, window, "objectActionBridge", action_bridge)
 
-    def _poll_action(js_result):
-        if js_result is None:
-            return
-        action_result.update(js_result)
-        poll_timer.stop()
+    def _finish(action_type: str, **payload):
+        action_result.clear()
+        action_result["type"] = action_type
+        action_result.update(payload)
         if loop.isRunning():
             loop.quit()
 
-    def _do_poll():
-        web_view.page().runJavaScript("window.__3tPendingAction", _poll_action)
-
-    poll_timer.timeout.connect(_do_poll)
+    action_bridge.rotateConfirmed.connect(lambda angle: _finish("rotate", angle=angle))
+    action_bridge.deleteConfirmed.connect(lambda: _finish("delete"))
+    action_bridge.editConfirmed.connect(lambda: _finish("edit"))
+    action_bridge.moveRequested.connect(lambda: _finish("move"))
+    action_bridge.retryRequested.connect(lambda: _finish("retry"))
+    action_bridge.dismissed.connect(lambda: _finish("dismiss"))
 
     def _js_ran(_result):
         pass
@@ -858,11 +890,11 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
             current_rot, "true" if op_type == "text" else "false",
         )
         web_view.page().runJavaScript(js, _js_ran)
-        poll_timer.start()
+        QTimer.singleShot(10_000, lambda: _finish("dismiss"))
         loop.exec()
     finally:
-        poll_timer.stop()
         web_view.page().runJavaScript(_CLEAR_OBJECT_HANDLES_JS)
+        _teardown_webchannel(web_view)
         _clear_object_overlay(window)
 
     action = action_result.get("type", "dismiss")

@@ -111,6 +111,32 @@ class _InlineImageBridgeProxy(_BridgeProxyBase):
         self._call("cancelEdit")
 
 
+class _ObjectActionBridgeProxy(_BridgeProxyBase):
+    @pyqtSlot(float)
+    def reportRotation(self, angle: float):
+        self._call("reportRotation", angle)
+
+    @pyqtSlot()
+    def reportDelete(self):
+        self._call("reportDelete")
+
+    @pyqtSlot()
+    def reportEdit(self):
+        self._call("reportEdit")
+
+    @pyqtSlot()
+    def reportMove(self):
+        self._call("reportMove")
+
+    @pyqtSlot()
+    def reportDismiss(self):
+        self._call("reportDismiss")
+
+    @pyqtSlot()
+    def reportRetry(self):
+        self._call("reportRetry")
+
+
 _PROXY_TYPES = {
     "pageStateBridge": _PageStateBridgeProxy,
     "noteToolsBridge": _NoteToolsBridgeProxy,
@@ -119,6 +145,7 @@ _PROXY_TYPES = {
     "sigPreviewBridge": _SignaturePreviewBridgeProxy,
     "inlineTextBridge": _InlineTextBridgeProxy,
     "inlineImageBridge": _InlineImageBridgeProxy,
+    "objectActionBridge": _ObjectActionBridgeProxy,
 }
 
 _SHORT_LIVED_BRIDGES = {
@@ -127,6 +154,7 @@ _SHORT_LIVED_BRIDGES = {
     "sigPreviewBridge",
     "inlineTextBridge",
     "inlineImageBridge",
+    "objectActionBridge",
 }
 
 

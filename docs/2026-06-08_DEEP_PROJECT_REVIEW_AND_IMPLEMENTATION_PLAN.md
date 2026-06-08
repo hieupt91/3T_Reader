@@ -29,6 +29,14 @@ Cap nhat sau batch trien khai dau tien trong ngay 2026-06-08:
 - Da them regression tests trong `tests/test_stability_contracts.py` va bo sung local server registry tests.
 - Ket qua verify moi: `.\.venv313\Scripts\python.exe -m pytest` => `178 passed, 24 skipped`.
 
+Cap nhat sau batch trien khai thu hai trong ngay 2026-06-08:
+
+- Da chuyen object edit action trong `app/actions/edit.py` tu polling `window.__3tPendingAction` moi 80 ms sang `objectActionBridge` qua QWebChannel.
+- Da them `_ObjectActionBridgeProxy` vao `app/webchannel.py` de proxy WebChannel on dinh co contract ro cho rotate/delete/edit/move/dismiss/retry.
+- Da bo import `QThread` thua trong `app/actions/edit.py`.
+- Da them contract tests de chan viec quay lai polling JS va de xac nhan UI update dang dung `packages.updater` thay vi package update client cu.
+- Ket qua verify moi: `.\.venv313\Scripts\python.exe -m pytest` => `180 passed, 24 skipped`.
+
 ## 2. Du lieu da kiem tra
 
 ### 2.1 Code va module chinh
