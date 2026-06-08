@@ -37,6 +37,14 @@ Cap nhat sau batch trien khai thu hai trong ngay 2026-06-08:
 - Da them contract tests de chan viec quay lai polling JS va de xac nhan UI update dang dung `packages.updater` thay vi package update client cu.
 - Ket qua verify moi: `.\.venv313\Scripts\python.exe -m pytest` => `180 passed, 24 skipped`.
 
+Cap nhat sau batch trien khai thu ba trong ngay 2026-06-08:
+
+- Da bo sung state API cho annotation queue: `pending_count()`, `is_flushing()` va `last_error()`.
+- `has_pending_annotations()` co the nhan dien ca truong hop queue dang flush cho file hien tai, khong chi cac op con nam trong danh sach pending.
+- Khi thao tac nang bi chan vi chu thich chua luu xong, canh bao nay hien ly do cu the hon: dang flush hay loi gan nhat.
+- Da them regression tests cho pending/flushing state, status message khi flush dang chay va noi dung canh bao heavy-op.
+- Ket qua verify moi: `.\.venv313\Scripts\python.exe -m pytest` => `183 passed, 24 skipped`.
+
 ## 2. Du lieu da kiem tra
 
 ### 2.1 Code va module chinh

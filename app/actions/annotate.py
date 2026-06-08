@@ -63,15 +63,38 @@ class _AnnotationOpQueue(QObject):
         self._window = window
         self._pending: list[tuple[str, object]] = []
         self._flushing = False
+        self._flushing_target: str | None = None
+        self._last_error = ""
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.flush)
 
     def enqueue(self, target_path: str, op, *, delay_ms: int = 350) -> None:
         self._pending.append((os.path.abspath(target_path), op))
+        self._last_error = ""
+        if hasattr(self._window, "status"):
+            self._window.status.showMessage("Đang chờ tự động lưu chú thích...", 1200)
         self._timer.start(max(0, int(delay_ms)))
 
+    def pending_count(self, target_path: str | None = None) -> int:
+        if target_path is None:
+            return len(self._pending)
+        target_path = os.path.abspath(target_path)
+        return sum(1 for path, _op in self._pending if path == target_path)
+
+    def is_flushing(self, target_path: str | None = None) -> bool:
+        if not self._flushing:
+            return False
+        if target_path is None:
+            return True
+        return self._flushing_target == os.path.abspath(target_path)
+
+    def last_error(self) -> str:
+        return self._last_error
+
     def has_pending(self, target_path: str | None = None) -> bool:
+        if self.is_flushing(target_path):
+            return True
         if target_path is None:
             return bool(self._pending)
         target_path = os.path.abspath(target_path)
@@ -79,6 +102,8 @@ class _AnnotationOpQueue(QObject):
 
     def flush(self, target_path: str | None = None) -> bool:
         if self._flushing:
+            if hasattr(self._window, "status"):
+                self._window.status.showMessage("Đang lưu chú thích, vui lòng đợi...", 1500)
             return False
         if not self._pending:
             return True
@@ -96,6 +121,7 @@ class _AnnotationOpQueue(QObject):
         self._timer.stop()
         self._pending = rest
         self._flushing = True
+        self._flushing_target = requested_target
 
         staged_path = ""
         try:
@@ -105,17 +131,20 @@ class _AnnotationOpQueue(QObject):
                 staged_path = make_staged_pdf_path(requested_target)
                 pdf.save(staged_path)
             replace_file_with_retry(staged_path, requested_target, attempts=3)
+            self._last_error = ""
             if hasattr(self._window, "status"):
                 self._window.status.showMessage("Đã tự động lưu chú thích.", 1800)
         except Exception as exc:
             remove_path_quietly(staged_path)
             self._pending = same_target + self._pending
+            self._last_error = str(exc)
             if hasattr(self._window, "status"):
                 self._window.status.showMessage(f"Chưa lưu được chú thích, sẽ thử lại: {exc}", 3500)
             self._timer.start(1200)
             return False
         finally:
             self._flushing = False
+            self._flushing_target = None
 
         if self._pending:
             self._timer.start(50)
@@ -178,11 +207,19 @@ def has_pending_annotations(window, target_path: str | None = None) -> bool:
 def _flush_annotations_before_heavy_op(window, target_path: str, operation_label: str) -> bool:
     if _flush_annotation_queue(window, target_path):
         return True
+    queue = getattr(window, "_annotation_op_queue", None)
+    detail = "Vui lòng đợi vài giây rồi thử lại."
+    is_flushing = getattr(queue, "is_flushing", None)
+    if callable(is_flushing) and is_flushing(target_path):
+        detail = "Hệ thống đang lưu chú thích cho tài liệu này. Vui lòng đợi hoàn tất rồi thử lại."
+    else:
+        last_error = getattr(queue, "last_error", None)
+        if callable(last_error) and last_error():
+            detail = f"Lỗi gần nhất: {last_error()}"
     show_warning(
         window,
         "Chưa lưu xong chú thích",
-        f"Một số thay đổi chú thích chưa lưu xong nên chưa thể {operation_label}. "
-        "Vui lòng đợi vài giây rồi thử lại.",
+        f"Một số thay đổi chú thích chưa lưu xong nên chưa thể {operation_label}.\n\n{detail}",
     )
     return False
 
