@@ -8,6 +8,40 @@ import uuid
 from datetime import datetime, timezone
 
 
+class _TemporaryImportedPdfPage:
+    """Imported PDF page that cleans up its source file after rendering."""
+
+    def __init__(self, file_name: str):
+        from pyhanko.pdf_utils.content import ImportedPdfPage
+
+        self._page = ImportedPdfPage(file_name)
+        self.file_name = file_name
+
+    def set_writer(self, writer):
+        self._page.set_writer(writer)
+
+    @property
+    def resources(self):
+        return self._page.resources
+
+    @property
+    def box(self):
+        return self._page.box
+
+    @box.setter
+    def box(self, value):
+        self._page.box = value
+
+    def render(self) -> bytes:
+        try:
+            return self._page.render()
+        finally:
+            try:
+                os.remove(self.file_name)
+            except OSError:
+                pass
+
+
 def _safe_get_pkcs11_attr(obj, attr):
     try:
         return obj[attr]
@@ -196,11 +230,14 @@ def build_vietnamese_stamp_style(
     issuer_name: str | None = None,
     token_serial: str | None = None,
     cert_serial: str | None = None,
+    appearance_box: tuple[float, float, float, float] | None = None,
 ):
     import textwrap
     from pyhanko.pdf_utils.layout import AxisAlignment, Margins, SimpleBoxLayoutRule
+    from pyhanko.pdf_utils.content import ImportedPdfPage
     from pyhanko.pdf_utils.text import TextBoxStyle
     from pyhanko.stamp import TextStampStyle
+    from packages.platform.fonts import get_vietnamese_font_path
 
     safe_name = str(signer_display_name or "").strip() or "Khong ro"
     display_tax = tax_code or _extract_tax_code_from_text(safe_name)
@@ -228,7 +265,72 @@ def build_vietnamese_stamp_style(
     if serial:
         stamp_lines.extend(_wrap_value("Số serial chứng thư số", serial, width=34, max_lines=1))
     stamp_lines.append("Trạng thái: Hợp lệ; tài liệu chưa bị sửa")
-    stamp_text = "\n".join(stamp_lines)
+
+    font_path = get_vietnamese_font_path(bold=False)
+    if font_path:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.utils import simpleSplit
+
+        font_name = f"ThreeTStamp_{uuid.uuid4().hex[:8]}"
+        pdfmetrics.registerFont(TTFont(font_name, font_path))
+        padding_x = 4
+        padding_y = 4
+        if appearance_box is not None:
+            left, bottom, right, top = [float(v) for v in appearance_box]
+            page_width = max(120.0, abs(right - left))
+            page_height = max(42.0, abs(top - bottom))
+        else:
+            page_width = 260.0
+            page_height = 96.0
+
+        max_text_width = max(40.0, page_width - (padding_x * 2))
+        max_text_height = max(20.0, page_height - (padding_y * 2))
+        wrapped_lines: list[str] = []
+        font_size = 6.0
+        leading = 7.0
+        sizes = (
+            8.0, 7.5, 7.0, 6.5, 6.0, 5.5, 5.0, 4.5,
+            4.0, 3.6, 3.2, 2.8, 2.4,
+        )
+        for size in sizes:
+            candidate_lines: list[str] = []
+            candidate_leading = max(size + 0.35, size * 1.08)
+            for raw_line in stamp_lines:
+                candidate_lines.extend(simpleSplit(raw_line, font_name, size, max_text_width) or [raw_line])
+            if candidate_lines and len(candidate_lines) * candidate_leading <= max_text_height:
+                wrapped_lines = candidate_lines
+                font_size = size
+                leading = candidate_leading
+                break
+        if not wrapped_lines:
+            font_size = 2.4
+            for raw_line in stamp_lines:
+                wrapped_lines.extend(simpleSplit(raw_line, font_name, font_size, max_text_width) or [raw_line])
+            if wrapped_lines:
+                leading = max(2.1, max_text_height / len(wrapped_lines))
+                font_size = max(1.8, min(font_size, leading * 0.82))
+
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        tmp_path = tmp.name
+        tmp.close()
+
+        c = canvas.Canvas(tmp_path, pagesize=(page_width, page_height))
+        c.setFont(font_name, font_size)
+        y = page_height - padding_y - font_size
+        for line in wrapped_lines:
+            c.drawString(padding_x, y, line)
+            y -= leading
+        c.save()
+
+        background = _TemporaryImportedPdfPage(tmp_path)
+        stamp_text = " "
+        background_opacity = 1.0
+    else:
+        background = None
+        stamp_text = " "
+        background_opacity = 0.0
 
     layout_rule = SimpleBoxLayoutRule(
         x_align=AxisAlignment.ALIGN_MIN,
@@ -237,7 +339,8 @@ def build_vietnamese_stamp_style(
     )
     return TextStampStyle(
         stamp_text=stamp_text,
-        background_opacity=0.0,
+        background=background,
+        background_opacity=background_opacity,
         border_width=0,
         text_box_style=TextBoxStyle(
             font_size=7,
@@ -333,6 +436,7 @@ async def sign_pdf_with_session(
             issuer_name=cert_issuer,
             token_serial=token_serial,
             cert_serial=cert_serial,
+            appearance_box=box,
         )
         with open(input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
@@ -419,6 +523,7 @@ async def sign_pdf_with_pkcs12(
             signed_at=signed_at_vn,
             issuer_name=cert_issuer,
             cert_serial=cert_serial,
+            appearance_box=box,
         )
         with open(input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)

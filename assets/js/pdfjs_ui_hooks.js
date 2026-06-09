@@ -18,18 +18,9 @@
         '  margin: 16px auto !important;',
         '  border-radius: 4px !important;',
         '}',
-        '.annotationLayer .signatureWidgetAnnotation,',
-        '.annotationLayer .signatureWidgetAnnotation * {',
-        '  border: none !important;',
-        '  outline: none !important;',
-        '  box-shadow: none !important;',
-        '  background: transparent !important;',
-        '}',
-        '.annotationLayer .signatureWidgetAnnotation input,',
-        '.annotationLayer .signatureWidgetAnnotation textarea {',
-        '  opacity: 0 !important;',
-        '  pointer-events: none !important;',
-        '}',
+        // Signature widget annotations are rendered as static appearance
+        // streams (annotationMode=ENABLE) so they stay visible without
+        // needing to hide interactive form inputs.
     ].join('\n');
     var style = document.createElement('style');
     style.textContent = css;

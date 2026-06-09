@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import asyncio
 import threading
 import tempfile
 import urllib.parse
@@ -10,6 +11,16 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.serialization import pkcs12
+from datetime import datetime, timedelta, timezone
+
+from packages.signing.shared import sign_pdf_with_pkcs12
 
 
 # ---------------------------------------------------------------------------
@@ -91,13 +102,13 @@ class TestServePDFSecurity:
             handler._normalise_allowed_path_key(str(pdf_path))
         }
         handler.allowed_pdf_paths_lock = threading.RLock()
-        handler._serve_pdf_file = MagicMock()
+        handler._read_pdf_for_display = MagicMock(return_value=b"%PDF-1.4\n%%EOF")
+        handler._serve_pdf_bytes = MagicMock()
 
-        with patch.object(handler, "_has_signature_field_cached", return_value=False):
-            handler._serve_pdf("p=" + urllib.parse.quote(str(pdf_path)))
+        handler._serve_pdf("p=" + urllib.parse.quote(str(pdf_path)))
 
         handler.send_error.assert_not_called()
-        handler._serve_pdf_file.assert_called_once()
+        handler._serve_pdf_bytes.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -170,3 +181,81 @@ class TestViewerURL:
         assert url
         key = _PDFJSHandler._normalise_allowed_path_key(str(pdf_path))
         assert key in server._allowed_pdf_paths
+
+
+def test_local_server_keeps_signature_widgets_for_pdfjs_appearance_rendering():
+    source = (Path(__file__).resolve().parents[1] / "app" / "local_server.py").read_text(encoding="utf-8")
+    assert "&annotationMode=1" in source
+    assert "if _is_signature_widget(annot_obj):\n                        kept_annots.append(annot)" in source
+    assert "_strip_signature_fields_all(fields)" not in source
+
+
+def test_normalized_display_copy_preserves_signature_widgets_and_acroform(tmp_path):
+    from app.local_server import _normalise_pdfjs_appearance_boxes
+    import pikepdf
+
+    base = tmp_path / "base.pdf"
+    signed = tmp_path / "signed.pdf"
+    pfx = tmp_path / "test.pfx"
+
+    c = canvas.Canvas(str(base), pagesize=A4)
+    c.drawString(100, 750, "HELLO SIGNATURE TEST")
+    c.showPage()
+    c.save()
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Test User")])
+    now = datetime.now(timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=365))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    pfx.write_bytes(
+        pkcs12.serialize_key_and_certificates(
+            b"test",
+            key,
+            cert,
+            None,
+            serialization.BestAvailableEncryption(b"1234"),
+        )
+    )
+
+    asyncio.run(
+        sign_pdf_with_pkcs12(
+            str(pfx),
+            "1234",
+            str(base),
+            str(signed),
+            signer_name="Test User",
+            page_number=1,
+            box=(50, 600, 250, 700),
+        )
+    )
+
+    normalized = _normalise_pdfjs_appearance_boxes(str(signed), signed.read_bytes())
+    normalized_pdf = tmp_path / "normalized.pdf"
+    normalized_pdf.write_bytes(normalized)
+
+    with pikepdf.Pdf.open(str(normalized_pdf)) as pdf:
+        acro = pdf.Root.get("/AcroForm")
+        assert acro and acro.get("/Fields")
+        signature_annots = 0
+        for page in pdf.pages:
+            annots = page.obj.get("/Annots") or []
+            for annot in annots:
+                annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
+                parent = annot_obj.get("/Parent")
+                parent_obj = parent.get_object() if hasattr(parent, "get_object") else parent
+                if (
+                    str(annot_obj.get("/FT") or "") == "/Sig"
+                    or (parent_obj is not None and str(parent_obj.get("/FT") or "") == "/Sig")
+                ):
+                    signature_annots += 1
+        assert signature_annots >= 1

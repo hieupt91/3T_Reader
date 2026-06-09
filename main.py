@@ -1,6 +1,9 @@
 import sys
 import platform as _platform
 import os
+import threading
+import traceback
+import faulthandler
 
 # ================================================================
 # BƯỚC 1: Xử lý subprocess của QtWebEngine TRƯỚC TIÊN
@@ -15,6 +18,43 @@ if getattr(sys, 'frozen', False):
     # Đây là subprocess nội bộ của QtWebEngine → thoát ngay, không mở UI
     if any(arg.startswith('--type=') for arg in sys.argv):
         sys.exit(0)
+
+if len(sys.argv) >= 3 and sys.argv[1] == "--usb-sign-worker":
+    from packages.signing.usb_worker import main as _usb_sign_worker_main
+
+    sys.exit(_usb_sign_worker_main(sys.argv[2:]))
+
+_crash_log_handle = None
+
+
+def _install_crash_logging() -> None:
+    global _crash_log_handle
+    try:
+        log_path = os.path.join(os.path.dirname(__file__), "app_log.txt")
+        _crash_log_handle = open(log_path, "a", encoding="utf-8", buffering=1)
+        faulthandler.enable(file=_crash_log_handle, all_threads=True)
+    except Exception:
+        return
+
+    def _excepthook(exc_type, exc, tb):
+        try:
+            traceback.print_exception(exc_type, exc, tb, file=_crash_log_handle)
+        except Exception:
+            pass
+        sys.__excepthook__(exc_type, exc, tb)
+
+    sys.excepthook = _excepthook
+
+    if hasattr(threading, "excepthook"):
+        def _thread_excepthook(args):
+            try:
+                traceback.print_exception(args.exc_type, args.exc_value, args.exc_traceback, file=_crash_log_handle)
+            except Exception:
+                pass
+            if threading.__excepthook__ is not None:
+                threading.__excepthook__(args)
+
+        threading.excepthook = _thread_excepthook
 
 # ================================================================
 # BƯỚC 2: Single-instance guard qua platform adapter
@@ -47,6 +87,7 @@ def _startup_pdf_path(argv: list[str]) -> str | None:
     return None
 
 if __name__ == "__main__":
+    _install_crash_logging()
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 
     app = QApplication(sys.argv)
@@ -85,15 +126,21 @@ if __name__ == "__main__":
     app.setWindowIcon(app_logo_icon(256))
 
     window = PDFReaderApp()
-    from app.license_dialog import check_license_on_startup
-    if not check_license_on_startup(window):
-        window.close()
-        sys.exit(0)
     startup_pdf = _startup_pdf_path(sys.argv)
     window.show()
-    if startup_pdf:
-        from packages.qt_compat.QtCore import QTimer
-        from app.actions.file import open_file
 
-        QTimer.singleShot(0, lambda p=startup_pdf: open_file(window, p))
+    from packages.qt_compat.QtCore import QTimer
+    from app.license_dialog import check_license_on_startup
+
+    def _finish_startup():
+        if not check_license_on_startup(window):
+            window.close()
+            app.quit()
+            return
+        if startup_pdf:
+            from app.actions.file import open_file
+
+            QTimer.singleShot(0, lambda p=startup_pdf: open_file(window, p))
+
+    QTimer.singleShot(0, _finish_startup)
     sys.exit(app.exec())

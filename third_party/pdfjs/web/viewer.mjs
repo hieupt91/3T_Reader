@@ -629,7 +629,10 @@ const defaultOptions = {
     kind: OptionKind.VIEWER + OptionKind.PREFERENCE
   },
   annotationMode: {
-    value: 2,
+    // 1 = ENABLE (static appearance, no interactive forms)
+    // 2 = ENABLE_FORMS (interactive inputs, hides appearance stream)
+    // Use ENABLE so digital-signature stamps stay visible.
+    value: 1,
     kind: OptionKind.VIEWER + OptionKind.PREFERENCE
   },
   capCanvasAreaFactor: {

@@ -108,9 +108,6 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
             return
         try:
-            if not self._has_signature_field_cached(pdf_path):
-                self._serve_pdf_file(pdf_path, send_body=send_body)
-                return
             data = self._read_pdf_for_display(pdf_path)
             self._serve_pdf_bytes(data, send_body=send_body)
         except OSError:
@@ -352,6 +349,7 @@ class LocalPDFJSServer:
             "&disableAutoFetch=true"
             "&disableRange=false"
             "&rangeChunkSize=1048576"
+            "&annotationMode=1"
         )
         url = f"http://127.0.0.1:{self._port}/web/viewer.html?{viewer_opts}#page={page}"
         if zoom:
@@ -460,16 +458,19 @@ def _field_array_has_signature(fields_arr) -> bool:
 
 
 def _normalise_pdfjs_appearance_boxes(pdf_path: str, original_data: bytes) -> bytes:
-    """Serve a display-only copy that avoids PDF.js signature widget issues."""
+    """Fix inverted BBox values in annotation appearance streams.
+
+    Signature widgets are kept intact — PDF.js is configured with
+    ``renderForms=false`` so it renders the embedded appearance stream
+    rather than interactive form inputs.  This ensures digital
+    signatures remain visible when re-opening a signed PDF.
+    """
     try:
         import pikepdf
 
         changed = False
         with pikepdf.Pdf.open(pdf_path) as pdf:
-            signature_overlays: dict[int, list[dict]] = {}
-            removed_sig_field_names: set[str] = set()
-            removed_signature_widgets = 0
-            for page_index, page in enumerate(pdf.pages, start=1):
+            for page in pdf.pages:
                 annots = page.obj.get("/Annots")
                 if not annots:
                     continue
@@ -477,27 +478,16 @@ def _normalise_pdfjs_appearance_boxes(pdf_path: str, original_data: bytes) -> by
                 for annot in annots:
                     annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
                     if _is_signature_widget(annot_obj):
-                        painted = _paint_signature_widget_appearance(
-                            pdf,
-                            page,
-                            annot_obj,
-                            f"T3Sig{page_index}_{removed_signature_widgets + 1}",
-                        )
-                        overlay = None if painted else _signature_overlay_from_annot(annot_obj)
-                        if overlay and overlay.get("lines"):
-                            signature_overlays.setdefault(page_index, []).append(overlay)
-                        removed_signature_widgets += 1
-                        field_name = _signature_field_name(annot_obj)
-                        if field_name is not None:
-                            removed_sig_field_names.add(field_name)
-                        changed = True
+                        kept_annots.append(annot)
                         continue
-                    kept_annots.append(annot)
+
                     ap = annot_obj.get("/AP")
                     if not ap:
+                        kept_annots.append(annot)
                         continue
                     normal = ap.get("/N")
                     if normal is None:
+                        kept_annots.append(annot)
                         continue
                     streams = []
                     if isinstance(normal, pikepdf.Stream):
@@ -519,40 +509,14 @@ def _normalise_pdfjs_appearance_boxes(pdf_path: str, original_data: bytes) -> by
                             [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
                         )
                         changed = True
-                if kept_annots:
-                    page.obj["/Annots"] = pikepdf.Array(kept_annots)
-                elif "/Annots" in page.obj:
-                    del page.obj["/Annots"]
+                    kept_annots.append(annot)
 
-            for page_index, overlays in signature_overlays.items():
-                page = pdf.pages[page_index - 1]
-                width, height = _page_size(page)
-                overlay_pdf_bytes = _build_signature_display_overlay(width, height, overlays)
-                if not overlay_pdf_bytes:
-                    continue
-                with pikepdf.Pdf.open(io.BytesIO(overlay_pdf_bytes)) as overlay_pdf:
-                    page.add_overlay(overlay_pdf.pages[0])
-
-            # Also strip signature fields from AcroForm so PDF.js doesn't re-render
-            # them through form-widget machinery (PDF.js draws a default frame
-            # around any /Sig field it finds in AcroForm, regardless of /Annots).
-            if removed_signature_widgets:
-                try:
-                    root = pdf.Root
-                    acro = root.get("/AcroForm")
-                    if acro is not None:
-                        fields_arr = acro.get("/Fields")
-                        if fields_arr is not None:
-                            kept_fields, _changed_fields = _strip_signature_fields(
-                                fields_arr,
-                                removed_sig_field_names,
-                            )
-                            if kept_fields:
-                                acro["/Fields"] = pikepdf.Array(kept_fields)
-                            elif "/Fields" in acro:
-                                del acro["/Fields"]
-                except Exception:
-                    pass
+                if len(kept_annots) != len(annots):
+                    if kept_annots:
+                        page.obj["/Annots"] = pikepdf.Array(kept_annots)
+                    elif "/Annots" in page.obj:
+                            del page.obj["/Annots"]
+                    changed = True
 
             if not changed:
                 return original_data
@@ -570,9 +534,9 @@ def _is_signature_widget(annot) -> bool:
         parent = annot.get("/Parent")
         parent_obj = parent.get_object() if hasattr(parent, "get_object") else parent
         return (
-            annot.get("/FT") == "/Sig"
+            str(annot.get("/FT") or "") == "/Sig"
             or annot.get("/V") is not None
-            or (parent_obj is not None and parent_obj.get("/FT") == "/Sig")
+            or (parent_obj is not None and str(parent_obj.get("/FT") or "") == "/Sig")
             or (parent_obj is not None and parent_obj.get("/V") is not None)
         )
     except Exception:
@@ -642,8 +606,10 @@ def _paint_signature_widget_appearance(pdf, page, annot, resource_name: str) -> 
         bbox = stream.get("/BBox")
         if bbox and len(bbox) == 4:
             bx0, by0, bx1, by1 = [float(v) for v in bbox]
-            bbox_w = abs(bx1 - bx0) or width
-            bbox_h = abs(by1 - by0) or height
+            bx0, bx1 = sorted((bx0, bx1))
+            by0, by1 = sorted((by0, by1))
+            bbox_w = (bx1 - bx0) or width
+            bbox_h = (by1 - by0) or height
         else:
             bx0, by0, bbox_w, bbox_h = 0.0, 0.0, width, height
 
@@ -661,7 +627,14 @@ def _paint_signature_widget_appearance(pdf, page, annot, resource_name: str) -> 
             xobjects = pikepdf.Dictionary()
             resources["/XObject"] = xobjects
         name = pikepdf.Name("/" + "".join(ch if ch.isalnum() else "_" for ch in resource_name))
-        xobjects[name] = stream
+        stream_bytes = bytes(stream.read_bytes())
+        stream_copy = pikepdf.Stream(pdf, stream_bytes)
+        for key, value in stream.items():
+            if str(key) in {"/Length", "/BBox"}:
+                continue
+            stream_copy[key] = value
+        stream_copy["/BBox"] = pikepdf.Array([0.0, 0.0, bbox_w, bbox_h])
+        xobjects[name] = stream_copy
 
         content = (
             f"q\n{sx:.8f} 0 0 {sy:.8f} {tx:.8f} {ty:.8f} cm\n"
@@ -711,6 +684,45 @@ def _strip_signature_fields(fields_arr, removed_names: set[str]) -> tuple[list, 
     return kept, changed
 
 
+def _strip_signature_fields_all(fields_arr) -> tuple[list, bool]:
+    kept = []
+    changed = False
+    for field in fields_arr:
+        try:
+            field_obj = field.get_object() if hasattr(field, "get_object") else field
+            is_sig = (
+                str(field_obj.get("/FT") or "") == "/Sig"
+                or field_obj.get("/V") is not None
+            )
+            parent = field_obj.get("/Parent")
+            parent_obj = parent.get_object() if hasattr(parent, "get_object") else parent
+            if parent_obj is not None:
+                is_sig = (
+                    is_sig
+                    or str(parent_obj.get("/FT") or "") == "/Sig"
+                    or parent_obj.get("/V") is not None
+                )
+            if is_sig:
+                changed = True
+                continue
+
+            kids = field_obj.get("/Kids")
+            if kids:
+                child_kept, child_changed = _strip_signature_fields_all(kids)
+                if child_changed:
+                    import pikepdf
+
+                    changed = True
+                    if child_kept:
+                        field_obj["/Kids"] = pikepdf.Array(child_kept)
+                    elif "/Kids" in field_obj:
+                        del field_obj["/Kids"]
+            kept.append(field)
+        except Exception:
+            kept.append(field)
+    return kept, changed
+
+
 def _signature_overlay_from_annot(annot) -> dict | None:
     try:
         rect = [float(v) for v in annot.get("/Rect")]
@@ -724,7 +736,7 @@ def _signature_overlay_from_annot(annot) -> dict | None:
         )
         if right - left < 1 or top - bottom < 1:
             return None
-        extracted = _extract_signature_text_lines(annot)
+        extracted = _signature_display_lines(annot)
         parent = annot.get("/Parent")
         parent_obj = parent.get_object() if hasattr(parent, "get_object") else parent
         signed = (
@@ -739,6 +751,79 @@ def _signature_overlay_from_annot(annot) -> dict | None:
         }
     except Exception:
         return None
+
+
+def _signature_display_lines(annot) -> list[str]:
+    try:
+        parent = annot.get("/Parent")
+        parent_obj = parent.get_object() if hasattr(parent, "get_object") else parent
+        sig = annot.get("/V") or (parent_obj.get("/V") if parent_obj is not None else None)
+        if sig is None:
+            return []
+
+        lines: list[str] = ["ĐÃ KÝ SỐ"]
+
+        name = sig.get("/Name")
+        if name:
+            lines.append(f"Tên: {str(name)}")
+
+        signed_at = sig.get("/M")
+        if signed_at:
+            stamp = str(signed_at)
+            if stamp.startswith("D:") and len(stamp) >= 16:
+                stamp = f"{stamp[2:6]}-{stamp[6:8]}-{stamp[8:10]} {stamp[10:12]}:{stamp[12:14]}:{stamp[14:16]}"
+            lines.append(f"Thời điểm: {stamp}")
+
+        reason = sig.get("/Reason")
+        if reason:
+            lines.append(f"Lý do: {str(reason)}")
+
+        location = sig.get("/Location")
+        if location:
+            lines.append(f"Địa điểm: {str(location)}")
+
+        contact = sig.get("/ContactInfo")
+        if contact:
+            lines.append(f"Liên hệ: {str(contact)}")
+
+        return lines[:6]
+    except Exception:
+        return []
+
+
+def _signature_metadata_lines(annot) -> list[str]:
+    try:
+        parent = annot.get("/Parent")
+        parent_obj = parent.get_object() if hasattr(parent, "get_object") else parent
+        sig = annot.get("/V") or (parent_obj.get("/V") if parent_obj is not None else None)
+        if sig is None:
+            return []
+
+        lines: list[str] = ["ĐÃ KÝ SỐ"]
+
+        name = sig.get("/Name")
+        if name:
+            lines.append(f"Tên: {str(name)}")
+
+        signed_at = sig.get("/M")
+        if signed_at:
+            lines.append(f"Thời điểm: {str(signed_at)}")
+
+        reason = sig.get("/Reason")
+        if reason:
+            lines.append(f"Lý do: {str(reason)}")
+
+        location = sig.get("/Location")
+        if location:
+            lines.append(f"Địa điểm: {str(location)}")
+
+        contact = sig.get("/ContactInfo")
+        if contact:
+            lines.append(f"Liên hệ: {str(contact)}")
+
+        return lines[:6]
+    except Exception:
+        return []
 
 
 def _extract_signature_text_lines(annot) -> list[str]:
@@ -840,33 +925,247 @@ def _page_size(page) -> tuple[float, float]:
 def _build_signature_display_overlay(width: float, height: float, overlays: list[dict]) -> bytes:
     try:
         from reportlab.lib import colors
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.pdfgen import canvas
+        from packages.platform.fonts import get_vietnamese_font_path
     except Exception:
         return b""
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(width, height))
+
+    def _font_name(bold: bool = False) -> str:
+        font_path = get_vietnamese_font_path(bold=bold)
+        if not font_path:
+            return "Helvetica-Bold" if bold else "Helvetica"
+        name = "3TSignatureSans-Bold" if bold else "3TSignatureSans"
+        try:
+            pdfmetrics.getFont(name)
+        except Exception:
+            try:
+                pdfmetrics.registerFont(TTFont(name, font_path))
+            except Exception:
+                return "Helvetica-Bold" if bold else "Helvetica"
+        return name
+
+    title_font = _font_name(bold=True)
+    body_font = _font_name(bold=False)
+
     for overlay in overlays:
         left, bottom, right, top = overlay["box"]
         box_width = max(1.0, right - left)
         box_height = max(1.0, top - bottom)
         signed = bool(overlay.get("signed"))
         lines = [str(line).strip() for line in (overlay.get("lines") or []) if str(line).strip()]
-        if not lines:
-            continue
+        if lines and str(lines[0]).strip().upper() == "ĐÃ KÝ SỐ":
+            lines = lines[1:]
 
         c.saveState()
-        # Render text only; never draw signature field frames in the display copy.
+        stroke = colors.HexColor("#0b84f3") if signed else colors.HexColor("#64748b")
+        c.setFillColor(colors.Color(1, 1, 1, alpha=0))
+        c.setStrokeColor(stroke)
+        c.setLineWidth(0.9)
+        c.roundRect(left, bottom, box_width, box_height, 4, fill=0, stroke=1)
+
         c.setFillColorRGB(0.02, 0.18, 0.32)
-        font_size = max(7.0, min(10.0, box_height / max(4.5, len(lines) + 1)))
-        leading = font_size + 2
-        c.setFont("Helvetica-Bold", font_size)
-        y = top - font_size - 5
-        for line in lines:
-            if y < bottom + 3:
-                break
-            c.drawString(left + 5, y, str(line)[:70])
-            y -= leading
+        title_size = max(7.0, min(9.0, box_height / 7.5))
+        font_size = max(6.0, min(8.5, box_height / max(5.0, len(lines) + 2)))
+        leading = font_size + 1.4
+        c.setFont(title_font, title_size)
+        y = top - title_size - 4
+        c.drawString(left + 5, y, "ĐÃ KÝ SỐ")
+        y -= title_size + 1
+        if lines:
+            c.setFont(body_font, font_size)
+            for line in lines:
+                if y < bottom + 3:
+                    break
+                c.drawString(left + 5, y, str(line)[:70])
+                y -= leading
         c.restoreState()
     c.save()
     return buf.getvalue()
+
+
+def _build_signature_display_overlay_ascii(width: float, height: float, overlays: list[dict]) -> bytes:
+    try:
+        import unicodedata
+        from reportlab.lib import colors
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.pdfgen import canvas
+        from packages.platform.fonts import get_vietnamese_font_path
+    except Exception:
+        return b""
+
+    def _ascii_text(value: str) -> str:
+        return unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii") or str(value)
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(width, height))
+
+    def _font_name(bold: bool = False) -> str:
+        font_path = get_vietnamese_font_path(bold=bold)
+        if not font_path:
+            return "Helvetica-Bold" if bold else "Helvetica"
+        name = "3TSignatureSans-Bold" if bold else "3TSignatureSans"
+        try:
+            pdfmetrics.getFont(name)
+        except Exception:
+            try:
+                pdfmetrics.registerFont(TTFont(name, font_path))
+            except Exception:
+                return "Helvetica-Bold" if bold else "Helvetica"
+        return name
+
+    title_font = _font_name(bold=True)
+    body_font = _font_name(bold=False)
+
+    for overlay in overlays:
+        left, bottom, right, top = overlay["box"]
+        box_width = max(1.0, right - left)
+        box_height = max(1.0, top - bottom)
+        signed = bool(overlay.get("signed"))
+        lines = [_ascii_text(line).strip() for line in (overlay.get("lines") or []) if _ascii_text(line).strip()]
+        if lines and lines[0].upper() in {"DA KY SO", "A KY SO"}:
+            lines = lines[1:]
+
+        c.saveState()
+        stroke = colors.HexColor("#0b84f3") if signed else colors.HexColor("#64748b")
+        c.setFillColor(colors.Color(1, 1, 1, alpha=0))
+        c.setStrokeColor(stroke)
+        c.setLineWidth(0.9)
+        c.roundRect(left, bottom, box_width, box_height, 4, fill=0, stroke=1)
+
+        c.setFillColorRGB(0.02, 0.18, 0.32)
+        title_size = max(7.0, min(9.0, box_height / 7.5))
+        font_size = max(6.0, min(8.5, box_height / max(5.0, len(lines) + 2)))
+        leading = font_size + 1.4
+        c.setFont(title_font, title_size)
+        y = top - title_size - 4
+        c.drawString(left + 5, y, "DA KY SO")
+        y -= title_size + 1
+        if lines:
+            c.setFont(body_font, font_size)
+            for line in lines:
+                if y < bottom + 3:
+                    break
+                c.drawString(left + 5, y, _ascii_text(line)[:70])
+                y -= leading
+        c.restoreState()
+    c.save()
+    return buf.getvalue()
+
+
+def _build_signature_display_overlay_bitmap(width: float, height: float, overlays: list[dict]) -> bytes:
+    try:
+        import io
+        from PIL import Image, ImageDraw, ImageFont
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas
+        from packages.platform.fonts import get_vietnamese_font_path
+    except Exception:
+        return b""
+
+    w = max(1, int(round(width)))
+    h = max(1, int(round(height)))
+    img = Image.new("RGBA", (w, h), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(img)
+
+    font_path = get_vietnamese_font_path(bold=False) or get_vietnamese_font_path(bold=True)
+    def _load_font(size: int):
+        try:
+            if font_path:
+                return ImageFont.truetype(font_path, size)
+        except Exception:
+            pass
+        try:
+            return ImageFont.load_default()
+        except Exception:
+            return None
+
+    def _text_size(text: str, font) -> tuple[int, int]:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        return max(1, bbox[2] - bbox[0]), max(1, bbox[3] - bbox[1])
+
+    def _wrap_line(text: str, font, max_width: int) -> list[str]:
+        raw = str(text).strip()
+        if not raw:
+            return []
+        if _text_size(raw, font)[0] <= max_width:
+            return [raw]
+        words = raw.split()
+        if len(words) <= 1:
+            return [raw]
+        wrapped: list[str] = []
+        current = words[0]
+        for word in words[1:]:
+            candidate = f"{current} {word}"
+            if _text_size(candidate, font)[0] <= max_width:
+                current = candidate
+            else:
+                wrapped.append(current)
+                current = word
+        if current:
+            wrapped.append(current)
+        return wrapped
+
+    def _fit_block(lines: list[str], max_width: int, max_height: int):
+        for size in range(14, 5, -1):
+            font = _load_font(size)
+            if font is None:
+                continue
+            wrapped: list[str] = []
+            for line in lines:
+                wrapped.extend(_wrap_line(line, font, max_width))
+            if not wrapped:
+                return font, wrapped, 0
+            _, text_h = _text_size("Ag", font)
+            line_height = max(7, int(text_h * 1.1))
+            total_height = line_height * len(wrapped)
+            if total_height <= max_height:
+                return font, wrapped, line_height
+        font = _load_font(6)
+        wrapped = []
+        for line in lines:
+            wrapped.extend(_wrap_line(line, font, max_width))
+        _, text_h = _text_size("Ag", font)
+        return font, wrapped, max(7, int(text_h * 1.05))
+
+    for overlay in overlays:
+        left, bottom, right, top = overlay["box"]
+        signed = bool(overlay.get("signed"))
+        lines = [str(line).strip() for line in (overlay.get("lines") or []) if str(line).strip()]
+
+        x0 = max(0, int(round(left)))
+        x1 = min(w - 1, int(round(right)))
+        y0 = max(0, int(round(h - top)))
+        y1 = min(h - 1, int(round(h - bottom)))
+        if x1 <= x0 or y1 <= y0:
+            continue
+
+        stroke = (11, 132, 243, 255) if signed else (100, 116, 139, 255)
+        draw.rounded_rectangle([x0, y0, x1, y1], radius=4, outline=stroke, width=2)
+
+        text_color = (5, 46, 81, 255)
+        margin_x = 5
+        max_text_width = max(1, (x1 - x0) - 10)
+        max_text_height = max(1, (y1 - y0) - 8)
+        body_font, wrapped_lines, line_height = _fit_block(lines, max_text_width, max_text_height)
+        y = y0 + 4
+        for line in wrapped_lines:
+            if y + line_height > y1 - 2:
+                break
+            draw.text((x0 + margin_x, y), line, font=body_font, fill=text_color)
+            y += line_height
+
+    png_buf = io.BytesIO()
+    img.save(png_buf, format="PNG")
+    png_buf.seek(0)
+
+    pdf_buf = io.BytesIO()
+    c = canvas.Canvas(pdf_buf, pagesize=(width, height))
+    c.drawImage(ImageReader(png_buf), 0, 0, width=width, height=height, mask="auto")
+    c.save()
+    return pdf_buf.getvalue()

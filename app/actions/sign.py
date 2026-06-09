@@ -1,6 +1,9 @@
 import asyncio
 import json
 import os
+import subprocess
+import sys
+import tempfile
 import traceback
 from datetime import datetime
 from packages.qt_compat.QtWidgets import (
@@ -66,6 +69,17 @@ def _cleanup_signature_preview(window, web_view=None):
     _teardown_webchannel(web_view)
 
 
+def _confirm_signature_selection(window) -> bool:
+    reply = QMessageBox.question(
+        window,
+        "Xác nhận vị trí ký",
+        "Bạn có đồng ý ký văn bản này tại vị trí đã chọn không?\n\n"
+        "Chọn No nếu muốn kéo lại vùng ký.",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+    )
+    return reply == QMessageBox.StandardButton.Yes
+
+
 def _refresh_document_view(window, output_path: str, *, page_number: int = 1):
     """Update the active document paths and reopen the rendered PDF on the next tick."""
     try:
@@ -123,6 +137,11 @@ def _run_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[s
         show_warning(window, "Đang ký số", "Vui lòng chờ thao tác ký hiện tại hoàn tất.")
         return False, ("SigningBusy", "Đang có thao tác ký đang chạy.", "")
 
+    pause_token_monitor = getattr(window, "_pause_token_monitor", None)
+    resume_token_monitor = getattr(window, "_resume_token_monitor", None)
+    if callable(pause_token_monitor):
+        pause_token_monitor()
+
     worker = _SigningWorker(fn)
     thread = QThread(window)
     worker.moveToThread(thread)
@@ -160,8 +179,113 @@ def _run_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[s
     finally:
         if hasattr(window, "status"):
             window.status.clearMessage()
+        if callable(resume_token_monitor):
+            resume_token_monitor()
 
     return bool(result["ok"]), result["error"]
+
+
+def _token_info_payload(token_info) -> dict[str, object]:
+    if token_info is None:
+        return {}
+    return {
+        "driver": getattr(token_info, "driver", ""),
+        "signer_name": getattr(token_info, "signer_name", ""),
+        "tax_code": getattr(token_info, "tax_code", ""),
+        "driver_path": getattr(token_info, "driver_path", ""),
+        "token_index": getattr(token_info, "token_index", 0),
+        "token_label": getattr(token_info, "token_label", ""),
+        "serial": getattr(token_info, "serial", ""),
+        "manufacturer": getattr(token_info, "manufacturer", ""),
+        "model": getattr(token_info, "model", ""),
+        "issuer_name": getattr(token_info, "issuer_name", ""),
+        "cert_serial": getattr(token_info, "cert_serial", ""),
+    }
+
+
+def _run_usb_signing_subprocess(
+    token_info,
+    input_path: str,
+    output_path: str,
+    pin: str,
+    *,
+    signer_name: str,
+    page_number: int,
+    box: tuple[float, float, float, float],
+) -> None:
+    payload = {
+        "token": _token_info_payload(token_info),
+        "input_path": input_path,
+        "output_path": output_path,
+        "pin": pin,
+        "signer_name": signer_name,
+        "page_number": page_number,
+        "box": list(box),
+    }
+
+    payload_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w", encoding="utf-8")
+    payload_path = payload_file.name
+    try:
+        json.dump(payload, payload_file, ensure_ascii=False)
+        payload_file.close()
+
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "--usb-sign-worker", payload_path]
+        else:
+            cmd = [
+                sys.executable,
+                "-m",
+                "packages.signing.usb_worker",
+                payload_path,
+            ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+        )
+
+        stdout = (result.stdout or "").strip().splitlines()
+        if not stdout:
+            raise RuntimeError(
+                "USB signing worker did not return a result.\n"
+                f"Return code: {result.returncode}\n"
+                f"stderr: {(result.stderr or '').strip()}"
+            )
+
+        try:
+            data = json.loads(stdout[-1])
+        except Exception as exc:
+            raise RuntimeError(
+                "USB signing worker returned invalid output.\n"
+                f"Return code: {result.returncode}\n"
+                f"stdout: {(result.stdout or '').strip()}\n"
+                f"stderr: {(result.stderr or '').strip()}"
+            ) from exc
+
+        if not data.get("ok"):
+            error_type = str(data.get("error_type") or "RuntimeError")
+            error_message = str(data.get("error_message") or "USB signing failed.")
+            tb_text = str(data.get("traceback") or "")
+            raise RuntimeError(f"{error_type}: {error_message}\n{tb_text}".strip())
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                "USB signing worker exited with a non-zero code despite reporting success.\n"
+                f"Return code: {result.returncode}\n"
+                f"stderr: {(result.stderr or '').strip()}"
+            )
+    finally:
+        try:
+            payload_file.close()
+        except Exception:
+            pass
+        try:
+            if os.path.exists(payload_path):
+                os.remove(payload_path)
+        except OSError:
+            pass
 
 
 def _format_signature_report(report: dict, path: str | None = None) -> str:
@@ -246,17 +370,24 @@ def _build_stamp_preview_html(
     for i, line in enumerate(lines):
         esc = _esc(line)
         if i == 0:
-            html_lines.append(f'<div style="text-align:center;font-weight:bold;color:#168038;font-size:11px;margin-bottom:2px">{esc}</div>')
+            html_lines.append(f'<div style="text-align:center;font-weight:700;color:#168038;margin-bottom:2px">{esc}</div>')
         elif i == len(lines) - 1:
-            html_lines.append(f'<div style="color:#168038;font-size:8px;margin-top:1px">{esc}</div>')
+            html_lines.append(f'<div style="color:#168038;margin-top:1px">{esc}</div>')
         else:
-            html_lines.append(f'<div style="color:#222;font-size:8px;line-height:1.2">{esc}</div>')
+            html_lines.append(f'<div style="color:#222;line-height:1.2">{esc}</div>')
 
     return (
         '<div style="font-family:Consolas,monospace;padding:4px;box-sizing:border-box">'
         + "".join(html_lines)
         + "</div>"
     )
+
+
+def _signature_preview_scale(width_px: float, height_px: float, *, has_image: bool = False) -> float:
+    base = min(max(float(width_px), 1.0), max(float(height_px), 1.0))
+    if has_image:
+        return max(0.55, min(1.8, base / 180.0))
+    return max(0.65, min(2.2, base / 160.0))
 
 
 class SignaturePickBridge(QObject):
@@ -347,9 +478,8 @@ def _make_pick_script(*, sig_image_url: str = "", sig_text_html: str = "") -> st
                 box.style.borderRadius = '4px';
 
                 if (_pickSigImgUrl) {{
-                    box.style.background = '#ffffff';
+                    box.style.background = 'transparent';
                     box.style.border = '2px solid rgba(11,132,243,0.5)';
-                    box.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
                     const img = document.createElement('img');
                     img.src = _pickSigImgUrl;
                     img.style.maxWidth = '90%';
@@ -517,6 +647,7 @@ def _set_signature_preview(window, placement: dict | None, *, sig_image_url: str
         window.__readerPdfSignaturePreviewState = {{
             overlay: null,
             handle: null,
+            textDiv: null,
             pageView: null,
             pageNumber: null,
             dragging: false,
@@ -557,6 +688,7 @@ def _set_signature_preview(window, placement: dict | None, *, sig_image_url: str
         state.handle = null;
         state.pageView = null;
         state.pageNumber = null;
+        state.textDiv = null;
         state.dragging = false;
         state.dragMode = null;
     }}
@@ -579,6 +711,19 @@ def _set_signature_preview(window, placement: dict | None, *, sig_image_url: str
         state.overlay.style.top = `${{rect.top}}px`;
         state.overlay.style.width = `${{Math.max(1, rect.width)}}px`;
         state.overlay.style.height = `${{Math.max(1, rect.height)}}px`;
+        syncPreviewTypography(rect.width, rect.height);
+    }}
+
+    function syncPreviewTypography(width, height) {{
+        if (!state.textDiv) {{
+            return;
+        }}
+        const lineCount = Math.max(1, state.textDiv.querySelectorAll('div').length || 1);
+        const byHeight = Math.max(3.5, (Math.max(1, height) - 8) / (lineCount * 1.08));
+        const byWidth = Math.max(3.5, Math.max(1, width) / 34);
+        const fontSize = Math.max(3.5, Math.min(13, byHeight, byWidth));
+        state.textDiv.style.fontSize = `${{fontSize}}px`;
+        state.textDiv.style.lineHeight = '1.04';
     }}
 
     function reportAdjustedBox() {{
@@ -704,9 +849,8 @@ def _set_signature_preview(window, placement: dict | None, *, sig_image_url: str
         overlay.style.borderRadius = '4px';
 
         if (sigImgUrl) {{
-            overlay.style.background = '#ffffff';
+            overlay.style.background = 'transparent';
             overlay.style.border = '2px solid rgba(11,132,243,0.5)';
-            overlay.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
         }} else if (sigTextHtml) {{
             overlay.style.background = 'rgba(255,255,255,0.15)';
             overlay.style.border = '2px solid #168038';
@@ -728,11 +872,21 @@ def _set_signature_preview(window, placement: dict | None, *, sig_image_url: str
         }} else if (sigTextHtml) {{
             const textDiv = document.createElement('div');
             textDiv.innerHTML = sigTextHtml;
+            textDiv.style.width = '100%';
+            textDiv.style.height = '100%';
+            textDiv.style.display = 'flex';
+            textDiv.style.flexDirection = 'column';
+            textDiv.style.justifyContent = 'flex-start';
+            textDiv.style.alignItems = 'stretch';
+            textDiv.style.boxSizing = 'border-box';
+            textDiv.style.padding = '4px';
             textDiv.style.maxWidth = '95%';
             textDiv.style.maxHeight = '95%';
             textDiv.style.overflow = 'hidden';
             textDiv.style.pointerEvents = 'none';
+            textDiv.style.fontFamily = 'Consolas, monospace';
             overlay.appendChild(textDiv);
+            state.textDiv = textDiv;
         }}
 
         console.log('[3T] overlay created, children:', overlay.children.length);
@@ -1335,7 +1489,7 @@ def _pick_signature_placement(window, *, sig_image_url: str = "", sig_text_html:
                 "page_height": page_height,
             }
         )
-        prompt.close()
+        prompt.accept()
         if loop.isRunning():
             loop.quit()
 
@@ -1348,13 +1502,13 @@ def _pick_signature_placement(window, *, sig_image_url: str = "", sig_text_html:
                 "page_height": page_height,
             }
         )
-        prompt.close()
+        prompt.accept()
         if loop.isRunning():
             loop.quit()
 
     def _cancel_pick():
         result.clear()
-        prompt.close()
+        prompt.reject()
         if loop.isRunning():
             loop.quit()
 
@@ -1538,6 +1692,9 @@ def sign_with_pfx(window):
         _cleanup_signature_preview(window)
         return
     _set_signature_preview(window, placement, sig_text_html=_pfx_stamp_html)
+    if not _confirm_signature_selection(window):
+        _cleanup_signature_preview(window)
+        return
 
     pfx_path, _ = QFileDialog.getOpenFileName(
         window,
@@ -1687,6 +1844,9 @@ def sign_document(window):
         _cleanup_signature_preview(window)
         return
     _set_signature_preview(window, placement, sig_text_html=_token_stamp_html)
+    if not _confirm_signature_selection(window):
+        _cleanup_signature_preview(window)
+        return
 
     default_signer_name = signer_info.signer_name if signer_info else ""
 
@@ -1720,11 +1880,6 @@ def sign_document(window):
         _cleanup_signature_preview(window)
         return
 
-    if signer_name == "Khong ro":
-        signer_info_with_pin = signing_provider.get_token_info(pin)
-        if signer_info_with_pin and signer_info_with_pin.signer_name:
-            signer_name = signer_info_with_pin.signer_name
-
     in_place_output = os.path.normcase(os.path.abspath(output_path)) == os.path.normcase(os.path.abspath(window.current_path))
     actual_output_path = (
         make_staged_pdf_path(window.current_path, prefix=".3t_signed_", suffix=".pdf")
@@ -1735,15 +1890,14 @@ def sign_document(window):
     try:
         ok, error = _run_signing_task(
             window,
-            lambda: asyncio.run(
-                signing_provider.sign_pdf(
-                    window.current_path,
-                    actual_output_path,
-                    pin,
-                    signer_name=signer_name,
-                    page_number=placement["page_number"],
-                    box=placement["box"],
-                )
+            lambda: _run_usb_signing_subprocess(
+                signer_info,
+                window.current_path,
+                actual_output_path,
+                pin,
+                signer_name=signer_name,
+                page_number=placement["page_number"],
+                box=placement["box"],
             ),
             status_message="Đang ký số tài liệu…",
         )
@@ -2004,6 +2158,9 @@ def sign_handwritten(window):
         _cleanup_signature_preview(window)
         return
     _set_signature_preview(window, placement, sig_image_url=_sig_data_url)
+    if not _confirm_signature_selection(window):
+        _cleanup_signature_preview(window)
+        return
 
     page_no = placement["page_number"]
     box = placement["box"]
