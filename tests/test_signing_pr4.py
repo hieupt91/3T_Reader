@@ -83,3 +83,99 @@ def test_signature_overlay_does_not_synthesize_label_for_image_only_widget():
     assert overlay is not None
     assert overlay["signed"] is True
     assert overlay["lines"] == []
+
+
+def test_validate_signed_pdf_status_prefers_clicked_field_name(monkeypatch):
+    from packages.signing import shared
+
+    class FakeSig:
+        def __init__(self, field_name):
+            self.field_name = field_name
+            self.signer_cert = None
+            self.self_reported_timestamp = None
+            self.sig_object = {}
+            self.signer_info = object()
+
+        def compute_digest(self):
+            raise RuntimeError(self.field_name)
+
+    class FakeReader:
+        def __init__(self, _stream, strict=False):
+            self.embedded_signatures = [FakeSig("sig_a"), FakeSig("sig_b")]
+
+    monkeypatch.setattr("pyhanko.pdf_utils.reader.PdfFileReader", FakeReader)
+
+    report = shared.validate_signed_pdf_status(__file__, field_name="sig_a")
+
+    assert report["selected_field_name"] == "sig_a"
+    assert "sig_a" in str(report["validation_error"])
+
+
+def test_validate_signed_pdf_status_returns_unsigned_field_report_when_no_embedded_match(monkeypatch):
+    from packages.signing import shared
+
+    class FakeSig:
+        def __init__(self, field_name):
+            self.field_name = field_name
+
+    class FakeReader:
+        def __init__(self, _stream, strict=False):
+            self.embedded_signatures = [FakeSig("sig_a")]
+
+    monkeypatch.setattr("pyhanko.pdf_utils.reader.PdfFileReader", FakeReader)
+    monkeypatch.setattr(
+        shared,
+        "_extract_signature_field_report",
+        lambda _path, field_name: {
+            "selected_field_name": field_name,
+            "display_signer": "Chưa ký",
+            "overall_status": "Ô ký này chưa được ký số.",
+            "message": "Ô ký này chưa được ký số.",
+            "ok": False,
+            "integrity_ok": False,
+            "intact": False,
+            "valid": False,
+            "trusted": False,
+            "revoked": False,
+        },
+    )
+
+    report = shared.validate_signed_pdf_status(__file__, field_name="sig_unsigned")
+
+    assert report["selected_field_name"] == "sig_unsigned"
+    assert report["display_signer"] == "Chưa ký"
+    assert "chưa được ký" in report["overall_status"].lower()
+
+
+def test_validate_signed_pdf_status_uses_field_report_on_outer_parse_error(monkeypatch):
+    from packages.signing import shared
+
+    class BoomReader:
+        def __init__(self, _stream, strict=False):
+            raise RuntimeError("parse boom")
+
+    monkeypatch.setattr("pyhanko.pdf_utils.reader.PdfFileReader", BoomReader)
+    monkeypatch.setattr(
+        shared,
+        "_extract_signature_field_report",
+        lambda _path, field_name: {
+            "selected_field_name": field_name,
+            "clicked_field": field_name,
+            "field_signed": True,
+            "display_signer": "USB Signer",
+            "issuer_name": "VNPT-CA",
+            "serial_hex": "ABC123",
+            "valid_from": "01/01/2026 00:00:00",
+            "valid_to": "01/01/2027 00:00:00",
+            "certificate_status": "Con han",
+            "validation_summary_lines": [],
+        },
+    )
+
+    report = shared.validate_signed_pdf_status(__file__, field_name="usb_sig")
+
+    assert report["clicked_field"] == "usb_sig"
+    assert report["display_signer"] == "USB Signer"
+    assert report["issuer_name"] == "VNPT-CA"
+    assert report["serial_hex"] == "ABC123"
+    assert "parse boom" in report["validation_error"]

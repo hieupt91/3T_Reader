@@ -21,6 +21,7 @@
         // Signature widget annotations are rendered as static appearance
         // streams (annotationMode=ENABLE) so they stay visible without
         // needing to hide interactive form inputs.
+        '.annotationLayer .signatureWidgetAnnotation { cursor: pointer !important; }',
     ].join('\n');
     var style = document.createElement('style');
     style.textContent = css;
@@ -131,6 +132,133 @@
             connectWhenReady();
         });
     };
+
+    function signatureFieldName(sigEl) {
+        if (!sigEl) return '';
+        var attrs = ['data-annotation-id', 'data-id', 'id', 'name', 'title', 'aria-label'];
+        for (var i = 0; i < attrs.length; i++) {
+            var value = sigEl.getAttribute && sigEl.getAttribute(attrs[i]);
+            if (value) return String(value);
+        }
+        var input = sigEl.querySelector && sigEl.querySelector('input, textarea, button, select');
+        if (input) {
+            return input.getAttribute('name') || input.getAttribute('id') || input.getAttribute('title') || '';
+        }
+        return '';
+    }
+
+    function installSignatureInfoClickHandler() {
+        if (window.__3tSignatureInfoClickInstalled) return;
+        window.__3tSignatureInfoClickInstalled = true;
+        var loadTargetsPromise = null;
+
+        function signatureTargets() {
+            if (window.__3tSignatureTargets) {
+                return Promise.resolve(window.__3tSignatureTargets);
+            }
+            if (loadTargetsPromise) {
+                return loadTargetsPromise;
+            }
+            loadTargetsPromise = new Promise(function (resolve) {
+                try {
+                    var params = new URLSearchParams(window.location.search || '');
+                    var sigmeta = params.get('sigmeta');
+                    if (!sigmeta) {
+                        window.__3tSignatureTargets = [];
+                        resolve([]);
+                        return;
+                    }
+                    fetch(sigmeta, { cache: 'no-store' })
+                        .then(function (resp) { return resp.ok ? resp.json() : { targets: [] }; })
+                        .then(function (payload) {
+                            window.__3tSignatureTargets = Array.isArray(payload && payload.targets) ? payload.targets : [];
+                            resolve(window.__3tSignatureTargets);
+                        })
+                        .catch(function () {
+                            window.__3tSignatureTargets = [];
+                            resolve([]);
+                        });
+                } catch (_) {
+                    window.__3tSignatureTargets = [];
+                    resolve([]);
+                }
+            });
+            return loadTargetsPromise;
+        }
+
+        function findSignatureTargetFromPoint(event) {
+            try {
+                var pageEl = event.target && event.target.closest ? event.target.closest('.page[data-page-number]') : null;
+                if (!pageEl) return Promise.resolve(null);
+                var pageNumber = parseInt(pageEl.getAttribute('data-page-number') || '0', 10) || 0;
+                if (!pageNumber) return Promise.resolve(null);
+                var app = window.PDFViewerApplication;
+                var viewer = app && app.pdfViewer;
+                if (!viewer) return Promise.resolve(null);
+                var pageView = viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
+                if (!pageView || !pageView.viewport) return Promise.resolve(null);
+                var rect = pageEl.getBoundingClientRect();
+                var pdfPoint = pageView.viewport.convertToPdfPoint(event.clientX - rect.left, event.clientY - rect.top);
+                var px = Number(pdfPoint[0] || 0);
+                var py = Number(pdfPoint[1] || 0);
+                return signatureTargets().then(function (targets) {
+                    var best = null;
+                    for (var i = 0; i < targets.length; i++) {
+                        var item = targets[i];
+                        if ((parseInt(item.page || '0', 10) || 0) !== pageNumber) continue;
+                        var box = item.rect || [];
+                        if (box.length !== 4) continue;
+                        var left = Math.min(box[0], box[2]);
+                        var right = Math.max(box[0], box[2]);
+                        var bottom = Math.min(box[1], box[3]);
+                        var top = Math.max(box[1], box[3]);
+                        if (px < left || px > right || py < bottom || py > top) continue;
+                        var area = Math.max(1, (right - left) * (top - bottom));
+                        if (!best || area < best.area) {
+                            best = {
+                                pageNumber: pageNumber,
+                                fieldName: String(item.field_name || ''),
+                                area: area
+                            };
+                        }
+                    }
+                    return best;
+                });
+            } catch (_) {
+                return Promise.resolve(null);
+            }
+        }
+
+        document.addEventListener('click', function (event) {
+            if (window.__readerPdfSignaturePickInstalled || window.__readerPdfSignaturePickCleanup) return;
+            var target = event.target;
+            var sigEl = target && target.closest ? target.closest('.signatureWidgetAnnotation') : null;
+
+            function dispatchSignatureInfo(pageNumber, fieldName) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+                window.__3tWithBridge('signatureInfoBridge', function (bridge) {
+                    if (bridge && typeof bridge.showSignatureInfo === 'function') {
+                        bridge.showSignatureInfo(pageNumber, fieldName);
+                    }
+                });
+            }
+
+            if (sigEl) {
+                var pageEl = sigEl.closest ? sigEl.closest('.page[data-page-number]') : null;
+                var pageNumber = pageEl ? (parseInt(pageEl.getAttribute('data-page-number') || '0', 10) || 0) : 0;
+                var fieldName = signatureFieldName(sigEl);
+                dispatchSignatureInfo(pageNumber, fieldName);
+                return;
+            }
+
+            findSignatureTargetFromPoint(event).then(function (hit) {
+                if (!hit) return;
+                dispatchSignatureInfo(hit.pageNumber, hit.fieldName);
+            });
+        }, true);
+    }
 
     function collectSelectionPayload() {
         var sel = window.getSelection ? window.getSelection() : null;
@@ -273,6 +401,7 @@
             setTimeout(installHooks, 200);
             return;
         }
+        installSignatureInfoClickHandler();
         if (window.__3tHooksInstalled) return;
         window.__3tHooksInstalled = true;
 

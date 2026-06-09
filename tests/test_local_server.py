@@ -183,14 +183,17 @@ class TestViewerURL:
         assert key in server._allowed_pdf_paths
 
 
-def test_local_server_keeps_signature_widgets_for_pdfjs_appearance_rendering():
+def test_local_server_normalizes_signed_widgets_for_internal_viewer():
     source = (Path(__file__).resolve().parents[1] / "app" / "local_server.py").read_text(encoding="utf-8")
     assert "&annotationMode=1" in source
-    assert "if _is_signature_widget(annot_obj):\n                        kept_annots.append(annot)" in source
-    assert "_strip_signature_fields_all(fields)" not in source
+    assert "&sigmeta=" in source
+    assert 'elif path == "/sigmeta"' in source
+    assert "_paint_signature_widget_appearance(" in source
+    assert "_signature_overlay_from_annot(annot_obj)" in source
+    assert "_strip_signature_fields_all(fields_arr)" in source
 
 
-def test_normalized_display_copy_preserves_signature_widgets_and_acroform(tmp_path):
+def test_normalized_display_copy_flattens_signed_widgets_for_viewer(tmp_path):
     from app.local_server import _normalise_pdfjs_appearance_boxes
     import pikepdf
 
@@ -245,7 +248,8 @@ def test_normalized_display_copy_preserves_signature_widgets_and_acroform(tmp_pa
 
     with pikepdf.Pdf.open(str(normalized_pdf)) as pdf:
         acro = pdf.Root.get("/AcroForm")
-        assert acro and acro.get("/Fields")
+        fields = list(acro.get("/Fields") or []) if acro else []
+        assert not fields
         signature_annots = 0
         for page in pdf.pages:
             annots = page.obj.get("/Annots") or []
@@ -258,4 +262,4 @@ def test_normalized_display_copy_preserves_signature_widgets_and_acroform(tmp_pa
                     or (parent_obj is not None and str(parent_obj.get("/FT") or "") == "/Sig")
                 ):
                     signature_annots += 1
-        assert signature_annots >= 1
+        assert signature_annots == 0

@@ -12,6 +12,7 @@ import http.server
 import mimetypes
 import sys
 import io
+import json
 from collections import OrderedDict
 from pathlib import Path
 
@@ -61,6 +62,7 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
     allowed_pdf_paths_lock = threading.RLock()
     display_cache: OrderedDict = OrderedDict()  # (path,mtime,size) -> bytes, LRU
     signature_probe_cache: OrderedDict = OrderedDict()  # (path,mtime,size) -> bool, LRU
+    signature_click_target_cache: OrderedDict = OrderedDict()  # (path,mtime,size) -> list[dict], LRU
     _MAX_CACHE_ENTRIES = 6
     _cache_lock = threading.RLock()
 
@@ -70,6 +72,8 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/pdf":
             self._serve_pdf(parsed.query)
+        elif path == "/sigmeta":
+            self._serve_signature_metadata(parsed.query)
         else:
             self._serve_static(path)
 
@@ -110,6 +114,37 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
         try:
             data = self._read_pdf_for_display(pdf_path)
             self._serve_pdf_bytes(data, send_body=send_body)
+        except OSError:
+            self.send_error(500)
+
+    def _serve_signature_metadata(self, query: str):
+        params = urllib.parse.parse_qs(query)
+        raw = params.get("p", [None])[0]
+        if not raw:
+            self.send_error(400, "Missing ?p= parameter")
+            return
+        pdf_path = urllib.parse.unquote(raw)
+        real_path = os.path.realpath(pdf_path)
+        if not os.path.isabs(pdf_path) or not pdf_path.lower().endswith(".pdf"):
+            self.send_error(400, "Invalid path")
+            return
+        if os.path.normcase(real_path) != os.path.normcase(os.path.normpath(pdf_path)):
+            self.send_error(403, "Path mismatch")
+            return
+        if not self._is_registered_pdf_path(real_path):
+            self.send_error(403, "PDF path is not registered for this viewer session")
+            return
+        if not os.path.isfile(real_path):
+            self.send_error(404)
+            return
+        try:
+            payload = json.dumps({"targets": self._read_signature_click_targets(real_path)}, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+            self.end_headers()
+            self.wfile.write(payload)
         except OSError:
             self.send_error(500)
 
@@ -248,6 +283,23 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
                 self.display_cache.popitem(last=False)
         return display_data
 
+    def _read_signature_click_targets(self, pdf_path: str) -> list[dict]:
+        stat = os.stat(pdf_path)
+        cache_key = (pdf_path, stat.st_mtime_ns, stat.st_size)
+        with self._cache_lock:
+            cached = self.signature_click_target_cache.get(cache_key)
+            if cached is not None:
+                self.signature_click_target_cache.move_to_end(cache_key)
+                return cached
+
+        targets = _collect_signature_click_targets(pdf_path)
+
+        with self._cache_lock:
+            self.signature_click_target_cache[cache_key] = targets
+            while len(self.signature_click_target_cache) > self._MAX_CACHE_ENTRIES:
+                self.signature_click_target_cache.popitem(last=False)
+        return targets
+
     _ALLOWED_STATIC_EXTENSIONS = frozenset({
         ".html", ".js", ".mjs", ".css", ".wasm", ".properties",
         ".svg", ".png", ".json", ".map", ".ico",
@@ -343,8 +395,11 @@ class LocalPDFJSServer:
             cache_key = "0"
         pdf_url = f"http://127.0.0.1:{self._port}/pdf?p={encoded_path}&v={cache_key}"
         encoded_pdf_url = urllib.parse.quote(pdf_url, safe="")
+        sigmeta_url = f"http://127.0.0.1:{self._port}/sigmeta?p={encoded_path}&v={cache_key}"
+        encoded_sigmeta_url = urllib.parse.quote(sigmeta_url, safe="")
         viewer_opts = (
             f"file={encoded_pdf_url}"
+            f"&sigmeta={encoded_sigmeta_url}"
             "&disableStream=true"
             "&disableAutoFetch=true"
             "&disableRange=false"
@@ -457,7 +512,7 @@ def _field_array_has_signature(fields_arr) -> bool:
     return False
 
 
-def _normalise_pdfjs_appearance_boxes(pdf_path: str, original_data: bytes) -> bytes:
+def _normalise_pdfjs_appearance_boxes_legacy(pdf_path: str, original_data: bytes) -> bytes:
     """Fix inverted BBox values in annotation appearance streams.
 
     Signature widgets are kept intact — PDF.js is configured with
@@ -517,6 +572,125 @@ def _normalise_pdfjs_appearance_boxes(pdf_path: str, original_data: bytes) -> by
                     elif "/Annots" in page.obj:
                             del page.obj["/Annots"]
                     changed = True
+
+            if not changed:
+                return original_data
+            out = io.BytesIO()
+            pdf.save(out)
+            return out.getvalue()
+    except Exception:
+        return original_data
+
+
+def _normalise_pdfjs_appearance_boxes(pdf_path: str, original_data: bytes) -> bytes:
+    """Serve a display-friendly copy that preserves signed widget appearances.
+
+    PDF.js in Qt WebEngine can fail to paint some signed signature widgets
+    even when the same PDF renders correctly in other viewers. For the
+    internal viewer only, flatten signature widget appearances into page
+    content and strip those fields from AcroForm so PDF.js does not replace
+    them with empty interactive widgets that our CSS later hides.
+    """
+    try:
+        import pikepdf
+
+        changed = False
+        with pikepdf.Pdf.open(pdf_path) as pdf:
+            signature_overlays: dict[int, list[dict]] = {}
+            removed_signature_widgets = 0
+            for page_index, page in enumerate(pdf.pages, start=1):
+                annots = page.obj.get("/Annots")
+                if not annots:
+                    continue
+                kept_annots = []
+                for annot in annots:
+                    annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
+                    if _is_signature_widget(annot_obj):
+                        painted = _paint_signature_widget_appearance(
+                            pdf,
+                            page,
+                            annot_obj,
+                            f"T3Sig{page_index}_{removed_signature_widgets + 1}",
+                        )
+                        # Keep a display overlay even when the raw appearance
+                        # stream was flattened successfully. Some signed-widget
+                        # appearances still disappear in Qt/PDF.js after the
+                        # widget is stripped, while a synthetic overlay remains
+                        # stable and guarantees the signature box stays visible.
+                        overlay = _signature_overlay_from_annot(annot_obj)
+                        if overlay is not None:
+                            signature_overlays.setdefault(page_index, []).append(overlay)
+                        removed_signature_widgets += 1
+                        changed = True
+                        continue
+
+                    ap = annot_obj.get("/AP")
+                    if not ap:
+                        kept_annots.append(annot)
+                        continue
+                    normal = ap.get("/N")
+                    if normal is None:
+                        kept_annots.append(annot)
+                        continue
+                    streams = []
+                    if isinstance(normal, pikepdf.Stream):
+                        streams.append(normal)
+                    elif isinstance(normal, pikepdf.Dictionary):
+                        streams.extend(
+                            value
+                            for value in normal.values()
+                            if isinstance(value, pikepdf.Stream)
+                        )
+                    for stream in streams:
+                        bbox = stream.get("/BBox")
+                        if not bbox or len(bbox) != 4:
+                            continue
+                        x1, y1, x2, y2 = [float(v) for v in bbox]
+                        if x1 <= x2 and y1 <= y2:
+                            continue
+                        stream["/BBox"] = pikepdf.Array(
+                            [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
+                        )
+                        changed = True
+                    kept_annots.append(annot)
+
+                if len(kept_annots) != len(annots):
+                    if kept_annots:
+                        page.obj["/Annots"] = pikepdf.Array(kept_annots)
+                    elif "/Annots" in page.obj:
+                        del page.obj["/Annots"]
+                    changed = True
+
+            for page_index, overlays in signature_overlays.items():
+                page = pdf.pages[page_index - 1]
+                width, height = _page_size(page)
+                overlay_pdf_bytes = _build_signature_display_overlay(width, height, overlays)
+                if not overlay_pdf_bytes:
+                    overlay_pdf_bytes = _build_signature_display_overlay_ascii(width, height, overlays)
+                if not overlay_pdf_bytes:
+                    overlay_pdf_bytes = _build_signature_display_overlay_bitmap(width, height, overlays)
+                if not overlay_pdf_bytes:
+                    continue
+                with pikepdf.Pdf.open(io.BytesIO(overlay_pdf_bytes)) as overlay_pdf:
+                    page.add_overlay(overlay_pdf.pages[0])
+                changed = True
+
+            if removed_signature_widgets:
+                try:
+                    root = pdf.Root
+                    acro = root.get("/AcroForm")
+                    if acro is not None:
+                        fields_arr = acro.get("/Fields")
+                        if fields_arr is not None:
+                            kept_fields, changed_fields = _strip_signature_fields_all(fields_arr)
+                            if changed_fields:
+                                changed = True
+                                if kept_fields:
+                                    acro["/Fields"] = pikepdf.Array(kept_fields)
+                                elif "/Fields" in acro:
+                                    del acro["/Fields"]
+                except Exception:
+                    pass
 
             if not changed:
                 return original_data
@@ -751,6 +925,43 @@ def _signature_overlay_from_annot(annot) -> dict | None:
         }
     except Exception:
         return None
+
+
+def _collect_signature_click_targets(pdf_path: str) -> list[dict]:
+    try:
+        import pikepdf
+
+        targets: list[dict] = []
+        with pikepdf.Pdf.open(pdf_path) as pdf:
+            for page_index, page in enumerate(pdf.pages, start=1):
+                annots = page.obj.get("/Annots")
+                if not annots:
+                    continue
+                for annot in annots:
+                    annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
+                    if not _is_signature_widget(annot_obj):
+                        continue
+                    rect = [float(v) for v in annot_obj.get("/Rect") or []]
+                    if len(rect) != 4:
+                        continue
+                    left, bottom, right, top = (
+                        min(rect[0], rect[2]),
+                        min(rect[1], rect[3]),
+                        max(rect[0], rect[2]),
+                        max(rect[1], rect[3]),
+                    )
+                    if right - left < 1 or top - bottom < 1:
+                        continue
+                    targets.append(
+                        {
+                            "page": page_index,
+                            "field_name": _signature_field_name(annot_obj) or "",
+                            "rect": [left, bottom, right, top],
+                        }
+                    )
+        return targets
+    except Exception:
+        return []
 
 
 def _signature_display_lines(annot) -> list[str]:

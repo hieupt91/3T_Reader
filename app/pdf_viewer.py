@@ -1,5 +1,7 @@
+import json
 import os
 import threading
+from pathlib import Path
 
 from packages.pdf_engine import get_pdf_engine
 from packages.qt_compat import QtCore, QtWebEngineWidgets, QtWidgets, pyqtSignal
@@ -21,11 +23,33 @@ class _PageStateBridge(QtCore.QObject):
     def reportState(self, page_number: int, zoom_percent: int):
         self.stateChanged.emit(int(page_number), int(zoom_percent))
 
+
+class _SignatureInfoBridge(QtCore.QObject):
+    signatureClicked = pyqtSignal(int, str)
+
+    @QtCore.Slot(int, str)
+    def showSignatureInfo(self, page_number: int, field_name: str):
+        self.signatureClicked.emit(int(page_number), str(field_name or ""))
+
 # Polyfill for collection helpers added in V8 13.6+ (Chrome 136+).
 # Qt WebEngine 6.11 reports Chrome/140 but ships a build without these methods.
 # Loaded from assets/js/polyfill.js — single source of truth shared with local_server.
 from app.js_loader import load_js as _load_js
 _MAP_POLYFILL_JS = _load_js("polyfill.js")
+
+# Load the same PDF.js override CSS as a DocumentReady script so the viewer
+# gets a deterministic stylesheet injection even before page-level callbacks run.
+_PDFJS_OVERRIDES_CSS = (
+    Path(__file__).resolve().parent.parent / "assets" / "css" / "pdfjs_overrides.css"
+).read_text(encoding="utf-8")
+_PDFJS_OVERRIDES_JS = f"""
+(function () {{
+    var style = document.createElement('style');
+    style.setAttribute('data-3t-pdfjs-overrides', '1');
+    style.textContent = {json.dumps(_PDFJS_OVERRIDES_CSS)};
+    document.head.appendChild(style);
+}})();
+"""
 
 # Hide PDF.js built-in toolbar/sidebar — the app provides its own UI.
 # Also installs find-state listener so Python can detect "not found".
@@ -136,6 +160,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
     error_occurred = pyqtSignal(str)
     find_not_found = pyqtSignal(str)   # emitted with the query when PDF.js reports notFound
     page_count_ready = pyqtSignal(int, str, int, str)  # token, path, page_count, error
+    signature_clicked = pyqtSignal(int, str)
 
     def __init__(self, preset: str | None = None, parent=None):
         super().__init__(parent)
@@ -157,6 +182,14 @@ class PDFViewerWidget(QtWidgets.QWidget):
             "pageStateBridge",
             self._page_state_bridge,
         )
+        self._signature_info_bridge = _SignatureInfoBridge(self)
+        self._signature_info_bridge.signatureClicked.connect(self.signature_clicked)
+        register_webchannel_object(
+            self._web_view,
+            self,
+            "signatureInfoBridge",
+            self._signature_info_bridge,
+        )
 
         settings = self._web_view.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
@@ -170,6 +203,13 @@ class PDFViewerWidget(QtWidgets.QWidget):
         polyfill.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         polyfill.setRunsOnSubFrames(False)
 
+        pdfjs_overrides = QWebEngineScript()
+        pdfjs_overrides.setName("pdfjs-overrides")
+        pdfjs_overrides.setSourceCode(_PDFJS_OVERRIDES_JS)
+        pdfjs_overrides.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
+        pdfjs_overrides.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        pdfjs_overrides.setRunsOnSubFrames(False)
+
         # UI + hooks: after DOM ready
         ui_hooks = QWebEngineScript()
         ui_hooks.setName("pdfjs-ui-hooks")
@@ -180,6 +220,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
 
         page_scripts = self._web_view.page().scripts()
         page_scripts.insert(polyfill)
+        page_scripts.insert(pdfjs_overrides)
         page_scripts.insert(ui_hooks)
 
         self._web_view.loadFinished.connect(lambda ok: self.page_ready.emit() if ok else None)

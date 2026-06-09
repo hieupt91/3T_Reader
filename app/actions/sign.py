@@ -185,6 +185,32 @@ def _run_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[s
     return bool(result["ok"]), result["error"]
 
 
+def _run_usb_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[str, str, str] | None]:
+    """Run USB signing in the main process without a Qt worker thread.
+
+    The PKCS#11 work itself already happens in a subprocess. Keeping the parent
+    on the GUI thread avoids native Qt/Shiboken crashes observed while tearing
+    down background thread objects immediately after the USB worker exits.
+    """
+    pause_token_monitor = getattr(window, "_pause_token_monitor", None)
+    resume_token_monitor = getattr(window, "_resume_token_monitor", None)
+    if callable(pause_token_monitor):
+        pause_token_monitor()
+
+    try:
+        if hasattr(window, "status"):
+            window.status.showMessage(status_message, 0)
+        fn()
+        return True, None
+    except Exception as exc:
+        return False, (type(exc).__name__, str(exc), traceback.format_exc())
+    finally:
+        if hasattr(window, "status"):
+            window.status.clearMessage()
+        if callable(resume_token_monitor):
+            resume_token_monitor()
+
+
 def _token_info_payload(token_info) -> dict[str, object]:
     if token_info is None:
         return {}
@@ -1888,7 +1914,7 @@ def sign_document(window):
     )
 
     try:
-        ok, error = _run_signing_task(
+        ok, error = _run_usb_signing_task(
             window,
             lambda: _run_usb_signing_subprocess(
                 signer_info,
@@ -2260,6 +2286,15 @@ class SignatureStatusDialog(QDialog):
         for widget in (identity_value, modify_value, cert_value, issuer_value):
             widget.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
+        clicked_page = int(report.get("clicked_page") or 0)
+        clicked_field = str(report.get("clicked_field") or "").strip()
+        if clicked_page:
+            form.addRow("Vi tri da bam", QLabel(f"Trang {clicked_page}"))
+        if clicked_field:
+            field_value = QLabel(clicked_field)
+            field_value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            form.addRow("Truong chu ky", field_value)
+
         form.addRow("Danh tính người ký", identity_value)
         form.addRow("Đã sửa đổi tài liệu", modify_value)
         form.addRow("Trạng thái chứng thư", cert_value)
@@ -2294,6 +2329,191 @@ class SignatureStatusDialog(QDialog):
 
     def _show_details(self):
         _show_signature_report_vn(self, "Chi tiết chữ ký số", self._report, path=self._path)
+
+
+class SignatureStatusDialog(QDialog):
+    def __init__(self, parent, report: dict, *, path: str | None = None):
+        super().__init__(parent)
+        self._report = report
+        self._path = path
+        self.setWindowTitle("Chữ ký số")
+        self.setModal(True)
+        self.setMinimumWidth(520)
+
+        root = QVBoxLayout(self)
+        root.setSpacing(10)
+
+        top = QHBoxLayout()
+        icon_label = QLabel()
+        icon_kind = (
+            QStyle.StandardPixmap.SP_DialogApplyButton
+            if report.get("ok")
+            else QStyle.StandardPixmap.SP_MessageBoxWarning
+        )
+        icon_label.setPixmap(self.style().standardIcon(icon_kind).pixmap(36, 36))
+        top.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
+
+        title_wrap = QVBoxLayout()
+        title = QLabel("Hợp lệ chữ ký" if report.get("ok") else "Chữ ký không hợp lệ")
+        title.setStyleSheet(
+            "font-size: 17px; font-weight: 700; color: %s;"
+            % ("#168038" if report.get("ok") else "#c23b22")
+        )
+        title_wrap.addWidget(title)
+        field_signed = bool(report.get("field_signed"))
+
+        signer = str(
+            report.get("display_signer")
+            or report.get("signer_reported_name")
+            or report.get("subject_name")
+            or "Không rõ"
+        )
+        signer_label = QLabel(signer)
+        signer_label.setWordWrap(True)
+        signer_label.setStyleSheet("font-size: 12px; color: #2b2b2b;")
+        title_wrap.addWidget(signer_label)
+
+        signed_time = report.get("signing_time")
+        if signed_time:
+            time_label = QLabel(f"Đã ký {signed_time}")
+            time_label.setStyleSheet("font-size: 11px; color: #666666;")
+            title_wrap.addWidget(time_label)
+
+        top.addLayout(title_wrap)
+        root.addLayout(top)
+
+        summary = QLabel(report.get("overall_status") or report.get("message") or "Không rõ")
+        summary.setWordWrap(True)
+        summary.setStyleSheet(
+            "background:#f5f7fb; border:1px solid #d9e0ea; border-radius:8px; "
+            "padding:8px 10px; color:#223; font-size:11px;"
+        )
+        root.addWidget(summary)
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft)
+        form.setSpacing(6)
+
+        identity_value = QLabel("Hợp lệ" if report.get("trusted") else "Chưa xác minh")
+        modify_value = QLabel("Không" if report.get("integrity_ok") else "Có")
+        cert_value = QLabel(str(report.get("certificate_status") or "Không rõ"))
+        issuer_value = QLabel(str(report.get("issuer_name") or "Không rõ"))
+        if not bool(report.get("field_signed")):
+            if not report.get("trusted"):
+                identity_value.setText("Chưa ký")
+            if not str(report.get("certificate_status") or "").strip():
+                cert_value.setText("Không có chứng thư")
+            if not str(report.get("issuer_name") or "").strip():
+                issuer_value.setText("Không có chứng thư")
+        signer_value = QLabel(signer)
+        reason_value = QLabel(str(report.get("reason") or "Không có"))
+        when_value = QLabel(str(report.get("signing_time") or "Không rõ"))
+        location_value = QLabel(str(report.get("location") or "Không có"))
+        contact_value = QLabel(str(report.get("contact_info") or "Không có"))
+        serial_value = QLabel(str(report.get("serial_hex") or "Không rõ"))
+        valid_range_value = QLabel(
+            f"{report.get('valid_from') or 'Không rõ'} - {report.get('valid_to') or 'Không rõ'}"
+        )
+
+        for widget in (
+            identity_value,
+            modify_value,
+            cert_value,
+            issuer_value,
+            signer_value,
+            reason_value,
+            when_value,
+            location_value,
+            contact_value,
+            serial_value,
+            valid_range_value,
+        ):
+            widget.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            widget.setWordWrap(True)
+
+        clicked_page = int(report.get("clicked_page") or 0)
+        clicked_field = str(report.get("clicked_field") or report.get("selected_field_name") or "").strip()
+        if clicked_page:
+            form.addRow("Vị trí đã bấm", QLabel(f"Trang {clicked_page}"))
+        if clicked_field:
+            field_value = QLabel(clicked_field)
+            field_value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            field_value.setWordWrap(True)
+            form.addRow("Trường chữ ký", field_value)
+
+        form.addRow("Người ký", signer_value)
+        form.addRow("Lý do", reason_value)
+        form.addRow("Ngày ký", when_value)
+        form.addRow("Địa điểm", location_value)
+        form.addRow("Liên hệ", contact_value)
+        form.addRow("Danh tính người ký", identity_value)
+        form.addRow("Đã sửa đổi tài liệu", modify_value)
+        form.addRow("Trạng thái chứng thư", cert_value)
+        form.addRow("Nhà cung cấp", issuer_value)
+        form.addRow("Serial chứng thư", serial_value)
+        form.addRow("Hiệu lực chứng thư", valid_range_value)
+        root.addLayout(form)
+
+        summary_lines = report.get("validation_summary_lines") or []
+        if summary_lines:
+            validation_box = QLabel("\n".join(f"- {line}" for line in summary_lines))
+            validation_box.setWordWrap(True)
+            validation_box.setStyleSheet(
+                "background:#fcfcfe; border:1px solid #d9e0ea; border-radius:8px; "
+                "padding:8px 10px; color:#223; font-size:11px;"
+            )
+            root.addWidget(validation_box)
+
+        validation_error = str(report.get("validation_error") or "").strip()
+        if validation_error:
+            error_label = QLabel(
+                ("Thông tin kiểm tra: " if report.get("ok") else "Lỗi kiểm tra: ")
+                + validation_error
+            )
+            error_label.setWordWrap(True)
+            error_label.setStyleSheet(
+                "color:#b07a00; font-size:11px;" if report.get("ok") else "color:#b03030; font-size:11px;"
+            )
+            root.addWidget(error_label)
+
+        policy_warning = str(report.get("policy_warning") or "").strip()
+        if policy_warning:
+            warning_label = QLabel(f"Cảnh báo chính sách: {policy_warning}")
+            warning_label.setWordWrap(True)
+            warning_label.setStyleSheet("color:#b07a00; font-size:11px;")
+            root.addWidget(warning_label)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        self._detail_btn = QPushButton("Thuộc tính")
+        self._cert_btn = QPushButton("Chứng thư")
+        buttons.addButton(self._detail_btn, QDialogButtonBox.ButtonRole.ActionRole)
+        buttons.addButton(self._cert_btn, QDialogButtonBox.ButtonRole.ActionRole)
+        self._detail_btn.clicked.connect(self._show_details)
+        self._cert_btn.clicked.connect(self._show_certificate_details)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def _show_details(self):
+        _show_signature_report_vn(self, "Chi tiết chữ ký số", self._report, path=self._path)
+
+    def _show_certificate_details(self):
+        if not bool(self._report.get("field_signed")):
+            lines = [
+                f"Trường chữ ký: {self._report.get('selected_field_name') or self._report.get('clicked_field') or 'Không rõ'}",
+                f"Vị trí: Trang {self._report.get('clicked_page') or 'Không rõ'}",
+                "Trạng thái: Ô ký chưa được ký số.",
+            ]
+            QMessageBox.information(self, "Chứng thư số", "\n".join(lines))
+            return
+        lines = [
+            f"Người ký: {self._report.get('display_signer') or self._report.get('subject_name') or 'Không rõ'}",
+            f"Nhà cung cấp: {self._report.get('issuer_name') or 'Không rõ'}",
+            f"Serial: {self._report.get('serial_hex') or 'Không rõ'}",
+            f"Hiệu lực: {self._report.get('valid_from') or 'Không rõ'} - {self._report.get('valid_to') or 'Không rõ'}",
+            f"Trạng thái chứng thư: {self._report.get('certificate_status') or 'Không rõ'}",
+        ]
+        QMessageBox.information(self, "Chứng thư số", "\n".join(lines))
 
 
 def verify_signed_document(window):

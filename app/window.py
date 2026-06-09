@@ -1,6 +1,7 @@
 ﻿import os
 import sys
 import gc
+import json
 
 from packages.qt_compat.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog
 from packages.qt_compat.QtWidgets import (
@@ -98,10 +99,120 @@ from packages.pdf_engine import get_pdf_engine
 from pathlib import Path as _Path
 _PDFJS_OVERRIDES_CSS_PATH = _Path(__file__).resolve().parent.parent / "assets" / "css" / "pdfjs_overrides.css"
 _PDFJS_OVERRIDES_CSS = _PDFJS_OVERRIDES_CSS_PATH.read_text(encoding="utf-8")
+_VIEWER_DEBUG_DIR = _Path(__file__).resolve().parent.parent / "debug" / "viewer_dumps"
 PDFJS_HIDE_TOOLBAR_CSS = f"""
 var style = document.createElement('style');
 style.innerHTML = `{_PDFJS_OVERRIDES_CSS}`;
 document.head.appendChild(style);
+"""
+_PDFJS_VIEWER_DIAGNOSTIC_JS = r"""
+(function () {
+    try {
+    function pick(el) {
+        if (!el) return null;
+        var cs = window.getComputedStyle ? window.getComputedStyle(el) : null;
+        var rect = null;
+        try {
+            var r = el.getBoundingClientRect();
+            rect = {
+                left: Math.round(r.left),
+                top: Math.round(r.top),
+                width: Math.round(r.width),
+                height: Math.round(r.height)
+            };
+        } catch (_) {}
+        var children = [];
+        try {
+            children = Array.prototype.slice.call(el.children || [], 0, 5).map(function (child) {
+                return {
+                    tag: child.tagName || "",
+                    cls: child.className || "",
+                    hidden: !!child.hidden
+                };
+            });
+        } catch (_) {}
+        return {
+            tag: el.tagName || "",
+            cls: el.className || "",
+            id: el.id || "",
+            hidden: !!el.hidden,
+            attrStyle: el.getAttribute ? (el.getAttribute("style") || "") : "",
+            text: (el.textContent || "").slice(0, 120),
+            rect: rect,
+            computed: cs ? {
+                display: cs.display,
+                visibility: cs.visibility,
+                opacity: cs.opacity,
+                pointerEvents: cs.pointerEvents,
+                backgroundColor: cs.backgroundColor,
+                border: cs.border,
+                color: cs.color
+            } : null,
+            children: children
+        };
+    }
+
+    var styleTags = Array.prototype.slice.call(document.querySelectorAll("style"));
+    var styleSummary = styleTags
+        .filter(function (tag) {
+            var text = tag.textContent || "";
+            return text.indexOf("signatureWidgetAnnotation") >= 0
+                || tag.hasAttribute("data-3t-pdfjs-overrides");
+        })
+        .map(function (tag) {
+            var text = tag.textContent || "";
+            return {
+                attrs: tag.getAttributeNames ? tag.getAttributeNames().reduce(function (acc, name) {
+                    acc[name] = tag.getAttribute(name);
+                    return acc;
+                }, {}) : {},
+                sample: text.slice(0, 500)
+            };
+        });
+
+    var widgets = Array.prototype.slice.call(document.querySelectorAll(".signatureWidgetAnnotation"));
+    var annotationSections = Array.prototype.slice.call(document.querySelectorAll(".annotationLayer section"));
+    var pageCanvases = Array.prototype.slice.call(document.querySelectorAll(".page canvas"));
+    var app = window.PDFViewerApplication || null;
+    var pagesOverview = [];
+    try {
+        var pages = document.querySelectorAll(".page[data-page-number]");
+        pagesOverview = Array.prototype.slice.call(pages, 0, 8).map(function (page) {
+            return {
+                page: page.getAttribute("data-page-number") || "",
+                annots: page.querySelectorAll(".annotationLayer section").length,
+                sigs: page.querySelectorAll(".signatureWidgetAnnotation").length,
+                canvases: page.querySelectorAll("canvas").length
+            };
+        });
+    } catch (_) {}
+
+    return JSON.stringify({
+        href: String(location.href || ""),
+        title: document.title || "",
+        styleTagCount: styleTags.length,
+        relevantStyles: styleSummary,
+        widgetCount: widgets.length,
+        annotationSectionCount: annotationSections.length,
+        pageCanvasCount: pageCanvases.length,
+        firstPage: pick(document.querySelector(".page[data-page-number='1']")),
+        firstWidget: pick(widgets[0] || null),
+        firstWidgetInput: pick(widgets[0] ? widgets[0].querySelector("input, textarea, select, button, canvas, div, img") : null),
+        pagesOverview: pagesOverview,
+        pdfjs: app ? {
+            page: app.pdfViewer && app.pdfViewer.currentPageNumber || 0,
+            pagesCount: app.pagesCount || 0,
+            annotationMode: app.pdfViewer && app.pdfViewer.annotationMode || null
+        } : null
+    });
+    } catch (error) {
+        return JSON.stringify({
+            error: String(error && error.stack || error || "unknown"),
+            href: String(location.href || ""),
+            readyState: document.readyState || ""
+        });
+    }
+})()
 """
 
 
@@ -155,6 +266,7 @@ class PDFReaderApp(QMainWindow):
         self._token_monitor_timer = None
         self._token_check_thread = None
         self._token_check_worker = None
+        self._token_monitor_suspended = False
         self._global_state = {
             "source_path": None,
             "display_path": None,
@@ -360,7 +472,14 @@ class PDFReaderApp(QMainWindow):
         viewer.zoom_changed.connect(lambda pct, v=viewer: self._on_zoom_changed(v, pct))
         viewer.error_occurred.connect(lambda msg: self.status.showMessage(f"Cảnh báo: {msg}", 5000))
         viewer.find_not_found.connect(lambda q: show_warning(self, "Không tìm thấy", f"Không tìm thấy kết quả cho: \"{q}\""))
-        viewer.page_ready.connect(lambda v=viewer: self._on_page_ready(v))
+        viewer.signature_clicked.connect(lambda page, field, v=viewer: self._on_signature_clicked(v, page, field))
+        page_ready = getattr(viewer, "page_ready", None)
+        if hasattr(page_ready, "connect"):
+            page_ready.connect(lambda v=viewer: self._on_page_ready(v))
+        else:
+            web_view = viewer.findChild(QWebEngineView)
+            if web_view is not None:
+                web_view.loadFinished.connect(lambda ok, v=viewer: self._on_page_ready(v) if ok else None)
 
     def _find_tab_by_viewer(self, viewer):
         for tab, state in self._tabs_data.items():
@@ -392,6 +511,46 @@ class PDFReaderApp(QMainWindow):
         wv = self._get_webview_for_viewer(viewer)
         if wv:
             wv.page().runJavaScript(PDFJS_HIDE_TOOLBAR_CSS)
+
+    def _dump_viewer_diagnostics(self, viewer):
+        wv = self._get_webview_for_viewer(viewer)
+        if not wv:
+            return
+
+        def _write(payload):
+            try:
+                _VIEWER_DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+                state = self._active_state() if viewer is self.viewer else {}
+                pdf_path = ""
+                if isinstance(state, dict):
+                    pdf_path = state.get("source_path") or state.get("display_path") or ""
+                if not pdf_path:
+                    pdf_path = getattr(viewer, "_path", "") or ""
+                parsed_payload = payload
+                if isinstance(payload, str):
+                    try:
+                        parsed_payload = json.loads(payload) if payload else {"raw": payload}
+                    except Exception as exc:
+                        parsed_payload = {
+                            "raw": payload,
+                            "parse_error": str(exc),
+                        }
+                target = _VIEWER_DEBUG_DIR / "latest_viewer_state.json"
+                target.write_text(
+                    json.dumps(
+                        {
+                            "pdf_path": pdf_path,
+                            "payload": parsed_payload,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
+
+        wv.page().runJavaScript(_PDFJS_VIEWER_DIAGNOSTIC_JS, _write)
 
     def _inject_css(self):
         viewer = self.viewer
@@ -1275,6 +1434,8 @@ class PDFReaderApp(QMainWindow):
             return
         wv = self._get_webview_for_viewer(viewer)
         if wv:
+            self._inject_css_for_viewer(viewer)
+            QTimer.singleShot(800, lambda v=viewer: self._dump_viewer_diagnostics(v))
             apply_brightness_to_webview(self, wv)
             QTimer.singleShot(250, lambda: enable_note_tools(self))
 
@@ -1304,6 +1465,28 @@ class PDFReaderApp(QMainWindow):
             self.zoom_spin.setValue(max(25, min(400, int(pct))))
         finally:
             self.zoom_spin.blockSignals(False)
+
+    def _on_signature_clicked(self, viewer, page_number: int, field_name: str):
+        state = self._active_state() if viewer is self.viewer else None
+        pdf_path = (state or {}).get("source_path") or getattr(viewer, "_path", "") or ""
+        if not pdf_path or not os.path.exists(pdf_path):
+            show_warning(self, "Chưa có tệp", "Không tìm thấy file PDF để kiểm tra chữ ký.")
+            return
+        try:
+            if hasattr(self, "status"):
+                self.status.showMessage("Đang kiểm tra chữ ký số...", 2000)
+            from app.actions.sign import SignatureStatusDialog
+            from packages.signing.shared import validate_signed_pdf_status
+
+            report = validate_signed_pdf_status(pdf_path, field_name=field_name or None)
+            if page_number or field_name:
+                report = dict(report)
+                report["clicked_page"] = int(page_number or 0)
+                report["clicked_field"] = str(field_name or "")
+            dlg = SignatureStatusDialog(self, report, path=pdf_path)
+            dlg.exec()
+        except Exception as exc:
+            show_warning(self, "Lỗi kiểm tra chữ ký", str(exc))
 
     def _load_toc_for_active(self):
         state = self._active_state()
@@ -1793,8 +1976,14 @@ class PDFReaderApp(QMainWindow):
         dlg.exec()
 
     def _refresh_recent_menu(self):
-        self.menu_recent.clear()
-        _populate_recent_menu(self.menu_recent, self)
+        menu = getattr(self, "menu_recent", None)
+        if menu is None:
+            return
+        try:
+            menu.clear()
+        except RuntimeError:
+            return
+        _populate_recent_menu(menu, self)
 
     def _clear_recent_from_menu(self):
         clear_recent()
@@ -2111,6 +2300,19 @@ class PDFReaderApp(QMainWindow):
             self._update_check_thread.quit()
             self._update_check_thread.wait(2000)
 
+        signing_thread = getattr(self, "_signing_thread", None)
+        if signing_thread is not None and signing_thread.isRunning():
+            signing_thread.quit()
+            if not signing_thread.wait(3000):
+                self._closing = False
+                QMessageBox.warning(
+                    self,
+                    "Đang ký số",
+                    "Vui lòng chờ thao tác ký hiện tại hoàn tất rồi hãy đóng ứng dụng.",
+                )
+                event.ignore()
+                return
+
         if self._token_monitor_timer is not None:
             self._token_monitor_timer.stop()
 
@@ -2169,8 +2371,34 @@ class PDFReaderApp(QMainWindow):
         timer.start()
         QTimer.singleShot(1500, self._check_token_presence)
 
+    def _pause_token_monitor(self):
+        """Temporarily stop USB presence checks while signing is active."""
+        self._token_monitor_suspended = True
+        timer = self._token_monitor_timer
+        if timer is not None:
+            timer.stop()
+
+        thread = self._token_check_thread
+        if thread is not None and thread.isRunning():
+            thread.quit()
+            thread.wait(1500)
+
+    def _resume_token_monitor(self):
+        """Resume USB presence checks after signing finishes."""
+        self._token_monitor_suspended = False
+        timer = self._token_monitor_timer
+        if timer is not None and not timer.isActive():
+            timer.start()
+
     def _check_token_presence(self):
         """Bắt đầu một lượt kiểm tra token nếu lượt trước đã hoàn tất."""
+        if getattr(self, "_token_monitor_suspended", False):
+            return
+
+        signing_thread = getattr(self, "_signing_thread", None)
+        if signing_thread is not None and signing_thread.isRunning():
+            return
+
         if self._token_check_thread is not None and self._token_check_thread.isRunning():
             return
 

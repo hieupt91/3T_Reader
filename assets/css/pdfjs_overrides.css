@@ -20,12 +20,21 @@ body { background-color: #0f0f13 !important; }
     border: none !important;
     outline: none !important;
     box-shadow: none !important;
+    cursor: pointer !important;
 }
 
 .annotationLayer .signatureWidgetAnnotation input,
 .annotationLayer .signatureWidgetAnnotation textarea,
 .annotationLayer .signatureWidgetAnnotation select,
 .annotationLayer .signatureWidgetAnnotation button {
-    opacity: 0 !important;
     pointer-events: none !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: 1.5px solid rgba(11, 132, 243, 0.65) !important;
+    border-radius: 2px !important;
+    color: transparent !important;
+    box-shadow: none !important;
 }

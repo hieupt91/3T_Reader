@@ -351,6 +351,92 @@ def build_vietnamese_stamp_style(
     )
 
 
+def _format_pdf_sig_date(value) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.startswith("D:") and len(text) >= 16:
+        try:
+            return f"{text[2:6]}-{text[6:8]}-{text[8:10]} {text[10:12]}:{text[12:14]}:{text[14:16]} {text[16:] or ''}".strip()
+        except Exception:
+            return text
+    return text
+
+
+def _extract_signature_field_report(path: str, field_name: str) -> dict[str, object] | None:
+    try:
+        from asn1crypto import cms
+        import pikepdf
+
+        with pikepdf.Pdf.open(path) as pdf:
+            for page_number, page in enumerate(pdf.pages, start=1):
+                annots = page.obj.get("/Annots") or []
+                for annot in annots:
+                    annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
+                    if str(annot_obj.get("/T") or "").strip() != field_name:
+                        continue
+                    sig = annot_obj.get("/V")
+                    if sig is None:
+                        return {
+                            "clicked_page": page_number,
+                            "clicked_field": field_name,
+                            "selected_field_name": field_name,
+                            "field_signed": False,
+                            "display_signer": "Chưa ký",
+                            "reason": "",
+                            "location": "",
+                            "contact_info": "",
+                            "signature_type": "",
+                            "signing_time": "",
+                            "validation_summary_lines": ["Ô ký này chưa được ký số."],
+                            "overall_status": "Ô ký này chưa được ký số.",
+                            "message": "Ô ký này chưa được ký số.",
+                            "ok": False,
+                            "integrity_ok": False,
+                            "intact": False,
+                            "valid": False,
+                            "trusted": False,
+                            "revoked": False,
+                        }
+                    cert_details = None
+                    contents = sig.get("/Contents")
+                    if contents is not None:
+                        try:
+                            cms_bytes = bytes(contents).rstrip(b"\x00")
+                            if cms_bytes:
+                                content_info = cms.ContentInfo.load(cms_bytes)
+                                signed_data = content_info["content"]
+                                certs = signed_data["certificates"]
+                                if certs:
+                                    first_cert = certs[0].chosen
+                                    if hasattr(first_cert, "dump"):
+                                        cert_details = extract_certificate_details_from_der(first_cert.dump())
+                        except Exception:
+                            cert_details = None
+                    return {
+                        "clicked_page": page_number,
+                        "clicked_field": field_name,
+                        "selected_field_name": field_name,
+                        "field_signed": True,
+                        "display_signer": str(sig.get("/Name") or "").strip() or "Không rõ",
+                        "signer_reported_name": str(sig.get("/Name") or "").strip(),
+                        "reason": str(sig.get("/Reason") or "").strip(),
+                        "location": str(sig.get("/Location") or "").strip(),
+                        "contact_info": str(sig.get("/ContactInfo") or "").strip(),
+                        "signature_type": str(sig.get("/SubFilter") or "").strip(),
+                        "signing_time": _format_pdf_sig_date(sig.get("/M")),
+                        "subject_name": str(cert_details.get("subject_name") or "") if cert_details else "",
+                        "issuer_name": str(cert_details.get("issuer_provider") or "") if cert_details else "",
+                        "serial_hex": str(cert_details.get("serial_hex") or "") if cert_details else "",
+                        "valid_from": str(cert_details.get("valid_from") or "") if cert_details else "",
+                        "valid_to": str(cert_details.get("valid_to") or "") if cert_details else "",
+                        "certificate_status": str(cert_details.get("certificate_status") or "") if cert_details else "",
+                    }
+    except Exception:
+        return None
+    return None
+
+
 def _pick_signing_certificate(session, attribute_mod, object_class_mod):
     certs = list(session.get_objects({attribute_mod.CLASS: object_class_mod.CERTIFICATE}))
     if not certs:
@@ -547,8 +633,9 @@ async def sign_pdf_with_pkcs12(
             os.remove(tmp_path)
 
 
-def validate_signed_pdf_status(path: str) -> dict[str, object]:
+def validate_signed_pdf_status(path: str, field_name: str | None = None) -> dict[str, object]:
     """Validate the PDF signature integrity first, then best-effort trust."""
+    field_report = _extract_signature_field_report(path, field_name) if field_name else None
     try:
         import asyncio
 
@@ -562,6 +649,8 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
             reader = PdfFileReader(f, strict=False)
             signatures = list(reader.embedded_signatures)
             if not signatures:
+                if field_report is not None:
+                    return field_report
                 return {
                     "ok": False,
                     "integrity_ok": False,
@@ -573,7 +662,37 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
                     "message": "Không tìm thấy chữ ký số hợp lệ trong PDF đã lưu. Nếu chỉ chèn ảnh hoặc text thì đây không phải chữ ký số.",
                 }
 
+            selected_field_name = (field_name or "").strip()
             embedded_sig = signatures[-1]
+            found_selected_signature = not selected_field_name
+            if selected_field_name:
+                for candidate in signatures:
+                    try:
+                        candidate_name = str(getattr(candidate, "field_name", "") or "").strip()
+                    except Exception:
+                        candidate_name = ""
+                    if candidate_name == selected_field_name:
+                        embedded_sig = candidate
+                        found_selected_signature = True
+                        break
+                if not found_selected_signature and field_report is not None:
+                    return field_report
+
+            sig_object = getattr(embedded_sig, "sig_object", None)
+
+            def _pdf_text(value) -> str:
+                if value is None:
+                    return ""
+                try:
+                    return str(value).strip()
+                except Exception:
+                    return ""
+
+            signer_reported_name = _pdf_text(sig_object.get("/Name")) if sig_object is not None else ""
+            reason = _pdf_text(sig_object.get("/Reason")) if sig_object is not None else ""
+            location = _pdf_text(sig_object.get("/Location")) if sig_object is not None else ""
+            contact_info = _pdf_text(sig_object.get("/ContactInfo")) if sig_object is not None else ""
+            signature_type = _pdf_text(sig_object.get("/SubFilter")) if sig_object is not None else ""
             cert_details = None
             signer_cert = getattr(embedded_sig, "signer_cert", None)
             if signer_cert is not None and hasattr(signer_cert, "dump"):
@@ -663,6 +782,37 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
             valid_from = str(cert_details.get("valid_from") if cert_details else "")
             valid_to = str(cert_details.get("valid_to") if cert_details else "")
             cert_status = str(cert_details.get("certificate_status") if cert_details else "")
+            display_signer = signer_reported_name or subject_name or "Khong ro"
+            if field_report:
+                display_signer = str(field_report.get("display_signer") or display_signer or "Khong ro")
+                signer_reported_name = str(field_report.get("signer_reported_name") or signer_reported_name or "")
+                reason = str(field_report.get("reason") or reason or "")
+                location = str(field_report.get("location") or location or "")
+                contact_info = str(field_report.get("contact_info") or contact_info or "")
+                signature_type = str(field_report.get("signature_type") or signature_type or "")
+                signing_time = field_report.get("signing_time") or signing_time
+                subject_name = str(field_report.get("subject_name") or subject_name or "")
+                issuer_name = str(field_report.get("issuer_name") or issuer_name or "")
+                serial_hex = str(field_report.get("serial_hex") or serial_hex or "")
+                valid_from = str(field_report.get("valid_from") or valid_from or "")
+                valid_to = str(field_report.get("valid_to") or valid_to or "")
+                cert_status = str(field_report.get("certificate_status") or cert_status or "")
+            validation_summary = [
+                "Tai lieu chua bi sua doi sau khi ap chu ky." if integrity_ok
+                else "Tai lieu da bi thay doi hoac chu ky khong con toan ven.",
+                "Chuoi tin cay chung thu da duoc xac minh." if trusted
+                else "Chua xac minh duoc day du chuoi tin cay chung thu.",
+            ]
+            if signing_time_ok is False:
+                validation_summary.append("Thoi diem ky nam ngoai thoi han hieu luc chung thu.")
+            elif signing_time is not None:
+                validation_summary.append("Thoi diem ky nam trong thoi han hieu luc chung thu.")
+            if cert_status:
+                validation_summary.append(f"Trang thai chung thu hien tai: {cert_status}.")
+            if trust_error:
+                validation_summary.append(f"Ghi chu kiem tra: {trust_error}")
+            if field_report and not integrity_ok:
+                validation_summary.insert(0, "Đã lấy thông tin trực tiếp từ đúng ô ký được bấm.")
 
             return {
                 "ok": integrity_ok and not revoked,
@@ -673,18 +823,43 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
                 "revoked": revoked,
                 "signing_time": signing_time,
                 "signing_time_ok": signing_time_ok,
+                "signature_count": len(signatures),
+                "selected_field_name": str(getattr(embedded_sig, "field_name", "") or ""),
+                "display_signer": display_signer,
+                "signer_reported_name": signer_reported_name,
                 "subject_name": subject_name,
                 "issuer_name": issuer_name,
                 "serial_hex": serial_hex,
                 "valid_from": valid_from,
                 "valid_to": valid_to,
                 "certificate_status": cert_status,
+                "reason": reason,
+                "location": location,
+                "contact_info": contact_info,
+                "signature_type": signature_type,
+                "validation_summary_lines": validation_summary,
                 "overall_status": overall_status,
                 "message": overall_status,
                 "validation_error": trust_error,
                 "policy_warning": policy_warning,
             }
     except Exception as exc:
+        if field_report is not None:
+            fallback = dict(field_report)
+            fallback.setdefault("ok", False)
+            fallback.setdefault("integrity_ok", False)
+            fallback.setdefault("intact", False)
+            fallback.setdefault("valid", False)
+            fallback.setdefault("trusted", False)
+            fallback.setdefault("revoked", False)
+            fallback["overall_status"] = f"Chưa kiểm tra được đầy đủ: {exc}"
+            fallback["message"] = fallback["overall_status"]
+            fallback["validation_error"] = str(exc)
+            lines = list(fallback.get("validation_summary_lines") or [])
+            if fallback.get("field_signed"):
+                lines.insert(0, "Đã lấy thông tin trực tiếp từ đúng ô ký được bấm.")
+            fallback["validation_summary_lines"] = lines
+            return fallback
         return {
             "ok": False,
             "integrity_ok": False,

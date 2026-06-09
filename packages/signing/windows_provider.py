@@ -50,6 +50,16 @@ WINDOWS_VENDOR_DIR_HINTS = (
     "vnpt",
     "fpt",
     "bkav",
+    "newca",
+    "easyca",
+    "efy",
+    "nacencomm",
+    "cyberlotus",
+    "smartsign",
+    "mobifone",
+    "vinaphone",
+    "vietnampost",
+    "ca2",
     "safenet",
     "etoken",
     "token",
@@ -62,10 +72,23 @@ WINDOWS_VENDOR_DIR_HINTS = (
 WINDOWS_GENERIC_DLL_HINTS = (
     "pkcs",
     "csp11",
+    "cryptoki",
     "etoken",
     "aetpk",
     "idprime",
     "bit4",
+    "pki",
+    "usbtoken",
+    "viettel",
+    "vnpt",
+    "fpt",
+    "bkav",
+    "newca",
+    "easyca",
+    "efy",
+    "nacencomm",
+    "cyberlotus",
+    "smartsign",
 )
 WINDOWS_REGISTRY_HINTS = WINDOWS_VENDOR_DIR_HINTS + (
     "cryptoki",
@@ -273,7 +296,7 @@ def _candidate_paths() -> list[str]:
         for directory in _candidate_vendor_dirs(root_dir):
             for dll in WINDOWS_PKCS11_CANDIDATES:
                 add(os.path.join(directory, dll))
-            for path in _generic_pkcs11_dlls(directory):
+            for path in _generic_pkcs11_dlls(directory, recursive=True):
                 add(path)
 
     for dll in WINDOWS_PKCS11_CANDIDATES:
@@ -289,29 +312,38 @@ def _candidate_paths() -> list[str]:
     return paths
 
 
-def _generic_pkcs11_dlls(directory: str) -> list[str]:
-    try:
-        entries = list(os.scandir(directory))
-    except OSError:
-        return []
-
+def _generic_pkcs11_dlls(directory: str, *, recursive: bool = False, max_depth: int = 4) -> list[str]:
     matches: list[str] = []
-    for entry in entries:
-        if not entry.is_file():
-            continue
-        name = entry.name.lower()
-        if not name.endswith(".dll"):
-            continue
-        stem = name[:-4]
-        if (
-            any(hint in name for hint in WINDOWS_GENERIC_DLL_HINTS)
+
+    def looks_like_pkcs11_dll(name: str) -> bool:
+        lowered = name.lower()
+        if not lowered.endswith(".dll"):
+            return False
+        stem = lowered[:-4]
+        return (
+            any(hint in lowered for hint in WINDOWS_GENERIC_DLL_HINTS)
             or stem.endswith("p11")
             or "_p11" in stem
             or "-p11" in stem
             or "p11_" in stem
             or "p11-" in stem
-        ):
-            matches.append(entry.path)
+        )
+
+    def scan(path: str, depth: int) -> None:
+        try:
+            entries = list(os.scandir(path))
+        except OSError:
+            return
+        for entry in entries:
+            try:
+                if entry.is_file() and looks_like_pkcs11_dll(entry.name):
+                    matches.append(entry.path)
+                elif recursive and depth < max_depth and entry.is_dir():
+                    scan(entry.path, depth + 1)
+            except OSError:
+                continue
+
+    scan(directory, 0)
     return matches
 
 
@@ -364,9 +396,14 @@ def _probe_driver_for_token(path: str) -> tuple[bool, str]:
         "except Exception as exc:\n"
         "    print('ERROR:' + str(exc))\n"
     )
+    command = (
+        [sys.executable, "--pkcs11-probe-token", path]
+        if getattr(sys, "frozen", False)
+        else [sys.executable, "-c", code, path]
+    )
     try:
         result = subprocess.run(
-            [sys.executable, "-c", code, path],
+            command,
             capture_output=True,
             text=True,
             timeout=8,
@@ -389,6 +426,22 @@ def _probe_driver_for_token(path: str) -> tuple[bool, str]:
     if combined.startswith("ERROR:"):
         return False, combined[6:][:160]
     return False, combined[:160] if combined else "NO_TOKEN"
+
+
+def probe_driver_for_token_worker_main(argv: list[str] | None = None) -> int:
+    args = argv if argv is not None else sys.argv[1:]
+    if not args:
+        print("ERROR:missing driver path")
+        return 2
+    try:
+        import pkcs11 as p11
+
+        lib = p11.lib(args[0])
+        print("TOKEN" if any(True for _ in lib.get_tokens()) else "NO_TOKEN")
+        return 0
+    except Exception as exc:
+        print("ERROR:" + str(exc))
+        return 1
 
 
 def _probe_driver_tokens(path: str) -> tuple[list[dict], str]:
@@ -448,9 +501,14 @@ try:
 except Exception as exc:
     print(json.dumps({"error": str(exc)}, ensure_ascii=True))
 '''
+    command = (
+        [sys.executable, "--pkcs11-list-tokens", path]
+        if getattr(sys, "frozen", False)
+        else [sys.executable, "-c", code, path]
+    )
     try:
         result = subprocess.run(
-            [sys.executable, "-c", code, path],
+            command,
             capture_output=True,
             text=True,
             timeout=10,
@@ -473,6 +531,53 @@ except Exception as exc:
     if payload.get("error"):
         return [], str(payload["error"])[:160]
     return list(payload.get("tokens") or []), ""
+
+
+def probe_driver_tokens_worker_main(argv: list[str] | None = None) -> int:
+    args = argv if argv is not None else sys.argv[1:]
+    if not args:
+        print(json.dumps({"error": "missing driver path"}, ensure_ascii=True))
+        return 2
+    try:
+        import pkcs11 as p11
+        from pkcs11.constants import Attribute, ObjectClass
+
+        lib = p11.lib(args[0])
+        tokens = []
+        for index, token in enumerate(lib.get_tokens()):
+            signer_name = ""
+            tax_code = ""
+            issuer_name = ""
+            cert_serial = ""
+            try:
+                with token.open(rw=False) as session:
+                    certs = list(session.get_objects({Attribute.CLASS: ObjectClass.CERTIFICATE}))
+                    for cert in reversed(certs):
+                        identity = extract_signer_identity_from_der(_safe_get_pkcs11_attr(cert, Attribute.VALUE))
+                        if identity:
+                            signer_name = identity.get("name", "")
+                            tax_code = identity.get("tax_code", "")
+                            issuer_name = identity.get("issuer_name", "")
+                            cert_serial = identity.get("serial_hex", "")
+                            break
+            except Exception:
+                pass
+            tokens.append({
+                "index": index,
+                "label": _clean_token_value(getattr(token, "label", "")),
+                "serial": _clean_token_value(getattr(token, "serial", "")),
+                "manufacturer": _clean_token_value(getattr(token, "manufacturer_id", "")),
+                "model": _clean_token_value(getattr(token, "model", "")),
+                "signer_name": signer_name,
+                "tax_code": tax_code,
+                "issuer_name": issuer_name,
+                "cert_serial": cert_serial,
+            })
+        print(json.dumps({"tokens": tokens}, ensure_ascii=True))
+        return 0
+    except Exception as exc:
+        print(json.dumps({"error": str(exc)}, ensure_ascii=True))
+        return 1
 
 
 def _clean_token_value(value) -> str:

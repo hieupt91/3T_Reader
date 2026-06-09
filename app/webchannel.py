@@ -83,6 +83,12 @@ class _SignaturePreviewBridgeProxy(_BridgeProxyBase):
         self._call("reportAdjusted", page_number, left, bottom, right, top)
 
 
+class _SignatureInfoBridgeProxy(_BridgeProxyBase):
+    @pyqtSlot(int, str)
+    def showSignatureInfo(self, page_number: int, field_name: str):
+        self._call("showSignatureInfo", page_number, field_name)
+
+
 class _InlineTextBridgeProxy(_BridgeProxyBase):
     @pyqtSlot(int)
     def reportReady(self, page_number: int):
@@ -143,6 +149,7 @@ _PROXY_TYPES = {
     "areaPickBridge": _AreaPickBridgeProxy,
     "sigPickBridge": _SignaturePickBridgeProxy,
     "sigPreviewBridge": _SignaturePreviewBridgeProxy,
+    "signatureInfoBridge": _SignatureInfoBridgeProxy,
     "inlineTextBridge": _InlineTextBridgeProxy,
     "inlineImageBridge": _InlineImageBridgeProxy,
     "objectActionBridge": _ObjectActionBridgeProxy,
