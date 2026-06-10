@@ -179,6 +179,10 @@ class MacOSPkcs11Provider:
         signer_name: str,
         page_number: int,
         box: tuple[float, float, float, float],
+        field_name: str | None = None,
+        reason: str | None = None,
+        location: str | None = None,
+        contact_info: str | None = None,
     ) -> None:
         import pkcs11 as p11
 
@@ -202,6 +206,10 @@ class MacOSPkcs11Provider:
                 signer_name=signer_name,
                 page_number=page_number,
                 box=box,
+                field_name=field_name,
+                reason=reason,
+                location=location,
+                contact_info=contact_info,
             )
         finally:
             if session is not None:

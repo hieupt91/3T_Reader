@@ -238,6 +238,10 @@ def _run_usb_signing_subprocess(
     signer_name: str,
     page_number: int,
     box: tuple[float, float, float, float],
+    field_name: str | None = None,
+    reason: str | None = None,
+    location: str | None = None,
+    contact_info: str | None = None,
 ) -> None:
     payload = {
         "token": _token_info_payload(token_info),
@@ -247,6 +251,10 @@ def _run_usb_signing_subprocess(
         "signer_name": signer_name,
         "page_number": page_number,
         "box": list(box),
+        "field_name": field_name or "",
+        "reason": reason or "",
+        "location": location or "",
+        "contact_info": contact_info or "",
     }
 
     payload_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w", encoding="utf-8")
@@ -409,6 +417,11 @@ def _build_stamp_preview_html(
     )
 
 
+def _format_local_timestamp(value: datetime | None = None) -> str:
+    dt = (value or datetime.now()).astimezone()
+    return dt.strftime("%d/%m/%Y %H:%M:%S %z")
+
+
 def _signature_preview_scale(width_px: float, height_px: float, *, has_image: bool = False) -> float:
     base = min(max(float(width_px), 1.0), max(float(height_px), 1.0))
     if has_image:
@@ -480,6 +493,7 @@ def _make_pick_script(*, sig_image_url: str = "", sig_text_html: str = "") -> st
                 }}
                 selection = null;
                 window.__readerPdfSignaturePickCleanup = null;
+                window.__readerPdfSignaturePickInstalled = false;
             }}
 
             window.__readerPdfSignaturePickCleanup = cleanupSelection;
@@ -1278,21 +1292,21 @@ class SignaturePickPrompt(QDialog):
 class SignatureIdentityDialog(QDialog):
     def __init__(self, parent=None, *, default_signer_name: str = ""):
         super().__init__(parent)
-        self.setWindowTitle("Thong tin chu ky")
+        self.setWindowTitle("Thông tin chữ ký")
         self.setModal(True)
 
         root = QVBoxLayout(self)
 
         form = QFormLayout()
         self.signer_name_input = QLineEdit()
-        self.signer_name_input.setPlaceholderText("Nhap ten nguoi ky")
+        self.signer_name_input.setPlaceholderText("Nhập tên người ký")
         if default_signer_name:
             self.signer_name_input.setText(default_signer_name)
         self.signer_name_input.textChanged.connect(self._update_preview)
-        form.addRow("Nguoi ky", self.signer_name_input)
+        form.addRow("Người ký", self.signer_name_input)
         root.addLayout(form)
 
-        preview_title = QLabel("Xem truoc")
+        preview_title = QLabel("Xem trước")
         root.addWidget(preview_title)
 
         self.preview = QLabel()
@@ -1316,15 +1330,220 @@ class SignatureIdentityDialog(QDialog):
 
     def _update_preview(self):
         signer_name = self.signer_name_input.text().strip() or "Khong ro"
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ts = _format_local_timestamp()
         self.preview.setText(
-            "DA KY SO\n"
-            f"Nguoi ky: {signer_name}\n"
-            f"Timestamp: {ts}"
+            "ĐÃ KÝ SỐ\n"
+            f"Người ký: {signer_name}\n"
+            f"Thời điểm: {ts}"
         )
 
     def signer_name(self) -> str:
         return self.signer_name_input.text().strip() or "Khong ro"
+
+
+class UnsignedSignatureSetupDialog(QDialog):
+    def __init__(self, parent=None, *, report: dict | None = None):
+        super().__init__(parent)
+        self._report = report or {}
+        self._selected_token = None
+        self.setWindowTitle("Ký ô ký")
+        self.setModal(True)
+        self.resize(620, 420)
+
+        root = QVBoxLayout(self)
+        root.setSpacing(10)
+
+        title = QLabel("Ô ký chưa được ký số")
+        title.setStyleSheet("font-size: 18px; font-weight: 700; color: #c23b22;")
+        root.addWidget(title)
+
+        field_name = str(self._report.get("selected_field_name") or self._report.get("clicked_field") or "Không rõ")
+        page_number = int(self._report.get("clicked_page") or 0)
+        info = QLabel(f"Trường: {field_name}    Trang: {page_number or 'Không rõ'}")
+        info.setWordWrap(True)
+        root.addWidget(info)
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        self.sign_as_combo = QComboBox()
+        self.location_input = QLineEdit()
+        self.reason_input = QComboBox()
+        self.reason_input.setEditable(True)
+        self.reason_input.addItems(
+            [
+                "Tôi là người tạo tài liệu này",
+                "Tôi phê duyệt tài liệu này",
+                "Tôi đã xem xét và chấp nhận tài liệu này",
+            ]
+        )
+        self.reason_input.setCurrentText(str(self._report.get("reason") or "Tôi là người tạo tài liệu này"))
+
+        provider = get_signing_provider()
+        tokens = _list_signing_tokens(provider)
+        for token in tokens:
+            self.sign_as_combo.addItem(_token_display_name(token), token)
+        if tokens:
+            self._selected_token = tokens[0]
+            self.sign_as_combo.setCurrentIndex(0)
+        else:
+            self.sign_as_combo.addItem("Không tìm thấy USB", None)
+
+        self.sign_as_combo.currentIndexChanged.connect(self._on_sign_as_changed)
+        self.location_input.textChanged.connect(self._update_preview)
+        self.reason_input.currentTextChanged.connect(self._update_preview)
+
+        form.addRow("Ký với tư cách", self.sign_as_combo)
+        form.addRow("Địa điểm", self.location_input)
+        form.addRow("Lý do", self.reason_input)
+        root.addLayout(form)
+
+        preview_title = QLabel("Xem trước")
+        root.addWidget(preview_title)
+        self.preview = QLabel()
+        self.preview.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.preview.setStyleSheet(
+            "background:#f7f7f7; border:1px solid #c9d2de; border-radius:6px; padding:10px;"
+            "font-family:'Consolas';"
+        )
+        self.preview.setMinimumHeight(130)
+        self.preview.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        root.addWidget(self.preview)
+
+        buttons = QDialogButtonBox()
+        self._sign_btn = QPushButton("Ký USB")
+        self._close_btn = QPushButton("Đóng")
+        buttons.addButton(self._sign_btn, QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.addButton(self._close_btn, QDialogButtonBox.ButtonRole.RejectRole)
+        self._sign_btn.clicked.connect(self._sign_usb)
+        self._close_btn.clicked.connect(self.reject)
+        root.addWidget(buttons)
+
+        self._update_preview()
+
+    def _on_sign_as_changed(self, index: int):
+        token = self.sign_as_combo.currentData()
+        self._selected_token = token
+        self._update_preview()
+
+    def _update_preview(self):
+        signer = _token_display_name(self._selected_token) if self._selected_token else "Không rõ"
+        location = self.location_input.text().strip() or "Địa điểm ký"
+        reason = self.reason_input.currentText().strip() or "Tôi là người tạo tài liệu này"
+        ts = _format_local_timestamp()
+        self.preview.setText(
+            "ĐÃ KÝ SỐ\n"
+            f"Người ký: {signer}\n"
+            f"Lý do: {reason}\n"
+            f"Địa điểm: {location}\n"
+            f"Thời điểm: {ts}\n"
+            "Xem trước chữ ký của 3T Reader"
+        )
+
+    def _sign_usb(self):
+        token = self.sign_as_combo.currentData()
+        if token is None:
+            show_warning(self, "USB token", "Không có USB nào khả dụng.")
+            return
+        self._selected_token = token
+        self.accept()
+
+
+def _sign_existing_signature_field_with_usb(window, report: dict, token_info) -> None:
+    field_name = str(report.get("selected_field_name") or report.get("clicked_field") or "").strip()
+    if not field_name:
+        show_warning(window, "Thiếu ô ký", "Không xác định được ô ký cần ký.")
+        return
+
+    pin, ok = QInputDialog.getText(
+        window,
+        "Nhập mã PIN",
+        "PIN của USB ký số:",
+        QLineEdit.EchoMode.Password,
+    )
+    if not ok or not pin:
+        return
+
+    default_output = f"{os.path.splitext(window.current_path)[0]}_signed.pdf"
+    output_path, _ = QFileDialog.getSaveFileName(
+        window,
+        "Lưu file đã ký",
+        default_output,
+        "PDF Files (*.pdf)",
+    )
+    if not output_path:
+        return
+
+    in_place_output = os.path.normcase(os.path.abspath(output_path)) == os.path.normcase(os.path.abspath(window.current_path))
+    actual_output_path = (
+        make_staged_pdf_path(window.current_path, prefix=".3t_existing_sig_", suffix=".pdf")
+        if in_place_output
+        else output_path
+    )
+
+    field_rect = report.get("field_rect") or (50, 50, 300, 100)
+    box = tuple(float(v) for v in field_rect[:4]) if isinstance(field_rect, (list, tuple)) and len(field_rect) >= 4 else (50, 50, 300, 100)
+    signer_name = _token_text(token_info, "signer_name") or _token_display_name(token_info)
+    location = str(report.get("location") or "").strip()
+    reason = str(report.get("reason") or "").strip()
+
+    try:
+        ok, error = _run_usb_signing_task(
+            window,
+            lambda: _run_usb_signing_subprocess(
+                token_info,
+                window.current_path,
+                actual_output_path,
+                pin,
+                signer_name=signer_name,
+                page_number=int(report.get("clicked_page") or 1),
+                box=box,  # Existing field uses its own widget, but pyHanko still expects a box.
+                field_name=field_name,
+                reason=reason or None,
+                location=location or None,
+                contact_info=str(report.get("contact_info") or "").strip() or None,
+            ),
+            status_message="Đang ký ô ký đã chọn bằng USB...",
+        )
+        if not ok:
+            exc_type_name, exc_message, tb_text = error or ("RuntimeError", "Ký số thất bại.", "")
+            raise RuntimeError(f"{exc_type_name}: {exc_message}\n{tb_text}".strip())
+
+        with open(actual_output_path, "rb") as f:
+            header = f.read(5)
+        if header != b"%PDF-":
+            os.remove(actual_output_path)
+            raise RuntimeError("File ký xong không hợp lệ (thiếu %PDF header).")
+
+        if in_place_output:
+            replace_document_with_staged(
+                window,
+                actual_output_path,
+                target_path=window.current_path,
+                page=int(report.get("clicked_page") or 1),
+            )
+            final_output_path = window.current_path
+        else:
+            final_output_path = output_path
+
+        validation = validate_signed_pdf_status(final_output_path, field_name=field_name)
+        validation_line = str(validation.get("message") or "")
+        QMessageBox.information(
+            window,
+            "Ký ô ký thành công",
+            "Ký ô ký thành công!\n\n"
+            f"Trạng thái: {validation_line}\n\n"
+            f"File đã được cập nhật tại:\n{final_output_path}",
+        )
+    except Exception:
+        traceback.print_exc()
+        msg = QMessageBox(window)
+        msg.setIcon(QMessageBox.Icon.Critical)
+        msg.setWindowTitle("Lỗi ký ô ký")
+        msg.setText("Ký ô ký thất bại!")
+        msg.setDetailedText(traceback.format_exc())
+        msg.exec()
 
 
 def _token_text(token, attr: str) -> str:
@@ -1708,10 +1927,9 @@ def create_signature_field(window):
 @require_document(show_message=True)
 def sign_with_pfx(window):
     """Sign current PDF using a local PKCS#12 / PFX certificate file."""
-    from datetime import datetime as _dt
     _pfx_stamp_html = _build_stamp_preview_html(
         "(Người ký sẽ xác định)",
-        signed_at=_dt.now().strftime("%d/%m/%Y %H:%M:%S"),
+        signed_at=_format_local_timestamp(),
     )
     placement = _pick_signature_placement(window, sig_text_html=_pfx_stamp_html)
     if not placement or "box" not in placement or "page_number" not in placement:
@@ -1856,14 +2074,13 @@ def sign_document(window):
     if not signer_info:
         return
 
-    from datetime import datetime as _dt
     _token_stamp_html = _build_stamp_preview_html(
         _token_display_name(signer_info),
         tax_code=_token_text(signer_info, "tax_code"),
         issuer_name=_token_text(signer_info, "issuer_name"),
         token_serial=_token_text(signer_info, "serial"),
         cert_serial=_token_text(signer_info, "cert_serial"),
-        signed_at=_dt.now().strftime("%d/%m/%Y %H:%M:%S"),
+        signed_at=_format_local_timestamp(),
     )
     placement = _pick_signature_placement(window, sig_text_html=_token_stamp_html)
     if not placement or "box" not in placement or "page_number" not in placement:

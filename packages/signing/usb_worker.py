@@ -40,6 +40,10 @@ def run_job(payload: dict) -> dict[str, object]:
             signer_name=str(payload.get("signer_name") or "Khong ro"),
             page_number=int(payload.get("page_number") or 1),
             box=tuple(payload.get("box") or (50, 50, 300, 100)),
+            field_name=str(payload.get("field_name") or "") or None,
+            reason=str(payload.get("reason") or "") or None,
+            location=str(payload.get("location") or "") or None,
+            contact_info=str(payload.get("contact_info") or "") or None,
         )
 
     asyncio.run(_do_sign())

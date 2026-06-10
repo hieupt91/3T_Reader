@@ -1483,6 +1483,14 @@ class PDFReaderApp(QMainWindow):
                 report = dict(report)
                 report["clicked_page"] = int(page_number or 0)
                 report["clicked_field"] = str(field_name or "")
+            if not report.get("field_signed"):
+                from app.actions.sign import UnsignedSignatureSetupDialog, _sign_existing_signature_field_with_usb
+
+                dlg = UnsignedSignatureSetupDialog(self, report=report)
+                if dlg.exec() == QDialog.DialogCode.Accepted:
+                    _sign_existing_signature_field_with_usb(self, report, dlg._selected_token)
+                return
+
             dlg = SignatureStatusDialog(self, report, path=pdf_path)
             dlg.exec()
         except Exception as exc:

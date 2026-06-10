@@ -768,6 +768,10 @@ class WindowsPkcs11Provider:
         signer_name: str,
         page_number: int,
         box: tuple[float, float, float, float],
+        field_name: str | None = None,
+        reason: str | None = None,
+        location: str | None = None,
+        contact_info: str | None = None,
     ) -> None:
         import pkcs11 as p11
 
@@ -797,6 +801,10 @@ class WindowsPkcs11Provider:
                 page_number=page_number,
                 box=box,
                 token_serial=token_info.serial or token_info.cert_serial,
+                field_name=field_name,
+                reason=reason,
+                location=location,
+                contact_info=contact_info,
             )
         finally:
             if session is not None:

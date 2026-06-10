@@ -44,5 +44,9 @@ class SigningProvider(Protocol):
         signer_name: str,
         page_number: int,
         box: tuple[float, float, float, float],
+        field_name: str | None = None,
+        reason: str | None = None,
+        location: str | None = None,
+        contact_info: str | None = None,
     ) -> None:
         ...

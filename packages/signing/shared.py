@@ -375,12 +375,22 @@ def _extract_signature_field_report(path: str, field_name: str) -> dict[str, obj
                     annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
                     if str(annot_obj.get("/T") or "").strip() != field_name:
                         continue
+                    rect = [float(v) for v in annot_obj.get("/Rect") or []]
+                    if len(rect) != 4:
+                        continue
+                    left, bottom, right, top = (
+                        min(rect[0], rect[2]),
+                        min(rect[1], rect[3]),
+                        max(rect[0], rect[2]),
+                        max(rect[1], rect[3]),
+                    )
                     sig = annot_obj.get("/V")
                     if sig is None:
                         return {
                             "clicked_page": page_number,
                             "clicked_field": field_name,
                             "selected_field_name": field_name,
+                            "field_rect": [left, bottom, right, top],
                             "field_signed": False,
                             "display_signer": "Chưa ký",
                             "reason": "",
@@ -417,6 +427,7 @@ def _extract_signature_field_report(path: str, field_name: str) -> dict[str, obj
                         "clicked_page": page_number,
                         "clicked_field": field_name,
                         "selected_field_name": field_name,
+                        "field_rect": [left, bottom, right, top],
                         "field_signed": True,
                         "display_signer": str(sig.get("/Name") or "").strip() or "Không rõ",
                         "signer_reported_name": str(sig.get("/Name") or "").strip(),
@@ -480,6 +491,10 @@ async def sign_pdf_with_session(
     page_number: int = 1,
     box: tuple[float, float, float, float] | None = None,
     token_serial: str | None = None,
+    field_name: str | None = None,
+    reason: str | None = None,
+    location: str | None = None,
+    contact_info: str | None = None,
 ) -> None:
     """Core pyHanko signing - OS-agnostic. Caller manages the PKCS#11 session."""
     from datetime import datetime
@@ -514,7 +529,7 @@ async def sign_pdf_with_session(
         display_name = (signer_name or "").strip() or cert_name or "Khong ro"
         visible_subject = cert_name or display_name
         signed_at_vn = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        field_name = f"Signature_{uuid.uuid4().hex[:12]}"
+        target_field_name = field_name or f"Signature_{uuid.uuid4().hex[:12]}"
         stamp_style = build_vietnamese_stamp_style(
             visible_subject,
             tax_code=cert_tax,
@@ -526,19 +541,29 @@ async def sign_pdf_with_session(
         )
         with open(input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
-            meta = PdfSignatureMetadata(field_name=field_name, name=visible_subject)
+            meta = PdfSignatureMetadata(
+                field_name=target_field_name,
+                name=visible_subject,
+                reason=(reason or "").strip() or None,
+                location=(location or "").strip() or None,
+                contact_info=(contact_info or "").strip() or None,
+            )
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer_obj,
                 stamp_style=stamp_style,
-                new_field_spec=fields.SigFieldSpec(
-                    sig_field_name=field_name,
+                new_field_spec=None if field_name else fields.SigFieldSpec(
+                    sig_field_name=target_field_name,
                     box=box,
                     on_page=max(0, page_number - 1),
                 ),
             )
             with open(tmp_path, "wb") as out:
-                await pdf_signer.async_sign_pdf(writer, output=out)
+                await pdf_signer.async_sign_pdf(
+                    writer,
+                    existing_fields_only=bool(field_name),
+                    output=out,
+                )
 
         os.replace(tmp_path, output_path)
     finally:
@@ -555,6 +580,10 @@ async def sign_pdf_with_pkcs12(
     signer_name: str = "Khong ro",
     page_number: int = 1,
     box: tuple[float, float, float, float] | None = None,
+    field_name: str | None = None,
+    reason: str | None = None,
+    location: str | None = None,
+    contact_info: str | None = None,
 ) -> None:
     """Sign a PDF using a local PKCS#12/PFX file."""
     from datetime import datetime
@@ -601,7 +630,7 @@ async def sign_pdf_with_pkcs12(
             or "Khong ro"
         )
         visible_subject = cert_name or display_name
-        field_name = f"Signature_{uuid.uuid4().hex[:12]}"
+        target_field_name = field_name or f"Signature_{uuid.uuid4().hex[:12]}"
         signed_at_vn = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         stamp_style = build_vietnamese_stamp_style(
             visible_subject,
@@ -613,19 +642,29 @@ async def sign_pdf_with_pkcs12(
         )
         with open(input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
-            meta = PdfSignatureMetadata(field_name=field_name, name=visible_subject)
+            meta = PdfSignatureMetadata(
+                field_name=target_field_name,
+                name=visible_subject,
+                reason=(reason or "").strip() or None,
+                location=(location or "").strip() or None,
+                contact_info=(contact_info or "").strip() or None,
+            )
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer,
                 stamp_style=stamp_style,
-                new_field_spec=fields.SigFieldSpec(
-                    sig_field_name=field_name,
+                new_field_spec=None if field_name else fields.SigFieldSpec(
+                    sig_field_name=target_field_name,
                     box=box,
                     on_page=max(0, page_number - 1),
                 ),
             )
             with open(tmp_path, "wb") as out:
-                await pdf_signer.async_sign_pdf(writer, output=out)
+                await pdf_signer.async_sign_pdf(
+                    writer,
+                    existing_fields_only=bool(field_name),
+                    output=out,
+                )
 
         os.replace(tmp_path, output_path)
     finally:
