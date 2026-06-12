@@ -5,7 +5,13 @@ import os
 import tempfile
 import unicodedata
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from collections import OrderedDict
+
+
+_VALIDATE_STATUS_CACHE: OrderedDict[tuple[str, int, int, str], dict[str, object]] = OrderedDict()
+_VALIDATE_STATUS_CACHE_MAX = 24
 
 
 class _TemporaryImportedPdfPage:
@@ -232,7 +238,6 @@ def build_vietnamese_stamp_style(
     cert_serial: str | None = None,
     appearance_box: tuple[float, float, float, float] | None = None,
 ):
-    import textwrap
     from pyhanko.pdf_utils.layout import AxisAlignment, Margins, SimpleBoxLayoutRule
     from pyhanko.pdf_utils.content import ImportedPdfPage
     from pyhanko.pdf_utils.text import TextBoxStyle
@@ -242,85 +247,135 @@ def build_vietnamese_stamp_style(
     safe_name = str(signer_display_name or "").strip() or "Khong ro"
     display_tax = tax_code or _extract_tax_code_from_text(safe_name)
 
-    def _wrap_value(label: str, value: str, *, width: int = 33, max_lines: int = 2) -> list[str]:
-        value = (value or "Khong ro").strip()
-        chunks = textwrap.wrap(
-            value,
-            width=width,
-            break_long_words=True,
-            break_on_hyphens=False,
-        )[:max_lines] or ["Khong ro"]
-        return [f"{label}: {chunks[0]}"] + [f"  {chunk}" for chunk in chunks[1:]]
-
     subject = safe_name or "Khong ro"
     issuer = str(issuer_name or "").strip() or "Khong ro"
-    serial = token_serial or cert_serial or ""
-    stamp_lines = [
-        "ĐÃ KÝ SỐ",
-        *_wrap_value("Tên chủ thể chứng thư số", subject, width=31, max_lines=2),
-        *_wrap_value("Tên nhà cung cấp chữ ký số", issuer, width=34, max_lines=1),
-        f"Thời điểm ký: {signed_at or 'Không rõ'}",
-        f"Mã số thuế / CCCD: {display_tax or 'Không có'}",
-    ]
-    if serial:
-        stamp_lines.extend(_wrap_value("Số serial chứng thư số", serial, width=34, max_lines=1))
-    stamp_lines.append("Trạng thái: Hợp lệ; tài liệu chưa bị sửa")
+    serial = _compact_signature_stamp_value(token_serial or cert_serial or "")
 
     font_path = get_vietnamese_font_path(bold=False)
     if font_path:
+        from reportlab.lib import colors
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.pdfgen import canvas
         from reportlab.lib.utils import simpleSplit
 
-        font_name = f"ThreeTStamp_{uuid.uuid4().hex[:8]}"
+        suffix = uuid.uuid4().hex[:8]
+        font_name = f"ThreeTStamp_{suffix}"
+        title_font_name = f"ThreeTStampBold_{suffix}"
         pdfmetrics.registerFont(TTFont(font_name, font_path))
-        padding_x = 4
-        padding_y = 4
+        try:
+            pdfmetrics.registerFont(TTFont(title_font_name, get_vietnamese_font_path(bold=True) or font_path))
+        except Exception:
+            title_font_name = font_name
+
+        padding_x = 7
+        padding_y = 6
         if appearance_box is not None:
             left, bottom, right, top = [float(v) for v in appearance_box]
-            page_width = max(120.0, abs(right - left))
-            page_height = max(42.0, abs(top - bottom))
+            page_width = max(60.0, abs(right - left))
+            page_height = max(24.0, abs(top - bottom))
         else:
             page_width = 260.0
             page_height = 96.0
 
         max_text_width = max(40.0, page_width - (padding_x * 2))
-        max_text_height = max(20.0, page_height - (padding_y * 2))
-        wrapped_lines: list[str] = []
+        max_text_height = max(16.0, page_height - (padding_y * 2))
+
+        compact_lines = [
+            f"Người ký: {subject}",
+            f"Thời điểm: {signed_at or 'Không rõ'}",
+        ]
+        medium_lines = [
+            f"Người ký: {subject}",
+            f"MST/CCCD: {display_tax or 'Không có'}",
+            f"Thời điểm: {signed_at or 'Không rõ'}",
+        ]
+        medium_status_lines = [
+            f"Người ký: {subject}",
+            f"MST/CCCD: {display_tax or 'Không có'}",
+            f"Thời điểm: {signed_at or 'Không rõ'}",
+            "Trạng thái: Hợp lệ; tài liệu chưa bị sửa",
+        ]
+        full_lines = [
+            f"Người ký: {subject}",
+            f"Đơn vị CA: {issuer}",
+            f"MST/CCCD: {display_tax or 'Không có'}",
+            f"Thời điểm: {signed_at or 'Không rõ'}",
+        ]
+        if serial:
+            full_lines.append(f"Serial: {serial}")
+        full_lines.append("Trạng thái: Hợp lệ; tài liệu chưa bị sửa")
+        line_sets = [full_lines, medium_status_lines, medium_lines, compact_lines]
+
+        # Scale title and body font sizes proportionally with the box.
+        # For a ~96pt tall box the title is ~8.5pt; for a ~200pt box it goes to ~14pt.
+        title_size = max(6.5, min(18.0, page_height / 7.4))
+        body_lines: list[str] = []
         font_size = 6.0
         leading = 7.0
-        sizes = (
-            8.0, 7.5, 7.0, 6.5, 6.0, 5.5, 5.0, 4.5,
-            4.0, 3.6, 3.2, 2.8, 2.4,
-        )
-        for size in sizes:
-            candidate_lines: list[str] = []
-            candidate_leading = max(size + 0.35, size * 1.08)
-            for raw_line in stamp_lines:
-                candidate_lines.extend(simpleSplit(raw_line, font_name, size, max_text_width) or [raw_line])
-            if candidate_lines and len(candidate_lines) * candidate_leading <= max_text_height:
-                wrapped_lines = candidate_lines
-                font_size = size
-                leading = candidate_leading
+        # Build candidate sizes from the box, ranging from a proportional max
+        # down to a small minimum so the text always fits.
+        _max_body = max(7.8, min(24.0, page_height / 8.0, page_width / 18.0))
+        sizes = tuple(
+            round(s, 1) for s in
+            [_max_body - i * 0.4 for i in range(int((_max_body - 5.0) / 0.4) + 1)]
+            if s >= 5.0
+        ) or (7.8, 7.4, 7.0, 6.6, 6.2, 5.8, 5.4)
+        for raw_lines in line_sets:
+            for size in sizes:
+                candidate_lines: list[str] = []
+                candidate_leading = max(size + 0.9, size * 1.16)
+                for raw_line in raw_lines:
+                    candidate_lines.extend(simpleSplit(raw_line, font_name, size, max_text_width) or [raw_line])
+                block_height = title_size + 2.0 + len(candidate_lines) * candidate_leading
+                if candidate_lines and block_height <= max_text_height:
+                    body_lines = candidate_lines
+                    font_size = size
+                    leading = candidate_leading
+                    break
+            if body_lines:
                 break
-        if not wrapped_lines:
-            font_size = 2.4
-            for raw_line in stamp_lines:
-                wrapped_lines.extend(simpleSplit(raw_line, font_name, font_size, max_text_width) or [raw_line])
-            if wrapped_lines:
-                leading = max(2.1, max_text_height / len(wrapped_lines))
-                font_size = max(1.8, min(font_size, leading * 0.82))
+        if not body_lines:
+            font_size = 5.0
+            leading = 5.9
+            for raw_line in compact_lines:
+                body_lines.extend(simpleSplit(raw_line, font_name, font_size, max_text_width) or [raw_line])
+            max_body_lines = max(1, int((max_text_height - title_size - 2.0) // leading))
+            body_lines = body_lines[:max_body_lines]
 
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         tmp_path = tmp.name
         tmp.close()
 
         c = canvas.Canvas(tmp_path, pagesize=(page_width, page_height))
-        c.setFont(font_name, font_size)
-        y = page_height - padding_y - font_size
-        for line in wrapped_lines:
-            c.drawString(padding_x, y, line)
+        content_height = title_size + 2.0 + len(body_lines) * leading
+        y = page_height - padding_y - max(0.0, (max_text_height - content_height) / 2.0) - title_size
+        c.setFillColor(colors.HexColor("#052e51"))
+        c.setFont(title_font_name, title_size)
+        c.drawString(padding_x, y, "ĐÃ KÝ SỐ")
+        y -= title_size + 2.0
+        for line in body_lines:
+            if y < padding_y:
+                break
+            text = str(line)
+            if text.startswith("Trạng thái:"):
+                c.setFillColor(colors.HexColor("#166534"))
+                c.setFont(font_name, font_size)
+                c.drawString(padding_x, y, text)
+            elif ":" in text:
+                label, value = text.split(":", 1)
+                label_text = f"{label.strip()}: "
+                c.setFillColor(colors.HexColor("#475569"))
+                c.setFont(title_font_name, font_size)
+                c.drawString(padding_x, y, label_text)
+                c.setFillColor(colors.HexColor("#0f172a"))
+                c.setFont(font_name, font_size)
+                label_width = pdfmetrics.stringWidth(label_text, title_font_name, font_size)
+                c.drawString(padding_x + label_width, y, value.strip())
+            else:
+                c.setFillColor(colors.HexColor("#0f172a"))
+                c.setFont(font_name, font_size)
+                c.drawString(padding_x, y, text)
             y -= leading
         c.save()
 
@@ -351,6 +406,43 @@ def build_vietnamese_stamp_style(
     )
 
 
+def _compact_signature_stamp_value(value: object, *, head: int = 12, tail: int = 8, limit: int = 28) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[:head]}...{text[-tail:]}"
+
+
+@contextmanager
+def _normal_form_xobject_bbox_for_signature_appearance():
+    """Use a normal bottom-left-origin BBox for visible signatures."""
+    from pyhanko.pdf_utils import generic
+    from pyhanko.pdf_utils import writer as writer_mod
+    from pyhanko.pdf_utils.generic import pdf_name
+
+    original = writer_mod.init_xobject_dictionary
+
+    def _fixed_init_xobject_dictionary(command_stream: bytes, box_width, box_height, resources=None):
+        resources = resources or generic.DictionaryObject()
+        return generic.StreamObject(
+            {
+                pdf_name("/BBox"): generic.ArrayObject(
+                    list(map(generic.FloatObject, (0.0, 0.0, box_width, box_height)))
+                ),
+                pdf_name("/Resources"): resources,
+                pdf_name("/Type"): pdf_name("/XObject"),
+                pdf_name("/Subtype"): pdf_name("/Form"),
+            },
+            stream_data=command_stream,
+        )
+
+    writer_mod.init_xobject_dictionary = _fixed_init_xobject_dictionary
+    try:
+        yield
+    finally:
+        writer_mod.init_xobject_dictionary = original
+
+
 def _format_pdf_sig_date(value) -> str:
     text = str(value or "").strip()
     if not text:
@@ -373,7 +465,11 @@ def _extract_signature_field_report(path: str, field_name: str) -> dict[str, obj
                 annots = page.obj.get("/Annots") or []
                 for annot in annots:
                     annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
-                    if str(annot_obj.get("/T") or "").strip() != field_name:
+                    parent = annot_obj.get("/Parent")
+                    parent_obj = parent.get_object() if hasattr(parent, "get_object") else parent
+                    annot_name = str(annot_obj.get("/T") or "").strip()
+                    parent_name = str(parent_obj.get("/T") or "").strip() if parent_obj is not None else ""
+                    if field_name not in {annot_name, parent_name}:
                         continue
                     rect = [float(v) for v in annot_obj.get("/Rect") or []]
                     if len(rect) != 4:
@@ -384,7 +480,7 @@ def _extract_signature_field_report(path: str, field_name: str) -> dict[str, obj
                         max(rect[0], rect[2]),
                         max(rect[1], rect[3]),
                     )
-                    sig = annot_obj.get("/V")
+                    sig = annot_obj.get("/V") or (parent_obj.get("/V") if parent_obj is not None else None)
                     if sig is None:
                         return {
                             "clicked_page": page_number,
@@ -559,11 +655,12 @@ async def sign_pdf_with_session(
                 ),
             )
             with open(tmp_path, "wb") as out:
-                await pdf_signer.async_sign_pdf(
-                    writer,
-                    existing_fields_only=bool(field_name),
-                    output=out,
-                )
+                with _normal_form_xobject_bbox_for_signature_appearance():
+                    await pdf_signer.async_sign_pdf(
+                        writer,
+                        existing_fields_only=bool(field_name),
+                        output=out,
+                    )
 
         os.replace(tmp_path, output_path)
     finally:
@@ -660,11 +757,12 @@ async def sign_pdf_with_pkcs12(
                 ),
             )
             with open(tmp_path, "wb") as out:
-                await pdf_signer.async_sign_pdf(
-                    writer,
-                    existing_fields_only=bool(field_name),
-                    output=out,
-                )
+                with _normal_form_xobject_bbox_for_signature_appearance():
+                    await pdf_signer.async_sign_pdf(
+                        writer,
+                        existing_fields_only=bool(field_name),
+                        output=out,
+                    )
 
         os.replace(tmp_path, output_path)
     finally:
@@ -674,6 +772,21 @@ async def sign_pdf_with_pkcs12(
 
 def validate_signed_pdf_status(path: str, field_name: str | None = None) -> dict[str, object]:
     """Validate the PDF signature integrity first, then best-effort trust."""
+    try:
+        stat = os.stat(path)
+        cache_key = (
+            os.path.normcase(os.path.abspath(path)),
+            int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))),
+            int(stat.st_size),
+            str(field_name or "").strip(),
+        )
+        cached = _VALIDATE_STATUS_CACHE.get(cache_key)
+        if cached is not None:
+            _VALIDATE_STATUS_CACHE.move_to_end(cache_key)
+            return dict(cached)
+    except OSError:
+        cache_key = None
+
     field_report = _extract_signature_field_report(path, field_name) if field_name else None
     try:
         import asyncio
@@ -812,8 +925,6 @@ def validate_signed_pdf_status(path: str, field_name: str | None = None) -> dict
                 overall_status = "Chữ ký bị thu hồi."
             else:
                 overall_status = "Chữ ký không hợp lệ hoặc tài liệu đã bị sửa đổi."
-                if trust_error:
-                    overall_status = f"{overall_status} {trust_error}"
 
             subject_name = str(cert_details.get("subject_name") if cert_details else "")
             issuer_name = str(cert_details.get("issuer_provider") if cert_details else "")
@@ -848,22 +959,28 @@ def validate_signed_pdf_status(path: str, field_name: str | None = None) -> dict
                 validation_summary.append("Thoi diem ky nam trong thoi han hieu luc chung thu.")
             if cert_status:
                 validation_summary.append(f"Trang thai chung thu hien tai: {cert_status}.")
-            if trust_error:
-                validation_summary.append(f"Ghi chu kiem tra: {trust_error}")
             if field_report and not integrity_ok:
                 validation_summary.insert(0, "Đã lấy thông tin trực tiếp từ đúng ô ký được bấm.")
 
-            return {
+            result = {
                 "ok": integrity_ok and not revoked,
                 "integrity_ok": integrity_ok,
                 "intact": intact,
                 "valid": valid,
                 "trusted": trusted,
                 "revoked": revoked,
+                "field_signed": bool(field_report.get("field_signed")) if field_report else True,
+                "clicked_page": field_report.get("clicked_page") if field_report else None,
+                "clicked_field": field_report.get("clicked_field") if field_report else "",
+                "field_rect": field_report.get("field_rect") if field_report else None,
                 "signing_time": signing_time,
                 "signing_time_ok": signing_time_ok,
                 "signature_count": len(signatures),
-                "selected_field_name": str(getattr(embedded_sig, "field_name", "") or ""),
+                "selected_field_name": str(
+                    (field_report.get("selected_field_name") if field_report else "")
+                    or getattr(embedded_sig, "field_name", "")
+                    or ""
+                ),
                 "display_signer": display_signer,
                 "signer_reported_name": signer_reported_name,
                 "subject_name": subject_name,
@@ -882,6 +999,12 @@ def validate_signed_pdf_status(path: str, field_name: str | None = None) -> dict
                 "validation_error": trust_error,
                 "policy_warning": policy_warning,
             }
+            if cache_key is not None:
+                _VALIDATE_STATUS_CACHE[cache_key] = dict(result)
+                _VALIDATE_STATUS_CACHE.move_to_end(cache_key)
+                while len(_VALIDATE_STATUS_CACHE) > _VALIDATE_STATUS_CACHE_MAX:
+                    _VALIDATE_STATUS_CACHE.popitem(last=False)
+            return result
     except Exception as exc:
         if field_report is not None:
             fallback = dict(field_report)
@@ -898,8 +1021,13 @@ def validate_signed_pdf_status(path: str, field_name: str | None = None) -> dict
             if fallback.get("field_signed"):
                 lines.insert(0, "Đã lấy thông tin trực tiếp từ đúng ô ký được bấm.")
             fallback["validation_summary_lines"] = lines
+            if cache_key is not None:
+                _VALIDATE_STATUS_CACHE[cache_key] = dict(fallback)
+                _VALIDATE_STATUS_CACHE.move_to_end(cache_key)
+                while len(_VALIDATE_STATUS_CACHE) > _VALIDATE_STATUS_CACHE_MAX:
+                    _VALIDATE_STATUS_CACHE.popitem(last=False)
             return fallback
-        return {
+        result = {
             "ok": False,
             "integrity_ok": False,
             "intact": False,
@@ -909,3 +1037,9 @@ def validate_signed_pdf_status(path: str, field_name: str | None = None) -> dict
             "overall_status": f"Chua kiem tra duoc: {exc}",
             "message": f"Chua kiem tra duoc trang thai chu ky: {exc}",
         }
+        if cache_key is not None:
+            _VALIDATE_STATUS_CACHE[cache_key] = dict(result)
+            _VALIDATE_STATUS_CACHE.move_to_end(cache_key)
+            while len(_VALIDATE_STATUS_CACHE) > _VALIDATE_STATUS_CACHE_MAX:
+                _VALIDATE_STATUS_CACHE.popitem(last=False)
+        return result

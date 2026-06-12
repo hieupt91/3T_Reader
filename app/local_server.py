@@ -606,19 +606,7 @@ def _normalise_pdfjs_appearance_boxes(pdf_path: str, original_data: bytes) -> by
                 for annot in annots:
                     annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
                     if _is_signature_widget(annot_obj):
-                        painted = _paint_signature_widget_appearance(
-                            pdf,
-                            page,
-                            annot_obj,
-                            f"T3Sig{page_index}_{removed_signature_widgets + 1}",
-                        )
-                        # Keep a display overlay even when the raw appearance
-                        # stream was flattened successfully. Some signed-widget
-                        # appearances still disappear in Qt/PDF.js after the
-                        # widget is stripped, while a synthetic overlay remains
-                        # stable and guarantees the signature box stays visible.
-                        overlay = _signature_overlay_from_annot(annot_obj)
-                        if overlay is not None:
+                        if (overlay := _signature_overlay_from_annot(annot_obj)) is not None:
                             signature_overlays.setdefault(page_index, []).append(overlay)
                         removed_signature_widgets += 1
                         changed = True
@@ -666,9 +654,9 @@ def _normalise_pdfjs_appearance_boxes(pdf_path: str, original_data: bytes) -> by
                 width, height = _page_size(page)
                 overlay_pdf_bytes = _build_signature_display_overlay(width, height, overlays)
                 if not overlay_pdf_bytes:
-                    overlay_pdf_bytes = _build_signature_display_overlay_ascii(width, height, overlays)
-                if not overlay_pdf_bytes:
                     overlay_pdf_bytes = _build_signature_display_overlay_bitmap(width, height, overlays)
+                if not overlay_pdf_bytes:
+                    overlay_pdf_bytes = _build_signature_display_overlay_ascii(width, height, overlays)
                 if not overlay_pdf_bytes:
                     continue
                 with pikepdf.Pdf.open(io.BytesIO(overlay_pdf_bytes)) as overlay_pdf:
@@ -755,6 +743,20 @@ def _signature_appearance_stream(annot):
     return None
 
 
+def _signature_appearance_bbox_is_normal(annot) -> bool:
+    try:
+        stream = _signature_appearance_stream(annot)
+        if stream is None:
+            return False
+        bbox = stream.get("/BBox")
+        if not bbox or len(bbox) != 4:
+            return False
+        x1, y1, x2, y2 = [float(v) for v in bbox]
+        return x1 < x2 and y1 < y2
+    except Exception:
+        return False
+
+
 def _paint_signature_widget_appearance(pdf, page, annot, resource_name: str) -> bool:
     """Flatten a signature widget's real appearance into the display-only page."""
     try:
@@ -801,10 +803,25 @@ def _paint_signature_widget_appearance(pdf, page, annot, resource_name: str) -> 
             xobjects = pikepdf.Dictionary()
             resources["/XObject"] = xobjects
         name = pikepdf.Name("/" + "".join(ch if ch.isalnum() else "_" for ch in resource_name))
-        stream_bytes = bytes(stream.read_bytes())
-        stream_copy = pikepdf.Stream(pdf, stream_bytes)
+        if hasattr(stream, "read_raw_bytes"):
+            stream_bytes = bytes(stream.read_raw_bytes())
+            stream_copy = pikepdf.Stream(pdf, stream_bytes)
+            preserve_keys = {
+                "/Type", "/Subtype", "/FormType", "/Matrix", "/Resources",
+                "/Group", "/OC", "/StructParent", "/Metadata",
+                "/Filter", "/DecodeParms",
+            }
+        else:
+            stream_bytes = bytes(stream.read_bytes())
+            stream_copy = pikepdf.Stream(pdf, stream_bytes)
+            preserve_keys = {
+                "/Type", "/Subtype", "/FormType", "/Matrix", "/Resources",
+                "/Group", "/OC", "/StructParent", "/Metadata",
+            }
         for key, value in stream.items():
             if str(key) in {"/Length", "/BBox"}:
+                continue
+            if str(key) not in preserve_keys:
                 continue
             stream_copy[key] = value
         stream_copy["/BBox"] = pikepdf.Array([0.0, 0.0, bbox_w, bbox_h])
@@ -973,17 +990,38 @@ def _signature_display_lines(annot) -> list[str]:
             return []
 
         lines: list[str] = ["ĐÃ KÝ SỐ"]
+        cert_details = _signature_certificate_details(sig)
 
-        name = sig.get("/Name")
+        name = cert_details.get("subject_name") if cert_details else None
+        name = name or sig.get("/Name")
         if name:
-            lines.append(f"Tên: {str(name)}")
+            lines.append(f"Người ký: {str(name)}")
+
+        issuer = cert_details.get("issuer_provider") if cert_details else None
+        if issuer:
+            lines.append(f"Đơn vị CA: {issuer}")
+
+        tax_code = cert_details.get("tax_code") if cert_details else None
+        if tax_code:
+            lines.append(f"MST/CCCD: {tax_code}")
 
         signed_at = sig.get("/M")
         if signed_at:
-            stamp = str(signed_at)
-            if stamp.startswith("D:") and len(stamp) >= 16:
-                stamp = f"{stamp[2:6]}-{stamp[6:8]}-{stamp[8:10]} {stamp[10:12]}:{stamp[12:14]}:{stamp[14:16]}"
+            stamp = _format_signature_stamp_time(str(signed_at))
             lines.append(f"Thời điểm: {stamp}")
+
+        serial = cert_details.get("serial_hex") if cert_details else None
+        if serial:
+            lines.append(f"Serial: {_compact_signature_value(serial)}")
+
+        cert_status = cert_details.get("certificate_status") if cert_details else None
+        if cert_status:
+            cert_status = {
+                "Con han": "Còn hạn",
+                "Het han": "Hết hạn",
+                "Chua hieu luc": "Chưa hiệu lực",
+            }.get(str(cert_status), str(cert_status))
+            lines.append(f"Trạng thái: {cert_status}; tài liệu chưa bị sửa")
 
         reason = sig.get("/Reason")
         if reason:
@@ -997,9 +1035,52 @@ def _signature_display_lines(annot) -> list[str]:
         if contact:
             lines.append(f"Liên hệ: {str(contact)}")
 
-        return lines[:6]
+        return lines[:7]
     except Exception:
         return []
+
+
+def _compact_signature_value(value: object, *, head: int = 12, tail: int = 8, limit: int = 28) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[:head]}...{text[-tail:]}"
+
+
+def _format_signature_stamp_time(value: str) -> str:
+    text = str(value or "").strip()
+    if text.startswith("D:") and len(text) >= 16:
+        return f"{text[8:10]}/{text[6:8]}/{text[2:6]} {text[10:12]}:{text[12:14]}:{text[14:16]}"
+    if len(text) >= 19 and text[4:5] == "-" and text[7:8] == "-":
+        return f"{text[8:10]}/{text[5:7]}/{text[0:4]} {text[11:19]}"
+    return text
+
+
+def _signature_certificate_details(sig) -> dict | None:
+    try:
+        from asn1crypto import cms
+        from packages.signing.shared import extract_certificate_details_from_der
+
+        contents = sig.get("/Contents")
+        if contents is None:
+            return None
+        cms_bytes = bytes(contents).rstrip(b"\x00")
+        if not cms_bytes:
+            return None
+        content_info = cms.ContentInfo.load(cms_bytes)
+        signed_data = content_info["content"]
+        certificates = signed_data["certificates"]
+        if not certificates:
+            return None
+        for cert_choice in certificates:
+            if cert_choice.name != "certificate":
+                continue
+            details = extract_certificate_details_from_der(cert_choice.chosen.dump())
+            if details:
+                return details
+    except Exception:
+        return None
+    return None
 
 
 def _signature_metadata_lines(annot) -> list[str]:
@@ -1014,7 +1095,7 @@ def _signature_metadata_lines(annot) -> list[str]:
 
         name = sig.get("/Name")
         if name:
-            lines.append(f"Tên: {str(name)}")
+            lines.append(f"Người ký: {str(name)}")
 
         signed_at = sig.get("/M")
         if signed_at:
@@ -1136,6 +1217,7 @@ def _page_size(page) -> tuple[float, float]:
 def _build_signature_display_overlay(width: float, height: float, overlays: list[dict]) -> bytes:
     try:
         from reportlab.lib import colors
+        from reportlab.lib.utils import simpleSplit
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.pdfgen import canvas
@@ -1163,6 +1245,37 @@ def _build_signature_display_overlay(width: float, height: float, overlays: list
     title_font = _font_name(bold=True)
     body_font = _font_name(bold=False)
 
+    def _fit_lines(raw_lines: list[str], box_width: float, box_height: float) -> tuple[float, float, list[str]]:
+        clean = [line for line in raw_lines if line and line.upper() != "ĐÃ KÝ SỐ"]
+        core = clean[:2] or ["Chữ ký số hợp lệ"]
+        medium = clean[:3] if len(clean) >= 3 else core
+        candidates = [clean, clean[:6], clean[:5], clean[:4], medium, core]
+        max_text_width = max(32.0, box_width - 14.0)
+        max_text_height = max(16.0, box_height - 12.0)
+        title_size = max(6.5, min(18.0, box_height / 7.4))
+        # Scale candidate sizes proportionally with box dimensions.
+        _max_body = max(7.8, min(24.0, box_height / 8.0, box_width / 18.0))
+        sizes = tuple(
+            round(s, 1) for s in
+            [_max_body - i * 0.4 for i in range(int((_max_body - 5.0) / 0.4) + 1)]
+            if s >= 5.0
+        ) or (7.8, 7.4, 7.0, 6.6, 6.2, 5.8, 5.4)
+        for lineset in candidates:
+            for size in sizes:
+                wrapped: list[str] = []
+                for line in lineset:
+                    wrapped.extend(simpleSplit(str(line), body_font, size, max_text_width) or [str(line)])
+                leading = max(size + 0.9, size * 1.16)
+                if title_size + 2.0 + len(wrapped) * leading <= max_text_height:
+                    return size, leading, wrapped
+        size = 5.0
+        leading = 5.9
+        wrapped = []
+        for line in core:
+            wrapped.extend(simpleSplit(str(line), body_font, size, max_text_width) or [str(line)])
+        max_lines = max(1, int((max_text_height - title_size - 2.0) // leading))
+        return size, leading, wrapped[:max_lines]
+
     for overlay in overlays:
         left, bottom, right, top = overlay["box"]
         box_width = max(1.0, right - left)
@@ -1174,25 +1287,43 @@ def _build_signature_display_overlay(width: float, height: float, overlays: list
 
         c.saveState()
         stroke = colors.HexColor("#0b84f3") if signed else colors.HexColor("#64748b")
-        c.setFillColor(colors.Color(1, 1, 1, alpha=0))
+        c.setFillColor(colors.Color(1, 1, 1, alpha=0.92))
         c.setStrokeColor(stroke)
-        c.setLineWidth(0.9)
-        c.roundRect(left, bottom, box_width, box_height, 4, fill=0, stroke=1)
+        c.setLineWidth(0.65)
+        c.roundRect(left, bottom, box_width, box_height, 3, fill=1, stroke=1)
 
-        c.setFillColorRGB(0.02, 0.18, 0.32)
-        title_size = max(7.0, min(9.0, box_height / 7.5))
-        font_size = max(6.0, min(8.5, box_height / max(5.0, len(lines) + 2)))
-        leading = font_size + 1.4
+        title_size = max(6.5, min(18.0, box_height / 7.4))
+        font_size, leading, wrapped_lines = _fit_lines(lines, box_width, box_height)
+        block_height = title_size + 2.0 + len(wrapped_lines) * leading
+        y = top - 7 - title_size
+        if block_height < box_height - 16:
+            y -= min(3.0, max(0.0, (box_height - 16.0 - block_height) / 3.0))
+        c.setFillColor(colors.HexColor("#052e51"))
         c.setFont(title_font, title_size)
-        y = top - title_size - 4
-        c.drawString(left + 5, y, "ĐÃ KÝ SỐ")
-        y -= title_size + 1
-        if lines:
-            c.setFont(body_font, font_size)
-            for line in lines:
-                if y < bottom + 3:
+        c.drawString(left + 8, y, "ĐÃ KÝ SỐ")
+        y -= title_size + 3.0
+        if wrapped_lines:
+            for line in wrapped_lines:
+                if y < bottom + 4:
                     break
-                c.drawString(left + 5, y, str(line)[:70])
+                text = str(line).strip()
+                if text.startswith("Trạng thái:"):
+                    c.setFillColor(colors.HexColor("#166534"))
+                    c.setFont(body_font, font_size)
+                    c.drawString(left + 8, y, text)
+                elif ":" in text:
+                    label, value = text.split(":", 1)
+                    label_text = f"{label.strip()}: "
+                    c.setFillColor(colors.HexColor("#475569"))
+                    c.setFont(body_font, font_size)
+                    c.drawString(left + 8, y, label_text)
+                    label_width = pdfmetrics.stringWidth(label_text, body_font, font_size)
+                    c.setFillColor(colors.HexColor("#0f172a"))
+                    c.drawString(left + 8 + label_width, y, value.strip())
+                else:
+                    c.setFillColor(colors.HexColor("#0f172a"))
+                    c.setFont(body_font, font_size)
+                    c.drawString(left + 8, y, text)
                 y -= leading
         c.restoreState()
     c.save()
@@ -1203,6 +1334,7 @@ def _build_signature_display_overlay_ascii(width: float, height: float, overlays
     try:
         import unicodedata
         from reportlab.lib import colors
+        from reportlab.lib.utils import simpleSplit
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.pdfgen import canvas
@@ -1233,6 +1365,37 @@ def _build_signature_display_overlay_ascii(width: float, height: float, overlays
     title_font = _font_name(bold=True)
     body_font = _font_name(bold=False)
 
+    def _fit_lines(raw_lines: list[str], box_width: float, box_height: float) -> tuple[float, float, list[str]]:
+        clean = [line for line in raw_lines if line and line.upper() not in {"DA KY SO", "A KY SO"}]
+        core = clean[:2] or ["Chu ky so hop le"]
+        medium = clean[:3] if len(clean) >= 3 else core
+        candidates = [clean, clean[:6], clean[:5], clean[:4], medium, core]
+        max_text_width = max(32.0, box_width - 14.0)
+        max_text_height = max(16.0, box_height - 12.0)
+        title_size = max(7.0, min(18.0, box_height / 6.8))
+        # Scale candidate sizes proportionally with box dimensions.
+        _max_body = max(8.5, min(24.0, box_height / 7.0, box_width / 16.0))
+        sizes = tuple(
+            round(s, 1) for s in
+            [_max_body - i * 0.5 for i in range(int((_max_body - 5.0) / 0.5) + 1)]
+            if s >= 5.0
+        ) or (8.5, 8.0, 7.5, 7.0, 6.5, 6.0, 5.5)
+        for lineset in candidates:
+            for size in sizes:
+                wrapped: list[str] = []
+                for line in lineset:
+                    wrapped.extend(simpleSplit(str(line), body_font, size, max_text_width) or [str(line)])
+                leading = max(size + 1.0, size * 1.18)
+                if title_size + 2.0 + len(wrapped) * leading <= max_text_height:
+                    return size, leading, wrapped
+        size = 5.2
+        leading = 6.3
+        wrapped = []
+        for line in core:
+            wrapped.extend(simpleSplit(str(line), body_font, size, max_text_width) or [str(line)])
+        max_lines = max(1, int((max_text_height - title_size - 2.0) // leading))
+        return size, leading, wrapped[:max_lines]
+
     for overlay in overlays:
         left, bottom, right, top = overlay["box"]
         box_width = max(1.0, right - left)
@@ -1250,19 +1413,19 @@ def _build_signature_display_overlay_ascii(width: float, height: float, overlays
         c.roundRect(left, bottom, box_width, box_height, 4, fill=0, stroke=1)
 
         c.setFillColorRGB(0.02, 0.18, 0.32)
-        title_size = max(7.0, min(9.0, box_height / 7.5))
-        font_size = max(6.0, min(8.5, box_height / max(5.0, len(lines) + 2)))
-        leading = font_size + 1.4
+        title_size = max(7.0, min(18.0, box_height / 6.8))
+        font_size, leading, wrapped_lines = _fit_lines(lines, box_width, box_height)
+        block_height = title_size + 2.0 + len(wrapped_lines) * leading
+        y = top - 6 - max(0.0, (box_height - 12.0 - block_height) / 2.0) - title_size
         c.setFont(title_font, title_size)
-        y = top - title_size - 4
         c.drawString(left + 5, y, "DA KY SO")
-        y -= title_size + 1
-        if lines:
+        y -= title_size + 2.0
+        if wrapped_lines:
             c.setFont(body_font, font_size)
-            for line in lines:
-                if y < bottom + 3:
+            for line in wrapped_lines:
+                if y < bottom + 4:
                     break
-                c.drawString(left + 5, y, _ascii_text(line)[:70])
+                c.drawString(left + 5, y, _ascii_text(line))
                 y -= leading
         c.restoreState()
     c.save()
@@ -1285,10 +1448,13 @@ def _build_signature_display_overlay_bitmap(width: float, height: float, overlay
     draw = ImageDraw.Draw(img)
 
     font_path = get_vietnamese_font_path(bold=False) or get_vietnamese_font_path(bold=True)
-    def _load_font(size: int):
+    bold_font_path = get_vietnamese_font_path(bold=True) or font_path
+
+    def _load_font(size: int, *, bold: bool = False):
         try:
-            if font_path:
-                return ImageFont.truetype(font_path, size)
+            selected = bold_font_path if bold else font_path
+            if selected:
+                return ImageFont.truetype(selected, size)
         except Exception:
             pass
         try:
@@ -1322,27 +1488,50 @@ def _build_signature_display_overlay_bitmap(width: float, height: float, overlay
             wrapped.append(current)
         return wrapped
 
-    def _fit_block(lines: list[str], max_width: int, max_height: int):
-        for size in range(14, 5, -1):
-            font = _load_font(size)
-            if font is None:
-                continue
-            wrapped: list[str] = []
-            for line in lines:
-                wrapped.extend(_wrap_line(line, font, max_width))
-            if not wrapped:
-                return font, wrapped, 0
-            _, text_h = _text_size("Ag", font)
-            line_height = max(7, int(text_h * 1.1))
-            total_height = line_height * len(wrapped)
-            if total_height <= max_height:
-                return font, wrapped, line_height
-        font = _load_font(6)
+    def _fit_block(lines: list[str], max_width: int, max_height: int, title_height: int, box_height: int = 0, box_width: int = 0):
+        clean = [line for line in lines if line and line.upper() != "ĐÃ KÝ SỐ"]
+        core = clean[:2] or ["Chữ ký số hợp lệ"]
+        medium = clean[:3] if len(clean) >= 3 else core
+        candidates = [clean, clean[:6], clean[:5], clean[:4], medium, core]
+        # Scale max font size proportionally: for ~96px box -> ~9pt; for ~200px box -> ~18pt
+        _max_size = max(9, min(28, int(max(box_height, 0) / 8.0), int(max(box_width, 0) / 16.0))) if box_height > 0 else 9
+        for lineset in candidates:
+            for size in range(_max_size, 4, -1):
+                font = _load_font(size)
+                if font is None:
+                    continue
+                wrapped: list[str] = []
+                for line in lineset:
+                    wrapped.extend(_wrap_line(line, font, max_width))
+                if not wrapped:
+                    continue
+                _, text_h = _text_size("Ag", font)
+                line_height = max(6, int(text_h * 1.18))
+                total_height = title_height + 3 + line_height * len(wrapped)
+                if total_height <= max_height:
+                    return font, wrapped, line_height, total_height
+        font = _load_font(5)
         wrapped = []
-        for line in lines:
+        for line in core:
             wrapped.extend(_wrap_line(line, font, max_width))
         _, text_h = _text_size("Ag", font)
-        return font, wrapped, max(7, int(text_h * 1.05))
+        line_height = max(6, int(text_h * 1.14))
+        max_lines = max(1, (max_height - title_height - 3) // line_height)
+        wrapped = wrapped[:max_lines]
+        return font, wrapped, line_height, title_height + 3 + line_height * len(wrapped)
+
+    def _fit_title(max_height: int, box_height: int = 0):
+        _max_title = max(9, min(22, int(max(box_height, 0) / 7.0))) if box_height > 0 else 9
+        for size in range(_max_title, 5, -1):
+            font = _load_font(size, bold=True)
+            if font is None:
+                continue
+            _, text_h = _text_size("ĐÃ KÝ SỐ", font)
+            if text_h + 9 <= max_height:
+                return font, max(6, int(text_h * 1.15))
+        font = _load_font(6, bold=True)
+        _, text_h = _text_size("ĐÃ KÝ SỐ", font)
+        return font, max(6, int(text_h * 1.15))
 
     for overlay in overlays:
         left, bottom, right, top = overlay["box"]
@@ -1356,19 +1545,42 @@ def _build_signature_display_overlay_bitmap(width: float, height: float, overlay
         if x1 <= x0 or y1 <= y0:
             continue
 
-        stroke = (11, 132, 243, 255) if signed else (100, 116, 139, 255)
-        draw.rounded_rectangle([x0, y0, x1, y1], radius=4, outline=stroke, width=2)
+        stroke = (11, 132, 243, 235) if signed else (100, 116, 139, 220)
+        fill = (255, 255, 255, 232)
+        draw.rounded_rectangle([x0, y0, x1, y1], radius=3, fill=fill, outline=stroke, width=1)
 
-        text_color = (5, 46, 81, 255)
-        margin_x = 5
-        max_text_width = max(1, (x1 - x0) - 10)
-        max_text_height = max(1, (y1 - y0) - 8)
-        body_font, wrapped_lines, line_height = _fit_block(lines, max_text_width, max_text_height)
-        y = y0 + 4
+        title_color = (5, 46, 81, 255)
+        label_color = (71, 85, 105, 255)
+        value_color = (15, 23, 42, 255)
+        ok_color = (22, 101, 52, 255)
+        margin_x = 8
+        max_text_width = max(1, (x1 - x0) - (margin_x * 2))
+        max_text_height = max(1, (y1 - y0) - 12)
+        bmp_box_h = y1 - y0
+        bmp_box_w = x1 - x0
+        title_font, title_height = _fit_title(max_text_height, box_height=bmp_box_h)
+        body_font, wrapped_lines, line_height, total_height = _fit_block(lines, max_text_width, max_text_height, title_height, box_height=bmp_box_h, box_width=bmp_box_w)
+        y = y0 + 7
+        if total_height < max_text_height - 4:
+            y += min(3, max(0, (max_text_height - total_height) // 3))
+        draw.text((x0 + margin_x, y), "ĐÃ KÝ SỐ", font=title_font, fill=title_color)
+        y += title_height + 3
         for line in wrapped_lines:
             if y + line_height > y1 - 2:
                 break
-            draw.text((x0 + margin_x, y), line, font=body_font, fill=text_color)
+            text = str(line).strip()
+            lower = text.lower()
+            if lower.startswith("trạng thái:"):
+                draw.text((x0 + margin_x, y), text, font=body_font, fill=ok_color)
+            elif ":" in text:
+                label, value = text.split(":", 1)
+                label_text = f"{label.strip()}:"
+                label_font = _load_font(getattr(body_font, "size", 7), bold=False) or body_font
+                draw.text((x0 + margin_x, y), label_text, font=label_font, fill=label_color)
+                label_w, _ = _text_size(label_text + " ", label_font)
+                draw.text((x0 + margin_x + label_w, y), value.strip(), font=body_font, fill=value_color)
+            else:
+                draw.text((x0 + margin_x, y), text, font=body_font, fill=value_color)
             y += line_height
 
     png_buf = io.BytesIO()

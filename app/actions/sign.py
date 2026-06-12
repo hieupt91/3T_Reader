@@ -376,42 +376,47 @@ def _build_stamp_preview_html(
     cert_serial: str = "",
 ) -> str:
     """Build HTML preview matching the digital stamp from build_vietnamese_stamp_style."""
-    import textwrap as _tw
     from html import escape as _esc
 
     safe_name = str(signer_display_name or "").strip() or "Không rõ"
     display_tax = tax_code or ""
-
-    def _wrap_value(label: str, value: str, *, width: int = 33, max_lines: int = 2) -> list[str]:
-        value = (value or "Không rõ").strip()
-        chunks = _tw.wrap(value, width=width, break_long_words=True, break_on_hyphens=False)[:max_lines] or ["Không rõ"]
-        return [f"{label}: {chunks[0]}"] + [f"  {c}" for c in chunks[1:]]
-
     issuer = str(issuer_name or "").strip() or "Không rõ"
-    serial = token_serial or cert_serial or ""
+    serial = _compact_signature_preview_value(token_serial or cert_serial or "")
     lines = [
         "ĐÃ KÝ SỐ",
-        *_wrap_value("Tên chủ thể chứng thư số", safe_name, width=31, max_lines=2),
-        *_wrap_value("Tên nhà cung cấp chữ ký số", issuer, width=34, max_lines=1),
-        f"Thời điểm ký: {signed_at or 'Không rõ'}",
-        f"Mã số thuế / CCCD: {display_tax or 'Không có'}",
+        f"Người ký: {safe_name}",
     ]
+    if issuer and issuer != "Không rõ":
+        lines.append(f"Đơn vị CA: {issuer}")
+    if display_tax:
+        lines.append(f"MST/CCCD: {display_tax}")
+    lines.append(f"Thời điểm: {signed_at or 'Không rõ'}")
     if serial:
-        lines.extend(_wrap_value("Số serial chứng thư số", serial, width=34, max_lines=1))
+        lines.append(f"Serial: {serial}")
     lines.append("Trạng thái: Hợp lệ; tài liệu chưa bị sửa")
 
     html_lines = []
     for i, line in enumerate(lines):
         esc = _esc(line)
         if i == 0:
-            html_lines.append(f'<div style="text-align:center;font-weight:700;color:#168038;margin-bottom:2px">{esc}</div>')
-        elif i == len(lines) - 1:
-            html_lines.append(f'<div style="color:#168038;margin-top:1px">{esc}</div>')
+            html_lines.append(f'<div style="font-weight:700;color:#052e51;margin-bottom:2px">{esc}</div>')
+        elif line.startswith("Trạng thái:"):
+            html_lines.append(f'<div style="color:#166534">{esc}</div>')
+        elif ":" in line:
+            label, value = line.split(":", 1)
+            html_lines.append(
+                '<div><span style="font-weight:600;color:#475569">'
+                f'{_esc(label)}:</span> <span style="color:#0f172a">{_esc(value.strip())}</span></div>'
+            )
         else:
-            html_lines.append(f'<div style="color:#222;line-height:1.2">{esc}</div>')
+            html_lines.append(f'<div style="color:#0f172a">{esc}</div>')
 
     return (
-        '<div style="font-family:Consolas,monospace;padding:4px;box-sizing:border-box">'
+        '<div style="font-family:Arial,Segoe UI,sans-serif;'
+        'width:100%;height:100%;padding:8px;box-sizing:border-box;'
+        'overflow:hidden;line-height:1.2;text-align:left;'
+        'font-weight:400;letter-spacing:0;'
+        'background:rgba(255,255,255,.86)">'
         + "".join(html_lines)
         + "</div>"
     )
@@ -419,7 +424,14 @@ def _build_stamp_preview_html(
 
 def _format_local_timestamp(value: datetime | None = None) -> str:
     dt = (value or datetime.now()).astimezone()
-    return dt.strftime("%d/%m/%Y %H:%M:%S %z")
+    return dt.strftime("%d/%m/%Y %H:%M:%S")
+
+
+def _compact_signature_preview_value(value: object, *, head: int = 12, tail: int = 8, limit: int = 28) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[:head]}...{text[-tail:]}"
 
 
 def _signature_preview_scale(width_px: float, height_px: float, *, has_image: bool = False) -> float:
@@ -530,14 +542,18 @@ def _make_pick_script(*, sig_image_url: str = "", sig_text_html: str = "") -> st
                     box.appendChild(img);
                 }} else if (_pickSigTextHtml) {{
                     box.style.background = 'rgba(255,255,255,0.15)';
-                    box.style.border = '2px solid #168038';
+                    box.style.border = '2px solid rgba(11,132,243,0.65)';
                     box.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)';
                     const textDiv = document.createElement('div');
                     textDiv.innerHTML = _pickSigTextHtml;
-                    textDiv.style.maxWidth = '95%';
-                    textDiv.style.maxHeight = '95%';
+                    textDiv.style.width = '100%';
+                    textDiv.style.height = '100%';
+                    textDiv.style.padding = '6px';
+                    textDiv.style.boxSizing = 'border-box';
                     textDiv.style.overflow = 'hidden';
                     textDiv.style.pointerEvents = 'none';
+                    textDiv.style.fontFamily = 'Arial, "Segoe UI", sans-serif';
+                    textDiv.style.lineHeight = '1.2';
                     box.appendChild(textDiv);
                 }} else {{
                     box.style.background = 'rgba(11, 132, 243, 0.3)';
@@ -558,6 +574,12 @@ def _make_pick_script(*, sig_image_url: str = "", sig_text_html: str = "") -> st
                 selection.box.style.top = `${{top}}px`;
                 selection.box.style.width = `${{Math.max(1, width)}}px`;
                 selection.box.style.height = `${{Math.max(1, height)}}px`;
+                const textDiv = selection.box.querySelector('div');
+                if (textDiv && _pickSigTextHtml) {{
+                    const lineCount = Math.max(1, textDiv.querySelectorAll('div').length || 1);
+                    const fontSize = Math.max(5.5, Math.min(18, (Math.max(1, height) - 16) / (lineCount * 1.18), Math.max(1, width) / 30));
+                    textDiv.style.fontSize = `${{fontSize}}px`;
+                }}
             }}
 
             const mouseDownHandler = function(event) {{
@@ -759,11 +781,11 @@ def _set_signature_preview(window, placement: dict | None, *, sig_image_url: str
             return;
         }}
         const lineCount = Math.max(1, state.textDiv.querySelectorAll('div').length || 1);
-        const byHeight = Math.max(3.5, (Math.max(1, height) - 8) / (lineCount * 1.08));
-        const byWidth = Math.max(3.5, Math.max(1, width) / 34);
-        const fontSize = Math.max(3.5, Math.min(13, byHeight, byWidth));
+        const byHeight = Math.max(5.5, (Math.max(1, height) - 16) / (lineCount * 1.18));
+        const byWidth = Math.max(5.5, Math.max(1, width) / 30);
+        const fontSize = Math.max(5.5, Math.min(18, byHeight, byWidth));
         state.textDiv.style.fontSize = `${{fontSize}}px`;
-        state.textDiv.style.lineHeight = '1.04';
+        state.textDiv.style.lineHeight = '1.2';
     }}
 
     function reportAdjustedBox() {{
@@ -870,7 +892,6 @@ def _set_signature_preview(window, placement: dict | None, *, sig_image_url: str
 
     const sigImgUrl = {json.dumps(sig_image_url) if sig_image_url else "''"};
     const sigTextHtml = {json.dumps(sig_text_html) if sig_text_html else "''"};
-    console.log('[3T] sig_preview: imgUrl=' + (sigImgUrl ? 'YES' : 'NO') + ', textHtml=' + (sigTextHtml ? 'YES(len=' + sigTextHtml.length + ')' : 'NO'));
 
     let overlay = state.overlay;
     if (!overlay) {{
@@ -893,7 +914,7 @@ def _set_signature_preview(window, placement: dict | None, *, sig_image_url: str
             overlay.style.border = '2px solid rgba(11,132,243,0.5)';
         }} else if (sigTextHtml) {{
             overlay.style.background = 'rgba(255,255,255,0.15)';
-            overlay.style.border = '2px solid #168038';
+            overlay.style.border = '2px solid rgba(11,132,243,0.65)';
             overlay.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)';
         }} else {{
             overlay.style.background = 'rgba(11, 132, 243, 0.22)';
@@ -919,17 +940,16 @@ def _set_signature_preview(window, placement: dict | None, *, sig_image_url: str
             textDiv.style.justifyContent = 'flex-start';
             textDiv.style.alignItems = 'stretch';
             textDiv.style.boxSizing = 'border-box';
-            textDiv.style.padding = '4px';
+            textDiv.style.padding = '6px';
             textDiv.style.maxWidth = '95%';
             textDiv.style.maxHeight = '95%';
             textDiv.style.overflow = 'hidden';
             textDiv.style.pointerEvents = 'none';
-            textDiv.style.fontFamily = 'Consolas, monospace';
+            textDiv.style.fontFamily = 'Arial, "Segoe UI", sans-serif';
             overlay.appendChild(textDiv);
             state.textDiv = textDiv;
         }}
 
-        console.log('[3T] overlay created, children:', overlay.children.length);
         const badge = document.createElement('div');
         badge.textContent = sigImgUrl ? 'Chữ ký mẫu' : (sigTextHtml ? 'Preview chữ ký số' : 'Preview chữ ký');
         badge.style.position = 'absolute';
@@ -2518,25 +2538,6 @@ class SignatureStatusDialog(QDialog):
         form.addRow("Nhà cung cấp", issuer_value)
         root.addLayout(form)
 
-        validation_error = str(report.get("validation_error") or "").strip()
-        if validation_error:
-            error_label = QLabel(
-                ("Thông tin kiểm tra: " if report.get("ok") else "Lỗi kiểm tra: ")
-                + validation_error
-            )
-            error_label.setWordWrap(True)
-            error_label.setStyleSheet(
-                "color:#b07a00; font-size:11px;" if report.get("ok") else "color:#b03030; font-size:11px;"
-            )
-            root.addWidget(error_label)
-
-        policy_warning = str(report.get("policy_warning") or "").strip()
-        if policy_warning:
-            warning_label = QLabel(f"Cảnh báo chính sách: {policy_warning}")
-            warning_label.setWordWrap(True)
-            warning_label.setStyleSheet("color:#b07a00; font-size:11px;")
-            root.addWidget(warning_label)
-
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         self._detail_btn = QPushButton("Thuộc tính")
         buttons.addButton(self._detail_btn, QDialogButtonBox.ButtonRole.ActionRole)
@@ -2681,25 +2682,6 @@ class SignatureStatusDialog(QDialog):
                 "padding:8px 10px; color:#223; font-size:11px;"
             )
             root.addWidget(validation_box)
-
-        validation_error = str(report.get("validation_error") or "").strip()
-        if validation_error:
-            error_label = QLabel(
-                ("Thông tin kiểm tra: " if report.get("ok") else "Lỗi kiểm tra: ")
-                + validation_error
-            )
-            error_label.setWordWrap(True)
-            error_label.setStyleSheet(
-                "color:#b07a00; font-size:11px;" if report.get("ok") else "color:#b03030; font-size:11px;"
-            )
-            root.addWidget(error_label)
-
-        policy_warning = str(report.get("policy_warning") or "").strip()
-        if policy_warning:
-            warning_label = QLabel(f"Cảnh báo chính sách: {policy_warning}")
-            warning_label.setWordWrap(True)
-            warning_label.setStyleSheet("color:#b07a00; font-size:11px;")
-            root.addWidget(warning_label)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         self._detail_btn = QPushButton("Thuộc tính")
