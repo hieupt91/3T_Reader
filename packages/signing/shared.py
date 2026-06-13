@@ -357,7 +357,7 @@ def build_vietnamese_stamp_style(
                 c.drawImage(img, padding_x, padding_y, width=logo_size, height=logo_size, preserveAspectRatio=True, mask='auto')
                 padding_x += logo_size + 10
         except Exception as e:
-            open("error_log.txt", "a").write(f"Image draw err: {e}\n")
+            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Image draw err: {e}\n")
 
     if draw_text:
         content_height = title_size + 2.0 + len(body_lines) * leading
@@ -402,7 +402,7 @@ def build_vietnamese_stamp_style(
         import shutil
         shutil.copy2(tmp_path, out_stamp_pdf)
     except Exception as e:
-        open("error_log.txt", "a").write(f"Stamp copy error: {e}\n")
+        open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Stamp copy error: {e}\n")
     finally:
         try:
             os.remove(tmp_path)
@@ -665,11 +665,11 @@ async def sign_pdf_with_session(
                 doc.save(burn_input_path)
                 doc.close()
             except Exception as e:
-                open("error_log.txt", "a").write(f"Burn error: {e}\n")
+                open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burn error: {e}\n")
                 burn_input_path = input_path
-            open("error_log.txt", "a").write(f"Burned successfully to {burn_input_path}\n")
+            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burned successfully to {burn_input_path}\n")
         else:
-            open("error_log.txt", "a").write(f"Stamp PDF not found at {stamp_pdf}\n")
+            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Stamp PDF not found at {stamp_pdf}\n")
 
         with open(burn_input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
@@ -812,11 +812,11 @@ async def sign_pdf_with_pkcs12(
                 doc.save(burn_input_path)
                 doc.close()
             except Exception as e:
-                open("error_log.txt", "a").write(f"Burn error: {e}\n")
+                open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burn error: {e}\n")
                 burn_input_path = input_path
-            open("error_log.txt", "a").write(f"Burned successfully to {burn_input_path}\n")
+            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burned successfully to {burn_input_path}\n")
         else:
-            open("error_log.txt", "a").write(f"Stamp PDF not found at {stamp_pdf}\n")
+            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Stamp PDF not found at {stamp_pdf}\n")
 
         with open(burn_input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)

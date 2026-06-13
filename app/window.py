@@ -1094,6 +1094,8 @@ class PDFReaderApp(QMainWindow):
                 pdf.close()
             except Exception:
                 pass
+            if 'progress' in locals():
+                progress.close()
             self._print_busy = False
 
     # ------------------------------------------------------------------ #

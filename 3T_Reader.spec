@@ -4,7 +4,7 @@ import os
 
 datas = []
 binaries = []
-hiddenimports = ['pypdfium2', 'pikepdf', 'PySide6.QtPrintSupport', 'PySide6.QtWebEngineWidgets', 'pdf2docx', 'pdfplumber', 'openpyxl']
+hiddenimports = ['pypdfium2', 'pikepdf', 'PySide6.QtPrintSupport', 'PySide6.QtWebEngineWidgets', 'pdf2docx', 'pdfplumber', 'openpyxl', 'openai', 'anthropic', 'huggingface_hub', 'google.genai', 'requests', 'keyring']
 datas += [('assets', 'assets')]
 datas += [('third_party/pdfjs', 'third_party/pdfjs')]
 if os.path.isdir('app/locales'):
@@ -23,7 +23,7 @@ def _merge_collected(package_name):
 
 
 # Native PDF backends can require package-provided binaries/data at runtime.
-for _package in ('pypdfium2', 'pikepdf'):
+for _package in ('pypdfium2', 'pikepdf', 'pyhanko'):
     _merge_collected(_package)
 
 
