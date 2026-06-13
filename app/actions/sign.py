@@ -260,6 +260,15 @@ def _get_tsa_url() -> str | None:
         return None
 
 
+def _get_ltv_setting() -> bool:
+    try:
+        cfg_path = os.path.expanduser("~/.3t_reader/signing_config.json")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+            return bool(cfg.get("enable_ltv", False))
+    except Exception:
+        return False
+
 def _run_usb_signing_subprocess(
     token_info,
     input_path: str,
@@ -274,6 +283,7 @@ def _run_usb_signing_subprocess(
     location: str | None = None,
     contact_info: str | None = None,
     tsa_url: str | None = None,
+    enable_ltv: bool = False,
 ) -> None:
     payload = {
         "token": _token_info_payload(token_info),
@@ -288,6 +298,7 @@ def _run_usb_signing_subprocess(
         "location": location or "",
         "contact_info": contact_info or "",
         "tsa_url": tsa_url or "",
+        "enable_ltv": enable_ltv,
     }
 
     payload_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w", encoding="utf-8")
@@ -1596,6 +1607,7 @@ def _sign_existing_signature_field_with_usb(window, report: dict, token_info) ->
                 location=location or None,
                 contact_info=str(report.get("contact_info") or "").strip() or None,
                 tsa_url=_get_tsa_url(),
+                enable_ltv=_get_ltv_setting(),
             ),
             status_message="Đang ký ô ký đã chọn bằng USB...",
         )
@@ -2092,6 +2104,7 @@ def sign_with_pfx(window):
                     signer_name=signer_name,
                     page_number=placement["page_number"],
                     box=placement["box"],
+                    enable_ltv=_get_ltv_setting(),
                 )
             ),
             status_message="Đang ký tài liệu bằng file chứng thư…",
@@ -2239,6 +2252,7 @@ def sign_document(window):
                 page_number=placement["page_number"],
                 box=placement["box"],
                 tsa_url=_get_tsa_url(),
+                enable_ltv=_get_ltv_setting(),
             ),
             status_message="Đang ký số tài liệu…",
         )
@@ -2811,12 +2825,14 @@ def _run_usb_signing_batch_subprocess(
     pin: str,
     *,
     tsa_url: str | None = None,
+    enable_ltv: bool = False,
 ) -> None:
     payload = {
         "token": _token_info_payload(token_info),
         "pin": pin,
         "jobs": jobs,
         "tsa_url": tsa_url or "",
+        "enable_ltv": enable_ltv,
     }
 
     payload_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w", encoding="utf-8")
@@ -2960,6 +2976,7 @@ def sign_document_batch(window):
                 jobs,
                 pin,
                 tsa_url=tsa_url,
+                enable_ltv=_get_ltv_setting(),
             ),
             status_message=f"Đang ký hàng loạt {len(pdf_files)} tài liệu...",
         )

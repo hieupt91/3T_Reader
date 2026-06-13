@@ -806,6 +806,7 @@ class WindowsPkcs11Provider:
         location: str | None = None,
         contact_info: str | None = None,
         tsa_url: str | None = None,
+        enable_ltv: bool = False,
     ) -> None:
         import pkcs11 as p11
 
@@ -840,6 +841,7 @@ class WindowsPkcs11Provider:
                 location=location,
                 contact_info=contact_info,
                 tsa_url=tsa_url,
+                enable_ltv=enable_ltv,
             )
         finally:
             if session is not None:
@@ -851,6 +853,7 @@ class WindowsPkcs11Provider:
         pin: str,
         *,
         tsa_url: str | None = None,
+        enable_ltv: bool = False,
     ) -> None:
         import pkcs11 as p11
 
@@ -887,6 +890,7 @@ class WindowsPkcs11Provider:
                         location=job.get("location"),
                         contact_info=job.get("contact_info"),
                         tsa_url=tsa_url,
+                        enable_ltv=enable_ltv,
                     )
                 except Exception as e:
                     raise RuntimeError(f"Loi khi ky file {job.get('input_path')}: {e}")

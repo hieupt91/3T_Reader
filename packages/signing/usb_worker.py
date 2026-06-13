@@ -38,6 +38,7 @@ def run_job(payload: dict) -> dict[str, object]:
                 payload["jobs"],
                 str(payload["pin"]),
                 tsa_url=str(payload.get("tsa_url") or "") or None,
+                enable_ltv=bool(payload.get("enable_ltv", False)),
             )
         else:
             await provider.sign_pdf(
@@ -52,6 +53,7 @@ def run_job(payload: dict) -> dict[str, object]:
                 location=str(payload.get("location") or "") or None,
                 contact_info=str(payload.get("contact_info") or "") or None,
                 tsa_url=str(payload.get("tsa_url") or "") or None,
+                enable_ltv=bool(payload.get("enable_ltv", False)),
             )
 
     asyncio.run(_do_sign())

@@ -2158,6 +2158,10 @@ class PDFReaderApp(QMainWindow):
             pass
             
         layout.addSpacing(15)
+        self.ltv_check = QCheckBox("Bật Xác thực Dài hạn (LTV - Cần kết nối mạng để tải CRL/OCSP)")
+        layout.addWidget(self.ltv_check)
+        self.ltv_check.setChecked(cfg.get("enable_ltv", False))
+
         btn_layout = QHBoxLayout()
         btn_save = QPushButton("Lưu cấu hình", dlg)
         btn_layout.addStretch()
@@ -2170,7 +2174,8 @@ class PDFReaderApp(QMainWindow):
                 "tsa_mode": tsa_mode_combo.currentData(),
                 "tsa_url": url_input.text().strip(),
                 "signature_image_path": img_input.text().strip(),
-                "signature_image_mode": mode_combo.currentData()
+                "signature_image_mode": mode_combo.currentData(),
+                "enable_ltv": self.ltv_check.isChecked()
             }
             with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)

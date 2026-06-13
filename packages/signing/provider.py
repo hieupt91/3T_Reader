@@ -49,6 +49,7 @@ class SigningProvider(Protocol):
         location: str | None = None,
         contact_info: str | None = None,
         tsa_url: str | None = None,
+        enable_ltv: bool = False,
     ) -> None:
         ...
 
@@ -58,6 +59,7 @@ class SigningProvider(Protocol):
         pin: str,
         *,
         tsa_url: str | None = None,
+        enable_ltv: bool = False,
     ) -> None:
         ...
 

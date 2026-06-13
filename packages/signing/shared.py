@@ -589,6 +589,7 @@ async def sign_pdf_with_session(
     location: str | None = None,
     contact_info: str | None = None,
     tsa_url: str | None = None,
+    enable_ltv: bool = False,
 ) -> None:
     """Core pyHanko signing - OS-agnostic. Caller manages the PKCS#11 session."""
     from datetime import datetime
@@ -676,11 +677,20 @@ async def sign_pdf_with_session(
                 from pyhanko.sign.timestamps import HTTPTimeStamper
                 timestamper = HTTPTimeStamper(url=tsa_url)
                 
+            validation_context = None
+            if enable_ltv:
+                from pyhanko.sign.validation import ValidationContext
+                from pyhanko.network.requests import RequestsFetcher
+                fetcher = RequestsFetcher()
+                validation_context = ValidationContext(fetcher=fetcher)
+                
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer_obj,
                 stamp_style=None,
                 timestamper=timestamper,
+                validation_context=validation_context,
+                embed_validation_info=enable_ltv,
                 new_field_spec=None if field_name else fields.SigFieldSpec(
                     sig_field_name=target_field_name,
                     box=None,
@@ -714,6 +724,7 @@ async def sign_pdf_with_pkcs12(
     reason: str | None = None,
     location: str | None = None,
     contact_info: str | None = None,
+    enable_ltv: bool = False,
 ) -> None:
     """Sign a PDF using a local PKCS#12/PFX file."""
     from datetime import datetime
@@ -808,10 +819,19 @@ async def sign_pdf_with_pkcs12(
                 location=(location or "").strip() or None,
                 contact_info=(contact_info or "").strip() or None,
             )
+            validation_context = None
+            if enable_ltv:
+                from pyhanko.sign.validation import ValidationContext
+                from pyhanko.network.requests import RequestsFetcher
+                fetcher = RequestsFetcher()
+                validation_context = ValidationContext(fetcher=fetcher)
+
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer,
                 stamp_style=None,
+                validation_context=validation_context,
+                embed_validation_info=enable_ltv,
                 new_field_spec=None if field_name else fields.SigFieldSpec(
                     sig_field_name=target_field_name,
                     box=None,
