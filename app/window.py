@@ -2094,7 +2094,7 @@ class PDFReaderApp(QMainWindow):
             else:
                 url_input.setEnabled(False)
                 if mode == "server":
-                    url_input.setText("http://tsa.3tcompany.vn")
+                    url_input.setText(f"{VPS_LICENSE_BASE_URL}/api/v1/tsa")
                 else:
                     url_input.setText("")
                     
@@ -2132,7 +2132,7 @@ class PDFReaderApp(QMainWindow):
                 tsa_mode = cfg.get("tsa_mode")
                 saved_url = cfg.get("tsa_url", "")
                 if not tsa_mode:
-                    if saved_url == "http://tsa.3tcompany.vn":
+                    if saved_url == f"{VPS_LICENSE_BASE_URL}/api/v1/tsa":
                         tsa_mode = "server"
                     elif saved_url:
                         tsa_mode = "custom"

@@ -243,7 +243,7 @@ def _get_tsa_url() -> str | None:
             tsa_mode = cfg.get("tsa_mode")
             saved_url = cfg.get("tsa_url", "")
             if not tsa_mode:
-                if saved_url == "http://tsa.3tcompany.vn":
+                if saved_url == f"{VPS_LICENSE_BASE_URL}/api/v1/tsa":
                     tsa_mode = "server"
                 elif saved_url:
                     tsa_mode = "custom"
@@ -253,7 +253,7 @@ def _get_tsa_url() -> str | None:
             if tsa_mode == "system":
                 return None
             elif tsa_mode == "server":
-                return "http://tsa.3tcompany.vn"
+                return f"{VPS_LICENSE_BASE_URL}/api/v1/tsa"
             else:
                 return saved_url or None
     except Exception:
