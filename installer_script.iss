@@ -43,8 +43,8 @@ OutputDir=build\installer
 OutputBaseFilename=Setup_3T_Reader_v{#MyAppVersion}
 
 ; Nén tốt nhất
-Compression=lzma2/ultra64
-SolidCompression=yes
+Compression=lzma2/fast
+SolidCompression=no
 
 ; Giao diện
 WizardStyle=modern
