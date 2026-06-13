@@ -6,6 +6,7 @@ import json
 import re
 import struct
 import subprocess
+import concurrent.futures
 import sys
 import time
 from pathlib import Path
@@ -658,29 +659,43 @@ class WindowsPkcs11Provider:
         errors: list[str] = []
         tokens: list[TokenInfo] = []
 
-        for path in _candidate_paths():
+        paths = list(_candidate_paths())
+        valid_paths = []
+        for path in paths:
             arch_ok, arch_error = _dll_arch_matches_process(path)
             if not arch_ok:
                 _append_unique_error(errors, f"{os.path.basename(path)}: {arch_error}")
-                continue
+            else:
+                valid_paths.append(path)
+
+        def probe_path(path):
             try:
-                token_payloads, detail = _probe_driver_tokens(path)
-                if token_payloads:
-                    tokens.extend(_token_info_from_payload(path, payload) for payload in token_payloads)
-                    # Do not break here, so we can find tokens from other drivers as well
-                if detail:
-                    raise RuntimeError(detail)
+                return path, _probe_driver_tokens(path), None
             except Exception as exc:
-                msg = str(exc).lower()
-                name = os.path.basename(path)
-                if "error 126" in msg:
-                    _append_unique_error(errors, f"{name}: loi 126 (thieu DLL phu thuoc hoac sai x86/x64)")
-                elif "not a valid win32" in msg or "bad exe format" in msg or "%1 is not a valid win32" in msg:
-                    _append_unique_error(errors, f"{name}: sai kien truc x86/x64 so voi Python/app dang chay")
-                elif "module could not be found" in msg:
-                    _append_unique_error(errors, f"{name}: khong tim thay module")
-                else:
-                    _append_unique_error(errors, f"{name}: {str(exc)[:120]}")
+                return path, None, exc
+
+        if valid_paths:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(valid_paths)) as executor:
+                futures = [executor.submit(probe_path, p) for p in valid_paths]
+                for future in concurrent.futures.as_completed(futures):
+                    path, result, exc = future.result()
+                    name = os.path.basename(path)
+                    if exc:
+                        msg = str(exc).lower()
+                        if "error 126" in msg:
+                            _append_unique_error(errors, f"{name}: loi 126 (thieu DLL phu thuoc hoac sai x86/x64)")
+                        elif "not a valid win32" in msg or "bad exe format" in msg or "%1 is not a valid win32" in msg:
+                            _append_unique_error(errors, f"{name}: sai kien truc x86/x64 so voi Python/app dang chay")
+                        elif "module could not be found" in msg:
+                            _append_unique_error(errors, f"{name}: khong tim thay module")
+                        else:
+                            _append_unique_error(errors, f"{name}: {str(exc)[:120]}")
+                    else:
+                        token_payloads, detail = result
+                        if token_payloads:
+                            tokens.extend(_token_info_from_payload(path, payload) for payload in token_payloads)
+                        if detail:
+                            _append_unique_error(errors, f"{name}: {detail}")
 
         self._last_error = "" if tokens else (
             "\n".join(errors[:8])
