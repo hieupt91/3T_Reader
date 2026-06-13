@@ -112,8 +112,13 @@ class _PDFJSHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
             return
         try:
-            data = self._read_pdf_for_display(pdf_path)
-            self._serve_pdf_bytes(data, send_body=send_body)
+            # For files > 30MB, skip normalisation to save RAM and use Range requests
+            file_size = os.path.getsize(pdf_path)
+            if file_size > 30 * 1024 * 1024:
+                self._serve_pdf_file(pdf_path, send_body=send_body)
+            else:
+                data = self._read_pdf_for_display(pdf_path)
+                self._serve_pdf_bytes(data, send_body=send_body)
         except OSError:
             self.send_error(500)
 

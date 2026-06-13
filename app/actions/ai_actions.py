@@ -68,10 +68,10 @@ def open_ai_settings(window):
     """Dialog cấu hình API key AI và Ollama — không yêu cầu tài liệu đang mở."""
     from packages.qt_compat.QtWidgets import (
         QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-        QLineEdit, QPushButton, QFrame, QComboBox, QScrollArea, QWidget,
-        QTabWidget,
+        QLineEdit, QPushButton, QFrame, QScrollArea, QWidget,
+        QSizePolicy, QStackedWidget, QListWidget, QListWidgetItem,
     )
-    from packages.qt_compat.QtCore import Qt, QTimer
+    from packages.qt_compat.QtCore import Qt, QTimer, QSize
     from styles.theme import is_dark
     from packages.ai.provider import is_ai_available, get_active_provider, is_ollama_available
     from app.language_manager import get_selected_language, get_translation
@@ -79,540 +79,424 @@ def open_ai_settings(window):
     lang = get_selected_language()
     _t = lambda key, fallback: get_translation(lang, key, fallback)
 
-    if is_dark():
-        _STYLE = """
-        QDialog { background: #16162A; }
-        QLabel#title { color: #E8EEFF; font-size: 18px; font-weight: 800; letter-spacing: 0.2px; }
-        QLabel#lbl { color: #E0E8FF; font-size: 13px; font-weight: 600; }
-        QLabel#hint { color: #7C8DB8; font-size: 11px; }
-        QLabel#status { color: #E8EEFF; font-size: 12px; font-weight: 600; }
-        QLineEdit {
-            background: #1E1E38;
-            color: #E0E8FF;
-            border: 1px solid #3A3A60;
-            border-radius: 8px;
-            padding: 9px 12px;
-            font-size: 13px;
-            font-family: monospace;
-        }
-        QLineEdit::placeholder { color: #7C8DB8; }
-        QLineEdit:focus { border-color: #6366f1; }
-        QPushButton {
-            background: #1E1E38;
-            color: #B0B8E0;
-            border: 1px solid #3A3A60;
-            border-radius: 8px;
-            padding: 8px 18px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        QPushButton:hover { background: #2A2A50; border-color: #6060C0; }
-        QPushButton#btn_save {
-            background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #6366f1,stop:1 #8b5cf6);
-            color: white; border: none;
-        }
-        QPushButton#btn_save:hover { background: #7374f8; }
-        QPushButton#btn_test { min-width: 80px; }
-        QFrame#divider { background: #2A2A4A; }
-        """
+    dark = is_dark()
+    if dark:
+        bg          = "#0F0F1A"
+        sidebar     = "#16162A"
+        card_bg     = "#1E1E36"
+        card_sel    = "#252545"
+        card_bor    = "#3A3A60"
+        card_sel_bor = "#6366f1"
+        text_pri    = "#E8EEFF"
+        text_sec    = "#9BA8C8"
+        text_hint   = "#6270A0"
+        inp_bg      = "#12122A"
+        inp_bor     = "#3A3A60"
+        inp_focus   = "#6366f1"
+        div_col     = "#2A2A48"
+        btn_bg      = "#252545"
+        btn_bor     = "#3A3A60"
+        save_grad   = "qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #6366f1,stop:1 #8b5cf6)"
+        save_hov    = "#7374f8"
+        badge_ok    = "#166534"
+        badge_warn  = "#92400e"
+        badge_ok_txt   = "#86efac"
+        badge_warn_txt = "#fcd34d"
     else:
-        _STYLE = """
-        QDialog { background: #F8FAFC; }
-        QLabel#title { color: #0F172A; font-size: 18px; font-weight: 800; letter-spacing: 0.2px; }
-        QLabel#lbl { color: #111827; font-size: 13px; font-weight: 600; }
-        QLabel#hint { color: #475569; font-size: 11px; }
-        QLabel#status { color: #0F172A; font-size: 12px; font-weight: 600; }
-        QLineEdit {
-            background: #FFFFFF;
-            color: #0F172A;
-            border: 1px solid #CBD5E1;
-            border-radius: 8px;
-            padding: 9px 12px;
-            font-size: 13px;
-            font-family: monospace;
-        }
-        QLineEdit::placeholder { color: #94A3B8; }
-        QLineEdit:focus { border-color: #2563EB; }
-        QPushButton {
-            background: #E2E8F0;
-            color: #0F172A;
-            border: 1px solid #CBD5E1;
-            border-radius: 8px;
-            padding: 8px 18px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        QPushButton:hover { background: #CBD5E1; border-color: #94A3B8; }
-        QPushButton#btn_save {
-            background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2563EB,stop:1 #1D4ED8);
-            color: white; border: none;
-        }
-        QPushButton#btn_save:hover { background: #3B82F6; }
-        QPushButton#btn_test { min-width: 80px; }
-        QFrame#divider { background: #CBD5E1; }
-        """
+        bg          = "#F0F4FF"
+        sidebar     = "#FFFFFF"
+        card_bg     = "#FFFFFF"
+        card_sel    = "#EEF2FF"
+        card_bor    = "#E2E8F0"
+        card_sel_bor = "#6366f1"
+        text_pri    = "#0F172A"
+        text_sec    = "#475569"
+        text_hint   = "#94A3B8"
+        inp_bg      = "#FFFFFF"
+        inp_bor     = "#CBD5E1"
+        inp_focus   = "#6366f1"
+        div_col     = "#E2E8F0"
+        btn_bg      = "#F1F5F9"
+        btn_bor     = "#CBD5E1"
+        save_grad   = "qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #6366f1,stop:1 #4F46E5)"
+        save_hov    = "#4F46E5"
+        badge_ok    = "#DCFCE7"
+        badge_warn  = "#FEF9C3"
+        badge_ok_txt   = "#166534"
+        badge_warn_txt = "#92400e"
+
+    STYLE = f"""
+    QDialog {{ background: {bg}; }}
+    QWidget#sidebar {{ background: {sidebar}; border-right: 1px solid {div_col}; }}
+    QWidget#rightpanel {{ background: {bg}; }}
+    QLabel#h1 {{ color: {text_pri}; font-size: 20px; font-weight: 800; }}
+    QLabel#h2 {{ color: {text_pri}; font-size: 15px; font-weight: 700; margin-top: 4px; }}
+    QLabel#lbl {{ color: {text_sec}; font-size: 12px; font-weight: 600; margin-top: 6px; }}
+    QLabel#hint {{ color: {text_hint}; font-size: 11px; }}
+    QLineEdit {{
+        background: {inp_bg};
+        color: {text_pri};
+        border: 1.5px solid {inp_bor};
+        border-radius: 8px;
+        padding: 9px 14px;
+        font-size: 13px;
+        font-family: "Consolas","Menlo","monospace";
+    }}
+    QLineEdit:focus {{ border-color: {inp_focus}; }}
+    QLineEdit::placeholder {{ color: {text_hint}; }}
+    QPushButton {{
+        background: {btn_bg};
+        color: {text_pri};
+        border: 1px solid {btn_bor};
+        border-radius: 8px;
+        padding: 9px 20px;
+        font-size: 12px;
+        font-weight: 600;
+    }}
+    QPushButton:hover {{ border-color: {inp_focus}; color: {inp_focus}; }}
+    QPushButton#btn_save {{
+        background: {save_grad};
+        color: white; border: none;
+        padding: 10px 32px;
+        font-size: 13px;
+        font-weight: 700;
+        border-radius: 10px;
+    }}
+    QPushButton#btn_save:hover {{ background: {save_hov}; }}
+    QPushButton#btn_danger {{ color: #ef4444; border-color: #ef4444; }}
+    QPushButton#btn_danger:hover {{ background: #ef4444; color: white; }}
+    QPushButton#btn_test {{ min-width: 80px; }}
+    QFrame#divider {{ background: {div_col}; }}
+    QListWidget {{ background: transparent; border: none; outline: none; }}
+    QListWidget::item {{ background: transparent; border: none; padding: 0px; margin: 3px 8px; }}
+    QListWidget::item:selected {{ background: transparent; }}
+    """
 
     dlg = QDialog(window)
     dlg.setWindowTitle(_t("ai.settings.title", "Cài đặt AI"))
     dlg.setModal(True)
-    dlg.setMinimumWidth(680)
-    dlg.resize(760, 680)
-    dlg.setStyleSheet(_STYLE)
+    dlg.resize(860, 620)
+    dlg.setMinimumSize(780, 540)
+    dlg.setStyleSheet(STYLE)
 
-    outer = QVBoxLayout(dlg)
-    outer.setContentsMargins(0, 0, 0, 0)
-    outer.setSpacing(0)
+    main_layout = QHBoxLayout(dlg)
+    main_layout.setContentsMargins(0, 0, 0, 0)
+    main_layout.setSpacing(0)
 
-    scroll = QScrollArea(dlg)
-    scroll.setWidgetResizable(True)
-    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    # ─── SIDEBAR ───────────────────────────────────────────────
+    sidebar_w = QWidget()
+    sidebar_w.setObjectName("sidebar")
+    sidebar_w.setFixedWidth(220)
+    sidebar_lay = QVBoxLayout(sidebar_w)
+    sidebar_lay.setContentsMargins(0, 20, 0, 20)
+    sidebar_lay.setSpacing(0)
 
-    content = QWidget()
-    root = QVBoxLayout(content)
-    root.setContentsMargins(24, 20, 24, 20)
-    root.setSpacing(10)
-    scroll.setWidget(content)
-    outer.addWidget(scroll)
+    lbl_side_title = QLabel("  🤖  AI Provider")
+    lbl_side_title.setStyleSheet(
+        f"font-size:12px;font-weight:700;color:{text_hint};"
+        "padding:0 16px 12px 16px;letter-spacing:1px;")
+    sidebar_lay.addWidget(lbl_side_title)
 
-    title = QLabel(_t("ai.settings.title", "Cài đặt AI"))
-    title.setObjectName("title")
-    root.addWidget(title)
+    div_top = QFrame(); div_top.setObjectName("divider"); div_top.setFixedHeight(1)
+    sidebar_lay.addWidget(div_top)
+    sidebar_lay.addSpacing(8)
 
-    # Current status
-    lbl_status = QLabel()
-    lbl_status.setObjectName("status")
-    if is_ai_available():
-        provider = get_active_provider()
-        lbl_status.setText(_t("ai.settings.status.using", "Trạng thái: Đang dùng {provider}").format(provider=provider))
-        lbl_status.setStyleSheet("color:#166534;font-size:12px;")
-    else:
-        lbl_status.setText(_t("ai.settings.status.none", "Trạng thái: Chưa cấu hình AI."))
-        lbl_status.setStyleSheet("color:#b45309;font-size:12px;")
-    root.addWidget(lbl_status)
+    providers = [
+        ("claude",      "\U0001f7e3", "Anthropic Claude",  "API Key"),
+        ("openai",      "\U0001f7e2", "OpenAI GPT",         "API Key"),
+        ("gemini",      "\U0001f535", "Google Gemini",      "API Key"),
+        ("groq",        "\u26a1",     "Groq",               "API Key + Model"),
+        ("openrouter",  "\U0001f310", "OpenRouter",         "API Key + Model"),
+        ("huggingface", "\U0001f917", "HuggingFace",        "Token + Model"),
+        ("ollama",      "\U0001f999", "Ollama Local",       "URL + Model"),
+    ]
 
-    div1 = QFrame(); div1.setObjectName("divider"); div1.setFixedHeight(1)
-    root.addWidget(div1)
+    active_prov = get_active_provider() if is_ai_available() else ""
+    env_prov    = os.environ.get("AI_PROVIDER", "auto").strip().lower() or "auto"
 
-    lbl_provider = QLabel(_t("ai.settings.provider", "AI provider ưu tiên:"))
-    lbl_provider.setObjectName("lbl")
-    root.addWidget(lbl_provider)
+    list_w = QListWidget()
+    list_w.setSpacing(2)
+    sidebar_lay.addWidget(list_w)
 
-    combo_provider = QComboBox()
-    combo_provider.addItem(_t("ai.settings.auto", "Tự động"), "auto")
-    combo_provider.addItem("Claude (Anthropic)", "claude")
-    combo_provider.addItem("OpenAI GPT", "openai")
-    combo_provider.addItem("Groq", "groq")
-    combo_provider.addItem("OpenRouter", "openrouter")
-    combo_provider.addItem("Google Gemini", "gemini")
-    combo_provider.addItem("HuggingFace", "huggingface")
-    combo_provider.addItem("Ollama local", "ollama")
-    preferred_provider = os.environ.get("AI_PROVIDER", "auto").strip().lower() or "auto"
-    for idx in range(combo_provider.count()):
-        if combo_provider.itemData(idx) == preferred_provider:
-            combo_provider.setCurrentIndex(idx)
-            break
-    root.addWidget(combo_provider)
+    card_refs = {}
 
-    hint_provider = QLabel(_t("ai.settings.provider_hint", "Nếu provider ưu tiên lỗi, app sẽ tự thử provider khác đang có key."))
-    hint_provider.setObjectName("hint")
-    root.addWidget(hint_provider)
-
-    tabs = QTabWidget()
-    tab_anthropic = QWidget()
-    tab_openai = QWidget()
-    tab_gemini = QWidget()
-    tab_other = QWidget()
-    tab_ollama = QWidget()
-    anthropic_root = QVBoxLayout(tab_anthropic)
-    openai_root = QVBoxLayout(tab_openai)
-    gemini_root = QVBoxLayout(tab_gemini)
-    other_root = QVBoxLayout(tab_other)
-    ollama_root = QVBoxLayout(tab_ollama)
-    for tab_root in (anthropic_root, openai_root, gemini_root, other_root, ollama_root):
-        tab_root.setContentsMargins(10, 10, 10, 10)
-        tab_root.setSpacing(8)
-    tabs.addTab(tab_anthropic, "Anthropic")
-    tabs.addTab(tab_openai, "OpenAI")
-    tabs.addTab(tab_gemini, "Gemini")
-    tabs.addTab(tab_other, "Khác")
-    tabs.addTab(tab_ollama, "Ollama")
-    root.addWidget(tabs)
-
-    def _add_key_test(tab_root, field, provider_name: str, *, model_field=None):
+    def _make_card(pid, icon, name, sub):
+        w = QWidget()
+        w.setObjectName("pcard")
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(2)
         row = QHBoxLayout()
+        l_icon = QLabel(icon)
+        l_icon.setStyleSheet("font-size:18px;")
+        l_name = QLabel(f"<b>{name}</b>")
+        l_name.setStyleSheet(f"font-size:13px;color:{text_pri};")
+        row.addWidget(l_icon)
+        row.addWidget(l_name)
         row.addStretch()
-        btn = QPushButton("Kiểm tra kết nối")
-        btn.setObjectName("btn_test")
+        if pid == active_prov:
+            badge = QLabel("\u2713 Active")
+            badge.setStyleSheet(
+                f"font-size:10px;font-weight:700;color:{badge_ok_txt};"
+                f"background:{badge_ok};border-radius:6px;padding:2px 6px;")
+            row.addWidget(badge)
+        lay.addLayout(row)
+        l_sub = QLabel(sub)
+        l_sub.setStyleSheet(f"font-size:11px;color:{text_hint};margin-left:26px;")
+        lay.addWidget(l_sub)
+        w.setStyleSheet(
+            f"QWidget#pcard{{background:{card_bg};border:1.5px solid {card_bor};border-radius:10px;}}")
+        return w
 
-        def _test():
-            key_ok = bool(field.text().strip())
-            model_ok = True if model_field is None else bool(model_field.text().strip())
-            if key_ok and model_ok:
-                lbl_status.setText(f"{provider_name}: cấu hình tối thiểu đã sẵn sàng.")
-                lbl_status.setStyleSheet("color:#166534;font-size:12px;")
-            elif not key_ok:
-                lbl_status.setText(f"{provider_name}: chưa nhập API key/token.")
-                lbl_status.setStyleSheet("color:#b45309;font-size:12px;")
-            else:
-                lbl_status.setText(f"{provider_name}: chưa nhập model.")
-                lbl_status.setStyleSheet("color:#b45309;font-size:12px;")
+    prov_ids = [p[0] for p in providers]
 
-        btn.clicked.connect(_test)
-        row.addWidget(btn)
-        tab_root.addLayout(row)
+    for pid, icon, name, sub in providers:
+        item = QListWidgetItem()
+        card = _make_card(pid, icon, name, sub)
+        item.setSizeHint(QSize(204, 58))
+        list_w.addItem(item)
+        list_w.setItemWidget(item, card)
+        card_refs[pid] = (item, card)
 
-    # Anthropic API key
-    lbl_anthropic = QLabel(_t("ai.settings.anthropic", "Anthropic API Key (Claude — ưu tiên 1):"))
-    lbl_anthropic.setObjectName("lbl")
-    anthropic_root.addWidget(lbl_anthropic)
+    sidebar_lay.addStretch()
+    main_layout.addWidget(sidebar_w)
 
-    edit_anthropic = QLineEdit()
-    edit_anthropic.setPlaceholderText("sk-ant-…")
-    edit_anthropic.setEchoMode(QLineEdit.EchoMode.Password)
-    edit_anthropic.setText(os.environ.get("ANTHROPIC_API_KEY", ""))
-    anthropic_root.addWidget(edit_anthropic)
+    # ─── RIGHT PANEL ────────────────────────────────────────────
+    right_w = QWidget()
+    right_w.setObjectName("rightpanel")
+    right_lay = QVBoxLayout(right_w)
+    right_lay.setContentsMargins(32, 28, 32, 24)
+    right_lay.setSpacing(0)
 
-    hint_anthropic = QLabel(_t("ai.settings.anthropic_hint", "Lấy key tại: console.anthropic.com"))
-    hint_anthropic.setObjectName("hint")
-    anthropic_root.addWidget(hint_anthropic)
-    _add_key_test(anthropic_root, edit_anthropic, "Anthropic")
+    # Header
+    hdr = QHBoxLayout()
+    lbl_title = QLabel("Cài đặt AI")
+    lbl_title.setObjectName("h1")
+    hdr.addWidget(lbl_title)
+    hdr.addStretch()
 
-    # OpenAI API key
-    lbl_openai = QLabel(_t("ai.settings.openai", "OpenAI API Key (GPT — ưu tiên 2):"))
-    lbl_openai.setObjectName("lbl")
-    openai_root.addWidget(lbl_openai)
+    if is_ai_available():
+        _st = f"\u2713 Đang dùng: {get_active_provider()}"
+        _ss = (f"color:{badge_ok_txt};background:{badge_ok};"
+               "border-radius:8px;padding:5px 14px;font-size:12px;font-weight:700;")
+    else:
+        _st = "\u26a0 Chưa cấu hình AI"
+        _ss = (f"color:{badge_warn_txt};background:{badge_warn};"
+               "border-radius:8px;padding:5px 14px;font-size:12px;font-weight:700;")
 
-    edit_openai = QLineEdit()
-    edit_openai.setPlaceholderText("sk-…")
-    edit_openai.setEchoMode(QLineEdit.EchoMode.Password)
-    edit_openai.setText(os.environ.get("OPENAI_API_KEY", ""))
-    openai_root.addWidget(edit_openai)
+    lbl_status = QLabel(_st)
+    lbl_status.setStyleSheet(_ss)
+    hdr.addWidget(lbl_status)
+    right_lay.addLayout(hdr)
+    right_lay.addSpacing(4)
 
-    hint_openai = QLabel(_t("ai.settings.openai_hint", "Lấy key tại: platform.openai.com"))
-    hint_openai.setObjectName("hint")
-    openai_root.addWidget(hint_openai)
-    _add_key_test(openai_root, edit_openai, "OpenAI")
+    lbl_sub = QLabel("Chọn nhà cung cấp AI ở bên trái và nhập thông tin API của bạn.")
+    lbl_sub.setStyleSheet(f"color:{text_hint};font-size:12px;")
+    right_lay.addWidget(lbl_sub)
+    right_lay.addSpacing(18)
 
-    # Gemini
-    lbl_gemini = QLabel(_t("ai.settings.gemini", "Google Gemini API Key:"))
-    lbl_gemini.setObjectName("lbl")
-    gemini_root.addWidget(lbl_gemini)
+    div0 = QFrame(); div0.setObjectName("divider"); div0.setFixedHeight(1)
+    right_lay.addWidget(div0)
+    right_lay.addSpacing(14)
 
-    edit_gemini = QLineEdit()
-    edit_gemini.setPlaceholderText("AIza...")
-    edit_gemini.setEchoMode(QLineEdit.EchoMode.Password)
-    edit_gemini.setText(os.environ.get("GEMINI_API_KEY", ""))
-    gemini_root.addWidget(edit_gemini)
+    lbl_page_name = QLabel("Anthropic Claude")
+    lbl_page_name.setObjectName("h2")
+    right_lay.addWidget(lbl_page_name)
+    right_lay.addSpacing(10)
 
-    hint_gemini = QLabel(_t("ai.settings.gemini_hint", "Lấy key tại: ai.google.dev"))
-    hint_gemini.setObjectName("hint")
-    gemini_root.addWidget(hint_gemini)
-    _add_key_test(gemini_root, edit_gemini, "Gemini")
+    # Stacked pages
+    stack = QStackedWidget()
+    right_lay.addWidget(stack, 1)
 
-    # Groq
-    lbl_groq = QLabel(_t("ai.settings.groq", "Groq API Key:"))
-    lbl_groq.setObjectName("lbl")
-    other_root.addWidget(lbl_groq)
+    def _page(fields):
+        """fields = [(label, placeholder, env_key, echo_bool, hint)]"""
+        pg = QWidget()
+        ly = QVBoxLayout(pg)
+        ly.setContentsMargins(0, 0, 0, 0)
+        ly.setSpacing(6)
+        eds = {}
+        for lbl_txt, ph, ekey, echo, hint in fields:
+            lbl = QLabel(lbl_txt); lbl.setObjectName("lbl"); ly.addWidget(lbl)
+            ed = QLineEdit()
+            ed.setPlaceholderText(ph)
+            if echo:
+                ed.setEchoMode(QLineEdit.EchoMode.Password)
+            ed.setText(os.environ.get(ekey, ""))
+            ly.addWidget(ed)
+            eds[ekey] = ed
+            if hint:
+                h = QLabel(hint); h.setObjectName("hint"); h.setWordWrap(True); ly.addWidget(h)
+            ly.addSpacing(4)
+        ly.addStretch()
+        return pg, eds
 
-    edit_groq_key = QLineEdit()
-    edit_groq_key.setPlaceholderText("gsk_...")
-    edit_groq_key.setEchoMode(QLineEdit.EchoMode.Password)
-    edit_groq_key.setText(os.environ.get("GROQ_API_KEY", ""))
-    other_root.addWidget(edit_groq_key)
+    pg_claude, ed_claude = _page([
+        ("API Key", "sk-ant-…", "ANTHROPIC_API_KEY", True,
+         "Lấy key tại console.anthropic.com → API Keys")])
+    pg_openai, ed_openai = _page([
+        ("API Key", "sk-…", "OPENAI_API_KEY", True,
+         "Lấy key tại platform.openai.com → API keys")])
+    pg_gemini, ed_gemini = _page([
+        ("API Key", "AIza…", "GEMINI_API_KEY", True,
+         "Lấy key tại aistudio.google.com → Get API key")])
+    pg_groq, ed_groq = _page([
+        ("API Key", "gsk_…", "GROQ_API_KEY", True, "Lấy key tại console.groq.com"),
+        ("Model", "llama3-70b-8192", "GROQ_MODEL", False, "Mặc định: llama3-70b-8192"),
+        ("Base URL (tuỳ chọn)", "https://api.groq.com/openai/v1", "GROQ_BASE_URL", False, ""),
+    ])
+    pg_or, ed_or = _page([
+        ("API Key", "sk-or-…", "OPENROUTER_API_KEY", True, "Lấy key tại openrouter.ai → Keys"),
+        ("Model", "openai/gpt-4o", "OPENROUTER_MODEL", False,
+         "Ví dụ: openai/gpt-4o, anthropic/claude-3-haiku"),
+        ("Base URL (tuỳ chọn)", "https://openrouter.ai/api/v1", "OPENROUTER_BASE_URL", False, ""),
+        ("HTTP Referer (tuỳ chọn)", "https://yoursite.com", "OPENROUTER_HTTP_REFERER", False, ""),
+        ("App Name (tuỳ chọn)", "3T Reader", "OPENROUTER_APP_NAME", False, ""),
+    ])
+    pg_hf, ed_hf = _page([
+        ("HuggingFace Token", "hf_…", "HF_API_KEY", True,
+         "Lấy token tại huggingface.co → Settings → Access Tokens"),
+        ("Model ID", "meta-llama/Meta-Llama-3-8B-Instruct", "HF_MODEL", False, ""),
+    ])
 
-    row_groq = QHBoxLayout(); row_groq.setSpacing(8)
-    edit_groq_model = QLineEdit()
-    edit_groq_model.setPlaceholderText("llama-3.3-70b-versatile")
-    edit_groq_model.setText(os.environ.get("GROQ_MODEL", ""))
-    row_groq.addWidget(edit_groq_model, 1)
-    edit_groq_base = QLineEdit()
-    edit_groq_base.setPlaceholderText("https://api.groq.com/openai/v1")
-    edit_groq_base.setText(os.environ.get("GROQ_BASE_URL", ""))
-    row_groq.addWidget(edit_groq_base, 1)
-    other_root.addLayout(row_groq)
+    # Ollama page (special)
+    pg_ol = QWidget()
+    ly_ol = QVBoxLayout(pg_ol)
+    ly_ol.setContentsMargins(0, 0, 0, 0); ly_ol.setSpacing(6)
+    lb_url = QLabel("URL Ollama server"); lb_url.setObjectName("lbl"); ly_ol.addWidget(lb_url)
+    row_url = QHBoxLayout()
+    ed_ol_url = QLineEdit()
+    ed_ol_url.setPlaceholderText("http://localhost:11434")
+    ed_ol_url.setText(os.environ.get("OLLAMA_BASE_URL", ""))
+    row_url.addWidget(ed_ol_url, 1)
+    btn_test_ol = QPushButton("Kiểm tra"); btn_test_ol.setObjectName("btn_test")
+    btn_test_ol.setFixedWidth(90)
+    ol_ok = is_ollama_available()
+    lbl_ol_st = QLabel("\U0001f7e2 Kết nối" if ol_ok else "\U0001f534 Không kết nối")
+    lbl_ol_st.setStyleSheet(f"font-size:12px;color:{'#22c55e' if ol_ok else '#ef4444'};")
+    def _test_ol():
+        u = ed_ol_url.text().strip()
+        if u: os.environ["OLLAMA_BASE_URL"] = u
+        from packages.ai.provider import is_ollama_available as _chk
+        ok = _chk()
+        lbl_ol_st.setText("\U0001f7e2 Kết nối" if ok else "\U0001f534 Không kết nối")
+        lbl_ol_st.setStyleSheet(f"font-size:12px;color:{'#22c55e' if ok else '#ef4444'};")
+    btn_test_ol.clicked.connect(_test_ol)
+    row_url.addWidget(btn_test_ol); row_url.addWidget(lbl_ol_st)
+    ly_ol.addLayout(row_url)
+    lb_mdl = QLabel("Model Ollama"); lb_mdl.setObjectName("lbl"); ly_ol.addWidget(lb_mdl)
+    ed_ol_mdl = QLineEdit()
+    ed_ol_mdl.setPlaceholderText("llama3")
+    ed_ol_mdl.setText(os.environ.get("OLLAMA_MODEL", ""))
+    ly_ol.addWidget(ed_ol_mdl)
+    h_ol = QLabel("Cài Ollama tại ollama.com \u2192 Chạy: ollama pull llama3 \u2192 App tự nhận khi khởi động")
+    h_ol.setObjectName("hint"); h_ol.setWordWrap(True); ly_ol.addWidget(h_ol)
+    ly_ol.addStretch()
+    ed_ollama = {"OLLAMA_BASE_URL": ed_ol_url, "OLLAMA_MODEL": ed_ol_mdl}
 
-    hint_groq = QLabel(_t("ai.settings.groq_hint", "Groq dùng OpenAI-compatible API, có thể đổi model/base URL nếu cần."))
-    hint_groq.setObjectName("hint")
-    other_root.addWidget(hint_groq)
-    _add_key_test(other_root, edit_groq_key, "Groq", model_field=edit_groq_model)
+    all_pages = [pg_claude, pg_openai, pg_gemini, pg_groq, pg_or, pg_hf, pg_ol]
+    all_edits = [ed_claude, ed_openai, ed_gemini, ed_groq, ed_or, ed_hf, ed_ollama]
+    for pg in all_pages:
+        stack.addWidget(pg)
 
-    # OpenRouter
-    lbl_openrouter = QLabel(_t("ai.settings.openrouter", "OpenRouter API Key:"))
-    lbl_openrouter.setObjectName("lbl")
-    other_root.addWidget(lbl_openrouter)
+    # ─── Card selection logic ────────────────────────────────────
+    def _switch(idx):
+        if idx < 0: return
+        stack.setCurrentIndex(idx)
+        pid, icon, name, _ = providers[idx]
+        lbl_page_name.setText(f"{icon}  {name}")
+        for i, (pid2, _, _, _) in enumerate(providers):
+            _, card = card_refs[pid2]
+            sel = (i == idx)
+            card.setStyleSheet(
+                f"QWidget#pcard{{background:{card_sel if sel else card_bg};"
+                f"border:1.5px solid {card_sel_bor if sel else card_bor};"
+                "border-radius:10px;}}")
 
-    edit_openrouter_key = QLineEdit()
-    edit_openrouter_key.setPlaceholderText("sk-or-v1-...")
-    edit_openrouter_key.setEchoMode(QLineEdit.EchoMode.Password)
-    edit_openrouter_key.setText(os.environ.get("OPENROUTER_API_KEY", ""))
-    other_root.addWidget(edit_openrouter_key)
+    list_w.currentRowChanged.connect(_switch)
+    init_idx = prov_ids.index(env_prov) if env_prov in prov_ids else 0
+    list_w.setCurrentRow(init_idx)
 
-    row_openrouter = QHBoxLayout(); row_openrouter.setSpacing(8)
-    edit_openrouter_model = QLineEdit()
-    edit_openrouter_model.setPlaceholderText("openai/gpt-4o-mini")
-    edit_openrouter_model.setText(os.environ.get("OPENROUTER_MODEL", ""))
-    row_openrouter.addWidget(edit_openrouter_model, 1)
-    edit_openrouter_base = QLineEdit()
-    edit_openrouter_base.setPlaceholderText("https://openrouter.ai/api/v1")
-    edit_openrouter_base.setText(os.environ.get("OPENROUTER_BASE_URL", ""))
-    row_openrouter.addWidget(edit_openrouter_base, 1)
-    other_root.addLayout(row_openrouter)
-
-    row_openrouter_meta = QHBoxLayout(); row_openrouter_meta.setSpacing(8)
-    edit_openrouter_ref = QLineEdit()
-    edit_openrouter_ref.setPlaceholderText("HTTP-Referer")
-    edit_openrouter_ref.setText(os.environ.get("OPENROUTER_HTTP_REFERER", ""))
-    row_openrouter_meta.addWidget(edit_openrouter_ref, 1)
-    edit_openrouter_name = QLineEdit()
-    edit_openrouter_name.setPlaceholderText("X-Title")
-    edit_openrouter_name.setText(os.environ.get("OPENROUTER_APP_NAME", ""))
-    row_openrouter_meta.addWidget(edit_openrouter_name, 1)
-    other_root.addLayout(row_openrouter_meta)
-
-    hint_openrouter = QLabel(_t("ai.settings.openrouter_hint", "OpenRouter cần key + model; nên giữ referer/app name để tránh bị chặn."))
-    hint_openrouter.setObjectName("hint")
-    other_root.addWidget(hint_openrouter)
-    _add_key_test(other_root, edit_openrouter_key, "OpenRouter", model_field=edit_openrouter_model)
-
-    # HuggingFace
-    lbl_hf = QLabel(_t("ai.settings.hf", "HuggingFace API Token:"))
-    lbl_hf.setObjectName("lbl")
-    other_root.addWidget(lbl_hf)
-
-    edit_hf_key = QLineEdit()
-    edit_hf_key.setPlaceholderText("hf_...")
-    edit_hf_key.setEchoMode(QLineEdit.EchoMode.Password)
-    edit_hf_key.setText(os.environ.get("HF_API_KEY", ""))
-    other_root.addWidget(edit_hf_key)
-
-    row_hf = QHBoxLayout(); row_hf.setSpacing(8)
-    edit_hf_model = QLineEdit()
-    edit_hf_model.setPlaceholderText("Qwen/Qwen2.5-7B-Instruct")
-    edit_hf_model.setText(os.environ.get("HF_MODEL", ""))
-    row_hf.addWidget(edit_hf_model, 1)
-    other_root.addLayout(row_hf)
-
-    hint_hf = QLabel(_t("ai.settings.hf_hint", "HuggingFace Inference API có thể dùng khi cần thêm fallback miễn phí."))
-    hint_hf.setObjectName("hint")
-    other_root.addWidget(hint_hf)
-    _add_key_test(other_root, edit_hf_key, "HuggingFace", model_field=edit_hf_model)
-
-    div2 = QFrame(); div2.setObjectName("divider"); div2.setFixedHeight(1)
-    other_root.addStretch(1)
-
-    # Ollama (offline local LLM)
-    lbl_ollama = QLabel(_t("ai.settings.ollama", "Ollama — AI offline/nội bộ (ưu tiên 3, không cần internet):"))
-    lbl_ollama.setObjectName("lbl")
-    ollama_root.addWidget(lbl_ollama)
-
-    row_ollama = QHBoxLayout(); row_ollama.setSpacing(8)
-    edit_ollama_url = QLineEdit()
-    edit_ollama_url.setPlaceholderText("http://localhost:11434")
-    edit_ollama_url.setText(os.environ.get("OLLAMA_BASE_URL", ""))
-    row_ollama.addWidget(edit_ollama_url, 1)
-
-    btn_test_ollama = QPushButton(_t("ai.settings.ollama_test", "Kiểm tra"))
-    btn_test_ollama.setObjectName("btn_test")
-
-    ollama_ok = is_ollama_available()
-    _ollama_status_color = "#166534" if ollama_ok else "#64748B"
-    _ollama_status_text  = _t("ai.settings.ollama_running", "Đang chạy") if ollama_ok else _t("ai.settings.ollama_down", "Không kết nối")
-    lbl_ollama_status = QLabel(_ollama_status_text)
-    lbl_ollama_status.setStyleSheet(f"color:{_ollama_status_color};font-size:11px;min-width:90px;")
-
-    def _test_ollama():
-        from packages.ai.provider import is_ollama_available as _check
-        url = edit_ollama_url.text().strip()
-        if url:
-            os.environ["OLLAMA_BASE_URL"] = url
-        ok = _check()
-        if ok:
-            lbl_ollama_status.setText(_t("ai.settings.ollama_running", "Đang chạy"))
-            lbl_ollama_status.setStyleSheet("color:#166534;font-size:11px;")
-        else:
-            lbl_ollama_status.setText(_t("ai.settings.ollama_down", "Không kết nối"))
-            lbl_ollama_status.setStyleSheet("color:#B91C1C;font-size:11px;")
-
-    btn_test_ollama.clicked.connect(_test_ollama)
-    row_ollama.addWidget(btn_test_ollama)
-    row_ollama.addWidget(lbl_ollama_status)
-    ollama_root.addLayout(row_ollama)
-
-    lbl_ollama_model = QLabel(_t("ai.settings.ollama_model", "Model Ollama:"))
-    lbl_ollama_model.setObjectName("lbl")
-    ollama_root.addWidget(lbl_ollama_model)
-
-    edit_ollama_model = QLineEdit()
-    edit_ollama_model.setPlaceholderText("llama3")
-    edit_ollama_model.setText(os.environ.get("OLLAMA_MODEL", ""))
-    ollama_root.addWidget(edit_ollama_model)
-
-    hint_ollama = QLabel(_t("ai.settings.ollama_hint", "Cài Ollama tại ollama.com  •  Gõ: ollama pull llama3  •  Tự động phát hiện khi khởi động app"))
-    hint_ollama.setObjectName("hint")
-    ollama_root.addWidget(hint_ollama)
-
-    div3 = QFrame(); div3.setObjectName("divider"); div3.setFixedHeight(1)
-    root.addWidget(div3)
+    # ─── Bottom bar ──────────────────────────────────────────────
+    right_lay.addSpacing(16)
+    div_bot = QFrame(); div_bot.setObjectName("divider"); div_bot.setFixedHeight(1)
+    right_lay.addWidget(div_bot)
+    right_lay.addSpacing(12)
 
     btn_row = QHBoxLayout(); btn_row.setSpacing(10)
-
-    btn_reset = QPushButton(_t("ai.settings.reset", "Xóa cấu hình AI local"))
-    btn_reset.setObjectName("btn_test")
-    btn_reset.setToolTip(_t("ai.settings.reset_tip", "Xóa toàn bộ key/cấu hình AI đã lưu trên máy này."))
-
-    btn_cancel = QPushButton(_t("dialog.cancel", "Hủy"))
-    btn_cancel.clicked.connect(dlg.reject)
-
-    btn_save = QPushButton(_t("ai.settings.save", "Lưu"))
+    btn_reset  = QPushButton("\U0001f5d1  Xoá cấu hình AI")
+    btn_reset.setObjectName("btn_danger")
+    btn_cancel = QPushButton("Huỷ")
+    btn_save   = QPushButton("\U0001f4be  Lưu cài đặt")
     btn_save.setObjectName("btn_save")
 
-    def _reset_local_ai_config():
+    def _reset_all():
         from packages.qt_compat.QtWidgets import QMessageBox
         from packages.platform import get_app_data_dir
-
-        reply = QMessageBox.question(
-            dlg,
-            _t("ai.settings.reset", "Xóa cấu hình AI local"),
-            _t("ai.settings.reset_tip", "Xóa toàn bộ cấu hình AI đã lưu trên máy này?\nThao tác này chỉ ảnh hưởng máy hiện tại."),
+        reply = QMessageBox.question(dlg, "Xoá cấu hình AI",
+            "Xoá toàn bộ API key và cấu hình AI đã lưu trên máy này?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
+            QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes: return
         try:
-            import json
-            config_path = os.path.join(get_app_data_dir(), "ai_config.json")
-            if os.path.exists(config_path):
-                os.remove(config_path)
-        except Exception:
-            pass
-
-        for key in (
-            "ANTHROPIC_API_KEY",
-            "OPENAI_API_KEY",
-            "GEMINI_API_KEY",
-            "GROQ_API_KEY",
-            "GROQ_MODEL",
-            "GROQ_BASE_URL",
-            "OPENROUTER_API_KEY",
-            "OPENROUTER_MODEL",
-            "OPENROUTER_BASE_URL",
-            "OPENROUTER_HTTP_REFERER",
-            "OPENROUTER_APP_NAME",
-            "HF_API_KEY",
-            "HF_MODEL",
-            "OLLAMA_BASE_URL",
-            "OLLAMA_MODEL",
-            "AI_PROVIDER",
-        ):
+            cfg = os.path.join(get_app_data_dir(), "ai_config.json")
+            if os.path.exists(cfg): os.remove(cfg)
+        except Exception: pass
+        for key in ("ANTHROPIC_API_KEY","OPENAI_API_KEY","GEMINI_API_KEY","GROQ_API_KEY",
+                    "GROQ_MODEL","GROQ_BASE_URL","OPENROUTER_API_KEY","OPENROUTER_MODEL",
+                    "OPENROUTER_BASE_URL","OPENROUTER_HTTP_REFERER","OPENROUTER_APP_NAME",
+                    "HF_API_KEY","HF_MODEL","OLLAMA_BASE_URL","OLLAMA_MODEL","AI_PROVIDER"):
             os.environ.pop(key, None)
-
-        lbl_status.setText(_t("ai.settings.status.none", "Trạng thái: Chưa cấu hình AI."))
-        lbl_status.setStyleSheet("color:#b45309;font-size:12px;")
-        edit_anthropic.clear()
-        edit_openai.clear()
-        edit_gemini.clear()
-        edit_groq_key.clear()
-        edit_groq_model.clear()
-        edit_groq_base.clear()
-        edit_openrouter_key.clear()
-        edit_openrouter_model.clear()
-        edit_openrouter_base.clear()
-        edit_openrouter_ref.clear()
-        edit_openrouter_name.clear()
-        edit_hf_key.clear()
-        edit_hf_model.clear()
-        edit_ollama_url.clear()
-        edit_ollama_model.clear()
-        combo_provider.setCurrentIndex(0)
-
-    btn_reset.clicked.connect(_reset_local_ai_config)
+        for em in all_edits:
+            for ed in em.values(): ed.clear()
+        lbl_status.setText("\u26a0 Chưa cấu hình AI")
+        lbl_status.setStyleSheet(
+            f"color:{badge_warn_txt};background:{badge_warn};"
+            "border-radius:8px;padding:5px 14px;font-size:12px;font-weight:700;")
 
     def _save():
-        ai_provider  = combo_provider.currentData() or "auto"
-        anthropic_key = edit_anthropic.text().strip()
-        openai_key    = edit_openai.text().strip()
-        gemini_key    = edit_gemini.text().strip()
-        groq_key      = edit_groq_key.text().strip()
-        groq_model    = edit_groq_model.text().strip()
-        groq_base     = edit_groq_base.text().strip()
-        openrouter_key = edit_openrouter_key.text().strip()
-        openrouter_model = edit_openrouter_model.text().strip()
-        openrouter_base = edit_openrouter_base.text().strip()
-        openrouter_ref  = edit_openrouter_ref.text().strip()
-        openrouter_name = edit_openrouter_name.text().strip()
-        hf_key        = edit_hf_key.text().strip()
-        hf_model      = edit_hf_model.text().strip()
-        ollama_url    = edit_ollama_url.text().strip()
-        ollama_model  = edit_ollama_model.text().strip()
-
-        def _set_env(key: str, value: str) -> None:
-            if value:
-                os.environ[key] = value
-            else:
-                os.environ.pop(key, None)
-
-        for key, value in {
-            "ANTHROPIC_API_KEY": anthropic_key,
-            "OPENAI_API_KEY": openai_key,
-            "GEMINI_API_KEY": gemini_key,
-            "GROQ_API_KEY": groq_key,
-            "GROQ_MODEL": groq_model,
-            "GROQ_BASE_URL": groq_base,
-            "OPENROUTER_API_KEY": openrouter_key,
-            "OPENROUTER_MODEL": openrouter_model,
-            "OPENROUTER_BASE_URL": openrouter_base,
-            "OPENROUTER_HTTP_REFERER": openrouter_ref,
-            "OPENROUTER_APP_NAME": openrouter_name,
-            "HF_API_KEY": hf_key,
-            "HF_MODEL": hf_model,
-            "OLLAMA_BASE_URL": ollama_url,
-            "OLLAMA_MODEL": ollama_model,
-        }.items():
-            _set_env(key, value)
-
-        os.environ["AI_PROVIDER"] = ai_provider
-
+        all_env = {}
+        for em in all_edits:
+            for ekey, ed in em.items():
+                all_env[ekey] = ed.text().strip()
+        all_env["AI_PROVIDER"] = prov_ids[list_w.currentRow()]
+        for k, v in all_env.items():
+            if v: os.environ[k] = v
+            else: os.environ.pop(k, None)
         _persist_api_keys(
-            anthropic_key,
-            openai_key,
-            gemini_key,
-            groq_key,
-            groq_model,
-            groq_base,
-            openrouter_key,
-            openrouter_model,
-            openrouter_base,
-            openrouter_ref,
-            openrouter_name,
-            hf_key,
-            hf_model,
-            ollama_url,
-            ollama_model,
-            ai_provider,
+            all_env.get("ANTHROPIC_API_KEY",""), all_env.get("OPENAI_API_KEY",""),
+            all_env.get("GEMINI_API_KEY",""),    all_env.get("GROQ_API_KEY",""),
+            all_env.get("GROQ_MODEL",""),         all_env.get("GROQ_BASE_URL",""),
+            all_env.get("OPENROUTER_API_KEY",""), all_env.get("OPENROUTER_MODEL",""),
+            all_env.get("OPENROUTER_BASE_URL",""),all_env.get("OPENROUTER_HTTP_REFERER",""),
+            all_env.get("OPENROUTER_APP_NAME",""),all_env.get("HF_API_KEY",""),
+            all_env.get("HF_MODEL",""),           all_env.get("OLLAMA_BASE_URL",""),
+            all_env.get("OLLAMA_MODEL",""),       all_env.get("AI_PROVIDER","auto"),
         )
-
-        from packages.ai.provider import is_ai_available, get_active_provider
-        if is_ai_available():
-            lbl_status.setText(_t("ai.settings.saved_status", "Đã lưu. Đang dùng: {provider}").format(provider=get_active_provider()))
-            lbl_status.setStyleSheet("color:#166534;font-size:12px;")
+        from packages.ai.provider import is_ai_available as _chk, get_active_provider as _prov
+        if _chk():
+            lbl_status.setText(f"\u2713 Đang dùng: {_prov()}")
+            lbl_status.setStyleSheet(
+                f"color:{badge_ok_txt};background:{badge_ok};"
+                "border-radius:8px;padding:5px 14px;font-size:12px;font-weight:700;")
         else:
-            lbl_status.setText(_t("ai.settings.deleted_status", "Đã xóa cấu hình AI."))
-            lbl_status.setStyleSheet("color:#b45309;font-size:12px;")
-
+            lbl_status.setText("\u26a0 Chưa cấu hình AI")
+            lbl_status.setStyleSheet(
+                f"color:{badge_warn_txt};background:{badge_warn};"
+                "border-radius:8px;padding:5px 14px;font-size:12px;font-weight:700;")
         orig = btn_save.text()
-        btn_save.setText(_t("ai.settings.saved", "Đã lưu!"))
+        btn_save.setText("\u2705  Đã lưu!")
         QTimer.singleShot(1500, lambda: btn_save.setText(orig))
 
+    btn_reset.clicked.connect(_reset_all)
+    btn_cancel.clicked.connect(dlg.reject)
     btn_save.clicked.connect(_save)
-
     btn_row.addWidget(btn_cancel)
     btn_row.addWidget(btn_reset)
     btn_row.addStretch()
     btn_row.addWidget(btn_save)
-    root.addLayout(btn_row)
+    right_lay.addLayout(btn_row)
 
+    main_layout.addWidget(right_w, 1)
     dlg.exec()
 
 

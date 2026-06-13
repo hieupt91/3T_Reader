@@ -646,9 +646,15 @@ async def sign_pdf_with_session(
         
         burn_input_path = input_path
         stamp_pdf = os.path.join(tempfile.gettempdir(), "3t_reader_last_stamp.pdf")
-        if os.path.exists(stamp_pdf):
+        if stamp_pdf and os.path.exists(stamp_pdf):
             try:
-                doc = fitz.open(input_path)
+                import fitz, shutil
+                burn_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+                burn_tmp.close()
+                burn_input_path = burn_tmp.name
+                shutil.copy2(input_path, burn_input_path)
+                
+                doc = fitz.open(burn_input_path)
                 page = doc[page_number - 1]
                 x0 = box[0]
                 y0 = page.rect.height - box[3]
@@ -659,10 +665,7 @@ async def sign_pdf_with_session(
                 page.show_pdf_page(rect, stamp_doc, 0, overlay=True)
                 stamp_doc.close()
                 
-                burn_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-                burn_tmp.close()
-                burn_input_path = burn_tmp.name
-                doc.save(burn_input_path)
+                doc.save(doc.name, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
                 doc.close()
             except Exception as e:
                 open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burn error: {e}\n")
@@ -676,9 +679,9 @@ async def sign_pdf_with_session(
             validation_context = None
             if enable_ltv:
                 from pyhanko.sign.validation import ValidationContext
-                from pyhanko.network.requests import RequestsFetcher
-                fetcher = RequestsFetcher()
-                validation_context = ValidationContext(fetcher=fetcher)
+                from pyhanko_certvalidator.fetchers.requests_fetchers import RequestsFetcherBackend
+                
+                validation_context = ValidationContext(fetcher_backend=RequestsFetcherBackend())
                 
             meta = PdfSignatureMetadata(
                 field_name=target_field_name,
@@ -694,14 +697,24 @@ async def sign_pdf_with_session(
                 from pyhanko.sign.timestamps import HTTPTimeStamper
                 timestamper = HTTPTimeStamper(url=tsa_url)
                 
+            pyhanko_box = None
+            if box and not field_name:
+                try:
+                    import fitz
+                    with fitz.open(burn_input_path) as tmp_doc:
+                        ph = tmp_doc[page_number - 1].rect.height
+                    pyhanko_box = (box[0], ph - box[3], box[2], ph - box[1])
+                except Exception:
+                    pass
+            from pyhanko.stamp import NoOpStampStyle
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer_obj,
-                stamp_style=None,
+                stamp_style=NoOpStampStyle(),
                 timestamper=timestamper,
                 new_field_spec=None if field_name else fields.SigFieldSpec(
                     sig_field_name=target_field_name,
-                    box=None,
+                    box=pyhanko_box,
                     on_page=max(0, page_number - 1),
                 ),
             )
@@ -793,9 +806,15 @@ async def sign_pdf_with_pkcs12(
         
         burn_input_path = input_path
         stamp_pdf = os.path.join(tempfile.gettempdir(), "3t_reader_last_stamp.pdf")
-        if os.path.exists(stamp_pdf):
+        if stamp_pdf and os.path.exists(stamp_pdf):
             try:
-                doc = fitz.open(input_path)
+                import fitz, shutil
+                burn_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+                burn_tmp.close()
+                burn_input_path = burn_tmp.name
+                shutil.copy2(input_path, burn_input_path)
+                
+                doc = fitz.open(burn_input_path)
                 page = doc[page_number - 1]
                 x0 = box[0]
                 y0 = page.rect.height - box[3]
@@ -806,10 +825,7 @@ async def sign_pdf_with_pkcs12(
                 page.show_pdf_page(rect, stamp_doc, 0, overlay=True)
                 stamp_doc.close()
                 
-                burn_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-                burn_tmp.close()
-                burn_input_path = burn_tmp.name
-                doc.save(burn_input_path)
+                doc.save(doc.name, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
                 doc.close()
             except Exception as e:
                 open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burn error: {e}\n")
@@ -823,9 +839,9 @@ async def sign_pdf_with_pkcs12(
             validation_context = None
             if enable_ltv:
                 from pyhanko.sign.validation import ValidationContext
-                from pyhanko.network.requests import RequestsFetcher
-                fetcher = RequestsFetcher()
-                validation_context = ValidationContext(fetcher=fetcher)
+                from pyhanko_certvalidator.fetchers.requests_fetchers import RequestsFetcherBackend
+                
+                validation_context = ValidationContext(fetcher_backend=RequestsFetcherBackend())
                 
             meta = PdfSignatureMetadata(
                 field_name=target_field_name,
@@ -836,13 +852,23 @@ async def sign_pdf_with_pkcs12(
                 validation_context=validation_context,
                 embed_validation_info=enable_ltv,
             )
+            pyhanko_box = None
+            if box and not field_name:
+                try:
+                    import fitz
+                    with fitz.open(burn_input_path) as tmp_doc:
+                        ph = tmp_doc[page_number - 1].rect.height
+                    pyhanko_box = (box[0], ph - box[3], box[2], ph - box[1])
+                except Exception:
+                    pass
+            from pyhanko.stamp import NoOpStampStyle
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer,
-                stamp_style=None,
+                stamp_style=NoOpStampStyle(),
                 new_field_spec=None if field_name else fields.SigFieldSpec(
                     sig_field_name=target_field_name,
-                    box=None,
+                    box=pyhanko_box,
                     on_page=max(0, page_number - 1),
                 ),
             )
