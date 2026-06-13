@@ -24,6 +24,16 @@ if len(sys.argv) >= 3 and sys.argv[1] == "--usb-sign-worker":
 
     sys.exit(_usb_sign_worker_main(sys.argv[2:]))
 
+if len(sys.argv) >= 3 and sys.argv[1] == "--pkcs11-probe-token":
+    from packages.signing.windows_provider import probe_driver_for_token_worker_main
+
+    sys.exit(probe_driver_for_token_worker_main(sys.argv[2:]))
+
+if len(sys.argv) >= 3 and sys.argv[1] == "--pkcs11-list-tokens":
+    from packages.signing.windows_provider import probe_driver_tokens_worker_main
+
+    sys.exit(probe_driver_tokens_worker_main(sys.argv[2:]))
+
 _crash_log_handle = None
 
 
@@ -61,8 +71,25 @@ def _install_crash_logging() -> None:
 # Chỉ cho phép 1 cửa sổ app chạy tại một thời điểm
 # ================================================================
 from packages.platform import acquire_single_instance
+from packages.platform.single_instance import send_paths_to_running_instance
+
+def _startup_pdf_paths(argv: list[str]) -> list[str]:
+    """Return PDF paths passed by file association / command line."""
+    paths: list[str] = []
+    for arg in argv[1:]:
+        if not arg or arg.startswith("-"):
+            continue
+        path = os.path.abspath(os.path.expanduser(arg.strip('"')))
+        if path.lower().endswith(".pdf") and os.path.isfile(path):
+            paths.append(path)
+    return paths
+
+
+_startup_pdf_paths_value = _startup_pdf_paths(sys.argv)
 
 if not acquire_single_instance():
+    if _startup_pdf_paths_value:
+        send_paths_to_running_instance(_startup_pdf_paths_value)
     sys.exit(0)
 
 # ================================================================
@@ -74,17 +101,6 @@ from packages.qt_compat.QtCore import QLocale, QLibraryInfo, QTranslator, Qt
 from app.window import PDFReaderApp
 from app.config import APP_NAME
 from styles.theme import apply_theme
-
-
-def _startup_pdf_path(argv: list[str]) -> str | None:
-    """Return the first PDF path passed by file association / command line."""
-    for arg in argv[1:]:
-        if not arg or arg.startswith("-"):
-            continue
-        path = os.path.abspath(os.path.expanduser(arg.strip('"')))
-        if path.lower().endswith(".pdf") and os.path.isfile(path):
-            return path
-    return None
 
 if __name__ == "__main__":
     _install_crash_logging()
@@ -126,21 +142,25 @@ if __name__ == "__main__":
     app.setWindowIcon(app_logo_icon(256))
 
     window = PDFReaderApp()
-    startup_pdf = _startup_pdf_path(sys.argv)
+    startup_pdfs = list(_startup_pdf_paths_value)
     window.show()
 
     from packages.qt_compat.QtCore import QTimer
     from app.license_dialog import check_license_on_startup
+    from packages.platform.single_instance import start_single_instance_server
+
+    start_single_instance_server(window.open_external_files)
 
     def _finish_startup():
         if not check_license_on_startup(window):
             window.close()
             app.quit()
             return
-        if startup_pdf:
+        if startup_pdfs:
             from app.actions.file import open_file
 
-            QTimer.singleShot(0, lambda p=startup_pdf: open_file(window, p))
+            for path in startup_pdfs:
+                QTimer.singleShot(0, lambda p=path: open_file(window, p))
 
     QTimer.singleShot(0, _finish_startup)
     sys.exit(app.exec())

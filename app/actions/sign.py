@@ -1,3 +1,8 @@
+import base64
+import json
+import os
+# USB PIN CACHE
+_cached_usb_pin = ""
 import asyncio
 import json
 import os
@@ -229,6 +234,32 @@ def _token_info_payload(token_info) -> dict[str, object]:
     }
 
 
+
+def _get_tsa_url() -> str | None:
+    try:
+        cfg_path = os.path.expanduser("~/.3t_reader/signing_config.json")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+            tsa_mode = cfg.get("tsa_mode")
+            saved_url = cfg.get("tsa_url", "")
+            if not tsa_mode:
+                if saved_url == "http://tsa.3tcompany.vn":
+                    tsa_mode = "server"
+                elif saved_url:
+                    tsa_mode = "custom"
+                else:
+                    tsa_mode = "system"
+            
+            if tsa_mode == "system":
+                return None
+            elif tsa_mode == "server":
+                return "http://tsa.3tcompany.vn"
+            else:
+                return saved_url or None
+    except Exception:
+        return None
+
+
 def _run_usb_signing_subprocess(
     token_info,
     input_path: str,
@@ -242,6 +273,7 @@ def _run_usb_signing_subprocess(
     reason: str | None = None,
     location: str | None = None,
     contact_info: str | None = None,
+    tsa_url: str | None = None,
 ) -> None:
     payload = {
         "token": _token_info_payload(token_info),
@@ -255,6 +287,7 @@ def _run_usb_signing_subprocess(
         "reason": reason or "",
         "location": location or "",
         "contact_info": contact_info or "",
+        "tsa_url": tsa_url or "",
     }
 
     payload_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w", encoding="utf-8")
@@ -395,12 +428,35 @@ def _build_stamp_preview_html(
         lines.append(f"Serial: {serial}")
     lines.append("Trạng thái: Hợp lệ; tài liệu chưa bị sửa")
 
+    img_path = ""
+    img_mode = "left"
+    try:
+        cfg_path = os.path.expanduser("~/.3t_reader/signing_config.json")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+            img_path = cfg.get("signature_image_path", "")
+            img_mode = cfg.get("signature_image_mode", "left")
+    except Exception as e:
+        print("CFG ERR:", e)
+        pass
+    
+    b64_img = ""
+    if img_path and os.path.exists(img_path):
+        try:
+            with open(img_path, "rb") as f:
+                b64_img = base64.b64encode(f.read()).decode("utf-8")
+        except Exception as e:
+            print("IMG ERR:", e)
+            pass
+    else:
+        print("IMG PATH NOT FOUND:", img_path)
+
     html_lines = []
     for i, line in enumerate(lines):
         esc = _esc(line)
         if i == 0:
             html_lines.append(f'<div style="font-weight:700;color:#052e51;margin-bottom:2px">{esc}</div>')
-        elif line.startswith("Trạng thái:"):
+        elif line.startswith("Trạng thái:") or line.startswith("Tr"):
             html_lines.append(f'<div style="color:#166534">{esc}</div>')
         elif ":" in line:
             label, value = line.split(":", 1)
@@ -411,7 +467,7 @@ def _build_stamp_preview_html(
         else:
             html_lines.append(f'<div style="color:#0f172a">{esc}</div>')
 
-    return (
+    text_content = (
         '<div style="font-family:Arial,Segoe UI,sans-serif;'
         'width:100%;height:100%;padding:8px;box-sizing:border-box;'
         'overflow:hidden;line-height:1.2;text-align:left;'
@@ -420,6 +476,18 @@ def _build_stamp_preview_html(
         + "".join(html_lines)
         + "</div>"
     )
+
+    if b64_img:
+        img_mime = "image/jpeg" if img_path.lower().endswith(('.jpg', '.jpeg')) else "image/png"
+        img_tag = f'<img src="data:{img_mime};base64,{b64_img}" style="max-width: 100%; max-height: 100%; object-fit: contain;" />'
+        if img_mode == "only":
+            return f'<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">{img_tag}</div>'
+        elif img_mode == "bg":
+            return f'<div style="position: relative; width: 100%; height: 100%;"><div style="position: absolute; inset: 0; opacity: 0.3; display: flex; align-items: center; justify-content: center; pointer-events: none;">{img_tag}</div><div style="position: relative; z-index: 1; width: 100%; height: 100%;">{text_content}</div></div>'
+        else: # left
+            return f'<div style="display: flex; flex-direction: row; align-items: center; width: 100%; height: 100%; gap: 10px; background:rgba(255,255,255,.86); box-sizing:border-box; padding: 4px;"><div style="flex: 0 0 35%; height: 100%; display: flex; align-items: center; justify-content: center;">{img_tag}</div><div style="flex: 1; overflow: hidden; height: 100%;">{text_content}</div></div>'
+
+    return text_content
 
 
 def _format_local_timestamp(value: datetime | None = None) -> str:
@@ -1471,19 +1539,23 @@ class UnsignedSignatureSetupDialog(QDialog):
 
 
 def _sign_existing_signature_field_with_usb(window, report: dict, token_info) -> None:
+    global _cached_usb_pin
     field_name = str(report.get("selected_field_name") or report.get("clicked_field") or "").strip()
     if not field_name:
         show_warning(window, "Thiếu ô ký", "Không xác định được ô ký cần ký.")
         return
 
-    pin, ok = QInputDialog.getText(
-        window,
-        "Nhập mã PIN",
-        "PIN của USB ký số:",
-        QLineEdit.EchoMode.Password,
-    )
-    if not ok or not pin:
-        return
+    pin = _cached_usb_pin
+    if not pin:
+        pin, ok = QInputDialog.getText(
+            window,
+            "Nhập mã PIN",
+            "PIN của USB ký số:",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok or not pin:
+            return
+    _cached_usb_pin = pin
 
     default_output = f"{os.path.splitext(window.current_path)[0]}_signed.pdf"
     output_path, _ = QFileDialog.getSaveFileName(
@@ -1523,6 +1595,7 @@ def _sign_existing_signature_field_with_usb(window, report: dict, token_info) ->
                 reason=reason or None,
                 location=location or None,
                 contact_info=str(report.get("contact_info") or "").strip() or None,
+                tsa_url=_get_tsa_url(),
             ),
             status_message="Đang ký ô ký đã chọn bằng USB...",
         )
@@ -2084,6 +2157,7 @@ def sign_with_pfx(window):
 
 @require_document(show_message=True)
 def sign_document(window):
+    global _cached_usb_pin
     signing_provider = get_signing_provider()
     signer_info = _choose_signing_token(
         window,
@@ -2135,13 +2209,16 @@ def sign_document(window):
         _cleanup_signature_preview(window)
         return
 
-    pin, ok = QInputDialog.getText(
-        window, "Nhập mã PIN", "PIN của USB ký số:",
-        QLineEdit.EchoMode.Password
-    )
-    if not ok or not pin:
-        _cleanup_signature_preview(window)
-        return
+    pin = _cached_usb_pin
+    if not pin:
+        pin, ok = QInputDialog.getText(
+            window, "Nhập mã PIN", "PIN của USB ký số:",
+            QLineEdit.EchoMode.Password
+        )
+        if not ok or not pin:
+            _cleanup_signature_preview(window)
+            return
+    _cached_usb_pin = pin
 
     in_place_output = os.path.normcase(os.path.abspath(output_path)) == os.path.normcase(os.path.abspath(window.current_path))
     actual_output_path = (
@@ -2161,6 +2238,7 @@ def sign_document(window):
                 signer_name=signer_name,
                 page_number=placement["page_number"],
                 box=placement["box"],
+                tsa_url=_get_tsa_url(),
             ),
             status_message="Đang ký số tài liệu…",
         )
@@ -2223,6 +2301,7 @@ def sign_document(window):
                     exc_message = maybe_message.strip()
 
         if exc_type_name == "PinIncorrect" or "PinIncorrect" in str(type(exc)):
+            _cached_usb_pin = ""
             QMessageBox.warning(
                 window,
                 "Sai mã PIN",

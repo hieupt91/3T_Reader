@@ -238,116 +238,120 @@ def build_vietnamese_stamp_style(
     cert_serial: str | None = None,
     appearance_box: tuple[float, float, float, float] | None = None,
 ):
-    from pyhanko.pdf_utils.layout import AxisAlignment, Margins, SimpleBoxLayoutRule
-    from pyhanko.pdf_utils.content import ImportedPdfPage
-    from pyhanko.pdf_utils.text import TextBoxStyle
-    from pyhanko.stamp import TextStampStyle
+    from pyhanko.stamp import StaticStampStyle
     from packages.platform.fonts import get_vietnamese_font_path
+    import json
+    from reportlab.pdfgen import canvas
+    from reportlab.lib import colors
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.lib.utils import simpleSplit
 
     safe_name = str(signer_display_name or "").strip() or "Khong ro"
     display_tax = tax_code or _extract_tax_code_from_text(safe_name)
-
     subject = safe_name or "Khong ro"
     issuer = str(issuer_name or "").strip() or "Khong ro"
-    serial = _compact_signature_stamp_value(token_serial or cert_serial or "")
+    serial = str(token_serial or cert_serial or "").strip()
 
-    font_path = get_vietnamese_font_path(bold=False)
-    if font_path:
-        from reportlab.lib import colors
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
-        from reportlab.pdfgen import canvas
-        from reportlab.lib.utils import simpleSplit
+    box = appearance_box or (0, 0, 300, 100)
+    page_width = box[2] - box[0]
+    page_height = box[3] - box[1]
 
-        suffix = uuid.uuid4().hex[:8]
-        font_name = f"ThreeTStamp_{suffix}"
-        title_font_name = f"ThreeTStampBold_{suffix}"
+    padding_x = 4.0
+    padding_y = 4.0
+
+    img_path = ""
+    img_mode = "left"
+    try:
+        cfg_path = os.path.expanduser("~/.3t_reader/signing_config.json")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+            img_path = cfg.get("signature_image_path", "")
+            img_mode = cfg.get("signature_image_mode", "left")
+    except Exception:
+        pass
+
+    has_img = bool(img_path and os.path.exists(img_path))
+    draw_text = True
+
+    logo_size = page_height - (padding_y * 2)
+    if has_img and img_mode == "left":
+        max_text_width = page_width - padding_x * 2 - logo_size - 10
+    elif has_img and img_mode == "only":
+        max_text_width = 0
+        draw_text = False
+    else:
+        max_text_width = page_width - padding_x * 2
+
+    max_text_height = page_height - padding_y * 2
+
+    font_path = get_vietnamese_font_path()
+    title_font_path = get_vietnamese_font_path(bold=True)
+    font_name = "StampVN"
+    title_font_name = "StampVN-Bold"
+    try:
         pdfmetrics.registerFont(TTFont(font_name, font_path))
-        try:
-            pdfmetrics.registerFont(TTFont(title_font_name, get_vietnamese_font_path(bold=True) or font_path))
-        except Exception:
-            title_font_name = font_name
+        pdfmetrics.registerFont(TTFont(title_font_name, title_font_path))
+    except Exception:
+        font_name = title_font_name = "Helvetica"
 
-        padding_x = 7
-        padding_y = 6
-        if appearance_box is not None:
-            left, bottom, right, top = [float(v) for v in appearance_box]
-            page_width = max(60.0, abs(right - left))
-            page_height = max(24.0, abs(top - bottom))
-        else:
-            page_width = 260.0
-            page_height = 96.0
-
-        max_text_width = max(40.0, page_width - (padding_x * 2))
-        max_text_height = max(16.0, page_height - (padding_y * 2))
-
-        compact_lines = [
-            f"Người ký: {subject}",
-            f"Thời điểm: {signed_at or 'Không rõ'}",
-        ]
-        medium_lines = [
-            f"Người ký: {subject}",
-            f"MST/CCCD: {display_tax or 'Không có'}",
-            f"Thời điểm: {signed_at or 'Không rõ'}",
-        ]
-        medium_status_lines = [
-            f"Người ký: {subject}",
-            f"MST/CCCD: {display_tax or 'Không có'}",
-            f"Thời điểm: {signed_at or 'Không rõ'}",
-            "Trạng thái: Hợp lệ; tài liệu chưa bị sửa",
-        ]
+    if draw_text:
         full_lines = [
-            f"Người ký: {subject}",
-            f"Đơn vị CA: {issuer}",
-            f"MST/CCCD: {display_tax or 'Không có'}",
-            f"Thời điểm: {signed_at or 'Không rõ'}",
+            "Người ký: " + subject,
+            "Đơn vị CA: " + issuer,
+            "MST/CCCD: " + (display_tax or "Không có"),
+            "Thời điểm: " + (signed_at or "Không rõ"),
         ]
         if serial:
-            full_lines.append(f"Serial: {serial}")
+            full_lines.append("Serial: " + serial)
         full_lines.append("Trạng thái: Hợp lệ; tài liệu chưa bị sửa")
-        line_sets = [full_lines, medium_status_lines, medium_lines, compact_lines]
 
-        # Scale title and body font sizes proportionally with the box.
-        # For a ~96pt tall box the title is ~8.5pt; for a ~200pt box it goes to ~14pt.
         title_size = max(6.5, min(18.0, page_height / 7.4))
-        body_lines: list[str] = []
+        body_lines = []
         font_size = 6.0
         leading = 7.0
-        # Build candidate sizes from the box, ranging from a proportional max
-        # down to a small minimum so the text always fits.
-        _max_body = max(7.8, min(24.0, page_height / 8.0, page_width / 18.0))
-        sizes = tuple(
-            round(s, 1) for s in
-            [_max_body - i * 0.4 for i in range(int((_max_body - 5.0) / 0.4) + 1)]
-            if s >= 5.0
-        ) or (7.8, 7.4, 7.0, 6.6, 6.2, 5.8, 5.4)
-        for raw_lines in line_sets:
-            for size in sizes:
-                candidate_lines: list[str] = []
-                candidate_leading = max(size + 0.9, size * 1.16)
-                for raw_line in raw_lines:
-                    candidate_lines.extend(simpleSplit(raw_line, font_name, size, max_text_width) or [raw_line])
-                block_height = title_size + 2.0 + len(candidate_lines) * candidate_leading
-                if candidate_lines and block_height <= max_text_height:
-                    body_lines = candidate_lines
-                    font_size = size
-                    leading = candidate_leading
-                    break
-            if body_lines:
+
+        _max_body = max(7.8, min(24.0, page_height / 8.0, max_text_width / 18.0 if max_text_width > 0 else 10))
+        sizes = tuple(round(s, 1) for s in [_max_body - i * 0.4 for i in range(int((_max_body - 5.0) / 0.4) + 1)] if s >= 5.0) or (7.8, 7.4, 7.0, 6.6, 6.2, 5.8, 5.4)
+
+        for size in sizes:
+            candidate_lines = []
+            candidate_leading = max(size + 0.9, size * 1.16)
+            for raw_line in full_lines:
+                candidate_lines.extend(simpleSplit(raw_line, font_name, size, max_text_width) or [raw_line])
+            block_height = title_size + 2.0 + len(candidate_lines) * candidate_leading
+            if candidate_lines and block_height <= max_text_height:
+                body_lines = candidate_lines
+                font_size = size
+                leading = candidate_leading
                 break
-        if not body_lines:
-            font_size = 5.0
-            leading = 5.9
-            for raw_line in compact_lines:
-                body_lines.extend(simpleSplit(raw_line, font_name, font_size, max_text_width) or [raw_line])
-            max_body_lines = max(1, int((max_text_height - title_size - 2.0) // leading))
-            body_lines = body_lines[:max_body_lines]
 
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        tmp_path = tmp.name
-        tmp.close()
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    tmp_path = tmp.name
+    tmp.close()
 
-        c = canvas.Canvas(tmp_path, pagesize=(page_width, page_height))
+    c = canvas.Canvas(tmp_path, pagesize=(page_width, page_height))
+
+    if has_img:
+        try:
+            import reportlab
+            reportlab.rl_config.useA85 = 0
+            from reportlab.lib.utils import ImageReader
+            from PIL import Image
+            pil_img = Image.open(img_path).convert("RGBA")
+            img = ImageReader(pil_img)
+            # mask='auto' uses alpha channel for transparency (no white background box)
+            if img_mode == "only":
+                c.drawImage(img, padding_x, padding_y, width=page_width - (padding_x * 2), height=page_height - (padding_y * 2), preserveAspectRatio=True, mask='auto')
+            elif img_mode == "bg":
+                c.drawImage(img, padding_x, padding_y, width=page_width - (padding_x * 2), height=page_height - (padding_y * 2), preserveAspectRatio=True, mask='auto')
+            else:  # "left"
+                c.drawImage(img, padding_x, padding_y, width=logo_size, height=logo_size, preserveAspectRatio=True, mask='auto')
+                padding_x += logo_size + 10
+        except Exception as e:
+            open("error_log.txt", "a").write(f"Image draw err: {e}\n")
+
+    if draw_text:
         content_height = title_size + 2.0 + len(body_lines) * leading
         y = page_height - padding_y - max(0.0, (max_text_height - content_height) / 2.0) - title_size
         c.setFillColor(colors.HexColor("#052e51"))
@@ -358,13 +362,13 @@ def build_vietnamese_stamp_style(
             if y < padding_y:
                 break
             text = str(line)
-            if text.startswith("Trạng thái:"):
+            if "Trạng thái" in text:
                 c.setFillColor(colors.HexColor("#166534"))
                 c.setFont(font_name, font_size)
                 c.drawString(padding_x, y, text)
             elif ":" in text:
                 label, value = text.split(":", 1)
-                label_text = f"{label.strip()}: "
+                label_text = label.strip() + ": "
                 c.setFillColor(colors.HexColor("#475569"))
                 c.setFont(title_font_name, font_size)
                 c.drawString(padding_x, y, label_text)
@@ -377,34 +381,27 @@ def build_vietnamese_stamp_style(
                 c.setFont(font_name, font_size)
                 c.drawString(padding_x, y, text)
             y -= leading
-        c.save()
+    c.save()
 
-        background = _TemporaryImportedPdfPage(tmp_path)
-        stamp_text = " "
-        background_opacity = 1.0
-    else:
-        background = None
-        stamp_text = " "
-        background_opacity = 0.0
+    # Save the stamp PDF path so the burn step can use show_pdf_page (transparent vector)
+    out_stamp_pdf = os.path.join(tempfile.gettempdir(), "3t_reader_last_stamp.pdf")
+    try:
+        if os.path.exists(out_stamp_pdf):
+            os.remove(out_stamp_pdf)
+    except OSError:
+        pass
+    try:
+        import shutil
+        shutil.copy2(tmp_path, out_stamp_pdf)
+    except Exception as e:
+        open("error_log.txt", "a").write(f"Stamp copy error: {e}\n")
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
 
-    layout_rule = SimpleBoxLayoutRule(
-        x_align=AxisAlignment.ALIGN_MIN,
-        y_align=AxisAlignment.ALIGN_MIN,
-        margins=Margins(left=4, right=4, top=4, bottom=4),
-    )
-    return TextStampStyle(
-        stamp_text=stamp_text,
-        background=background,
-        background_opacity=background_opacity,
-        border_width=0,
-        text_box_style=TextBoxStyle(
-            font_size=7,
-            leading=9,
-            border_width=0,
-            box_layout_rule=layout_rule,
-        ),
-    )
-
+    return StaticStampStyle(background=None, border_width=0)
 
 def _compact_signature_stamp_value(value: object, *, head: int = 12, tail: int = 8, limit: int = 28) -> str:
     text = str(value or "").strip()
@@ -591,6 +588,7 @@ async def sign_pdf_with_session(
     reason: str | None = None,
     location: str | None = None,
     contact_info: str | None = None,
+    tsa_url: str | None = None,
 ) -> None:
     """Core pyHanko signing - OS-agnostic. Caller manages the PKCS#11 session."""
     from datetime import datetime
@@ -635,7 +633,36 @@ async def sign_pdf_with_session(
             cert_serial=cert_serial,
             appearance_box=box,
         )
-        with open(input_path, "rb") as f:
+        import fitz
+        
+        burn_input_path = input_path
+        stamp_pdf = os.path.join(tempfile.gettempdir(), "3t_reader_last_stamp.pdf")
+        if os.path.exists(stamp_pdf):
+            try:
+                doc = fitz.open(input_path)
+                page = doc[page_number - 1]
+                x0 = box[0]
+                y0 = page.rect.height - box[3]
+                x1 = box[2]
+                y1 = page.rect.height - box[1]
+                rect = fitz.Rect(x0, y0, x1, y1)
+                stamp_doc = fitz.open(stamp_pdf)
+                page.show_pdf_page(rect, stamp_doc, 0, overlay=True)
+                stamp_doc.close()
+                
+                burn_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+                burn_tmp.close()
+                burn_input_path = burn_tmp.name
+                doc.save(burn_input_path)
+                doc.close()
+            except Exception as e:
+                open("error_log.txt", "a").write(f"Burn error: {e}\n")
+                burn_input_path = input_path
+            open("error_log.txt", "a").write(f"Burned successfully to {burn_input_path}\n")
+        else:
+            open("error_log.txt", "a").write(f"Stamp PDF not found at {stamp_pdf}\n")
+
+        with open(burn_input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
             meta = PdfSignatureMetadata(
                 field_name=target_field_name,
@@ -644,13 +671,19 @@ async def sign_pdf_with_session(
                 location=(location or "").strip() or None,
                 contact_info=(contact_info or "").strip() or None,
             )
+            timestamper = None
+            if tsa_url:
+                from pyhanko.sign.timestamps import HTTPTimeStamper
+                timestamper = HTTPTimeStamper(url=tsa_url)
+                
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer_obj,
-                stamp_style=stamp_style,
+                stamp_style=None,
+                timestamper=timestamper,
                 new_field_spec=None if field_name else fields.SigFieldSpec(
                     sig_field_name=target_field_name,
-                    box=box,
+                    box=None,
                     on_page=max(0, page_number - 1),
                 ),
             )
@@ -737,7 +770,36 @@ async def sign_pdf_with_pkcs12(
             cert_serial=cert_serial,
             appearance_box=box,
         )
-        with open(input_path, "rb") as f:
+        import fitz
+        
+        burn_input_path = input_path
+        stamp_pdf = os.path.join(tempfile.gettempdir(), "3t_reader_last_stamp.pdf")
+        if os.path.exists(stamp_pdf):
+            try:
+                doc = fitz.open(input_path)
+                page = doc[page_number - 1]
+                x0 = box[0]
+                y0 = page.rect.height - box[3]
+                x1 = box[2]
+                y1 = page.rect.height - box[1]
+                rect = fitz.Rect(x0, y0, x1, y1)
+                stamp_doc = fitz.open(stamp_pdf)
+                page.show_pdf_page(rect, stamp_doc, 0, overlay=True)
+                stamp_doc.close()
+                
+                burn_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+                burn_tmp.close()
+                burn_input_path = burn_tmp.name
+                doc.save(burn_input_path)
+                doc.close()
+            except Exception as e:
+                open("error_log.txt", "a").write(f"Burn error: {e}\n")
+                burn_input_path = input_path
+            open("error_log.txt", "a").write(f"Burned successfully to {burn_input_path}\n")
+        else:
+            open("error_log.txt", "a").write(f"Stamp PDF not found at {stamp_pdf}\n")
+
+        with open(burn_input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
             meta = PdfSignatureMetadata(
                 field_name=target_field_name,
@@ -749,10 +811,10 @@ async def sign_pdf_with_pkcs12(
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer,
-                stamp_style=stamp_style,
+                stamp_style=None,
                 new_field_spec=None if field_name else fields.SigFieldSpec(
                     sig_field_name=target_field_name,
-                    box=box,
+                    box=None,
                     on_page=max(0, page_number - 1),
                 ),
             )
@@ -892,7 +954,9 @@ def validate_signed_pdf_status(path: str, field_name: str | None = None) -> dict
             revoked = False
             if intact and valid:
                 try:
-                    status = asyncio.run(async_validate_pdf_signature(embedded_sig))
+                    from pyhanko_certvalidator import ValidationContext
+                    vc = ValidationContext(trust_roots=[], allow_fetching=False)
+                    status = asyncio.run(async_validate_pdf_signature(embedded_sig, signer_validation_context=vc))
                     trusted = bool(getattr(status, "trusted", False))
                     revoked = bool(getattr(status, "revoked", False))
                 except Exception as exc:

@@ -404,7 +404,8 @@ class LocalPDFJSServer:
             "&disableAutoFetch=true"
             "&disableRange=false"
             "&rangeChunkSize=1048576"
-            "&annotationMode=1"
+            "&annotationMode=2"
+            "&renderInteractiveForms=true"
         )
         url = f"http://127.0.0.1:{self._port}/web/viewer.html?{viewer_opts}#page={page}"
         if zoom:
@@ -603,11 +604,26 @@ def _normalise_pdfjs_appearance_boxes(pdf_path: str, original_data: bytes) -> by
                 if not annots:
                     continue
                 kept_annots = []
-                for annot in annots:
+                for annot_idx, annot in enumerate(annots):
                     annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
                     if _is_signature_widget(annot_obj):
-                        if (overlay := _signature_overlay_from_annot(annot_obj)) is not None:
-                            signature_overlays.setdefault(page_index, []).append(overlay)
+                        is_signed = annot_obj.get("/V") is not None
+                        if not is_signed:
+                            parent = annot_obj.get("/Parent")
+                            parent_obj = parent.get_object() if hasattr(parent, "get_object") else parent
+                            if parent_obj is not None:
+                                is_signed = parent_obj.get("/V") is not None
+
+                        painted = False
+                        if is_signed:
+                            # Try to paint the REAL appearance stream first so we don't lose red stamps/original visuals
+                            painted = _paint_signature_widget_appearance(pdf, page, annot_obj, f"SigAP_{page_index}_{annot_idx}")
+                        
+                        # Only fallback to synthetic overlay if there is no real visual appearance, or if it's unsigned
+                        if not painted:
+                            if (overlay := _signature_overlay_from_annot(annot_obj)) is not None:
+                                signature_overlays.setdefault(page_index, []).append(overlay)
+                        
                         removed_signature_widgets += 1
                         changed = True
                         continue
@@ -1287,10 +1303,10 @@ def _build_signature_display_overlay(width: float, height: float, overlays: list
 
         c.saveState()
         stroke = colors.HexColor("#0b84f3") if signed else colors.HexColor("#64748b")
-        c.setFillColor(colors.Color(1, 1, 1, alpha=0.92))
+        c.setFillColor(colors.Color(1, 1, 1, alpha=0.0))
         c.setStrokeColor(stroke)
         c.setLineWidth(0.65)
-        c.roundRect(left, bottom, box_width, box_height, 3, fill=1, stroke=1)
+        c.roundRect(left, bottom, box_width, box_height, 3, fill=0, stroke=1)
 
         title_size = max(6.5, min(18.0, box_height / 7.4))
         font_size, leading, wrapped_lines = _fit_lines(lines, box_width, box_height)
@@ -1546,8 +1562,8 @@ def _build_signature_display_overlay_bitmap(width: float, height: float, overlay
             continue
 
         stroke = (11, 132, 243, 235) if signed else (100, 116, 139, 220)
-        fill = (255, 255, 255, 232)
-        draw.rounded_rectangle([x0, y0, x1, y1], radius=3, fill=fill, outline=stroke, width=1)
+        fill = (255, 255, 255, 0)
+        draw.rounded_rectangle([x0, y0, x1, y1], radius=3, fill=None, outline=stroke, width=1)
 
         title_color = (5, 46, 81, 255)
         label_color = (71, 85, 105, 255)

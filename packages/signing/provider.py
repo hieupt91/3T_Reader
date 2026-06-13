@@ -48,5 +48,6 @@ class SigningProvider(Protocol):
         reason: str | None = None,
         location: str | None = None,
         contact_info: str | None = None,
+        tsa_url: str | None = None,
     ) -> None:
         ...

@@ -260,11 +260,14 @@ class RibbonPanel(QWidget):
 
 class RibbonBar(QWidget):
     tab_changed = Signal(int)
+    TABROW_H = 32
     PANEL_H = 72
+    EXPANDED_H = TABROW_H + PANEL_H
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(self.EXPANDED_H)
         self._collapsed = False
         self._current_tab = -1
         self._tabs: list[QToolButton] = []
@@ -279,7 +282,7 @@ class RibbonBar(QWidget):
 
         # Hàng tab
         self._tabrow = QWidget()
-        self._tabrow.setFixedHeight(32)
+        self._tabrow.setFixedHeight(self.TABROW_H)
         self._tabrow.setStyleSheet(_S["tabrow"])
         tab_layout = QHBoxLayout(self._tabrow)
         tab_layout.setContentsMargins(0, 0, 0, 0)
@@ -329,6 +332,12 @@ class RibbonBar(QWidget):
         self._pc_layout = pc_layout
 
         root.addWidget(self._panel_container)
+
+    def sizeHint(self):
+        return QSize(900, self.TABROW_H if self._collapsed else self.EXPANDED_H)
+
+    def minimumSizeHint(self):
+        return QSize(420, self.TABROW_H if self._collapsed else self.EXPANDED_H)
 
     # ── Public API ────────────────────────────────────────────────────────
 

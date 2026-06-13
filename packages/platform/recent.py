@@ -6,7 +6,7 @@ import os
 from .paths import get_app_data_dir
 
 RECENT_FILE = os.path.join(get_app_data_dir(), "recent_files.json")
-MAX_RECENT = 5
+MAX_RECENT = 12
 
 
 def _recent_path() -> str:

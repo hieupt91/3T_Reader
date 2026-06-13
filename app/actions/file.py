@@ -3,9 +3,65 @@ import tempfile
 import uuid
 
 from packages.qt_compat.QtWidgets import QFileDialog, QMenu, QInputDialog, QLineEdit
+from packages.qt_compat.QtCore import QStandardPaths, QUrl
 from packages.platform.recent import load_recent, save_recent, clear_recent
 from app.dialogs import show_warning
 from packages.pdf_engine import get_pdf_engine
+
+
+def _existing_dir(path: str | None) -> str:
+    if not path:
+        return ""
+    if os.path.isfile(path):
+        path = os.path.dirname(path)
+    return path if os.path.isdir(path) else ""
+
+
+def _default_open_dir(window) -> str:
+    current_dir = _existing_dir(getattr(window, "current_path", None))
+    if current_dir:
+        return current_dir
+
+    for recent_path in load_recent():
+        recent_dir = _existing_dir(recent_path if isinstance(recent_path, str) else "")
+        if recent_dir:
+            return recent_dir
+
+    for location in (
+        QStandardPaths.StandardLocation.DocumentsLocation,
+        QStandardPaths.StandardLocation.DesktopLocation,
+        QStandardPaths.StandardLocation.DownloadLocation,
+        QStandardPaths.StandardLocation.HomeLocation,
+    ):
+        for path in QStandardPaths.standardLocations(location):
+            if os.path.isdir(path):
+                return path
+    return ""
+
+
+def _sidebar_urls(window) -> list[QUrl]:
+    paths: list[str] = []
+
+    def add(path: str | None) -> None:
+        folder = _existing_dir(path)
+        if folder and folder not in paths:
+            paths.append(folder)
+
+    add(getattr(window, "current_path", None))
+    for recent_path in load_recent():
+        if isinstance(recent_path, str):
+            add(recent_path)
+
+    for location in (
+        QStandardPaths.StandardLocation.DesktopLocation,
+        QStandardPaths.StandardLocation.DocumentsLocation,
+        QStandardPaths.StandardLocation.DownloadLocation,
+        QStandardPaths.StandardLocation.HomeLocation,
+    ):
+        for path in QStandardPaths.standardLocations(location):
+            add(path)
+
+    return [QUrl.fromLocalFile(path) for path in paths]
 
 
 def _pick_pdf_file(window):
@@ -13,15 +69,20 @@ def _pick_pdf_file(window):
     dialog = QFileDialog(window)
     dialog.setWindowTitle("Chọn tệp PDF")
     dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
-    dialog.setNameFilter("Tệp PDF (*.pdf)")
+    dialog.setNameFilters(["Tệp PDF (*.pdf)", "Tất cả tệp (*)"])
+    default_dir = _default_open_dir(window)
+    if default_dir:
+        dialog.setDirectory(default_dir)
+    sidebar_urls = _sidebar_urls(window)
+    if sidebar_urls:
+        dialog.setSidebarUrls(sidebar_urls)
 
-    if sys.platform == "darwin":
-        # macOS: use native dialog — lets the OS handle directory access
-        # and security-scoped bookmarks properly. Non-native dialog blocks
-        # navigation to Documents, Desktop, external drives on macOS.
+    if sys.platform in {"darwin", "win32"}:
+        # Native dialogs expose the OS locations users expect: Quick Access,
+        # This PC, Desktop/Documents/Downloads, external drives and network.
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, False)
     else:
-        # Windows/Linux: non-native dialog with Vietnamese labels
+        # Linux: non-native dialog with Vietnamese labels.
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
         dialog.setLabelText(QFileDialog.DialogLabel.LookIn, "Tìm trong")
         dialog.setLabelText(QFileDialog.DialogLabel.FileName, "Tên tệp")

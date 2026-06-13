@@ -11,6 +11,7 @@ from packages.qt_compat.QtGui import QDesktopServices
 from packages.qt_compat.QtSvgWidgets import QSvgWidget
 from packages.platform.recent import load_recent
 from app.version import APP_VERSION
+from app.icon_utils import svg_icon
 
 _ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 _ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -138,25 +139,26 @@ class WelcomeWidget(QWidget):
 
         # Feature cards
         features = [
-            ("📖", "Đọc PDF mượt mà",    "Hỗ trợ file lớn, xem toàn trang"),
-            ("✏️", "Chỉnh sửa trực tiếp", "Chèn text, ảnh, vẽ, tô sáng"),
-            ("🔏", "Ký số USB Token",     "Viettel CA, VNPT CA, FPT CA"),
-            ("🔒", "Bảo mật cao",         "Mã hoá, che nội dung nhạy cảm"),
+            ("folder_open.svg", "#60A5FA", "Đọc PDF mượt mà", "Hỗ trợ file lớn, xem toàn trang"),
+            ("edit_object.svg", "#FF6B3D", "Chỉnh sửa trực tiếp", "Chèn text, ảnh, vẽ, tô sáng"),
+            ("usb.svg", "#F59E0B", "Ký số USB Token", "Viettel CA, VNPT CA, FPT CA"),
+            ("signature_check.svg", "#F59E0B", "Bảo mật cao", "Mã hoá, che nội dung nhạy cảm"),
         ]
         pills_row = QHBoxLayout()
         pills_row.setSpacing(16)
         pills_row.addStretch()
-        for icon, title_txt, desc in features:
+        for icon_file, icon_color, title_txt, desc in features:
             card = QFrame()
-            card.setFixedWidth(158)
+            card.setFixedSize(164, 96)
             self._cards.append(card)
             card_layout = QVBoxLayout(card)
-            card_layout.setSpacing(6)
-            card_layout.setContentsMargins(12, 14, 12, 14)
+            card_layout.setSpacing(4)
+            card_layout.setContentsMargins(12, 10, 12, 10)
 
-            icon_lbl = QLabel(icon)
+            icon_lbl = QLabel()
+            icon_lbl.setPixmap(svg_icon(icon_file, size=24, color=icon_color).pixmap(QSize(24, 24)))
             icon_lbl.setStyleSheet(
-                "font-size:26px; background:transparent; border:none;"
+                "background:transparent; border:none;"
             )
             icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             card_layout.addWidget(icon_lbl)
@@ -164,12 +166,14 @@ class WelcomeWidget(QWidget):
             title_lbl = QLabel(title_txt)
             title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             title_lbl.setWordWrap(True)
+            title_lbl.setFixedHeight(28)
             self._card_title_labels.append(title_lbl)
             card_layout.addWidget(title_lbl)
 
             desc_lbl = QLabel(desc)
             desc_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             desc_lbl.setWordWrap(True)
+            desc_lbl.setFixedHeight(28)
             self._card_desc_labels.append(desc_lbl)
             card_layout.addWidget(desc_lbl)
 

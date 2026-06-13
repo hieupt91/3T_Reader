@@ -5,16 +5,16 @@ import sys
 from pathlib import Path
 
 _WINDOWS_CANDIDATES = [
-    "tahoma.ttf",
     "arial.ttf",
     "segoeui.ttf",
+    "tahoma.ttf",
     "times.ttf",
 ]
 
 _WINDOWS_BOLD_CANDIDATES = [
     "arialbd.ttf",
-    "tahomabd.ttf",
     "segoeuib.ttf",
+    "tahomabd.ttf",
     "tahoma.ttf",   # fallback to regular if bold variant missing
     "arial.ttf",
     "segoeui.ttf",

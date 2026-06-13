@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 
 from .credential_manager import credential_manager_load, credential_manager_save
@@ -55,35 +57,40 @@ def _keychain_save(data: dict) -> None:
 
 
 def _file_load() -> dict:
-    import os
-
-    path = _trial_file_path()
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    for path in (_trial_file_path(), _fallback_trial_file_path()):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            continue
+    return {}
 
 
 def _file_save(data: dict) -> None:
-    import os
-
-    path = _trial_file_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = f"{path}.tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f)
-    os.replace(tmp, path)
+    for path in (_trial_file_path(), _fallback_trial_file_path()):
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = f"{path}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            continue
+        except OSError:
+            continue
 
 
 def _trial_file_path() -> str:
-    import os
-
     if sys.platform == "win32":
         base = os.environ.get("APPDATA", os.path.expanduser("~"))
     else:
         base = os.path.expanduser("~/.config")
     return os.path.join(base, "3TReader", ".trial")
+
+
+def _fallback_trial_file_path() -> str:
+    return os.path.join(tempfile.gettempdir(), "3TReader", ".trial")
 
 
 def _merge_trial_data(*items: dict) -> dict:

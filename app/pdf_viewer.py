@@ -161,6 +161,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
     find_not_found = pyqtSignal(str)   # emitted with the query when PDF.js reports notFound
     page_count_ready = pyqtSignal(int, str, int, str)  # token, path, page_count, error
     signature_clicked = pyqtSignal(int, str)
+    context_menu_requested = pyqtSignal(QtCore.QPoint)
 
     def __init__(self, preset: str | None = None, parent=None):
         super().__init__(parent)
@@ -173,6 +174,8 @@ class PDFViewerWidget(QtWidgets.QWidget):
         self._load_token = 0
 
         self._web_view = QtWebEngineWidgets.QWebEngineView(self)
+        self._web_view.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+        self._web_view.customContextMenuRequested.connect(self.context_menu_requested)
         self._web_view.setPage(_DebugPage(self._web_view))
         self._page_state_bridge = _PageStateBridge(self)
         self._page_state_bridge.stateChanged.connect(self._on_bridge_page_state)

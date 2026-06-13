@@ -44,6 +44,7 @@ def run_job(payload: dict) -> dict[str, object]:
             reason=str(payload.get("reason") or "") or None,
             location=str(payload.get("location") or "") or None,
             contact_info=str(payload.get("contact_info") or "") or None,
+            tsa_url=str(payload.get("tsa_url") or "") or None,
         )
 
     asyncio.run(_do_sign())

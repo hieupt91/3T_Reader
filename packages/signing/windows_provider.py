@@ -7,6 +7,7 @@ import re
 import struct
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from .provider import TokenInfo
@@ -630,6 +631,10 @@ class WindowsPkcs11Provider:
     def __init__(self) -> None:
         self._last_error: str = ""
         self._selected_token: TokenInfo | None = None
+        self._tokens_cache: list[TokenInfo] = []
+        self._tokens_cache_error: str = ""
+        self._tokens_cache_until: float = 0.0
+        self._tokens_cache_ttl_seconds: float = 8.0
 
     def get_last_error(self) -> str:
         return self._last_error
@@ -644,6 +649,11 @@ class WindowsPkcs11Provider:
         return None
 
     def list_tokens(self, pin: str | None = None) -> list[TokenInfo]:
+        now = time.monotonic()
+        if now < self._tokens_cache_until:
+            self._last_error = self._tokens_cache_error
+            return list(self._tokens_cache)
+
         self._last_error = ""
         errors: list[str] = []
         tokens: list[TokenInfo] = []
@@ -657,7 +667,7 @@ class WindowsPkcs11Provider:
                 token_payloads, detail = _probe_driver_tokens(path)
                 if token_payloads:
                     tokens.extend(_token_info_from_payload(path, payload) for payload in token_payloads)
-                    continue
+                    # Do not break here, so we can find tokens from other drivers as well
                 if detail:
                     raise RuntimeError(detail)
             except Exception as exc:
@@ -677,10 +687,18 @@ class WindowsPkcs11Provider:
             if errors
             else "Khong tim thay thu vien PKCS#11 phu hop trong he thong."
         )
+        self._tokens_cache = list(tokens)
+        self._tokens_cache_error = self._last_error
+        self._tokens_cache_until = now + self._tokens_cache_ttl_seconds
         return tokens
 
     def select_token(self, token_info: TokenInfo | None) -> None:
         self._selected_token = token_info
+
+    def invalidate_token_cache(self) -> None:
+        self._tokens_cache = []
+        self._tokens_cache_error = ""
+        self._tokens_cache_until = 0.0
 
     def _tokens_from_driver(self, lib_path: str, *, pin: str | None = None) -> list[TokenInfo]:
         import pkcs11 as p11
@@ -772,6 +790,7 @@ class WindowsPkcs11Provider:
         reason: str | None = None,
         location: str | None = None,
         contact_info: str | None = None,
+        tsa_url: str | None = None,
     ) -> None:
         import pkcs11 as p11
 
@@ -805,6 +824,7 @@ class WindowsPkcs11Provider:
                 reason=reason,
                 location=location,
                 contact_info=contact_info,
+                tsa_url=tsa_url,
             )
         finally:
             if session is not None:

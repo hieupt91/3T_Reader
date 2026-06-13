@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import gc
 import json
@@ -243,6 +243,8 @@ class _TokenPresenceWorker(QObject):
 
 
 class PDFReaderApp(QMainWindow):
+    external_files_requested = pyqtSignal(list)
+
     def __init__(self):
         super().__init__()
         self._language_code = get_selected_language()
@@ -276,6 +278,7 @@ class PDFReaderApp(QMainWindow):
         }
 
         self.setAcceptDrops(True)
+        self.external_files_requested.connect(self._open_external_files_on_ui_thread)
 
         self._build_tab_host()
 
@@ -336,6 +339,11 @@ class PDFReaderApp(QMainWindow):
         self.setCentralWidget(self.tab_widget)
         self._show_welcome_tab()
 
+    def _update_tab_bar_visibility(self):
+        tab_bar = self.tab_widget.tabBar()
+        show_tabs = self._active_state() is not None or self.tab_widget.count() > 1
+        tab_bar.setVisible(show_tabs)
+
     def _show_welcome_tab(self):
         from app.welcome_widget import WelcomeWidget
         from app.actions.file import open_file, show_recent_menu
@@ -347,6 +355,7 @@ class PDFReaderApp(QMainWindow):
         )
         idx = self.tab_widget.addTab(self._welcome_tab, "Trang chủ")
         self.tab_widget.tabBar().setTabButton(idx, self.tab_widget.tabBar().ButtonPosition.RightSide, None)
+        self._update_tab_bar_visibility()
         # Ẩn sidebar khi ở trang chủ
         QTimer.singleShot(0, self._hide_sidebars_for_welcome)
 
@@ -365,6 +374,7 @@ class PDFReaderApp(QMainWindow):
         if idx >= 0:
             self.tab_widget.removeTab(idx)
         self._welcome_tab = None
+        self._update_tab_bar_visibility()
 
     # ------------------------------------------------------------------ #
     #  State helpers                                                       #
@@ -444,6 +454,7 @@ class PDFReaderApp(QMainWindow):
         title = os.path.basename(state["display_path"]) if state["display_path"] else "PDF"
         index = self.tab_widget.addTab(tab, title)
         self.tab_widget.setCurrentIndex(index)
+        self._update_tab_bar_visibility()
 
         self._connect_viewer_signals(viewer)
 
@@ -462,6 +473,20 @@ class PDFReaderApp(QMainWindow):
             pass
         return True
 
+    def open_external_files(self, paths: list[str]) -> None:
+        self.external_files_requested.emit(paths)
+
+    def _open_external_files_on_ui_thread(self, paths: list[str]) -> None:
+        from app.actions.file import open_file
+
+        for path in paths:
+            if isinstance(path, str) and path.lower().endswith(".pdf") and os.path.isfile(path):
+                open_file(self, path)
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
     # ------------------------------------------------------------------ #
     #  Viewer signals                                                      #
     # ------------------------------------------------------------------ #
@@ -473,6 +498,8 @@ class PDFReaderApp(QMainWindow):
         viewer.error_occurred.connect(lambda msg: self.status.showMessage(f"Cảnh báo: {msg}", 5000))
         viewer.find_not_found.connect(lambda q: show_warning(self, "Không tìm thấy", f"Không tìm thấy kết quả cho: \"{q}\""))
         viewer.signature_clicked.connect(lambda page, field, v=viewer: self._on_signature_clicked(v, page, field))
+        if hasattr(viewer, "context_menu_requested"):
+            viewer.context_menu_requested.connect(lambda pos, v=viewer: self._show_pdf_context_menu(v, pos))
         page_ready = getattr(viewer, "page_ready", None)
         if hasattr(page_ready, "connect"):
             page_ready.connect(lambda v=viewer: self._on_page_ready(v))
@@ -878,11 +905,13 @@ class PDFReaderApp(QMainWindow):
         g_sign = RibbonGroup("Chữ ký số")
         _act_token = make("USB token",  "usb.svg",  "Kiểm tra USB ký số",  None, lambda: check_token(self))
         _act_sign2 = make("Ký số",      "usb.svg",  "Ký số tài liệu",      None, lambda: sign_document(self))
+        _act_sign_settings = make("Cài đặt", "settings.svg", "Cài đặt Ký số & TSA", None, lambda: self.open_signing_settings())
         _act_sign3 = make("Ký PFX",     "file_plus.svg",    "Ký bằng file PFX/P12", None, lambda: sign_with_pfx(self))
         _act_field = make("Ô ký",       "object_plus.svg",  "Tạo ô ký số trên PDF", None, lambda: create_signature_field(self))
         _act_handw = make("Ký tay/dấu", "pen.svg",  "Chèn chữ ký tay, mẫu chữ ký hoặc con dấu PNG", None, lambda: sign_handwritten(self))
         g_sign.add(make_action_btn(_act_token, "Kiểm tra USB"))
         g_sign.add(make_action_btn(_act_sign2, "Ký số"))
+        g_sign.add(make_action_btn(_act_sign_settings, "Cài đặt"))
         g_sign.add(make_action_btn(_act_sign3, "Ký PFX"))
         g_sign.add(make_action_btn(_act_field, "Ô ký"))
         g_sign.add(make_action_btn(_act_handw, "Ký tay/dấu"))
@@ -903,6 +932,8 @@ class PDFReaderApp(QMainWindow):
 
         # ── Thêm ribbon vào toolbar ───────────────────────────────────────
         self.ribbon.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.toolbar.setMinimumHeight(self.ribbon.EXPANDED_H)
+        self.toolbar.setMaximumHeight(self.ribbon.EXPANDED_H)
         self.toolbar.addWidget(self.ribbon)
         # Áp dụng đúng theme ngay từ đầu
         self.ribbon.set_theme(is_dark())
@@ -1485,8 +1516,18 @@ class PDFReaderApp(QMainWindow):
                 report["clicked_field"] = str(field_name or "")
             if not report.get("field_signed"):
                 from app.actions.sign import UnsignedSignatureSetupDialog, _sign_existing_signature_field_with_usb
+                from packages.qt_compat.QtWidgets import QProgressDialog
+                from packages.qt_compat.QtCore import Qt, QCoreApplication
+                
+                dlg_prog = QProgressDialog("Đang quét tìm USB ký số...", None, 0, 0, self)
+                dlg_prog.setWindowTitle("Vui lòng chờ")
+                dlg_prog.setWindowModality(Qt.WindowModality.WindowModal)
+                dlg_prog.setCancelButton(None)
+                dlg_prog.show()
+                QCoreApplication.processEvents()
 
                 dlg = UnsignedSignatureSetupDialog(self, report=report)
+                dlg_prog.close()
                 if dlg.exec() == QDialog.DialogCode.Accepted:
                     _sign_existing_signature_field_with_usb(self, report, dlg._selected_token)
                 return
@@ -1584,9 +1625,28 @@ class PDFReaderApp(QMainWindow):
             self.page_label.setText(f"Trang {cur} / -")
         self.search_input.setText(state.get("search_query", ""))
 
+        def _handle_sidebar_action(action_name, page_num, v=viewer):
+            v.goto_page(page_num)
+            from app.actions.annotate import delete_current_page
+            from app.actions.document_ops import extract_pages
+            if action_name == "delete":
+                delete_current_page(self)
+            elif action_name == "insert_after":
+                pass # insert_blank_page(self)
+            elif action_name == "extract":
+                pass # TODO: call extract
+            elif action_name == "rotate":
+                pass # TODO: call rotate
+
         self.sidebar.load_thumbnails(
             state["source_path"],
             on_click=lambda page, v=viewer: v.goto_page(page),
+            context_actions={
+                "delete": lambda p: _handle_sidebar_action("delete", p),
+                "insert_after": lambda p: _handle_sidebar_action("insert_after", p),
+                "extract": lambda p: _handle_sidebar_action("extract", p),
+                "rotate": lambda p: _handle_sidebar_action("rotate", p),
+            }
         )
         self.sidebar.highlight_page(cur)
 
@@ -1663,9 +1723,12 @@ class PDFReaderApp(QMainWindow):
         tab.deleteLater()
         if self.tab_widget.count() == 0:
             self.hide_search_panel()
-            self._update_chrome_for_active_tab()
             self.toc_sidebar.clear()
             self.annotation_sidebar.clear()
+            self._show_welcome_tab()
+            self._update_chrome_for_active_tab()
+        else:
+            self._update_tab_bar_visibility()
         return True
 
     def _can_close_tab_state(self, state) -> bool:
@@ -1997,6 +2060,146 @@ class PDFReaderApp(QMainWindow):
         clear_recent()
         self.status.showMessage("Đã xóa danh sách tệp gần đây", 3000)
 
+    
+
+    def open_signing_settings(self):
+        from packages.qt_compat.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QHBoxLayout, QComboBox, QFileDialog
+        import json
+        import os
+        
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Cài đặt Ký số")
+        dlg.resize(450, 300)
+        
+        layout = QVBoxLayout(dlg)
+        
+        # TSA Settings
+        layout.addWidget(QLabel("Cấu hình Dấu Thời Gian (TSA):"))
+        tsa_mode_combo = QComboBox(dlg)
+        tsa_mode_combo.addItem("Theo hệ thống máy (Mặc định)", "system")
+        tsa_mode_combo.addItem("Theo máy chủ ứng dụng (3T Company)", "server")
+        tsa_mode_combo.addItem("Người dùng tự cấu hình", "custom")
+        layout.addWidget(tsa_mode_combo)
+        
+        url_input = QLineEdit(dlg)
+        url_input.setPlaceholderText("VD: http://tsa.gov.vn")
+        url_input.setEnabled(False)
+        layout.addWidget(url_input)
+        
+        def on_tsa_mode_changed(idx):
+            mode = tsa_mode_combo.itemData(idx)
+            if mode == "custom":
+                url_input.setEnabled(True)
+                url_input.setFocus()
+            else:
+                url_input.setEnabled(False)
+                if mode == "server":
+                    url_input.setText("http://tsa.3tcompany.vn")
+                else:
+                    url_input.setText("")
+                    
+        tsa_mode_combo.currentIndexChanged.connect(on_tsa_mode_changed)
+        
+        # Appearance Settings
+        layout.addSpacing(10)
+        layout.addWidget(QLabel("Ảnh chữ ký (Logo / Chữ ký tay):"))
+        
+        img_layout = QHBoxLayout()
+        img_input = QLineEdit(dlg)
+        img_input.setPlaceholderText("Đường dẫn file ảnh (.png, .jpg)...")
+        img_btn = QPushButton("Chọn ảnh", dlg)
+        img_layout.addWidget(img_input)
+        img_layout.addWidget(img_btn)
+        layout.addLayout(img_layout)
+        
+        def browse_img():
+            path, _ = QFileDialog.getOpenFileName(dlg, "Chọn ảnh chữ ký", "", "Images (*.png *.jpg *.jpeg)")
+            if path:
+                img_input.setText(path)
+        img_btn.clicked.connect(browse_img)
+        
+        layout.addWidget(QLabel("Kiểu hiển thị ảnh:"))
+        mode_combo = QComboBox(dlg)
+        mode_combo.addItem("Ảnh bên trái, Text bên phải", "left")
+        mode_combo.addItem("Chỉ hiển thị Ảnh (Không có Text)", "only")
+        mode_combo.addItem("Ảnh làm nền mờ (Watermark)", "bg")
+        layout.addWidget(mode_combo)
+        
+        config_path = os.path.expanduser("~/.3t_reader/signing_config.json")
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                tsa_mode = cfg.get("tsa_mode")
+                saved_url = cfg.get("tsa_url", "")
+                if not tsa_mode:
+                    if saved_url == "http://tsa.3tcompany.vn":
+                        tsa_mode = "server"
+                    elif saved_url:
+                        tsa_mode = "custom"
+                    else:
+                        tsa_mode = "system"
+                
+                idx = tsa_mode_combo.findData(tsa_mode)
+                if idx >= 0:
+                    tsa_mode_combo.setCurrentIndex(idx)
+                    
+                if tsa_mode == "custom":
+                    url_input.setText(saved_url)
+                
+                img_input.setText(cfg.get("signature_image_path", ""))
+                mode = cfg.get("signature_image_mode", "left")
+                idx_mode = mode_combo.findData(mode)
+                if idx_mode >= 0:
+                    mode_combo.setCurrentIndex(idx_mode)
+        except Exception:
+            pass
+            
+        layout.addSpacing(15)
+        btn_layout = QHBoxLayout()
+        btn_save = QPushButton("Lưu cấu hình", dlg)
+        btn_layout.addStretch()
+        btn_layout.addWidget(btn_save)
+        layout.addLayout(btn_layout)
+        
+        def save():
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            cfg = {
+                "tsa_mode": tsa_mode_combo.currentData(),
+                "tsa_url": url_input.text().strip(),
+                "signature_image_path": img_input.text().strip(),
+                "signature_image_mode": mode_combo.currentData()
+            }
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+            QMessageBox.information(dlg, "Thành công", "Đã lưu cấu hình Ký số!")
+            dlg.accept()
+            
+        btn_save.clicked.connect(save)
+        dlg.exec()
+
+    def _show_pdf_context_menu(self, viewer, pos):
+        from packages.qt_compat.QtWidgets import QMenu
+        from app.actions.sign import sign_document
+        from app.actions.edit import insert_text_to_pdf, insert_image_to_pdf
+        
+        menu = QMenu(self)
+        
+        act_sign = menu.addAction("✍️ Ký số tại vị trí này")
+        act_sign.triggered.connect(lambda: sign_document(self))
+        
+        act_text = menu.addAction("📝 Chèn văn bản tại đây")
+        act_text.triggered.connect(lambda: insert_text_to_pdf(self))
+        
+        act_img = menu.addAction("🖼️ Chèn ảnh tại đây")
+        act_img.triggered.connect(lambda: insert_image_to_pdf(self))
+        
+        menu.addSeparator()
+        
+        act_add_page = menu.addAction("📄 Thêm trang trắng phía sau")
+        # act_add_page.triggered.connect(lambda: insert_blank_page(self))
+
+        menu.exec(viewer.mapToGlobal(pos))
+
     def _show_tab_context_menu(self, pos: QPoint):
         tab_bar = self.tab_widget.tabBar()
         index   = tab_bar.tabAt(pos)
@@ -2005,6 +2208,29 @@ class PDFReaderApp(QMainWindow):
 
         self._tab_context_index = index
         menu = QMenu(self)
+
+        tab = self.tab_widget.widget(index)
+        state = self._tabs_data.get(tab)
+        source_path = state.get("source_path") if state else None
+
+        if source_path and os.path.exists(source_path):
+            act_copy = menu.addAction("Sao chép đường dẫn file")
+            from packages.qt_compat.QtWidgets import QApplication
+            act_copy.triggered.connect(lambda: QApplication.clipboard().setText(os.path.abspath(source_path)))
+
+            act_open_dir = menu.addAction("Mở thư mục chứa file")
+            def _open_explorer():
+                import subprocess
+                import sys
+                path = os.path.abspath(source_path)
+                if sys.platform == "win32":
+                    subprocess.Popen(f'explorer /select,"{path}"')
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", "-R", path])
+                else:
+                    subprocess.Popen(["xdg-open", os.path.dirname(path)])
+            act_open_dir.triggered.connect(_open_explorer)
+            menu.addSeparator()
 
         act_close = menu.addAction("Đóng tab")
         act_close.triggered.connect(lambda: self._close_tab(index))
