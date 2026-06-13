@@ -2804,3 +2804,176 @@ def verify_signed_document(window):
     report = validate_signed_pdf_status(default_path)
     dlg = SignatureStatusDialog(window, report, path=default_path)
     dlg.exec()
+
+def _run_usb_signing_batch_subprocess(
+    token_info,
+    jobs: list[dict],
+    pin: str,
+    *,
+    tsa_url: str | None = None,
+) -> None:
+    payload = {
+        "token": _token_info_payload(token_info),
+        "pin": pin,
+        "jobs": jobs,
+        "tsa_url": tsa_url or "",
+    }
+
+    payload_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w", encoding="utf-8")
+    payload_path = payload_file.name
+    try:
+        json.dump(payload, payload_file, ensure_ascii=False)
+        payload_file.close()
+
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "--usb-sign-worker", payload_path]
+        else:
+            cmd = [
+                sys.executable,
+                "-m",
+                "packages.signing.usb_worker",
+                payload_path,
+            ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.returncode != 0:
+            err_msg = result.stderr.strip() or result.stdout.strip()
+            raise RuntimeError(f"Tien trinh ky so that bai (Ma loi: {result.returncode}):\n{err_msg}")
+
+        try:
+            out_data = json.loads(result.stdout)
+        except Exception:
+            raise RuntimeError(f"Khong the phan tich ket qua tu tien trinh ky so:\n{result.stdout}")
+
+        if not out_data.get("ok"):
+            err_type = out_data.get("error_type", "Error")
+            err_msg = out_data.get("error_message", "Unknown error")
+            raise RuntimeError(f"{err_type}: {err_msg}")
+    finally:
+        try:
+            os.remove(payload_path)
+        except Exception:
+            pass
+
+
+def sign_document_batch(window):
+    if not window.current_path:
+        from packages.qt_compat.QtWidgets import QMessageBox
+        QMessageBox.warning(window, "Lỗi", "Vui lòng mở một tài liệu mẫu trước để làm căn cứ chọn vị trí ký.")
+        return
+
+    global _cached_usb_pin
+    signing_provider = get_signing_provider()
+    signer_info = _choose_signing_token(
+        window,
+        signing_provider,
+        title="Chọn USB ký số để ký hàng loạt",
+        required=True,
+    )
+    if not signer_info:
+        return
+
+    _token_stamp_html = _build_stamp_preview_html(
+        _token_display_name(signer_info),
+        tax_code=_token_text(signer_info, "tax_code"),
+        issuer_name=_token_text(signer_info, "issuer_name"),
+        token_serial=_token_text(signer_info, "serial"),
+        cert_serial=_token_text(signer_info, "cert_serial"),
+        signed_at=_format_local_timestamp(),
+    )
+    
+    from packages.qt_compat.QtWidgets import QMessageBox
+    QMessageBox.information(window, "Hướng dẫn", "Hãy chọn vị trí chữ ký trên tài liệu ĐANG MỞ. Vị trí này sẽ được áp dụng cho toàn bộ các file trong thư mục.")
+
+    placement = _pick_signature_placement(window, sig_text_html=_token_stamp_html)
+    if not placement or "box" not in placement or "page_number" not in placement:
+        _cleanup_signature_preview(window)
+        return
+    _set_signature_preview(window, placement, sig_text_html=_token_stamp_html)
+    if not _confirm_signature_selection(window):
+        _cleanup_signature_preview(window)
+        return
+
+    default_signer_name = signer_info.signer_name if signer_info else ""
+    identity_dialog = SignatureIdentityDialog(
+        window,
+        default_signer_name=default_signer_name,
+    )
+    if identity_dialog.exec() != QDialog.DialogCode.Accepted:
+        _cleanup_signature_preview(window)
+        return
+    signer_name = identity_dialog.signer_name()
+
+    from packages.qt_compat.QtWidgets import QFileDialog, QInputDialog, QLineEdit
+    input_dir = QFileDialog.getExistingDirectory(window, "Chọn thư mục chứa các file PDF CẦN KÝ", window.current_path)
+    if not input_dir:
+        _cleanup_signature_preview(window)
+        return
+
+    output_dir = QFileDialog.getExistingDirectory(window, "Chọn thư mục ĐÍCH để lưu các file ĐÃ KÝ", input_dir)
+    if not output_dir:
+        _cleanup_signature_preview(window)
+        return
+
+    pdf_files = [f for f in os.listdir(input_dir) if f.lower().endswith(".pdf")]
+    if not pdf_files:
+        QMessageBox.warning(window, "Lỗi", "Không tìm thấy file PDF nào trong thư mục nguồn.")
+        _cleanup_signature_preview(window)
+        return
+
+    pin = _cached_usb_pin
+    if not pin:
+        pin, ok = QInputDialog.getText(
+            window, "Nhập mã PIN", f"PIN của USB ký số (Sẽ áp dụng cho {len(pdf_files)} file):",
+            QLineEdit.EchoMode.Password
+        )
+        if not ok or not pin:
+            _cleanup_signature_preview(window)
+            return
+    _cached_usb_pin = pin
+
+    jobs = []
+    for f in pdf_files:
+        in_path = os.path.join(input_dir, f)
+        base, ext = os.path.splitext(f)
+        out_path = os.path.join(output_dir, f"{base}_signed{ext}")
+        jobs.append({
+            "input_path": in_path,
+            "output_path": out_path,
+            "signer_name": signer_name,
+            "page_number": placement["page_number"],
+            "box": placement["box"]
+        })
+
+    tsa_url = _get_tsa_url()
+
+    try:
+        ok, error = _run_usb_signing_task(
+            window,
+            lambda: _run_usb_signing_batch_subprocess(
+                signer_info,
+                jobs,
+                pin,
+                tsa_url=tsa_url,
+            ),
+            status_message=f"Đang ký hàng loạt {len(pdf_files)} tài liệu...",
+        )
+        if not ok:
+            exc_type_name, exc_message, tb_text = error or ("RuntimeError", "Ký số thất bại.", "")
+            raise RuntimeError(f"{exc_type_name}: {exc_message}\n{tb_text}".strip())
+
+        QMessageBox.information(
+            window,
+            "Hoàn tất",
+            f"Ký số hàng loạt thành công {len(pdf_files)} tài liệu!\n\n"
+            f"Thư mục lưu: {output_dir}",
+        )
+    except Exception as e:
+        QMessageBox.critical(window, "Lỗi Ký Lô", f"Lỗi trong quá trình ký hàng loạt:\n{e}")
+    finally:
+        _cleanup_signature_preview(window)

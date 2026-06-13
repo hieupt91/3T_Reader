@@ -33,19 +33,26 @@ def run_job(payload: dict) -> dict[str, object]:
         provider.select_token(token_info)
 
     async def _do_sign():
-        await provider.sign_pdf(
-            str(payload["input_path"]),
-            str(payload["output_path"]),
-            str(payload["pin"]),
-            signer_name=str(payload.get("signer_name") or "Khong ro"),
-            page_number=int(payload.get("page_number") or 1),
-            box=tuple(payload.get("box") or (50, 50, 300, 100)),
-            field_name=str(payload.get("field_name") or "") or None,
-            reason=str(payload.get("reason") or "") or None,
-            location=str(payload.get("location") or "") or None,
-            contact_info=str(payload.get("contact_info") or "") or None,
-            tsa_url=str(payload.get("tsa_url") or "") or None,
-        )
+        if "jobs" in payload and isinstance(payload["jobs"], list):
+            await provider.sign_pdf_batch(
+                payload["jobs"],
+                str(payload["pin"]),
+                tsa_url=str(payload.get("tsa_url") or "") or None,
+            )
+        else:
+            await provider.sign_pdf(
+                str(payload["input_path"]),
+                str(payload["output_path"]),
+                str(payload["pin"]),
+                signer_name=str(payload.get("signer_name") or "Khong ro"),
+                page_number=int(payload.get("page_number") or 1),
+                box=tuple(payload.get("box") or (50, 50, 300, 100)),
+                field_name=str(payload.get("field_name") or "") or None,
+                reason=str(payload.get("reason") or "") or None,
+                location=str(payload.get("location") or "") or None,
+                contact_info=str(payload.get("contact_info") or "") or None,
+                tsa_url=str(payload.get("tsa_url") or "") or None,
+            )
 
     asyncio.run(_do_sign())
     return {"ok": True}

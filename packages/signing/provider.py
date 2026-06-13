@@ -51,3 +51,13 @@ class SigningProvider(Protocol):
         tsa_url: str | None = None,
     ) -> None:
         ...
+
+    async def sign_pdf_batch(
+        self,
+        jobs: list[dict],
+        pin: str,
+        *,
+        tsa_url: str | None = None,
+    ) -> None:
+        ...
+

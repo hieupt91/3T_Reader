@@ -53,6 +53,7 @@ from app.actions.sign import (
     check_token,
     create_signature_field,
     sign_document,
+    sign_document_batch,
     sign_handwritten,
     sign_with_pfx,
     verify_signed_document,
@@ -906,6 +907,7 @@ class PDFReaderApp(QMainWindow):
         _act_token = make("USB token",  "usb.svg",  "Kiểm tra USB ký số",  None, lambda: check_token(self))
         _act_sign2 = make("Ký số",      "usb.svg",  "Ký số tài liệu",      None, lambda: sign_document(self))
         _act_sign_settings = make("Cài đặt", "settings.svg", "Cài đặt Ký số & TSA", None, lambda: self.open_signing_settings())
+        _act_sign_batch = make("Ký lô", "documents.svg", "Ký số hàng loạt nhiều file", None, lambda: sign_document_batch(self))
         _act_sign3 = make("Ký PFX",     "file_plus.svg",    "Ký bằng file PFX/P12", None, lambda: sign_with_pfx(self))
         _act_field = make("Ô ký",       "object_plus.svg",  "Tạo ô ký số trên PDF", None, lambda: create_signature_field(self))
         _act_handw = make("Ký tay/dấu", "pen.svg",  "Chèn chữ ký tay, mẫu chữ ký hoặc con dấu PNG", None, lambda: sign_handwritten(self))
@@ -913,6 +915,7 @@ class PDFReaderApp(QMainWindow):
         g_sign.add(make_action_btn(_act_sign2, "Ký số"))
         g_sign.add(make_action_btn(_act_sign_settings, "Cài đặt"))
         g_sign.add(make_action_btn(_act_sign3, "Ký PFX"))
+        g_sign.add(make_action_btn(_act_sign_batch, "Ký lô"))
         g_sign.add(make_action_btn(_act_field, "Ô ký"))
         g_sign.add(make_action_btn(_act_handw, "Ký tay/dấu"))
         p5.add_group(g_sign, add_sep=False)

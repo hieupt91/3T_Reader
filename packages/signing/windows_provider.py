@@ -844,3 +844,53 @@ class WindowsPkcs11Provider:
         finally:
             if session is not None:
                 session.close()
+
+    async def sign_pdf_batch(
+        self,
+        jobs: list[dict],
+        pin: str,
+        *,
+        tsa_url: str | None = None,
+    ) -> None:
+        import pkcs11 as p11
+
+        token_info = self._selected_token or self.get_token_info()
+        if not token_info or not token_info.driver_path:
+            raise RuntimeError(
+                "Khong tim thay USB Token!\n"
+                "Vui long cam thiet bi chu ky va thu lai.\n\n"
+                f"Chi tiet: {self.get_last_error()}"
+            )
+
+        lib_path = token_info.driver_path
+        lib = p11.lib(lib_path)
+        token = _get_token_by_info(lib, token_info)
+        if token is None:
+            raise RuntimeError("USB Token da chon khong con duoc phat hien. Vui long cam lai token va thu lai.")
+
+        session = None
+        try:
+            session = token.open(user_pin=pin, rw=False)
+            for job in jobs:
+                try:
+                    await sign_pdf_with_session(
+                        session,
+                        lib_path,
+                        job["input_path"],
+                        job["output_path"],
+                        signer_name=job.get("signer_name", ""),
+                        page_number=job.get("page_number", 1),
+                        box=job.get("box", (50, 50, 300, 100)),
+                        token_serial=token_info.serial or token_info.cert_serial,
+                        field_name=job.get("field_name"),
+                        reason=job.get("reason"),
+                        location=job.get("location"),
+                        contact_info=job.get("contact_info"),
+                        tsa_url=tsa_url,
+                    )
+                except Exception as e:
+                    raise RuntimeError(f"Loi khi ky file {job.get('input_path')}: {e}")
+        finally:
+            if session is not None:
+                session.close()
+
