@@ -266,8 +266,16 @@ def build_vietnamese_stamp_style(
         cfg_path = os.path.expanduser("~/.3t_reader/signing_config.json")
         with open(cfg_path, "r", encoding="utf-8") as f:
             cfg = json.load(f)
-            img_path = cfg.get("signature_image_path", "")
-            img_mode = cfg.get("signature_image_mode", "left")
+            active_id = cfg.get("active_profile_id", "")
+            profiles = cfg.get("profiles", [])
+            for p in profiles:
+                if p.get("id") == active_id:
+                    img_path = p.get("path", "")
+                    img_mode = p.get("mode", "left")
+                    break
+            else:
+                img_path = cfg.get("signature_image_path", "")
+                img_mode = cfg.get("signature_image_mode", "left")
     except Exception:
         pass
 

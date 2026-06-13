@@ -2066,17 +2066,19 @@ class PDFReaderApp(QMainWindow):
     
 
     def open_signing_settings(self):
-        from packages.qt_compat.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QHBoxLayout, QComboBox, QFileDialog
+        from packages.qt_compat.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QHBoxLayout, QComboBox, QFileDialog, QGroupBox, QInputDialog, QCheckBox
+        from app.config import VPS_LICENSE_BASE_URL
         import json
         import os
+        import uuid
         
         dlg = QDialog(self)
-        dlg.setWindowTitle("Cài đặt Ký số")
-        dlg.resize(450, 300)
+        dlg.setWindowTitle("Cài đặt Ký số & TSA")
+        dlg.resize(500, 450)
         
         layout = QVBoxLayout(dlg)
         
-        # TSA Settings
+        # TSA Settings (Global)
         layout.addWidget(QLabel("Cấu hình Dấu Thời Gian (TSA):"))
         tsa_mode_combo = QComboBox(dlg)
         tsa_mode_combo.addItem("Theo hệ thống máy (Mặc định)", "system")
@@ -2103,9 +2105,24 @@ class PDFReaderApp(QMainWindow):
                     
         tsa_mode_combo.currentIndexChanged.connect(on_tsa_mode_changed)
         
-        # Appearance Settings
+        # Appearance Settings (Profiles)
         layout.addSpacing(10)
-        layout.addWidget(QLabel("Ảnh chữ ký (Logo / Chữ ký tay):"))
+        grp = QGroupBox("Cấu hình Ảnh Chữ ký (Profiles)", dlg)
+        grp_layout = QVBoxLayout(grp)
+        layout.addWidget(grp)
+        
+        prof_layout = QHBoxLayout()
+        prof_combo = QComboBox(dlg)
+        btn_add_prof = QPushButton("+", dlg)
+        btn_add_prof.setFixedWidth(30)
+        btn_del_prof = QPushButton("x", dlg)
+        btn_del_prof.setFixedWidth(30)
+        
+        prof_layout.addWidget(QLabel("Mẫu chữ ký:"))
+        prof_layout.addWidget(prof_combo, 1)
+        prof_layout.addWidget(btn_add_prof)
+        prof_layout.addWidget(btn_del_prof)
+        grp_layout.addLayout(prof_layout)
         
         img_layout = QHBoxLayout()
         img_input = QLineEdit(dlg)
@@ -2113,76 +2130,173 @@ class PDFReaderApp(QMainWindow):
         img_btn = QPushButton("Chọn ảnh", dlg)
         img_layout.addWidget(img_input)
         img_layout.addWidget(img_btn)
-        layout.addLayout(img_layout)
+        grp_layout.addLayout(img_layout)
+        
+        # State variables
+        profiles_data = []
+        active_prof_id = ""
         
         def browse_img():
             path, _ = QFileDialog.getOpenFileName(dlg, "Chọn ảnh chữ ký", "", "Images (*.png *.jpg *.jpeg)")
             if path:
                 img_input.setText(path)
+                idx = prof_combo.currentIndex()
+                if idx >= 0:
+                    prof_id = prof_combo.itemData(idx)
+                    for p in profiles_data:
+                        if p["id"] == prof_id:
+                            p["path"] = path
+                            
         img_btn.clicked.connect(browse_img)
         
-        layout.addWidget(QLabel("Kiểu hiển thị ảnh:"))
+        grp_layout.addWidget(QLabel("Kiểu hiển thị ảnh:"))
         mode_combo = QComboBox(dlg)
         mode_combo.addItem("Ảnh bên trái, Text bên phải", "left")
-        mode_combo.addItem("Chỉ hiển thị Ảnh (Không có Text)", "only")
+        mode_combo.addItem("Chỉ hiển thị ảnh (Không có Text)", "only")
         mode_combo.addItem("Ảnh làm nền mờ (Watermark)", "bg")
-        layout.addWidget(mode_combo)
+        grp_layout.addWidget(mode_combo)
+        
+        # LTV Settings
+        layout.addSpacing(10)
+        ltv_check = QCheckBox("Bật Xác thực Dài hạn (LTV - Cần kết nối mạng để tải CRL/OCSP)")
+        layout.addWidget(ltv_check)
         
         config_path = os.path.expanduser("~/.3t_reader/signing_config.json")
+        
+        # Load logic
+        cfg = {}
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
-                tsa_mode = cfg.get("tsa_mode")
-                saved_url = cfg.get("tsa_url", "")
-                if not tsa_mode:
-                    if saved_url == f"{VPS_LICENSE_BASE_URL}/api/v1/tsa":
-                        tsa_mode = "server"
-                    elif saved_url:
-                        tsa_mode = "custom"
-                    else:
-                        tsa_mode = "system"
-                
-                idx = tsa_mode_combo.findData(tsa_mode)
-                if idx >= 0:
-                    tsa_mode_combo.setCurrentIndex(idx)
-                    
-                if tsa_mode == "custom":
-                    url_input.setText(saved_url)
-                
-                img_input.setText(cfg.get("signature_image_path", ""))
-                mode = cfg.get("signature_image_mode", "left")
-                idx_mode = mode_combo.findData(mode)
-                if idx_mode >= 0:
-                    mode_combo.setCurrentIndex(idx_mode)
         except Exception:
             pass
             
-        layout.addSpacing(15)
-        self.ltv_check = QCheckBox("Bật Xác thực Dài hạn (LTV - Cần kết nối mạng để tải CRL/OCSP)")
-        layout.addWidget(self.ltv_check)
-        self.ltv_check.setChecked(cfg.get("enable_ltv", False))
+        tsa_mode = cfg.get("tsa_mode")
+        saved_url = cfg.get("tsa_url", "")
+        if not tsa_mode:
+            if saved_url == f"{VPS_LICENSE_BASE_URL}/api/v1/tsa":
+                tsa_mode = "server"
+            elif saved_url:
+                tsa_mode = "custom"
+            else:
+                tsa_mode = "system"
+        idx = tsa_mode_combo.findData(tsa_mode)
+        if idx >= 0:
+            tsa_mode_combo.setCurrentIndex(idx)
+        if tsa_mode == "custom":
+            url_input.setText(saved_url)
+            
+        ltv_check.setChecked(bool(cfg.get("enable_ltv", False)))
+        
+        # Migration logic
+        if "profiles" in cfg:
+            profiles_data = cfg["profiles"]
+            active_prof_id = cfg.get("active_profile_id", "")
+        else:
+            old_path = cfg.get("signature_image_path", "")
+            old_mode = cfg.get("signature_image_mode", "left")
+            p_id = uuid.uuid4().hex
+            profiles_data = [{"id": p_id, "name": "Mặc định", "path": old_path, "mode": old_mode}]
+            active_prof_id = p_id
+            
+        def reload_combo():
+            prof_combo.blockSignals(True)
+            prof_combo.clear()
+            for p in profiles_data:
+                prof_combo.addItem(p["name"], p["id"])
+            
+            idx = prof_combo.findData(active_prof_id)
+            if idx >= 0:
+                prof_combo.setCurrentIndex(idx)
+            elif prof_combo.count() > 0:
+                prof_combo.setCurrentIndex(0)
+            prof_combo.blockSignals(False)
+            on_prof_changed(prof_combo.currentIndex())
+            
+        def on_prof_changed(idx):
+            if idx < 0:
+                img_input.setText("")
+                return
+            prof_id = prof_combo.itemData(idx)
+            for p in profiles_data:
+                if p["id"] == prof_id:
+                    img_input.setText(p.get("path", ""))
+                    m = p.get("mode", "left")
+                    midx = mode_combo.findData(m)
+                    if midx >= 0:
+                        mode_combo.setCurrentIndex(midx)
+                    break
 
+        prof_combo.currentIndexChanged.connect(on_prof_changed)
+        
+        def save_current_prof_state():
+            idx = prof_combo.currentIndex()
+            if idx >= 0:
+                prof_id = prof_combo.itemData(idx)
+                for p in profiles_data:
+                    if p["id"] == prof_id:
+                        p["path"] = img_input.text().strip()
+                        p["mode"] = mode_combo.currentData()
+                        
+        def on_add_prof():
+            name, ok = QInputDialog.getText(dlg, "Thêm Mẫu Mới", "Tên mẫu chữ ký:")
+            if ok and name.strip():
+                save_current_prof_state()
+                p_id = uuid.uuid4().hex
+                profiles_data.append({"id": p_id, "name": name.strip(), "path": "", "mode": "left"})
+                nonlocal active_prof_id
+                active_prof_id = p_id
+                reload_combo()
+                
+        def on_del_prof():
+            if len(profiles_data) <= 1:
+                QMessageBox.warning(dlg, "Lỗi", "Phải có ít nhất 1 mẫu chữ ký.")
+                return
+            idx = prof_combo.currentIndex()
+            if idx >= 0:
+                prof_id = prof_combo.itemData(idx)
+                for i, p in enumerate(profiles_data):
+                    if p["id"] == prof_id:
+                        profiles_data.pop(i)
+                        break
+                nonlocal active_prof_id
+                active_prof_id = profiles_data[0]["id"]
+                reload_combo()
+                
+        btn_add_prof.clicked.connect(on_add_prof)
+        btn_del_prof.clicked.connect(on_del_prof)
+        img_input.textChanged.connect(lambda: save_current_prof_state())
+        mode_combo.currentIndexChanged.connect(lambda _: save_current_prof_state())
+        
+        reload_combo()
+        
+        def save():
+            save_current_prof_state()
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            
+            curr_prof_id = ""
+            idx = prof_combo.currentIndex()
+            if idx >= 0:
+                curr_prof_id = prof_combo.itemData(idx)
+                
+            new_cfg = {
+                "tsa_mode": tsa_mode_combo.currentData(),
+                "tsa_url": url_input.text().strip(),
+                "enable_ltv": ltv_check.isChecked(),
+                "active_profile_id": curr_prof_id,
+                "profiles": profiles_data
+            }
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(new_cfg, f, ensure_ascii=False, indent=2)
+            dlg.accept()
+            
         btn_layout = QHBoxLayout()
         btn_save = QPushButton("Lưu cấu hình", dlg)
+        btn_save.clicked.connect(save)
         btn_layout.addStretch()
         btn_layout.addWidget(btn_save)
         layout.addLayout(btn_layout)
         
-        def save():
-            os.makedirs(os.path.dirname(config_path), exist_ok=True)
-            cfg = {
-                "tsa_mode": tsa_mode_combo.currentData(),
-                "tsa_url": url_input.text().strip(),
-                "signature_image_path": img_input.text().strip(),
-                "signature_image_mode": mode_combo.currentData(),
-                "enable_ltv": self.ltv_check.isChecked()
-            }
-            with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, ensure_ascii=False, indent=2)
-            QMessageBox.information(dlg, "Thành công", "Đã lưu cấu hình Ký số!")
-            dlg.accept()
-            
-        btn_save.clicked.connect(save)
         dlg.exec()
 
     def _show_pdf_context_menu(self, viewer, pos):
