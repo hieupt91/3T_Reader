@@ -4,7 +4,7 @@ import os
 
 datas = []
 binaries = []
-hiddenimports = ['pypdfium2', 'pikepdf', 'PySide6.QtPrintSupport', 'PySide6.QtWebEngineWidgets']
+hiddenimports = ['pypdfium2', 'pikepdf', 'PySide6.QtPrintSupport', 'PySide6.QtWebEngineWidgets', 'pdf2docx', 'pdfplumber', 'openpyxl']
 datas += [('assets', 'assets')]
 datas += [('third_party/pdfjs', 'third_party/pdfjs')]
 if os.path.isdir('app/locales'):

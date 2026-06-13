@@ -24,6 +24,10 @@ if len(sys.argv) >= 3 and sys.argv[1] == "--usb-sign-worker":
 
     sys.exit(_usb_sign_worker_main(sys.argv[2:]))
 
+if len(sys.argv) >= 5 and sys.argv[1] == "--export-worker":
+    from packages.document_core.export_runner import main as _export_main
+    sys.exit(_export_main(sys.argv[2:]))
+
 if len(sys.argv) >= 3 and sys.argv[1] == "--pkcs11-probe-token":
     from packages.signing.windows_provider import probe_driver_for_token_worker_main
 

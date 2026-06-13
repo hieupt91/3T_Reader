@@ -239,23 +239,23 @@ def _run_in_subprocess(window, task: str, pdf_path: str, output_path: str):
     window._export_proc = proc
     window.status.showMessage("Đang chạy bộ xử lý xuất…", 0)
     progress.show()
-    proc.start(
-        str(python_exe),
-        [
-            "-m",
-            "packages.document_core.export_runner",
-            task,
-            pdf_path,
-            output_path,
-        ],
-    )
+    if getattr(sys, "frozen", False):
+        proc.start(str(python_exe), ["--export-worker", task, pdf_path, output_path])
+    else:
+        proc.start(
+            str(python_exe),
+            [
+                "-m",
+                "packages.document_core.export_runner",
+                task,
+                pdf_path,
+                output_path,
+            ],
+        )
 
 
 def _run_conversion(window, task: str, pdf_path: str, output_path: str):
-    if getattr(sys, "frozen", False):
-        _run_in_thread(window, task, pdf_path, output_path)
-    else:
-        _run_in_subprocess(window, task, pdf_path, output_path)
+    _run_in_subprocess(window, task, pdf_path, output_path)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
