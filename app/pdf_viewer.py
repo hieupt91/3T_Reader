@@ -388,7 +388,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
                 document.body.appendChild(freezeDiv);
                 
                 fetch('{pdf_url}').then(res => res.arrayBuffer()).then(function(ab) {{
-                    return app.open(new Uint8Array(ab));
+                    return app.open({{ data: new Uint8Array(ab), url: '{pdf_url}', originalUrl: '{pdf_url}' }});
                 }}).then(function() {{
                     var container = app.pdfViewer.container;
                     container.scrollTop = currentScroll;
@@ -413,6 +413,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
                     setTimeout(removeFreeze, 2500);
                 }}).catch(function(e) {{ 
                     console.error('Soft reload error:', e); 
+                    alert('Soft reload failed: ' + e);
                     if (freezeDiv.parentNode) freezeDiv.parentNode.removeChild(freezeDiv);
                 }});
             }}
