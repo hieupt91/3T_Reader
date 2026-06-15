@@ -387,7 +387,9 @@ class PDFViewerWidget(QtWidgets.QWidget):
                 
                 document.body.appendChild(freezeDiv);
                 
-                app.open({{url: '{pdf_url}'}}).then(function() {{
+                fetch('{pdf_url}').then(res => res.arrayBuffer()).then(function(ab) {{
+                    return app.open(new Uint8Array(ab));
+                }}).then(function() {{
                     var container = app.pdfViewer.container;
                     container.scrollTop = currentScroll;
                     container.scrollLeft = currentLeft;
