@@ -117,7 +117,7 @@ def reload_document(
     target_page = max(1, int(page if page is not None else current_viewer_page(window)))
     
     if hasattr(window.viewer, "reload_soft") and window.viewer._path == source_path and target_page == current_viewer_page(window):
-        window.viewer.reload_soft()
+        window.viewer.reload_soft(source_path, zoom=zoom, page=target_page)
     else:
         window.viewer.load_pdf(source_path, page=target_page, zoom=zoom)
 
