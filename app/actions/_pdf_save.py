@@ -115,7 +115,11 @@ def reload_document(
         remove_path_quietly(old_temp_path)
 
     target_page = max(1, int(page if page is not None else current_viewer_page(window)))
-    window.viewer.load_pdf(source_path, page=target_page, zoom=zoom)
+    
+    if hasattr(window.viewer, "reload_soft") and window.viewer._path == source_path and target_page == current_viewer_page(window):
+        window.viewer.reload_soft()
+    else:
+        window.viewer.load_pdf(source_path, page=target_page, zoom=zoom)
 
 
 def replace_document_with_staged(
