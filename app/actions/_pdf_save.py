@@ -140,8 +140,14 @@ def replace_document_with_staged(
         raise ValueError("Missing target PDF path.")
 
     target_page = page if page is not None else (current_viewer_page(window) if keep_page else 1)
+    
+    use_soft_reload = False
+    if hasattr(window, "viewer") and hasattr(window.viewer, "reload_soft") and window.viewer._path == resolved_target and target_page == current_viewer_page(window):
+        use_soft_reload = True
+
     try:
-        release_viewer_file_lock(window)
+        if not use_soft_reload:
+            release_viewer_file_lock(window)
         replace_file_with_retry(staged_path, resolved_target)
     except Exception:
         remove_path_quietly(staged_path)
