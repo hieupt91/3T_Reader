@@ -138,6 +138,13 @@ class MacOSPkcs11Provider:
         )
         return None
 
+    def list_tokens(self, pin: str | None = None) -> list[TokenInfo]:
+        info = self.get_token_info(pin)
+        return [info] if info else []
+
+    def select_token(self, token_info: TokenInfo | None) -> None:
+        pass  # Token selection is simplified on macOS for now
+
     def get_token_info(self, pin: str | None = None) -> TokenInfo | None:
         lib_path = self.detect_driver()
         if not lib_path:
@@ -165,6 +172,9 @@ class MacOSPkcs11Provider:
                             driver=os.path.basename(lib_path),
                             signer_name=identity.get("name", ""),
                             tax_code=identity.get("tax_code", ""),
+                            driver_path=lib_path,
+                            serial=str(getattr(token, "serial", "")).strip(),
+                            cert_serial=identity.get("serial_hex", ""),
                         )
         except Exception:
             return None
@@ -183,6 +193,8 @@ class MacOSPkcs11Provider:
         reason: str | None = None,
         location: str | None = None,
         contact_info: str | None = None,
+        tsa_url: str | None = None,
+        enable_ltv: bool = False,
     ) -> None:
         import pkcs11 as p11
 
@@ -210,7 +222,54 @@ class MacOSPkcs11Provider:
                 reason=reason,
                 location=location,
                 contact_info=contact_info,
+                tsa_url=tsa_url,
+                enable_ltv=enable_ltv,
             )
+        finally:
+            if session is not None:
+                session.close()
+
+    async def sign_pdf_batch(
+        self,
+        jobs: list[dict],
+        pin: str,
+        *,
+        tsa_url: str | None = None,
+        enable_ltv: bool = False,
+    ) -> None:
+        import pkcs11 as p11
+
+        lib_path = self.detect_driver()
+        if not lib_path:
+            raise RuntimeError(
+                "Không tìm thấy USB Token!\n"
+                "Vui lòng cắm thiết bị chữ ký vào và thử lại.\n\n"
+                f"Chi tiết: {self.get_last_error()}"
+            )
+        lib = p11.lib(lib_path)
+        token = next(lib.get_tokens())
+        session = None
+        try:
+            session = token.open(user_pin=pin, rw=False)
+            for job in jobs:
+                try:
+                    await sign_pdf_with_session(
+                        session,
+                        lib_path,
+                        job["input_path"],
+                        job["output_path"],
+                        signer_name=job.get("signer_name", ""),
+                        page_number=job.get("page_number", 1),
+                        box=job.get("box", (50, 50, 300, 100)),
+                        field_name=job.get("field_name"),
+                        reason=job.get("reason"),
+                        location=job.get("location"),
+                        contact_info=job.get("contact_info"),
+                        tsa_url=tsa_url,
+                        enable_ltv=enable_ltv,
+                    )
+                except Exception as e:
+                    raise RuntimeError(f"Lỗi khi ký file {job.get('input_path')}: {e}")
         finally:
             if session is not None:
                 session.close()

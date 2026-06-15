@@ -168,6 +168,7 @@ def _prepare_pdf_source(window, path: str):
     finally:
         doc.close()
 
+
 def _populate_recent_menu(menu, window):
     """Shared logic: populate a QMenu with recent file entries."""
     recent = load_recent()
@@ -184,7 +185,6 @@ def _populate_recent_menu(menu, window):
             action = menu.addAction(f"  {os.path.basename(path)}")
             action.setIcon(svg_icon("folder_open.svg", size=16, color="#9b9bc0"))
             action.setToolTip(path)
-            action.setStatusTip(path)
             action.triggered.connect(lambda checked=False, p=path: open_file(window, p))
         menu.addSeparator()
         clear_action = menu.addAction("🗑  Xóa danh sách")

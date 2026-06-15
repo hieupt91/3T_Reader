@@ -50,6 +50,14 @@ def _candidate_tesseract_paths() -> list[str]:
         str(base_dir / "Tesseract-OCR" / exe_name),
         str(base_dir / "tesseract" / exe_name),
         str(base_dir / exe_name),
+    ]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.extend([
+            str(Path(meipass) / "Tesseract-OCR" / exe_name),
+            str(Path(meipass) / "third_party" / "tesseract" / exe_name)
+        ])
+    candidates.extend([
         str(app_dir / "Tesseract-OCR" / exe_name),
         str(app_dir / "third_party" / "tesseract" / exe_name),
         str(app_dir / "assets" / "tesseract" / exe_name),
@@ -60,7 +68,7 @@ def _candidate_tesseract_paths() -> list[str]:
         "/usr/bin/tesseract",
         r"C:\Program Files\Tesseract-OCR\tesseract.exe",
         r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-    ]
+    ])
 
     seen: set[str] = set()
     ordered: list[str] = []

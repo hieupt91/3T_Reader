@@ -70,7 +70,7 @@ _CLEAR_SELECTION_OVERLAY_JS = """(function() {
 # Handle layout: ↻ top-right, ✥ move top-left, × delete bottom-left, ✎ edit bottom-right.
 # Args (Python % formatting): pageNum, pdfLeft, pdfBottom, pdfRight, pdfTop, currentRotation, hasEdit (true/false JS literal)
 # Communicates with Python via QWebChannel objectActionBridge.
-_SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRight, pdfTop, currentRotation, hasEdit) {
+_SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRight, pdfTop, currentRotation, hasEdit, opPayloadStr) {
     var _cleanedUp = false;
     var _dragging  = false;
     var _actionBridge = null;
@@ -95,12 +95,15 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
             if (!bridge) return;
             try {
                 if (obj.type === 'rotate') bridge.reportRotation(Number(obj.angle || 0));
+                else if (obj.type === 'drag_move') bridge.reportDragMove(obj.box[0], obj.box[1], obj.box[2], obj.box[3]);
                 else if (obj.type === 'delete') bridge.reportDelete();
                 else if (obj.type === 'edit') bridge.reportEdit();
                 else if (obj.type === 'move') bridge.reportMove();
                 else if (obj.type === 'retry') bridge.reportRetry();
                 else bridge.reportDismiss();
-            } catch (_err) {}
+            } catch (_err) {
+                console.error("WITH_BRIDGE_ERROR: " + _err);
+            }
         });
     }
 
@@ -120,8 +123,20 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
     function cleanupAll() {
         if (_cleanedUp) return;
         _cleanedUp = true;
-        var el = document.getElementById('__3tObjGroup');
-        if (el && el.parentNode) el.parentNode.removeChild(el);
+        var g = document.getElementById('__3tObjGroup');
+        if (g) {
+            var handles = g.querySelectorAll('div[id^="__3t"]');
+            for (var i=0; i<handles.length; i++) {
+                handles[i].style.display = 'none';
+            }
+            var boxes = g.querySelectorAll('div');
+            for (var j=0; j<boxes.length; j++) {
+                if (boxes[j].style.border && boxes[j].style.border.indexOf('solid') > -1) {
+                    boxes[j].style.border = 'none';
+                    boxes[j].style.background = 'transparent';
+                }
+            }
+        }
         document.removeEventListener('click',   onDocClick, true);
         document.removeEventListener('keydown', onKeyDown,  true);
         window.__3tObjCleanup = null;
@@ -177,7 +192,54 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
     box.style.cssText = 'position:absolute;'
         + 'left:'+pad+'px;top:'+pad+'px;width:'+bw+'px;height:'+bh+'px;'
         + 'border:2px solid #0B84F3;background:rgba(11,132,243,0.06);'
-        + 'pointer-events:none;box-sizing:border-box;';
+        + 'pointer-events:none;box-sizing:border-box;overflow:hidden;';
+        
+    var opPayload = null;
+    if (typeof opPayloadStr === 'string' && opPayloadStr.length > 0) {
+        try { opPayload = JSON.parse(opPayloadStr); } catch(e) {}
+    }
+    
+    if (opPayload) {
+        if (opPayload.type === 'image' && opPayload.image_path) {
+            var img = document.createElement('img');
+            img.src = opPayload.image_data_url || ('file://' + opPayload.image_path);
+            img.style.cssText = 'width:100%%;height:100%%;object-fit:contain;opacity:0.6;';
+            box.appendChild(img);
+        } else if (opPayload.type === 'text') {
+            var pdfCanvas = pageEl.querySelector('canvas');
+            if (pdfCanvas && currentRotation === 0) {
+                var cloneCv = document.createElement('canvas');
+                cloneCv.width = bw;
+                cloneCv.height = bh;
+                var ctx = cloneCv.getContext('2d');
+                var ratioX = pdfCanvas.width / pdfCanvas.clientWidth;
+                var ratioY = pdfCanvas.height / pdfCanvas.clientHeight;
+                ctx.drawImage(pdfCanvas, 
+                    bx * ratioX, by * ratioY, bw * ratioX, bh * ratioY, 
+                    0, 0, bw, bh
+                );
+                cloneCv.style.cssText = 'width:100%%;height:100%%;opacity:0.85;pointer-events:none;mix-blend-mode:darken;';
+                box.appendChild(cloneCv);
+            } else {
+                var txt = document.createElement('div');
+                txt.textContent = opPayload.text || '';
+                var r = opPayload.font_color ? Math.round(opPayload.font_color[0]*255) : 0;
+                var g = opPayload.font_color ? Math.round(opPayload.font_color[1]*255) : 0;
+                var b = opPayload.font_color ? Math.round(opPayload.font_color[2]*255) : 0;
+                txt.style.cssText = 'width:100%%;height:100%%;display:flex;align-items:flex-start;justify-content:flex-start;'
+                    + 'color:rgba('+r+','+g+','+b+',0.7);'
+                    + 'font-weight:'+(opPayload.bold?'bold':'normal')+';'
+                    + 'text-decoration:'+(opPayload.underline?'underline':'none')+';'
+                    + 'font-family:sans-serif;white-space:pre-wrap;overflow:hidden;';
+                var fs = (opPayload.font_size || 14) * (vp.scale || 1.0);
+                txt.style.fontSize = fs + 'px';
+                txt.style.lineHeight = '1.15';
+                txt.style.padding = '0';
+                box.appendChild(txt);
+            }
+        }
+    }
+    
     grp.appendChild(box);
 
     // Angle label during drag
@@ -253,7 +315,7 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
         function onUp() {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup',   onUp);
-            _dragging = false;
+            setTimeout(function() { _dragging = false; }, 100);
             rotH.style.cursor = 'grab';
             var finalAngle = Math.round(dispAngle) %% 360;
             var moved = Math.abs(finalAngle - currentRotation);
@@ -270,11 +332,58 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
         e.stopPropagation(); cleanupAll();
         reportAction({type:'delete'});
     });
-    mvH.addEventListener('click', function(e) {
-        e.stopPropagation(); cleanupAll();
-        reportAction({type:'move'});
+
+    // Move drag
+    mvH.addEventListener('mousedown', function(e) {
+        e.preventDefault(); e.stopPropagation();
+        _dragging = true;
+        mvH.style.cursor = 'grabbing';
+        
+        var startX = e.clientX;
+        var startY = e.clientY;
+        var startLeft = parseFloat(grp.style.left) || 0;
+        var startTop = parseFloat(grp.style.top) || 0;
+        
+        var cap = document.createElement('div');
+        cap.style.cssText = 'position:fixed;inset:0;z-index:99999;cursor:grabbing;';
+        document.body.appendChild(cap);
+
+        function onMove(e2) {
+            grp.style.left = (startLeft + e2.clientX - startX) + 'px';
+            grp.style.top  = (startTop + e2.clientY - startY) + 'px';
+        }
+        function onUp(e2) {
+            cap.removeEventListener('mousemove', onMove);
+            cap.removeEventListener('mouseup', onUp);
+            if(cap.parentNode) cap.parentNode.removeChild(cap);
+            setTimeout(function() { _dragging = false; }, 100);
+            mvH.style.cursor = 'move';
+            
+            // Calculate new PDF coords
+            var nLeft = parseFloat(grp.style.left) + pad;
+            var nTop = parseFloat(grp.style.top) + pad;
+            var p1 = vp.convertToPdfPoint(nLeft, nTop);
+            var p2 = vp.convertToPdfPoint(nLeft + bw, nTop + bh);
+            var newL = Math.min(p1[0], p2[0]);
+            var newB = Math.min(p1[1], p2[1]);
+            var newR = Math.max(p1[0], p2[0]);
+            var newT = Math.max(p1[1], p2[1]);
+            
+            console.info("DRAG_MOVE_CALC: nLeft=" + nLeft + " nTop=" + nTop + " p1=" + p1 + " p2=" + p2);
+            console.info("DRAG_MOVE_CALC: newL=" + newL + " newB=" + newB + " newR=" + newR + " newT=" + newT);
+            
+            cleanupAll();
+            try {
+                reportAction({type:'drag_move', box: [newL, newB, newR, newT]});
+                console.info("DRAG_MOVE_REPORTED");
+            } catch(e) {
+                console.error("DRAG_MOVE_ERROR: " + e);
+            }
+        }
+        cap.addEventListener('mousemove', onMove);
+        cap.addEventListener('mouseup', onUp);
     });
-})(%d, %f, %f, %f, %f, %d, %s);"""
+})(%d, %f, %f, %f, %f, %d, %s, `%s`);"""
 
 _CLEAR_OBJECT_HANDLES_JS = """(function() {
     var el = document.getElementById('__3tObjGroup');
@@ -322,6 +431,7 @@ class ObjectActionBridge(QObject):
     deleteConfirmed = pyqtSignal()
     editConfirmed   = pyqtSignal()
     moveRequested   = pyqtSignal()
+    dragMoveConfirmed = pyqtSignal(float, float, float, float)
     dismissed       = pyqtSignal()
     retryRequested  = pyqtSignal()
 
@@ -340,6 +450,11 @@ class ObjectActionBridge(QObject):
     @pyqtSlot()
     def reportMove(self):
         self.moveRequested.emit()
+
+    @pyqtSlot(float, float, float, float)
+    def reportDragMove(self, l, b, r, t):
+        print(f"DEBUG: reportDragMove python slot invoked with: {l, b, r, t}")
+        self.dragMoveConfirmed.emit(l, b, r, t)
 
     @pyqtSlot()
     def reportDismiss(self):
@@ -601,7 +716,7 @@ def _ensure_edit_state(window):
     return state
 
 
-def _reload_viewer(window, pdf_path: str, page: int | None = None):
+def _reload_viewer(window, pdf_path: str, page: int | None = None, ops_json: str = "[]", erase_json: str = "[]"):
     """Reload PDF in the current viewer without opening a new tab."""
     if page is None:
         try:
@@ -616,7 +731,10 @@ def _reload_viewer(window, pdf_path: str, page: int | None = None):
     def _load():
         try:
             zoom = str(getattr(getattr(window, "zoom_spin", None), "value", lambda: 100)())
-            window.viewer.load_pdf(pdf_path, page=page, zoom=zoom)
+            if hasattr(window.viewer, "reload_soft"):
+                window.viewer.reload_soft(pdf_path, page=page, zoom=zoom, ops_json=ops_json, erase_json=erase_json)
+            else:
+                window.viewer.load_pdf(pdf_path, page=page, zoom=zoom)
         except Exception as exc:
             show_warning(window, "Không thể mở file vừa lưu", str(exc))
 
@@ -674,6 +792,7 @@ def _render_edit_state(
     status_message: str,
     focus_page: int | None = None,
     auto_select_op: dict | None = None,
+    erase_boxes: list | None = None,
 ):
     """Rebuild working file from base + all ops, then reload viewer in-place."""
     base_snapshot = state.get("base_snapshot")
@@ -700,27 +819,14 @@ def _render_edit_state(
         show_warning(window, "Không lưu được tệp", str(e))
         return None
 
-    _reload_viewer(window, working_file, page=current_page)
+    import json
+    ops_json = json.dumps(state.get("ops", []))
+    if hasattr(window.viewer, "update_ops"):
+        window.viewer.update_ops(ops_json)
 
     if auto_select_op is not None:
-        viewer = getattr(window, "viewer", None)
-        if viewer is not None:
-            def _auto_open():
-                try:
-                    viewer.page_ready.disconnect(_auto_open)
-                except Exception:
-                    pass
-                from packages.qt_compat.QtCore import QTimer
-                QTimer.singleShot(0, lambda: _run_object_action_session(window, state, auto_select_op))
-
-            try:
-                viewer.page_ready.connect(_auto_open)
-            except Exception:
-                pass
-
-    # Điều hướng đến trang đã chèn sau khi viewer load xong (delay nhỏ)
-    if focus_page is not None:
-        _run_when_viewer_page_ready(window, lambda: _navigate_viewer(window, focus_page))
+        from packages.qt_compat.QtCore import QTimer
+        QTimer.singleShot(50, lambda: _run_object_action_session(window, state, auto_select_op))
 
     op_count = len(ops)
     undo_hint = f" (Ctrl+Z để hoàn tác, {op_count} thao tác)" if op_count > 0 else ""
@@ -868,13 +974,15 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
     _setup_webchannel(web_view, window, "objectActionBridge", action_bridge)
 
     def _finish(action_type: str, **payload):
-        action_result.clear()
+        if action_result:
+            return
         action_result["type"] = action_type
         action_result.update(payload)
         if loop.isRunning():
             loop.quit()
 
     action_bridge.rotateConfirmed.connect(lambda angle: _finish("rotate", angle=angle))
+    action_bridge.dragMoveConfirmed.connect(lambda l, b, r, t: _finish("drag_move", box=(l, b, r, t)))
     action_bridge.deleteConfirmed.connect(lambda: _finish("delete"))
     action_bridge.editConfirmed.connect(lambda: _finish("edit"))
     action_bridge.moveRequested.connect(lambda: _finish("move"))
@@ -884,10 +992,13 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
     def _js_ran(_result):
         pass
 
+    import json
     try:
+        payload_str = json.dumps(target_op).replace("\\", "\\\\").replace("`", "\\`")
         js = _SHOW_OBJECT_WITH_HANDLES_JS % (
             page_num, left, bottom, right, top,
             current_rot, "true" if op_type == "text" else "false",
+            payload_str
         )
         web_view.page().runJavaScript(js, _js_ran)
         QTimer.singleShot(10_000, lambda: _finish("dismiss"))
@@ -911,22 +1022,33 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
         return
 
     if action == "rotate":
+        old_box = target_op["box"]
         angle = int(action_result.get("angle", 0)) % 360
         target_op["rotation"] = angle
-        _render_edit_state(window, state, f"Đã xoay {angle}°", focus_page=page_num)
+        _render_edit_state(window, state, f"Đã xoay {angle}°", focus_page=page_num, auto_select_op=target_op, erase_boxes=[{"page_number": target_op.get("page_number", page_num), "box": old_box}])
+        return
+
+    if action == "drag_move":
+        old_box = target_op["box"]
+        l, b, r, t = action_result["box"]
+        print(f"DEBUG: Python _finish received drag_move! New box: {l, b, r, t}")
+        target_op["box"] = (l, b, r, t)
+        _render_edit_state(window, state, "Đã di chuyển đối tượng", focus_page=page_num, auto_select_op=target_op, erase_boxes=[{"page_number": target_op.get("page_number", page_num), "box": old_box}])
         return
 
     if action == "delete":
+        old_box = target_op["box"]
+        page_n = target_op.get("page_number", page_num)
         op_label = "văn bản" if op_type == "text" else "ảnh"
         state["ops"].remove(target_op)
         if not state["ops"]:
             original = state.get("original_path")
             _reset_edit_state(window)
-            if original and os.path.exists(original):
-                _reload_viewer(window, original)
+            if hasattr(window.viewer, "update_ops"):
+                window.viewer.update_ops("[]")
             window.status.showMessage(f"Đã xóa {op_label} — tài liệu về trạng thái gốc", 3000)
         else:
-            _render_edit_state(window, state, f"Đã xóa {op_label}")
+            _render_edit_state(window, state, f"Đã xóa {op_label}", erase_boxes=[{"page_number": page_n, "box": old_box}])
         return
 
     if action == "edit" and op_type == "text":
@@ -945,12 +1067,13 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
         if not new_text:
             return
 
+        old_box = target_op["box"]
         target_op["text"] = new_text
         target_op["font_size"] = dlg_edit.get_font_size()
         target_op["font_color"] = dlg_edit.get_color_tuple()
         target_op["bold"] = dlg_edit.get_bold()
         target_op["underline"] = dlg_edit.get_underline()
-        _render_edit_state(window, state, "Đã cập nhật văn bản", focus_page=page_num)
+        _render_edit_state(window, state, "Đã cập nhật văn bản", focus_page=page_num, erase_boxes=[{"page_number": target_op.get("page_number", page_num), "box": old_box}])
         return
 
     if action == "move":
@@ -974,9 +1097,11 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
             h = target_op["box"][3] - target_op["box"][1]
             r = l + max(20, w)
             t = b + max(20, h)
+        old_box = target_op["box"]
+        old_page = target_op.get("page_number", page_num)
         target_op["page_number"] = int(new_area["page_number"])
         target_op["box"] = (l, b, r, t)
-        _render_edit_state(window, state, "Đã cập nhật vị trí/kích thước đối tượng")
+        _render_edit_state(window, state, "Đã cập nhật vị trí/kích thước đối tượng", erase_boxes=[{"page_number": old_page, "box": old_box}])
 
 
 def _pick_save_pdf_path(window, default_name: str) -> str | None:
@@ -1381,13 +1506,24 @@ def insert_image_to_pdf(window):
     if not state:
         return
 
+    import base64
+    try:
+        with open(image_path, "rb") as f:
+            raw = f.read()
+        ext_clean = ext.lstrip(".").lower()
+        mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "bmp": "bmp", "webp": "webp"}.get(ext_clean, "png")
+        data_url = f"data:image/{mime};base64,{base64.b64encode(raw).decode()}"
+    except Exception:
+        data_url = ""
+
     op = {
-        "id":          state["next_id"],
-        "type":        "image",
-        "page_number": page_number,
-        "box":         box,
-        "image_path":  image_path,
-        "rotation":    result.get("rotation", 0),
+        "id":             state["next_id"],
+        "type":           "image",
+        "page_number":    page_number,
+        "box":            box,
+        "image_path":     image_path,
+        "image_data_url": data_url,
+        "rotation":       result.get("rotation", 0),
     }
     state["next_id"] += 1
     state["ops"].append(op)
@@ -1523,8 +1659,8 @@ def delete_inserted_object(window):
     if not state["ops"]:
         original = state.get("original_path")
         _reset_edit_state(window)
-        if original and os.path.exists(original):
-            _reload_viewer(window, original)
+        if hasattr(window.viewer, "update_ops"):
+            window.viewer.update_ops("[]")
         window.status.showMessage(f"Đã xóa {op_type} — tài liệu về trạng thái gốc", 3000)
     else:
         _render_edit_state(window, state, f"Đã xóa {op_type}")

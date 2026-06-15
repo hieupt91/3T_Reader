@@ -699,18 +699,19 @@ async def sign_pdf_with_session(
                 
             pyhanko_box = None
             if box and not field_name:
-                try:
-                    import fitz
-                    with fitz.open(burn_input_path) as tmp_doc:
-                        ph = tmp_doc[page_number - 1].rect.height
-                    pyhanko_box = (box[0], ph - box[3], box[2], ph - box[1])
-                except Exception:
-                    pass
-            from pyhanko.stamp import NoOpStampStyle
+                pyhanko_box = tuple(box)
+            transparent_png_path = os.path.join(tempfile.gettempdir(), "3t_transparent.png")
+            if not os.path.exists(transparent_png_path):
+                import base64
+                with open(transparent_png_path, "wb") as f:
+                    f.write(base64.b64decode(b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="))
+            from pyhanko.pdf_utils.images import PdfImage
+            from pyhanko.stamp import StaticStampStyle
+            transparent_style = StaticStampStyle(background=PdfImage(transparent_png_path), border_width=0)
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer_obj,
-                stamp_style=NoOpStampStyle(),
+                stamp_style=transparent_style,
                 timestamper=timestamper,
                 new_field_spec=None if field_name else fields.SigFieldSpec(
                     sig_field_name=target_field_name,
@@ -854,18 +855,19 @@ async def sign_pdf_with_pkcs12(
             )
             pyhanko_box = None
             if box and not field_name:
-                try:
-                    import fitz
-                    with fitz.open(burn_input_path) as tmp_doc:
-                        ph = tmp_doc[page_number - 1].rect.height
-                    pyhanko_box = (box[0], ph - box[3], box[2], ph - box[1])
-                except Exception:
-                    pass
-            from pyhanko.stamp import NoOpStampStyle
+                pyhanko_box = tuple(box)
+            transparent_png_path = os.path.join(tempfile.gettempdir(), "3t_transparent.png")
+            if not os.path.exists(transparent_png_path):
+                import base64
+                with open(transparent_png_path, "wb") as f:
+                    f.write(base64.b64decode(b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="))
+            from pyhanko.pdf_utils.images import PdfImage
+            from pyhanko.stamp import StaticStampStyle
+            transparent_style = StaticStampStyle(background=PdfImage(transparent_png_path), border_width=0)
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer,
-                stamp_style=NoOpStampStyle(),
+                stamp_style=transparent_style,
                 new_field_spec=None if field_name else fields.SigFieldSpec(
                     sig_field_name=target_field_name,
                     box=pyhanko_box,

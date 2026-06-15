@@ -1,0 +1,129 @@
+{
+  "pdf_path": "/Users/hieupc/Downloads/DailyVintageCam_redesign_requirements_package/DailyVintageCam_YeuCau_UiUx_Instagram_Setlog_signed_signed.pdf",
+  "payload": {
+    "href": "http://127.0.0.1:51407/web/viewer.html?file=http%3A%2F%2F127.0.0.1%3A51407%2Fpdf%3Fp%3D%2FUsers%2Fhieupc%2FDownloads%2FDailyVintageCam_redesign_requirements_package%2FDailyVintageCam_YeuCau_UiUx_Instagram_Setlog_signed_signed.pdf%26v%3D1781518359625901000&sigmeta=http%3A%2F%2F127.0.0.1%3A51407%2Fsigmeta%3Fp%3D%2FUsers%2Fhieupc%2FDownloads%2FDailyVintageCam_redesign_requirements_package%2FDailyVintageCam_YeuCau_UiUx_Instagram_Setlog_signed_signed.pdf%26v%3D1781518359625901000&disableStream=true&disableAutoFetch=true&disableRange=false&rangeChunkSize=1048576&annotationMode=2&renderInteractiveForms=true#page=1&zoom=100",
+    "title": "DailyVintageCam_YeuCau_UiUx_Instagram_Setlog_signed_signed.pdf",
+    "styleTagCount": 3,
+    "relevantStyles": [
+      {
+        "attrs": {
+          "data-3t-pdfjs-overrides": "1"
+        },
+        "sample": "/* 3T Reader — PDF.js UI overrides\n   Hides the built-in toolbar/sidebar (the app provides its own UI).\n   Loaded by both window.py and pdfjs_ui_hooks.js. */\n\n#toolbarContainer { display: none !important; }\n#loadingBar { display: none !important; }\n#viewsManager { display: none !important; }\n#mainContainer { top: 0 !important; }\n#viewerContainer { top: 0 !important; left: 0 !important; }\nbody { background-color: #0f0f13 !important; }\n\n#viewer .page {\n    border: none !important;\n    box-shadow: "
+      },
+      {
+        "attrs": {},
+        "sample": "#toolbarContainer { display: none !important; }\n#loadingBar { display: none !important; }\n#viewsManager { display: none !important; }\n#mainContainer { top: 0 !important; }\n#viewerContainer { top: 0 !important; left: 0 !important; }\nbody { background-color: #0f0f13 !important; }\n#viewer .page {\n  border: none !important;\n  box-shadow: 0 4px 24px rgba(0,0,0,.5) !important;\n  margin: 16px auto !important;\n  border-radius: 4px !important;\n}\n.annotationLayer .signatureWidgetAnnotation { cursor: point"
+      },
+      {
+        "attrs": {},
+        "sample": "/* 3T Reader — PDF.js UI overrides\n   Hides the built-in toolbar/sidebar (the app provides its own UI).\n   Loaded by both window.py and pdfjs_ui_hooks.js. */\n\n#toolbarContainer { display: none !important; }\n#loadingBar { display: none !important; }\n#viewsManager { display: none !important; }\n#mainContainer { top: 0 !important; }\n#viewerContainer { top: 0 !important; left: 0 !important; }\nbody { background-color: #0f0f13 !important; }\n\n#viewer .page {\n    border: none !important;\n    box-shadow: "
+      }
+    ],
+    "widgetCount": 0,
+    "annotationSectionCount": 0,
+    "pageCanvasCount": 2,
+    "firstPage": {
+      "tag": "DIV",
+      "cls": "page",
+      "id": "",
+      "hidden": false,
+      "attrStyle": "width: round(down, var(--total-scale-factor) * 612px, var(--scale-round-x)); height: round(down, var(--total-scale-factor) * 792px, var(--scale-round-y));",
+      "text": "DAILYVINTAGECAMTài liệu ủi lại ứng dụng: Instagram Camera + Setlog Video + Vintage EditorBản yêu cầu chi tiết cho dev, U",
+      "rect": {
+        "left": 303,
+        "top": 0,
+        "width": 816,
+        "height": 1056
+      },
+      "computed": {
+        "display": "block",
+        "visibility": "visible",
+        "opacity": "1",
+        "pointerEvents": "auto",
+        "backgroundColor": "rgb(255, 255, 255)",
+        "border": "0px none rgb(255, 255, 255)",
+        "color": "rgb(255, 255, 255)"
+      },
+      "children": [
+        {
+          "tag": "DIV",
+          "cls": "canvasWrapper",
+          "hidden": false
+        },
+        {
+          "tag": "DIV",
+          "cls": "textLayer",
+          "hidden": false
+        },
+        {
+          "tag": "DIV",
+          "cls": "annotationLayer",
+          "hidden": false
+        },
+        {
+          "tag": "DIV",
+          "cls": "annotationEditorLayer disabled nonEditing",
+          "hidden": true
+        }
+      ]
+    },
+    "firstWidget": null,
+    "firstWidgetInput": null,
+    "pagesOverview": [
+      {
+        "page": "1",
+        "annots": 0,
+        "sigs": 0,
+        "canvases": 1
+      },
+      {
+        "page": "2",
+        "annots": 0,
+        "sigs": 0,
+        "canvases": 1
+      },
+      {
+        "page": "3",
+        "annots": 0,
+        "sigs": 0,
+        "canvases": 0
+      },
+      {
+        "page": "4",
+        "annots": 0,
+        "sigs": 0,
+        "canvases": 0
+      },
+      {
+        "page": "5",
+        "annots": 0,
+        "sigs": 0,
+        "canvases": 0
+      },
+      {
+        "page": "6",
+        "annots": 0,
+        "sigs": 0,
+        "canvases": 0
+      },
+      {
+        "page": "7",
+        "annots": 0,
+        "sigs": 0,
+        "canvases": 0
+      },
+      {
+        "page": "8",
+        "annots": 0,
+        "sigs": 0,
+        "canvases": 0
+      }
+    ],
+    "pdfjs": {
+      "page": 1,
+      "pagesCount": 11,
+      "annotationMode": null
+    }
+  }
+}

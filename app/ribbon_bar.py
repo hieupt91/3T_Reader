@@ -155,7 +155,6 @@ def make_ribbon_btn(icon, label: str, tooltip: str,
         btn.setIcon(icon)
     btn.setText(label)
     btn.setToolTip(tooltip)
-    btn.setStatusTip(tooltip)
     if checkable:
         btn.setCheckable(True)
     if callback:
@@ -260,6 +259,7 @@ class RibbonPanel(QWidget):
 
 class RibbonBar(QWidget):
     tab_changed = Signal(int)
+    collapsed_changed = Signal(bool)
     TABROW_H = 32
     PANEL_H = 72
     EXPANDED_H = TABROW_H + PANEL_H
@@ -401,6 +401,8 @@ class RibbonBar(QWidget):
             self._collapsed = False
             self._panel_container.setVisible(True)
             self._collapse_btn.setText("∧")
+            self.setFixedHeight(self.EXPANDED_H)
+            self.collapsed_changed.emit(False)
 
         s = self._styles
         for i, (btn, panel) in enumerate(zip(self._tabs, self._panels)):
@@ -414,3 +416,6 @@ class RibbonBar(QWidget):
         self._collapsed = not self._collapsed
         self._panel_container.setVisible(not self._collapsed)
         self._collapse_btn.setText("∨" if self._collapsed else "∧")
+        new_h = self.TABROW_H if self._collapsed else self.EXPANDED_H
+        self.setFixedHeight(new_h)
+        self.collapsed_changed.emit(self._collapsed)

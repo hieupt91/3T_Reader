@@ -149,7 +149,10 @@ def _download_and_run(info: UpdateInfo, parent_window):
         progress.close()
         if not result.success:
             raise RuntimeError(result.error or "Khong tai duoc ban cap nhat.")
-        subprocess.Popen([result.path], shell=False)
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", result.path])
+        else:
+            subprocess.Popen([result.path], shell=False)
         parent_window.close()
     except Exception as exc:
         progress.close()

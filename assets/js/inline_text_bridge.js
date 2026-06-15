@@ -7,18 +7,33 @@
         var _old = window.__3TTextState;
         if (_old.overlay && _old.overlay.parentNode)
             _old.overlay.parentNode.removeChild(_old.overlay);
+        if (_old.dragCap && _old.dragCap.parentNode)
+            _old.dragCap.parentNode.removeChild(_old.dragCap);
     }
-    window.__3TTextState   = { overlay: null, textarea: null, pageNumber: null, pageView: null };
-    window.__3TTextBridge  = null;   /* set through shared 3T bridge helper */
+    window.__3TTextState   = { overlay: null, textarea: null, pageNumber: null, pageView: null,
+                                pageEl: null, canvas: null, dragCap: null };
+    window.__3TTextBridge  = null;
 
     var S = window.__3TTextState;
 
+    /* ── drag capture helpers ── */
+    function makeDragCap() {
+        var cap = document.createElement('div');
+        cap.style.cssText =
+            'position:fixed;inset:0;z-index:99998;background:transparent;cursor:move;';
+        return cap;
+    }
+
     function getBox() {
-        var ov = S.overlay;
-        var l  = parseFloat(ov.style.left)  || 0;
-        var t  = parseFloat(ov.style.top)   || 0;
-        var w  = parseFloat(ov.style.width) || 200;
-        var h  = parseFloat(ov.style.height)|| 44;
+        var el = S.textarea || S.overlay;
+        var canvas = S.canvas || (S.pageEl && S.pageEl.querySelector('canvas')) || S.pageEl;
+        if (!canvas || !el) return { l:0, b:0, r:100, t:50 };
+        var cr  = canvas.getBoundingClientRect();
+        var ovr = el.getBoundingClientRect();
+        var l   = ovr.left   - cr.left;
+        var t   = ovr.top    - cr.top;
+        var w   = ovr.width;
+        var h   = ovr.height;
         var p1 = S.pageView.viewport.convertToPdfPoint(l,     t);
         var p2 = S.pageView.viewport.convertToPdfPoint(l + w, t + h);
         return { l:Math.min(p1[0],p2[0]), b:Math.min(p1[1],p2[1]),
@@ -33,15 +48,26 @@
         if (!br) return;
         if (!text) { br.cancelEdit(); return; }
         var box = getBox();
-        /* Keep overlay visible — page reload will remove it naturally */
         br.confirmText(S.pageNumber, box.l, box.b, box.r, box.t, text);
+        
+        if (S.overlay && S.overlay.parentNode)
+            S.overlay.parentNode.removeChild(S.overlay);
+        if (S.dragCap && S.dragCap.parentNode)
+            S.dragCap.parentNode.removeChild(S.dragCap);
+        S.overlay = null;
+        S.dragCap = null;
+        document.body.style.cursor = '';
+        window.__3TTextState = null;
     };
 
     window.__3TTextCancel = function () {
         var br = window.__3TTextBridge;
         if (S.overlay && S.overlay.parentNode)
             S.overlay.parentNode.removeChild(S.overlay);
+        if (S.dragCap && S.dragCap.parentNode)
+            S.dragCap.parentNode.removeChild(S.dragCap);
         S.overlay = null;
+        S.dragCap = null;
         document.body.style.cursor = '';
         if (br) br.cancelEdit();
     };
@@ -62,6 +88,46 @@
             S.overlay.style.transform = 'rotate(' + angle + 'deg)';
         }
     };
+
+    function startDrag(ov, ev, isResize, ta) {
+        var sl = ov.getBoundingClientRect().left;
+        var st = ov.getBoundingClientRect().top;
+        var sw = ov.offsetWidth;
+        var sh = ov.offsetHeight;
+        var sx = ev.clientX, sy = ev.clientY;
+
+        /* Create full-screen capture div */
+        var cap = makeDragCap();
+        if (isResize) cap.style.cursor = 'nwse-resize';
+        document.body.appendChild(cap);
+        S.dragCap = cap;
+
+        function onM(e) {
+            var dx = e.clientX - sx;
+            var dy = e.clientY - sy;
+            if (isResize) {
+                var nw = Math.max(80,  sw + dx);
+                var nh = Math.max(36, sh + dy);
+                ov.style.width  = nw + 'px';
+                ov.style.height = nh + 'px';
+                if (ta) ta.style.height = (nh - 36) + 'px';
+            } else {
+                /* Move: compute new position relative to page div */
+                var pageRect = S.pageEl.getBoundingClientRect();
+                ov.style.left = (sl + dx - pageRect.left) + 'px';
+                ov.style.top  = (st + dy - pageRect.top)  + 'px';
+            }
+        }
+        function onU() {
+            cap.removeEventListener('mousemove', onM);
+            cap.removeEventListener('mouseup',   onU);
+            if (cap.parentNode) cap.parentNode.removeChild(cap);
+            S.dragCap = null;
+        }
+        cap.addEventListener('mousemove', onM);
+        cap.addEventListener('mouseup',   onU);
+        ev.preventDefault();
+    }
 
     function startListen() {
         document.body.style.cursor = 'text';
@@ -89,11 +155,14 @@
             }
             var canvas = page.querySelector('canvas') || page;
             var pr  = canvas.getBoundingClientRect();
-            var cx  = e.clientX - pr.left;
-            var cy  = e.clientY - pr.top;
+            var pageRect = page.getBoundingClientRect();
+            var cx  = e.clientX - pageRect.left;
+            var cy  = e.clientY - pageRect.top;
 
             S.pageNumber = pn;
             S.pageView   = pgv;
+            S.pageEl     = page;
+            S.canvas     = canvas;
 
             /* ── build overlay div ── */
             var ov = document.createElement('div');
@@ -103,17 +172,20 @@
                 'border:2px solid #1A7AFF;' +
                 'background:rgba(255,255,255,0.97);' +
                 'z-index:9999;box-sizing:border-box;border-radius:4px;' +
-                'box-shadow:0 4px 20px rgba(26,122,255,0.4);cursor:move;';
+                'box-shadow:0 4px 20px rgba(26,122,255,0.4);';
 
-            /* badge label */
-            var badge = document.createElement('div');
-            badge.textContent = '✏️ Văn bản — Ctrl+Enter để chèn';
+            /* drag handle bar at top */
+            var dragBar = document.createElement('div');
+            dragBar.style.cssText =
+                'width:100%;height:20px;cursor:move;background:#1A7AFF;' +
+                'border-radius:2px 2px 0 0;display:flex;align-items:center;' +
+                'padding:0 8px;box-sizing:border-box;';
+            var badge = document.createElement('span');
+            badge.textContent = '✏️ Văn bản — kéo thanh này để di chuyển';
             badge.style.cssText =
-                'position:absolute;top:-26px;left:0;white-space:nowrap;' +
-                'font-size:10px;color:#fff;background:#1A7AFF;' +
-                'padding:3px 10px;border-radius:10px;pointer-events:none;' +
-                'box-shadow:0 1px 6px rgba(0,0,0,0.3);';
-            ov.appendChild(badge);
+                'font-size:10px;color:#fff;white-space:nowrap;pointer-events:none;';
+            dragBar.appendChild(badge);
+            ov.appendChild(dragBar);
 
             /* textarea */
             var ta = document.createElement('textarea');
@@ -126,7 +198,7 @@
             ta.addEventListener('input', function () {
                 ta.style.height = 'auto';
                 ta.style.height = ta.scrollHeight + 'px';
-                ov.style.height = (ta.scrollHeight + 36) + 'px';
+                ov.style.height = (ta.scrollHeight + 56) + 'px';
             });
             ov.appendChild(ta);
 
@@ -146,43 +218,16 @@
                 'cursor:nwse-resize;z-index:10000;';
             ov.appendChild(rh);
 
-            /* drag move */
-            ov.addEventListener('mousedown', function (ev) {
-                if (ev.target === rh || ev.target === ta) return;
-                var sl = parseFloat(ov.style.left), st = parseFloat(ov.style.top);
-                var sx = ev.clientX, sy = ev.clientY;
-                function onM(e) {
-                    ov.style.left = (sl + e.clientX - sx) + 'px';
-                    ov.style.top  = (st + e.clientY - sy) + 'px';
-                }
-                function onU() {
-                    document.removeEventListener('mousemove', onM, true);
-                    document.removeEventListener('mouseup',   onU, true);
-                }
-                document.addEventListener('mousemove', onM, true);
-                document.addEventListener('mouseup',   onU, true);
-                ev.preventDefault();
+            /* drag via drag handle bar */
+            dragBar.addEventListener('mousedown', function (ev) {
+                startDrag(ov, ev, false, ta);
+                ev.stopPropagation();
             });
 
             /* resize drag */
             rh.addEventListener('mousedown', function (ev) {
+                startDrag(ov, ev, true, ta);
                 ev.stopPropagation();
-                var sw = parseFloat(ov.style.width) || 220;
-                var sh = parseFloat(ov.style.height)|| 48;
-                var sx = ev.clientX, sy = ev.clientY;
-                function onM(e) {
-                    ov.style.width  = Math.max(80,  sw + e.clientX - sx) + 'px';
-                    var nh = Math.max(36, sh + e.clientY - sy);
-                    ov.style.height = nh + 'px';
-                    ta.style.height = (nh - 36) + 'px';
-                }
-                function onU() {
-                    document.removeEventListener('mousemove', onM, true);
-                    document.removeEventListener('mouseup',   onU, true);
-                }
-                document.addEventListener('mousemove', onM, true);
-                document.addEventListener('mouseup',   onU, true);
-                ev.preventDefault();
             });
 
             /* keyboard shortcuts */

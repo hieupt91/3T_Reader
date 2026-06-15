@@ -627,7 +627,6 @@ class PDFReaderApp(QMainWindow):
             a = QAction(text, self)
             a.setIcon(svg_icon(svg_file, color=_ic(svg_file)))
             a.setToolTip(tooltip)
-            a.setStatusTip(tooltip)
             if shortcut:
                 a.setShortcut(QKeySequence(shortcut))
             a.triggered.connect(slot)
@@ -941,6 +940,13 @@ class PDFReaderApp(QMainWindow):
         # Áp dụng đúng theme ngay từ đầu
         self.ribbon.set_theme(is_dark())
 
+        # Cập nhật chiều cao toolbar khi ribbon thu/mở
+        def _on_ribbon_collapse(collapsed: bool):
+            h = self.ribbon.TABROW_H if collapsed else self.ribbon.EXPANDED_H
+            self.toolbar.setMinimumHeight(h)
+            self.toolbar.setMaximumHeight(h)
+        self.ribbon.collapsed_changed.connect(_on_ribbon_collapse)
+
     # ------------------------------------------------------------------ #
     #  Print — QPrintDialog + PDF engine, KHÔNG dùng ShellExecute         #
     # ------------------------------------------------------------------ #
@@ -1096,6 +1102,7 @@ class PDFReaderApp(QMainWindow):
                 pass
             if 'progress' in locals():
                 progress.close()
+                progress.deleteLater()
             self._print_busy = False
 
     # ------------------------------------------------------------------ #
@@ -1424,8 +1431,7 @@ class PDFReaderApp(QMainWindow):
                 continue
             if not action.toolTip():
                 action.setToolTip(label)
-            if not action.statusTip():
-                action.setStatusTip(label)
+
 
     # ------------------------------------------------------------------ #
     #  Statusbar                                                           #

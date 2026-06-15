@@ -142,6 +142,10 @@ class _ObjectActionBridgeProxy(_BridgeProxyBase):
     def reportRetry(self):
         self._call("reportRetry")
 
+    @pyqtSlot(float, float, float, float)
+    def reportDragMove(self, l: float, b: float, r: float, t: float):
+        self._call("reportDragMove", l, b, r, t)
+
 
 _PROXY_TYPES = {
     "pageStateBridge": _PageStateBridgeProxy,

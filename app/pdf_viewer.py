@@ -258,6 +258,244 @@ class PDFViewerWidget(QtWidgets.QWidget):
         self._page_timer.start()
         self._load_page_count_async(token, path)
 
+    def reload_soft(self, path: str, zoom: str = "100", page: int | None = None, ops_json: str = "[]", erase_json: str = "[]"):
+        self._load_token += 1
+        token = self._load_token
+        self._path = path
+        self._zoom = zoom
+        if page:
+            self._current_page = max(1, int(page))
+        self._page_count = 0
+        
+        server = LocalPDFJSServer.get()
+        abs_path = server.register_pdf(path)
+        import urllib.parse
+        encoded_path = urllib.parse.quote(abs_path)
+        try:
+            cache_key = str(os.stat(abs_path).st_mtime_ns)
+        except OSError:
+            cache_key = "0"
+        pdf_url = f"http://127.0.0.1:{server._port}/pdf?p={encoded_path}&v={cache_key}"
+        
+        js = f"""
+        (function() {{
+            if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {{
+                var app = window.PDFViewerApplication;
+                var currentScroll = app.pdfViewer.container.scrollTop;
+                var currentLeft = app.pdfViewer.container.scrollLeft;
+                
+                var ops = {ops_json};
+                var eraseBoxes = {erase_json};
+                
+                var freezeDiv = document.createElement('div');
+                freezeDiv.id = '__3t_freeze';
+                freezeDiv.style.cssText = 'position:fixed;inset:0;z-index:999999;background:#e4e4e4;pointer-events:none;overflow:hidden;';
+                
+                var pages = document.querySelectorAll('.page');
+                pages.forEach(function(p) {{
+                    var pageNum = parseInt(p.getAttribute('data-page-number'));
+                    var pageView = app.pdfViewer.getPageView ? app.pdfViewer.getPageView(pageNum - 1) : null;
+                    if (!pageView) pageView = app.pdfViewer._pages ? app.pdfViewer._pages[pageNum - 1] : null;
+                    var c = p.querySelector('canvas');
+                    if (c && pageView && pageView.viewport) {{
+                        var clone = document.createElement('canvas');
+                        clone.width = c.width;
+                        clone.height = c.height;
+                        var ctx = clone.getContext('2d');
+                        ctx.drawImage(c, 0, 0);
+                        
+                        // Erase old object boxes
+                        if (eraseBoxes && eraseBoxes.length > 0) {{
+                            eraseBoxes.forEach(function(eb) {{
+                                if (eb.page_number === pageNum) {{
+                                    var vp = pageView.viewport;
+                                    var coords = vp.convertToViewportRectangle([eb.box[0], eb.box[1], eb.box[2], eb.box[3]]);
+                                    var bx = Math.min(coords[0], coords[2]);
+                                    var by = Math.min(coords[1], coords[3]);
+                                    var bw = Math.abs(coords[2] - coords[0]);
+                                    var bh = Math.abs(coords[3] - coords[1]);
+                                    // Scale to canvas pixel ratio
+                                    var ratioX = c.width / c.clientWidth;
+                                    var ratioY = c.height / c.clientHeight;
+                                    ctx.clearRect(bx * ratioX - 2, by * ratioY - 2, bw * ratioX + 4, bh * ratioY + 4);
+                                }}
+                            }});
+                        }}
+                        
+                        var rect = p.getBoundingClientRect();
+                        clone.style.cssText = 'position:absolute;left:' + rect.left + 'px;top:' + rect.top + 'px;width:' + rect.width + 'px;height:' + rect.height + 'px;background:#fff;box-shadow:0 2px 5px rgba(0,0,0,0.2);';
+                        freezeDiv.appendChild(clone);
+                    }}
+                }});
+                
+                // Draw NEW ops on top of freezeDiv
+                if (ops && ops.length > 0) {{
+                    ops.forEach(function(op) {{
+                        var pageEl = document.querySelector('.page[data-page-number="' + op.page_number + '"]');
+                        if (!pageEl) return;
+                        var pageView = app.pdfViewer.getPageView ? app.pdfViewer.getPageView(op.page_number - 1) : null;
+                        if (!pageView) pageView = app.pdfViewer._pages ? app.pdfViewer._pages[op.page_number - 1] : null;
+                        if (!pageView || !pageView.viewport) return;
+                        var vp = pageView.viewport;
+                        var coords = vp.convertToViewportRectangle([op.box[0], op.box[1], op.box[2], op.box[3]]);
+                        var bx = Math.min(coords[0], coords[2]);
+                        var by = Math.min(coords[1], coords[3]);
+                        var bw = Math.abs(coords[2] - coords[0]);
+                        var bh = Math.abs(coords[3] - coords[1]);
+                        
+                        var pRect = pageEl.getBoundingClientRect();
+                        
+                        var ov = document.createElement('div');
+                        var pad = 13;
+                        ov.style.cssText = 'position:absolute;left:'+(pRect.left+bx-pad)+'px;top:'+(pRect.top+by-pad)+'px;width:'+(bw+2*pad)+'px;height:'+(bh+2*pad)+'px;z-index:999999;pointer-events:none;transform-origin:'+(pad+bw/2)+'px '+(pad+bh/2)+'px;';
+                        if (op.rotation) ov.style.transform = 'rotate('+op.rotation+'deg)';
+                        
+                        var box = document.createElement('div');
+                        box.style.cssText = 'position:absolute;left:'+pad+'px;top:'+pad+'px;width:'+bw+'px;height:'+bh+'px;';
+                        
+                        if (op.type === 'text') {{
+                            var txt = document.createElement('div');
+                            txt.textContent = op.text || '';
+                            var c = op.font_color || [0,0,0];
+                            var r = Math.round(c[0]*255), g = Math.round(c[1]*255), b = Math.round(c[2]*255);
+                            txt.style.cssText = 'width:100%;height:100%;display:flex;align-items:flex-start;justify-content:flex-start;'
+                                + 'color:rgb('+r+','+g+','+b+');'
+                                + 'font-weight:'+(op.bold?'bold':'normal')+';'
+                                + 'text-decoration:'+(op.underline?'underline':'none')+';'
+                                + 'font-family:sans-serif;white-space:pre-wrap;overflow:hidden;';
+                            var fs = (op.font_size || 14) * (vp.scale || 1.0) * 1.333;
+                            txt.style.fontSize = fs + 'px';
+                            txt.style.lineHeight = '1.15';
+                            box.appendChild(txt);
+                        }} else if (op.type === 'image' && op.image_path) {{
+                            var img = document.createElement('img');
+                            img.src = 'file://' + op.image_path;
+                            img.style.cssText = 'width:100%;height:100%;object-fit:contain;opacity:0.85;';
+                            box.appendChild(img);
+                        }}
+                        ov.appendChild(box);
+                        freezeDiv.appendChild(ov);
+                    }});
+                }}
+                
+
+                
+                var textOv = window.__3TTextState ? window.__3TTextState.overlay : null;
+                if (textOv && textOv.parentNode) {{
+                    textOv.style.zIndex = '9999999';
+                }}
+                
+                document.body.appendChild(freezeDiv);
+                
+                app.open({url: '{pdf_url}'}).then(function() {{
+                    var container = app.pdfViewer.container;
+                    container.scrollTop = currentScroll;
+                    container.scrollLeft = currentLeft;
+                    
+                    function removeFreeze() {{
+                        if (freezeDiv.parentNode) {{
+                            freezeDiv.style.transition = 'opacity 0.2s ease-out';
+                            freezeDiv.style.opacity = '0';
+                            setTimeout(function() {{
+                                if (freezeDiv.parentNode) freezeDiv.parentNode.removeChild(freezeDiv);
+                            }}, 200);
+                        }}
+                    }}
+                    
+                    function onRender() {{
+                        app.pdfViewer.eventBus.off('pagerendered', onRender);
+                        setTimeout(removeFreeze, 150);
+                    }}
+                    app.pdfViewer.eventBus.on('pagerendered', onRender);
+                    
+                    setTimeout(removeFreeze, 2500);
+                }}).catch(function(e) {{ 
+                    console.error('Soft reload error:', e); 
+                    if (freezeDiv.parentNode) freezeDiv.parentNode.removeChild(freezeDiv);
+                }});
+            }}
+        }})();
+        """
+        self._web_view.page().runJavaScript(js)
+        self.pdf_loaded.emit({"filename": os.path.basename(path), "path": path})
+        self.page_changed.emit(self._current_page, self._page_count)
+        self._page_timer.start()
+        self._load_page_count_async(token, path)
+
+    def update_ops(self, ops_json: str):
+        js = f"""
+        (function() {{
+            window.__3tOps = {ops_json};
+            
+            function renderOps() {{
+                if (!window.__3tOps) return;
+                var app = window.PDFViewerApplication;
+                if (!app || !app.pdfViewer) return;
+                
+                document.querySelectorAll('.__3t-op-overlay').forEach(function(el) {{ el.remove(); }});
+                
+                window.__3tOps.forEach(function(op) {{
+                    var pageEl = document.querySelector('.page[data-page-number="' + op.page_number + '"]');
+                    if (!pageEl) return;
+                    var pageView = app.pdfViewer.getPageView ? app.pdfViewer.getPageView(op.page_number - 1) : null;
+                    if (!pageView) pageView = app.pdfViewer._pages ? app.pdfViewer._pages[op.page_number - 1] : null;
+                    if (!pageView || !pageView.viewport) return;
+                    
+                    var vp = pageView.viewport;
+                    var coords = vp.convertToViewportRectangle([op.box[0], op.box[1], op.box[2], op.box[3]]);
+                    var bx = Math.min(coords[0], coords[2]);
+                    var by = Math.min(coords[1], coords[3]);
+                    var bw = Math.abs(coords[2] - coords[0]);
+                    var bh = Math.abs(coords[3] - coords[1]);
+                    
+                    var ov = document.createElement('div');
+                    ov.className = '__3t-op-overlay';
+                    var pad = 0;
+                    ov.style.cssText = 'position:absolute;left:'+(bx-pad)+'px;top:'+(by-pad)+'px;width:'+(bw+2*pad)+'px;height:'+(bh+2*pad)+'px;z-index:40;pointer-events:none;transform-origin:'+(pad+bw/2)+'px '+(pad+bh/2)+'px;';
+                    if (op.rotation) ov.style.transform = 'rotate('+op.rotation+'deg)';
+                    
+                    if (op.type === 'rect') {{
+                        ov.style.background = '#ffffff';
+                    }} else if (op.type === 'text') {{
+                        ov.style.display = 'flex';
+                        ov.style.alignItems = 'flex-start';
+                        ov.style.justifyContent = 'flex-start';
+                        var txt = document.createElement('div');
+                        txt.textContent = op.text || '';
+                        var c = op.font_color || [0,0,0];
+                        var r = Math.round(c[0]*255), g = Math.round(c[1]*255), b = Math.round(c[2]*255);
+                        txt.style.cssText = 'width:100%;height:100%;display:flex;align-items:flex-start;justify-content:flex-start;'
+                            + 'color:rgb('+r+','+g+','+b+');'
+                            + 'font-weight:'+(op.bold?'bold':'normal')+';'
+                            + 'text-decoration:'+(op.underline?'underline':'none')+';'
+                            + 'font-family:sans-serif;white-space:pre-wrap;overflow:hidden;';
+                        var fs = (op.font_size || 14) * (vp.scale || 1.0) * 1.333;
+                        txt.style.fontSize = fs + 'px';
+                        txt.style.lineHeight = '1.15';
+                        ov.appendChild(txt);
+                    }} else if (op.type === 'image' && op.image_path) {{
+                        var img = document.createElement('img');
+                        img.src = op.image_data_url || ('file://' + op.image_path);
+                        img.style.cssText = 'width:100%;height:100%;object-fit:contain;';
+                        ov.appendChild(img);
+                    }}
+                    pageEl.appendChild(ov);
+                }});
+            }}
+            
+            renderOps();
+            
+            if (!window.__3tOpsHooked) {{
+                window.__3tOpsHooked = true;
+                if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {{
+                    window.PDFViewerApplication.pdfViewer.eventBus.on('pagerendered', renderOps);
+                    window.PDFViewerApplication.pdfViewer.eventBus.on('scalechanged', function() {{ setTimeout(renderOps, 50); }});
+                }}
+            }}
+        }})();
+        """
+        self._web_view.page().runJavaScript(js)
+
     def save_pdf(self):
         if not self._path:
             self.error_occurred.emit("Chưa mở tệp PDF.")
