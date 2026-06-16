@@ -267,11 +267,6 @@ class PDFReaderApp(QMainWindow):
         self._update_check_worker = None
         self._pending_manual_update_check = False
         self._token_monitor_timer = None
-        
-        self._warm_viewers = []
-        from packages.qt_compat.QtCore import QTimer
-        QTimer.singleShot(0, self._replenish_warm_viewer)
-
         self._token_check_thread = None
         self._token_check_worker = None
         self._token_monitor_suspended = False
@@ -433,12 +428,6 @@ class PDFReaderApp(QMainWindow):
     #  Open document                                                       #
     # ------------------------------------------------------------------ #
 
-    def _replenish_warm_viewer(self):
-        if len(self._warm_viewers) < 1:
-            from app.pdf_viewer import PDFViewerWidget
-            vw = PDFViewerWidget(preset="annotation")
-            self._warm_viewers.append(vw)
-
     def open_document(self, source_path: str, *, display_path: str | None = None, temp_path: str | None = None) -> bool:
         if not source_path:
             return False
@@ -448,15 +437,8 @@ class PDFReaderApp(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        if self._warm_viewers:
-            viewer = self._warm_viewers.pop(0)
-        else:
-            viewer = PDFViewerWidget(preset="annotation")
-            
+        viewer = PDFViewerWidget(preset="annotation")
         layout.addWidget(viewer)
-        
-        from packages.qt_compat.QtCore import QTimer
-        QTimer.singleShot(100, self._replenish_warm_viewer)
 
         state = {
             "viewer":       viewer,
