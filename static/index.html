@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3T Reader - Trình Đọc & Chỉnh Sửa PDF Tích Hợp AI Tối Thượng</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-color: #020617;
+            --surface: rgba(30, 41, 59, 0.4);
+            --surface-border: rgba(255, 255, 255, 0.1);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-primary: #3b82f6;
+            --gradient-1: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            --gradient-2: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --gradient-text: linear-gradient(to right, #60a5fa, #c084fc);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; }
+        
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.15), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.15), transparent 25%);
+            background-attachment: fixed;
+        }
+
+        .glass {
+            background: var(--surface);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--surface-border);
+        }
+
+        /* Navbar */
+        nav {
+            position: fixed; top: 0; width: 100%; z-index: 1000;
+            padding: 20px 0; border-bottom: 1px solid var(--surface-border);
+            transition: all 0.3s;
+        }
+        nav.scrolled { padding: 15px 0; background: rgba(2, 6, 23, 0.8); backdrop-filter: blur(20px); }
+        .nav-container { max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; padding: 0 24px; }
+        .logo { font-size: 24px; font-weight: 800; display: flex; align-items: center; gap: 12px; }
+        .logo i { background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .nav-links { display: flex; gap: 32px; }
+        .nav-links a { color: var(--text-primary); text-decoration: none; font-weight: 500; transition: color 0.3s; }
+        .nav-links a:hover { color: var(--accent-primary); }
+        .btn-nav { padding: 10px 24px; border-radius: 12px; background: rgba(255,255,255,0.05); color: white; border: 1px solid var(--surface-border); cursor: pointer; font-weight: 600; text-decoration: none; transition: 0.3s; }
+        .btn-nav:hover { background: white; color: black; }
+
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex; align-items: center; justify-content: center;
+            text-align: center; padding: 120px 24px 60px;
+            position: relative;
+        }
+        .hero-bg {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 800px; height: 800px;
+            background: radial-gradient(circle, rgba(59,130,246,0.1) 0%, transparent 70%);
+            z-index: -1; pointer-events: none;
+        }
+        .hero h1 { font-size: 64px; font-weight: 800; line-height: 1.1; margin-bottom: 24px; }
+        .hero h1 span { background: var(--gradient-text); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .hero p { font-size: 20px; color: var(--text-secondary); max-width: 600px; margin: 0 auto 40px; }
+        
+        .hero-buttons { display: flex; gap: 20px; justify-content: center; }
+        .btn-primary { 
+            padding: 16px 32px; border-radius: 16px; background: var(--gradient-1); color: white; 
+            text-decoration: none; font-size: 18px; font-weight: 600; display: inline-flex; align-items: center; gap: 10px;
+            transition: 0.3s; box-shadow: 0 10px 30px rgba(59,130,246,0.3); border: none; cursor: pointer;
+        }
+        .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 15px 40px rgba(59,130,246,0.4); }
+        .btn-secondary {
+            padding: 16px 32px; border-radius: 16px; background: rgba(255,255,255,0.05); color: white; 
+            text-decoration: none; font-size: 18px; font-weight: 600; display: inline-flex; align-items: center; gap: 10px;
+            border: 1px solid var(--surface-border); transition: 0.3s;
+        }
+        .btn-secondary:hover { background: rgba(255,255,255,0.1); transform: translateY(-3px); }
+
+        /* Features */
+        .features { padding: 100px 24px; max-width: 1200px; margin: 0 auto; }
+        .section-title { text-align: center; font-size: 40px; font-weight: 700; margin-bottom: 60px; }
+        
+        .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px; }
+        .feature-card { padding: 40px 32px; border-radius: 24px; transition: 0.4s; position: relative; overflow: hidden; }
+        .feature-card::before {
+            content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(to bottom, rgba(255,255,255,0.03), transparent);
+            z-index: -1;
+        }
+        .feature-card:hover { transform: translateY(-10px); border-color: rgba(96, 165, 250, 0.3); }
+        .feature-icon { 
+            width: 64px; height: 64px; border-radius: 16px; display: flex; align-items: center; justify-content: center;
+            font-size: 28px; margin-bottom: 24px; background: rgba(255,255,255,0.05); color: white;
+        }
+        .feature-card:nth-child(1) .feature-icon { color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
+        .feature-card:nth-child(2) .feature-icon { color: #8b5cf6; background: rgba(139, 92, 246, 0.1); }
+        .feature-card:nth-child(3) .feature-icon { color: #10b981; background: rgba(16, 185, 129, 0.1); }
+        .feature-card:nth-child(4) .feature-icon { color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+        .feature-card:nth-child(5) .feature-icon { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+        .feature-card:nth-child(6) .feature-icon { color: #06b6d4; background: rgba(6, 182, 212, 0.1); }
+        
+        .feature-card h3 { font-size: 22px; margin-bottom: 12px; font-weight: 600; }
+        .feature-card p { color: var(--text-secondary); line-height: 1.6; }
+
+        /* App Preview Mockup */
+        .preview-section { padding: 60px 24px 100px; text-align: center; }
+        .mockup-container {
+            max-width: 1000px; margin: 0 auto; border-radius: 20px; overflow: hidden;
+            box-shadow: 0 30px 60px rgba(0,0,0,0.5); border: 1px solid var(--surface-border);
+            position: relative;
+        }
+        .mockup-top {
+            height: 32px; background: #1e293b; display: flex; align-items: center; padding: 0 16px; gap: 8px;
+        }
+        .mockup-dot { width: 12px; height: 12px; border-radius: 50%; }
+        .dot-r { background: #ff5f56; } .dot-y { background: #ffbd2e; } .dot-g { background: #27c93f; }
+        .mockup-body {
+            background: #0f172a; padding: 40px; aspect-ratio: 16/9;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        /* Pricing */
+        .pricing { padding: 100px 24px; max-width: 1000px; margin: 0 auto; }
+        .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px; }
+        .pricing-card { padding: 48px 32px; border-radius: 24px; text-align: center; position: relative; }
+        .pricing-card.premium { border: 2px solid var(--accent-primary); background: linear-gradient(to bottom, rgba(59,130,246,0.05), transparent); }
+        .pricing-card.premium .badge { position: absolute; top: -14px; left: 50%; transform: translateX(-50%); background: var(--gradient-1); padding: 6px 16px; border-radius: 20px; font-weight: bold; font-size: 14px; }
+        .price { font-size: 48px; font-weight: 800; margin: 24px 0; display: flex; align-items: center; justify-content: center; gap: 8px;}
+        .price span { font-size: 18px; color: var(--text-secondary); font-weight: 400; }
+        .plan-features { list-style: none; margin-bottom: 40px; text-align: left; }
+        .plan-features li { margin-bottom: 16px; display: flex; align-items: center; gap: 12px; color: var(--text-secondary); }
+        .plan-features li i { color: var(--success); }
+
+        /* Footer */
+        footer { padding: 60px 24px; border-top: 1px solid var(--surface-border); margin-top: 100px; text-align: center; color: var(--text-secondary); }
+
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 40px; }
+            .hero-buttons { flex-direction: column; }
+            .nav-links { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <nav id="navbar" class="glass">
+        <div class="nav-container">
+            <div class="logo">
+                <i class="fa-solid fa-file-pdf"></i> 3T Reader
+            </div>
+            <div class="nav-links">
+                <a href="#features">Tính năng</a>
+                <a href="#pricing">Bảng giá</a>
+                <a href="/admin">Dành cho Admin</a>
+            </div>
+            <a href="#download" class="btn-nav">Tải Xuống</a>
+        </div>
+    </nav>
+
+    <section class="hero">
+        <div class="hero-bg"></div>
+        <div style="z-index: 1;">
+            <h1>Trình Đọc PDF <br><span>Tích Hợp Trí Tuệ Nhân Tạo</span></h1>
+            <p>Trải nghiệm siêu mượt mà với sức mạnh của C++. Ký số hàng loạt, nhận dạng chữ viết (OCR) Tiếng Việt, dịch thuật và tóm tắt thông minh bằng AI ngay trên tài liệu của bạn.</p>
+            <div class="hero-buttons">
+                <a href="/downloads/3TReader-1.0.0-win.exe" class="btn-primary" id="download">
+                    <i class="fa-brands fa-windows"></i> Tải bản Windows
+                </a>
+                <a href="/downloads/3TReader-1.0.0-mac.dmg" class="btn-secondary">
+                    <i class="fa-brands fa-apple"></i> Tải bản macOS
+                </a>
+            </div>
+            <p style="margin-top: 24px; font-size: 14px; opacity: 0.6;">Phiên bản Portable (Không cần cài đặt) cũng đã có sẵn.</p>
+        </div>
+    </section>
+
+    <section class="preview-section">
+        <div class="mockup-container glass">
+            <div class="mockup-top">
+                <div class="mockup-dot dot-r"></div>
+                <div class="mockup-dot dot-y"></div>
+                <div class="mockup-dot dot-g"></div>
+            </div>
+            <div class="mockup-body" style="background: url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop') center/cover; position: relative;">
+                <div style="position: absolute; inset: 0; background: rgba(15,23,42,0.8); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px);">
+                    <div style="text-align: center;">
+                        <i class="fa-solid fa-wand-magic-sparkles" style="font-size: 64px; background: var(--gradient-text); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 20px;"></i>
+                        <h2 style="font-size: 32px; font-weight: 700;">Giao diện tối giản, sức mạnh vô hạn</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="features" class="features">
+        <h2 class="section-title">Hệ Sinh Thái Tính Năng</h2>
+        <div class="feature-grid">
+            <div class="feature-card glass">
+                <div class="feature-icon"><i class="fa-solid fa-file-signature"></i></div>
+                <h3>Ký Số Hàng Loạt (Batch Sign)</h3>
+                <p>Ký hàng trăm file PDF cùng lúc bằng USB Token. Hỗ trợ xác thực eIDAS, PAdES với độ bảo mật cao nhất.</p>
+            </div>
+            <div class="feature-card glass">
+                <div class="feature-icon"><i class="fa-solid fa-language"></i></div>
+                <h3>AI Dịch Thuật Đa Ngữ</h3>
+                <p>Bôi đen bất kỳ đoạn văn bản nào, AI sẽ lập tức dịch sang Tiếng Việt (hoặc 150 ngôn ngữ khác) với ngữ cảnh chuyên ngành.</p>
+            </div>
+            <div class="feature-card glass">
+                <div class="feature-icon"><i class="fa-solid fa-brain"></i></div>
+                <h3>Chat với Tài Liệu (AI Bot)</h3>
+                <p>Hỏi bất cứ thông tin gì có trong tài liệu hàng nghìn trang, AI sẽ tìm kiếm và trả lời bạn chỉ trong 2 giây.</p>
+            </div>
+            <div class="feature-card glass">
+                <div class="feature-icon"><i class="fa-solid fa-eye"></i></div>
+                <h3>OCR Tiếng Việt Siêu Tốc</h3>
+                <p>Biến file PDF ảnh, tài liệu scan thành văn bản có thể tìm kiếm, copy/paste được với độ chính xác lên tới 99%.</p>
+            </div>
+            <div class="feature-card glass">
+                <div class="feature-icon"><i class="fa-solid fa-headphones"></i></div>
+                <h3>Đọc Sách Bằng Giọng Nói</h3>
+                <p>Chuyển đổi văn bản thành giọng đọc tự nhiên (Text-to-Speech) giúp bạn "nghe tài liệu" khi đang di chuyển.</p>
+            </div>
+            <div class="feature-card glass">
+                <div class="feature-icon"><i class="fa-solid fa-bolt"></i></div>
+                <h3>Hiệu Năng C++ Đỉnh Cao</h3>
+                <p>Lõi xử lý PySide6 & MuPDF cho phép mở các file PDF bản vẽ nặng hàng GB mượt mà, không giật lag.</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="pricing" class="pricing">
+        <h2 class="section-title">Bảng Giá</h2>
+        <div class="pricing-grid">
+            <div class="pricing-card glass">
+                <h3 style="font-size: 24px;">Miễn Phí</h3>
+                <div class="price">0đ<span>/ vĩnh viễn</span></div>
+                <p style="color: var(--text-secondary); margin-bottom: 32px;">Cho nhu cầu xem tài liệu cơ bản</p>
+                <ul class="plan-features">
+                    <li><i class="fa-solid fa-check"></i> Đọc PDF siêu mượt</li>
+                    <li><i class="fa-solid fa-check"></i> Tạo Ghi chú (Annotate)</li>
+                    <li><i class="fa-solid fa-check"></i> In ấn tài liệu</li>
+                    <li style="opacity: 0.3"><i class="fa-solid fa-xmark" style="color:var(--danger)"></i> Tính năng AI</li>
+                    <li style="opacity: 0.3"><i class="fa-solid fa-xmark" style="color:var(--danger)"></i> Ký số hàng loạt</li>
+                    <li style="opacity: 0.3"><i class="fa-solid fa-xmark" style="color:var(--danger)"></i> OCR Nhận diện chữ</li>
+                </ul>
+                <a href="#download" class="btn-secondary" style="width: 100%;">Tải Xuống Ngay</a>
+            </div>
+
+            <div class="pricing-card glass premium">
+                <div class="badge">ĐỀ XUẤT DOANH NGHIỆP</div>
+                <h3 style="font-size: 24px; color: var(--accent-primary);">Doanh Nghiệp (Enterprise)</h3>
+                <div class="price">Liên hệ</div>
+                <p style="color: var(--text-secondary); margin-bottom: 32px;">Mở khóa toàn bộ sức mạnh</p>
+                <ul class="plan-features">
+                    <li><i class="fa-solid fa-check"></i> <b>Mọi tính năng của Miễn Phí</b></li>
+                    <li><i class="fa-solid fa-check"></i> Ký số USB Token Hàng Loạt</li>
+                    <li><i class="fa-solid fa-check"></i> Nhận dạng chữ Scan (OCR)</li>
+                    <li><i class="fa-solid fa-check"></i> Chat với Tài liệu bằng AI</li>
+                    <li><i class="fa-solid fa-check"></i> Dịch thuật AI tự động</li>
+                    <li><i class="fa-solid fa-check"></i> Hỗ trợ kỹ thuật 24/7</li>
+                </ul>
+                <button onclick="alert('Vui lòng liên hệ Hotline: 1900 xxxx để đặt mua Key Enterprise')" class="btn-primary" style="width: 100%; justify-content: center;">Đặt Mua Key</button>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="logo" style="justify-content: center; margin-bottom: 16px;">
+            <i class="fa-solid fa-file-pdf"></i> 3T Reader
+        </div>
+        <p>&copy; 2026 3T Computer. Được phát triển độc quyền.</p>
+        <div style="margin-top: 16px; display: flex; gap: 16px; justify-content: center;">
+            <a href="/terms" style="color: var(--text-secondary); text-decoration: none;">Điều khoản</a>
+            <a href="/privacy" style="color: var(--text-secondary); text-decoration: none;">Bảo mật</a>
+            <a href="/support" style="color: var(--text-secondary); text-decoration: none;">Hỗ trợ</a>
+        </div>
+    </footer>
+
+    <script>
+        // Navbar scroll effect
+        window.addEventListener('scroll', () => {
+            const nav = document.getElementById('navbar');
+            if (window.scrollY > 50) nav.classList.add('scrolled');
+            else nav.classList.remove('scrolled');
+        });
+    </script>
+</body>
+</html>

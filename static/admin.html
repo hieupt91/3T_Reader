@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3T Reader - Quản Trị Hệ Thống</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --surface-color: rgba(30, 41, 59, 0.7);
+            --surface-border: rgba(255, 255, 255, 0.1);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-primary: #3b82f6;
+            --gradient-1: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            --danger: #ef4444;
+            --success: #10b981;
+            --warning: #f59e0b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; }
+        body {
+            background-color: var(--bg-color); color: var(--text-primary);
+            min-height: 100vh; display: flex;
+            background-image: radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+                              radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.15) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+        .glass { background: var(--surface-color); backdrop-filter: blur(16px); border: 1px solid var(--surface-border); }
+        
+        #login-overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(15,23,42,0.9); z-index: 1000; transition: 0.5s; }
+        .login-box { padding: 40px; border-radius: 24px; text-align: center; width: 400px; }
+        .login-box h2 { margin-bottom: 30px; background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .input-group { margin-bottom: 20px; text-align: left; }
+        .input-control { width: 100%; padding: 12px; border-radius: 12px; background: rgba(0,0,0,0.2); border: 1px solid var(--surface-border); color: white; margin-top: 8px;}
+        .btn { width: 100%; padding: 14px; border-radius: 12px; background: var(--gradient-1); color: white; border: none; font-weight: 600; cursor: pointer; transition: 0.3s; }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(59,130,246,0.3); }
+        
+        #app { display: flex; width: 100%; opacity: 0; transition: 0.5s; }
+        #app.visible { opacity: 1; }
+        
+        .sidebar { width: 280px; height: 100vh; padding: 24px; position: sticky; top: 0; display: flex; flex-direction: column; }
+        .logo { font-size: 24px; font-weight: 700; margin-bottom: 40px; }
+        .nav-item { padding: 12px 16px; border-radius: 12px; color: var(--text-secondary); cursor: pointer; margin-bottom: 8px; display: flex; gap: 12px; }
+        .nav-item.active { background: var(--gradient-1); color: white; }
+        .nav-item:hover:not(.active) { background: rgba(255,255,255,0.05); }
+        .logout-btn { margin-top: auto; color: var(--danger); }
+        
+        .main-content { flex: 1; padding: 40px; overflow-y: auto; }
+        .header { margin-bottom: 40px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 40px; }
+        .stat-card { padding: 24px; border-radius: 20px; display: flex; align-items: center; gap: 20px; }
+        .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+        .stat-info p { font-size: 28px; font-weight: 700; }
+        
+        .data-section { border-radius: 20px; padding: 24px; }
+        table { width: 100%; border-collapse: separate; border-spacing: 0 8px; }
+        th { text-align: left; padding: 12px 16px; color: var(--text-secondary); }
+        td { padding: 16px; background: rgba(255,255,255,0.02); }
+        .badge { padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+        .bg-warning { background: rgba(245,158,11,0.1); color: var(--warning); }
+        .bg-success { background: rgba(16,185,129,0.1); color: var(--success); }
+        .bg-primary { background: rgba(59,130,246,0.1); color: var(--accent-primary); }
+        
+        .action-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 8px; }
+        .action-btn:hover { color: white; }
+        
+        .tab-content { display: none; }
+        .tab-content.active { display: block; animation: fadeIn 0.4s; }
+        @keyframes fadeIn { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform:translateY(0); } }
+        
+        .toast { position: fixed; bottom: 24px; right: 24px; padding: 16px 24px; border-radius: 12px; background: var(--surface-color); color: white; transform: translateX(150%); transition: 0.3s; z-index: 2000;}
+        .toast.show { transform: translateX(0); }
+    </style>
+</head>
+<body>
+    <div id="login-overlay">
+        <div class="login-box glass">
+            <h2>3T Reader Admin</h2>
+            <form id="login-form">
+                <div class="input-group">
+                    <label>Mật khẩu quản trị</label>
+                    <input type="password" id="password" class="input-control" placeholder="Nhập mật khẩu..." required>
+                </div>
+                <button type="submit" class="btn">Đăng nhập</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="app">
+        <aside class="sidebar glass">
+            <div class="logo"><i class="fa-solid fa-shield-halved" style="color:#3b82f6;"></i> 3T Admin</div>
+            <div class="nav-item active" data-tab="orders"><i class="fa-solid fa-cart-shopping"></i> Đơn hàng</div>
+            <div class="nav-item" data-tab="licenses"><i class="fa-solid fa-key"></i> Key Bản Quyền</div>
+            <div class="nav-item" data-tab="updates"><i class="fa-solid fa-cloud-arrow-up"></i> Cập nhật App</div>
+            <div class="nav-item logout-btn" id="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Đăng xuất</div>
+        </aside>
+
+        <main class="main-content">
+            <div class="header"><h1 id="page-title">Quản lý Đơn hàng</h1></div>
+            
+            <div class="stats-grid">
+                <div class="stat-card glass">
+                    <div class="stat-icon" style="background: rgba(245,158,11,0.1); color: var(--warning);"><i class="fa-solid fa-clock"></i></div>
+                    <div class="stat-info"><h3 style="color:var(--text-secondary)">Chờ duyệt</h3><p id="stat-pending">0</p></div>
+                </div>
+                <div class="stat-card glass">
+                    <div class="stat-icon" style="background: rgba(16,185,129,0.1); color: var(--success);"><i class="fa-solid fa-check"></i></div>
+                    <div class="stat-info"><h3 style="color:var(--text-secondary)">License Cấp</h3><p id="stat-active">0</p></div>
+                </div>
+            </div>
+
+            <div id="tab-orders" class="tab-content active data-section glass">
+                <div style="display:flex; justify-content:space-between; margin-bottom:20px;">
+                    <h2>Danh sách Đơn mua</h2>
+                    <button class="btn" style="width:120px; padding:10px;" onclick="loadOrders()">Làm mới</button>
+                </div>
+                <table>
+                    <thead><tr><th>Mã Đơn</th><th>Khách hàng</th><th>Gói (Plan)</th><th>Ngày tạo</th><th>Trạng thái</th><th style="text-align:right">Hành động</th></tr></thead>
+                    <tbody id="orders-tbody"></tbody>
+                </table>
+            </div>
+
+            <div id="tab-licenses" class="tab-content data-section glass">
+                <div style="display:flex; justify-content:space-between; margin-bottom:20px;">
+                    <h2>License Đã Cấp</h2>
+                    <button class="btn" style="width:120px; padding:10px;" onclick="loadLicenses()">Làm mới</button>
+                </div>
+                <table>
+                    <thead><tr><th>License Key</th><th>Chủ sở hữu</th><th>Plan</th><th>Hết hạn</th><th>Thiết bị</th><th style="text-align:right">Hành động</th></tr></thead>
+                    <tbody id="licenses-tbody"></tbody>
+                </table>
+            </div>
+
+            <div id="tab-updates" class="tab-content data-section glass" style="max-width: 600px;">
+                <h2>Cấu hình Auto-Update</h2>
+                <form id="update-form" style="margin-top:20px;">
+                    <div class="input-group"><label>Phiên bản Windows</label><input type="text" id="win_version" class="input-control"></div>
+                    <div class="input-group"><label>Link tải Windows</label><input type="text" id="win_url" class="input-control"></div>
+                    <div class="input-group"><label>Phiên bản macOS</label><input type="text" id="mac_version" class="input-control"></div>
+                    <div class="input-group"><label>Link tải macOS</label><input type="text" id="mac_url" class="input-control"></div>
+                    <button type="submit" class="btn">Lưu Cấu Hình</button>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <div class="toast" id="toast"><span id="toast-msg"></span></div>
+
+    <script>
+        let token = localStorage.getItem('admin_token') || '';
+        if (token) {
+            document.getElementById('login-overlay').style.display = 'none';
+            document.getElementById('app').classList.add('visible');
+            initApp();
+        }
+
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const pwd = document.getElementById('password').value;
+            try {
+                const res = await fetch('/api/admin/login', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ password: pwd })
+                });
+                if (res.ok) {
+                    token = (await res.json()).token;
+                    localStorage.setItem('admin_token', token);
+                    document.getElementById('login-overlay').style.opacity = '0';
+                    setTimeout(() => {
+                        document.getElementById('login-overlay').style.display = 'none';
+                        document.getElementById('app').classList.add('visible');
+                        initApp();
+                    }, 500);
+                } else showToast('Sai mật khẩu!');
+            } catch(e) { showToast('Lỗi mạng'); }
+        });
+
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            localStorage.removeItem('admin_token'); location.reload();
+        });
+
+        document.querySelectorAll('.nav-item[data-tab]').forEach(item => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+                item.classList.add('active');
+                const t = item.getAttribute('data-tab');
+                document.getElementById('tab-' + t).classList.add('active');
+                document.getElementById('page-title').innerText = item.innerText;
+                if(t==='orders') loadOrders();
+                if(t==='licenses') loadLicenses();
+                if(t==='updates') loadUpdateConfig();
+            });
+        });
+
+        async function fetchAPI(url, opts={}) {
+            if(!opts.headers) opts.headers = {};
+            opts.headers['Authorization'] = 'Bearer ' + token;
+            opts.headers['Content-Type'] = 'application/json';
+            const r = await fetch(url, opts);
+            if(r.status===401||r.status===403) { localStorage.removeItem('admin_token'); location.reload(); }
+            return r.json();
+        }
+
+        function showToast(msg) {
+            document.getElementById('toast-msg').innerText = msg;
+            document.getElementById('toast').classList.add('show');
+            setTimeout(() => document.getElementById('toast').classList.remove('show'), 3000);
+        }
+
+        function initApp() { loadOrders(); loadLicenses(); }
+
+        async function loadOrders() {
+            const data = await fetchAPI('/api/admin/orders');
+            const tb = document.getElementById('orders-tbody');
+            tb.innerHTML = '';
+            let pendingCount = 0;
+            if(data.orders) {
+                data.orders.sort((a,b)=>b.created_at-a.created_at).forEach(o => {
+                    if(o.status === 'pending') pendingCount++;
+                    const st = o.status==='pending' ? '<span class="badge bg-warning">Chờ duyệt</span>' : 
+                               o.status==='approved' ? '<span class="badge bg-success">Đã cấp</span>' : '<span class="badge" style="background:#333">Hủy</span>';
+                    const act = o.status==='pending' ? `
+                        <button class="action-btn" style="color:var(--success)" onclick="approve('${o.id}')"><i class="fa-solid fa-check"></i> Duyệt</button>
+                    ` : (o.license_key ? `<span style="color:var(--success)">${o.license_key}</span>` : '');
+                    tb.innerHTML += `<tr>
+                        <td>${o.id.substring(0,8)}</td>
+                        <td><b>${o.customer_name}</b><br><small style="color:var(--text-secondary)">${o.customer_email}</small></td>
+                        <td><span class="badge bg-primary">${o.plan}</span></td>
+                        <td>${new Date(o.created_at*1000).toLocaleString('vi-VN')}</td>
+                        <td>${st}</td>
+                        <td style="text-align:right">${act}</td>
+                    </tr>`;
+                });
+            }
+            document.getElementById('stat-pending').innerText = pendingCount;
+        }
+
+        async function approve(id) {
+            if(confirm('Duyệt đơn này và cấp Key?')) {
+                await fetchAPI(`/api/admin/orders/${id}/approve`, {method:'POST'});
+                showToast('Đã cấp key!'); loadOrders(); loadLicenses();
+            }
+        }
+
+        async function loadLicenses() {
+            const data = await fetchAPI('/api/admin/licenses');
+            const tb = document.getElementById('licenses-tbody');
+            tb.innerHTML = '';
+            if(data.licenses) {
+                document.getElementById('stat-active').innerText = data.licenses.length;
+                data.licenses.forEach(l => {
+                    tb.innerHTML += `<tr>
+                        <td style="color:var(--accent-primary); font-family:monospace; font-weight:bold;">${l.key}</td>
+                        <td>${l.user}</td>
+                        <td><span class="badge bg-primary">${l.plan}</span></td>
+                        <td>${new Date(l.expires_at*1000).toLocaleDateString('vi-VN')}</td>
+                        <td>${l.device_id||'Chưa Kích Hoạt'}</td>
+                        <td style="text-align:right"><button class="action-btn" style="color:var(--danger)" onclick="alert('Tính năng xóa chưa bật')"><i class="fa-solid fa-trash"></i></button></td>
+                    </tr>`;
+                });
+            }
+        }
+
+        async function loadUpdateConfig() {
+            const data = await fetchAPI('/api/admin/update-config');
+            if(data) {
+                document.getElementById('win_version').value = data.win_version || '';
+                document.getElementById('win_url').value = data.win_url || '';
+                document.getElementById('mac_version').value = data.mac_version || '';
+                document.getElementById('mac_url').value = data.mac_url || '';
+            }
+        }
+        document.getElementById('update-form').addEventListener('submit', async(e)=>{
+            e.preventDefault();
+            const payload = {
+                win_version: document.getElementById('win_version').value,
+                win_url: document.getElementById('win_url').value,
+                mac_version: document.getElementById('mac_version').value,
+                mac_url: document.getElementById('mac_url').value,
+                release_notes: ''
+            };
+            const r = await fetchAPI('/api/admin/update-config', {method:'POST', body:JSON.stringify(payload)});
+            if(r.ok) showToast('Lưu cấu hình update thành công');
+        });
+    </script>
+</body>
+</html>
