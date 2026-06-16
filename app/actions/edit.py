@@ -604,6 +604,12 @@ def _reset_edit_state(window):
             except OSError:
                 pass
     _set_edit_state(window, None)
+    
+    try:
+        if hasattr(window, "viewer") and hasattr(window.viewer, "update_ops"):
+            window.viewer.update_ops("[]")
+    except Exception:
+        pass
 
 
 def _place_dialog_near_parent(parent, width: int, height: int, *, dx: int = 16, dy: int = 72):
@@ -893,6 +899,15 @@ def _adjust_placement(window, initial_placement: dict, title: str = "Xác nhận
 @require_document(show_message=True)
 def undo_last_edit(window):
     """Hoàn tác thao tác chèn cuối cùng."""
+    try:
+        # Dismiss any active object selection box before undoing
+        from app.actions.sign import _get_web_view
+        web_view = _get_web_view(window)
+        if web_view is not None:
+            web_view.page().runJavaScript("if(window.__3tObjectActionBridge && window.__3tObjectActionBridge.dismissed) window.__3tObjectActionBridge.dismissed();")
+    except Exception:
+        pass
+
     state = _get_edit_state(window)
     if not state or not state.get("ops"):
         try:
@@ -1751,12 +1766,21 @@ def draw_on_pdf(window):
     if not state:
         return
 
+    import base64
+    try:
+        with open(img_path, "rb") as f:
+            raw = f.read()
+        data_url = f"data:image/png;base64,{base64.b64encode(raw).decode()}"
+    except Exception:
+        data_url = ""
+
     op = {
         "id": state["next_id"],
         "type": "image",
         "page_number": page_number,
         "box": (left, bottom, right, top),
         "image_path": img_path,
+        "image_data_url": data_url,
     }
     state["next_id"] += 1
     state["ops"].append(op)
