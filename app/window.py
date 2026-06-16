@@ -2408,12 +2408,22 @@ class PDFReaderApp(QMainWindow):
     def _dispose_tab_resources(self, state):
         if not state:
             return
+        
+        import gc
+        from packages.qt_compat.QtCore import QUrl
+
         web_view = state.get("web_view")
         if web_view:
             try:
+                web_view.stop()
+                web_view.setUrl(QUrl("about:blank"))
                 page = web_view.page()
                 if page:
                     page.setWebChannel(None)
+                    profile = page.profile()
+                    if profile:
+                        profile.clearHttpCache()
+                    page.deleteLater()
             except Exception:
                 pass
             web_view.deleteLater()
@@ -2431,6 +2441,11 @@ class PDFReaderApp(QMainWindow):
         temp_paths = getattr(self, "_session_temp_paths", None)
         if isinstance(temp_paths, set) and temp_path:
             temp_paths.discard(temp_path)
+            
+        # Clear the dict to drop any circular references (like edit_state)
+        state.clear()
+        # Force garbage collection
+        gc.collect()
 
     def eventFilter(self, obj, event):
         from packages.qt_compat.QtCore import QEvent
