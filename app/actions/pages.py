@@ -317,6 +317,17 @@ def rotate_pages_action(window):
                     pageDiv.style.transition = 'transform 0.25s ease';
                     pageDiv.style.transform = `rotate(${{newRot}}deg)`;
                 }}
+                
+                let thumbDiv = document.querySelector(`.thumbnail[data-page-number="${{targetPage}}"]`);
+                if (thumbDiv) {{
+                    let currentRot = parseInt(thumbDiv.getAttribute('data-css-rotation') || '0');
+                    let newRot = (currentRot + rot) % 360;
+                    thumbDiv.setAttribute('data-css-rotation', newRot);
+                    
+                    let thumbImg = thumbDiv.querySelector('.thumbnailImage') || thumbDiv.querySelector('canvas') || thumbDiv;
+                    thumbImg.style.transition = 'transform 0.25s ease';
+                    thumbImg.style.transform = `rotate(${{newRot}}deg)`;
+                }}
             }}
 
             if (pageNum === 0) {{
