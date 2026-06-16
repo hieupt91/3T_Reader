@@ -22,6 +22,8 @@ from app.actions._pdf_save import (
 )
 from app.dialogs import show_warning, show_info
 from app.webchannel import register_webchannel_object
+import threading
+_PDF_SAVE_LOCK = threading.Lock()
 
 
 NOTE_ICON_SIZE_PT = 18.0
@@ -1748,30 +1750,49 @@ def _rotate_page(window, degrees: int):
     except Exception as e:
         print("Rotate JS Error:", e)
 
+    # 1.5 Xoay tức thì thumbnail trên thanh bên bằng QTransform
+    try:
+        if hasattr(window, "sidebar") and window.sidebar.isVisible():
+            item = window.sidebar.list.item(page_no - 1)
+            if item:
+                from packages.qt_compat.QtGui import QTransform, QIcon
+                from packages.qt_compat.QtCore import Qt
+                size = window.sidebar.list.iconSize()
+                pixmap = item.icon().pixmap(size)
+                if not pixmap.isNull():
+                    transform = QTransform().rotate(degrees)
+                    rotated = pixmap.transformed(transform, Qt.TransformationMode.SmoothTransformation)
+                    item.setIcon(QIcon(rotated))
+                    # Xóa cache để lần sau có scroll thì load lại bản nét từ pdf engine
+                    window.sidebar._loaded_pages.discard(page_no)
+    except Exception as e:
+        pass
+
     # 2. Ghi ngầm file PDF để không block UI và không reload làm chớp màn hình
     def _burn():
-        import tempfile
-        import shutil
-        import os
-        from app.actions._pdf_save import make_staged_pdf_path, remove_path_quietly
-        tmp = make_staged_pdf_path(path)
-        try:
-            with pikepdf.open(path) as pdf:
-                page = pdf.pages[page_no - 1]
-                try:
-                    current_rot = int(page.get("/Rotate", 0))
-                except Exception:
-                    current_rot = 0
-                page["/Rotate"] = (current_rot + degrees) % 360
-                pdf.save(tmp)
-            shutil.move(tmp, path)
-        except Exception as e:
-            remove_path_quietly(tmp)
+        with _PDF_SAVE_LOCK:
+            import tempfile
+            import shutil
+            import os
+            from app.actions._pdf_save import make_staged_pdf_path, remove_path_quietly
+            tmp = make_staged_pdf_path(path)
             try:
-                with open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a") as f:
-                    f.write(f"Background rotate error: {e}\n")
-            except Exception:
-                pass
+                with pikepdf.open(path) as pdf:
+                    page = pdf.pages[page_no - 1]
+                    try:
+                        current_rot = int(page.get("/Rotate", 0))
+                    except Exception:
+                        current_rot = 0
+                    page["/Rotate"] = (current_rot + degrees) % 360
+                    pdf.save(tmp)
+                shutil.move(tmp, path)
+            except Exception as e:
+                remove_path_quietly(tmp)
+                try:
+                    with open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a") as f:
+                        f.write(f"Background rotate error: {e}\n")
+                except Exception:
+                    pass
 
     import threading
     threading.Thread(target=_burn, daemon=True).start()

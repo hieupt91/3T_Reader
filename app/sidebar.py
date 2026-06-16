@@ -52,9 +52,9 @@ class ThumbnailSidebar(QDockWidget):
         self.setFixedWidth(190)
 
         self.list = QListWidget()
-        self.list.setIconSize(QSize(144, 192))
+        self.list.setIconSize(QSize(170, 170))
         self.list.setSpacing(8)
-        self.list.setUniformItemSizes(True)
+        
         self.list.setStyleSheet("""
             QListWidget {
                 background-color: #0d0d12;

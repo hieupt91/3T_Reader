@@ -348,6 +348,23 @@ def rotate_pages_action(window):
     except Exception:
         pass
 
+    try:
+        if hasattr(window, "sidebar") and window.sidebar.isVisible():
+            from packages.qt_compat.QtGui import QTransform, QIcon
+            from packages.qt_compat.QtCore import Qt
+            size = window.sidebar.list.iconSize()
+            for pn, rdeg in rotations.items():
+                item = window.sidebar.list.item(pn - 1)
+                if item:
+                    pixmap = item.icon().pixmap(size)
+                    if not pixmap.isNull():
+                        transform = QTransform().rotate(rdeg)
+                        rotated = pixmap.transformed(transform, Qt.TransformationMode.SmoothTransformation)
+                        item.setIcon(QIcon(rotated))
+                        window.sidebar._loaded_pages.discard(pn)
+    except Exception:
+        pass
+
     def _burn_rotation_in_background():
         import shutil
         import tempfile
