@@ -59,10 +59,14 @@ def _post(base_url: str, path: str, payload: dict) -> dict:
     if not resp.ok:
         try:
             body = resp.json()
-            msg = body.get("detail") or body.get("message") or f"Loi {resp.status_code}"
+            detail = body.get("detail")
+            if isinstance(detail, list):
+                msg = "; ".join([d.get("msg", str(d)) if isinstance(d, dict) else str(d) for d in detail])
+            else:
+                msg = detail or body.get("message") or f"Loi {resp.status_code}"
         except Exception:
             msg = f"Loi {resp.status_code}"
-        raise RuntimeError(msg)
+        raise RuntimeError(str(msg))
     return resp.json()
 
 
@@ -175,8 +179,8 @@ class VpsLicenseClient:
             "machine_name": socket.gethostname(),
         }
         resp = _post(self._base, "/api/v1/license/activate", payload)
-        if resp.get("status") != "ok":
-            raise RuntimeError(resp.get("message", "Kich hoat that bai."))
+        if resp.get("status") != "ok" and "token" not in resp:
+            raise RuntimeError(resp.get("message", "Kích hoạt thất bại."))
 
         token = resp["token"]
         expires_at = _parse_dt(resp.get("expires_at"))
