@@ -1643,7 +1643,8 @@ class PDFReaderApp(QMainWindow):
                 from app.actions.annotate import delete_current_page
                 delete_current_page(self)
             elif action_name == "insert_after":
-                pass # insert_blank_page(self)
+                from app.actions.pages import insert_blank_page
+                insert_blank_page(self, page_num)
             elif action_name == "extract":
                 from app.actions.pages import extract_single_page
                 extract_single_page(self, page_num)

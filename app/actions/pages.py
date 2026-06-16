@@ -590,3 +590,33 @@ def extract_single_page(window, page_num: int):
         window.status.showMessage(f"Đã trích xuất trang {page_num} ra {os.path.basename(out_path)}", 4000)
     except Exception as e:
         show_warning(window, "Lỗi trích xuất", str(e))
+
+def insert_blank_page(window, target_page_num: int):
+    path = _current_pdf_path(window)
+    if not path:
+        return
+        
+    try:
+        import pikepdf
+        from app.actions.annotate import _flush_annotations_before_heavy_op, _save_pikepdf_reload
+        if not _flush_annotations_before_heavy_op(window, path, "chen trang trang"):
+            return
+            
+        with pikepdf.open(path) as pdf:
+            # We want to insert AFTER the target_page_num.
+            # In pikepdf, index is 0-based.
+            index_to_insert = target_page_num
+            
+            # Find the size of the current page to match it
+            current_page = pdf.pages[target_page_num - 1]
+            box = current_page.mediabox
+            width = float(box[2] - box[0])
+            height = float(box[3] - box[1])
+            
+            pdf.add_blank_page(page_size=(width, height), page_index=index_to_insert)
+            
+            _save_pikepdf_reload(window, pdf, keep_page=True)
+            
+        window.status.showMessage(f"Đã chèn trang trắng sau trang {target_page_num}", 4000)
+    except Exception as e:
+        show_warning(window, "Lỗi chèn trang", str(e))
