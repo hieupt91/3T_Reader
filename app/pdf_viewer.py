@@ -221,10 +221,28 @@ class PDFViewerWidget(QtWidgets.QWidget):
         ui_hooks.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         ui_hooks.setRunsOnSubFrames(False)
 
+        # Dynamic theme script
+        theme_script = QWebEngineScript()
+        theme_script.setName("pdfjs-theme-bg")
+        from styles.theme import is_dark
+        bg_hex = "#0f0f13" if is_dark() else "#f5f5fa"
+        theme_script.setSourceCode(f"""
+            (function() {{
+                var style = document.createElement('style');
+                style.id = 'theme-bg-style';
+                style.textContent = "body {{ background-color: {bg_hex} !important; }}";
+                document.head.appendChild(style);
+            }})();
+        """)
+        theme_script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
+        theme_script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        theme_script.setRunsOnSubFrames(False)
+
         page_scripts = self._web_view.page().scripts()
         page_scripts.insert(polyfill)
         page_scripts.insert(pdfjs_overrides)
         page_scripts.insert(ui_hooks)
+        page_scripts.insert(theme_script)
 
         self._web_view.loadFinished.connect(lambda ok: self.page_ready.emit() if ok else None)
         self.page_count_ready.connect(self._on_page_count_ready)
@@ -238,6 +256,13 @@ class PDFViewerWidget(QtWidgets.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._web_view)
+
+        # Set background color to prevent white flash
+        from styles.theme import is_dark
+        from packages.qt_compat.QtGui import QColor
+        bg_hex = "#0f0f13" if is_dark() else "#f5f5fa"
+        self._web_view.page().setBackgroundColor(QColor(bg_hex))
+        self.page_ready.connect(lambda: self._web_view.page().runJavaScript(f"document.body.style.setProperty('background-color', '{bg_hex}', 'important');"))
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #

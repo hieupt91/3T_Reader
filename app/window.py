@@ -2566,6 +2566,18 @@ class PDFReaderApp(QMainWindow):
         btn = self.toolbar.widgetForAction(self.act_theme_toggle)
         if btn:
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            
+        # Update PDF.js background color dynamically
+        from packages.qt_compat.QtGui import QColor
+        bg_hex = "#0f0f13" if is_dark() else "#f5f5fa"
+        for tab, state in self._tabs_data.items():
+            if not isinstance(state, dict): continue
+            viewer = state.get("viewer")
+            if viewer:
+                wv = viewer.findChild(QWebEngineView)
+                if wv:
+                    wv.page().setBackgroundColor(QColor(bg_hex))
+                    wv.page().runJavaScript(f"document.body.style.setProperty('background-color', '{bg_hex}', 'important');")
 
     def _search_arrow_color(self) -> str:
         return "#dcdcff" if is_dark() else "#505080"

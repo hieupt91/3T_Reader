@@ -1712,20 +1712,62 @@ def _rotate_page(window, degrees: int):
     page_no = _get_current_page(window)
     if not _flush_annotations_before_heavy_op(window, path, "xoay trang"):
         return
+
+    # 1. Visual feedback tức thì bằng CSS Transform
+    js_code = f"""
+        (function() {{
+            function applyCSSRotation(targetPage, rot) {{
+                let pageDiv = document.querySelector(`.page[data-page-number="${{targetPage}}"]`);
+                if (pageDiv) {{
+                    let currentRot = parseInt(pageDiv.getAttribute('data-css-rotation') || '0');
+                    let newRot = (currentRot + rot) % 360;
+                    pageDiv.setAttribute('data-css-rotation', newRot);
+                    pageDiv.style.transition = 'transform 0.25s ease';
+                    pageDiv.style.transform = `rotate(${{newRot}}deg)`;
+                }}
+            }}
+            applyCSSRotation({page_no}, {degrees});
+        }})();
+    """
     try:
-        with pikepdf.open(path) as pdf:
-            page = pdf.pages[page_no - 1]
-            try:
-                current_rot = int(page["/Rotate"])
-            except (KeyError, AttributeError):
-                current_rot = 0
-            page["/Rotate"] = (current_rot + degrees) % 360
-            _save_pikepdf_reload(window, pdf)
-        if hasattr(window, "status"):
-            direction = "thuận chiều kim đồng hồ" if degrees > 0 else "ngược chiều kim đồng hồ"
-            window.status.showMessage(f"Đã xoay trang {page_no} {direction}", 2000)
+        from packages.qt_compat.QtWebEngineWidgets import QWebEngineView
+        wv = window.viewer.findChild(QWebEngineView)
+        if wv:
+            wv.page().runJavaScript(js_code)
     except Exception as e:
-        show_warning(window, "Lỗi xoay trang", str(e))
+        print("Rotate JS Error:", e)
+
+    # 2. Ghi ngầm file PDF để không block UI và không reload làm chớp màn hình
+    def _burn():
+        import tempfile
+        import shutil
+        import os
+        from app.actions._pdf_save import make_staged_pdf_path, remove_path_quietly
+        tmp = make_staged_pdf_path(path)
+        try:
+            with pikepdf.open(path) as pdf:
+                page = pdf.pages[page_no - 1]
+                try:
+                    current_rot = int(page.get("/Rotate", 0))
+                except Exception:
+                    current_rot = 0
+                page["/Rotate"] = (current_rot + degrees) % 360
+                pdf.save(tmp)
+            shutil.move(tmp, path)
+        except Exception as e:
+            remove_path_quietly(tmp)
+            try:
+                with open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a") as f:
+                    f.write(f"Background rotate error: {e}\n")
+            except Exception:
+                pass
+
+    import threading
+    threading.Thread(target=_burn, daemon=True).start()
+
+    if hasattr(window, "status"):
+        direction = "thuận chiều kim đồng hồ" if degrees > 0 else "ngược chiều kim đồng hồ"
+        window.status.showMessage(f"Đã xoay trang {page_no} {direction}", 2000)
 
 
 # ── Delete page ───────────────────────────────────────────────────────────────
