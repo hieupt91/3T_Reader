@@ -378,12 +378,20 @@ def get_current_plan() -> str:
     from packages.license_client import get_license_client
     status = get_license_client().validate_cached()
     if status.active:
-        return status.plan_code or "free"
+        plan_code = (status.plan_code or "free").lower().strip()
+        if plan_code.startswith("3tr-e") or "enterprise" in plan_code or "doanh nghiệp" in plan_code:
+            return "enterprise"
+        if plan_code.startswith("3tr-p") or "personal" in plan_code or "cá nhân" in plan_code:
+            return "personal"
+        if plan_code.startswith("3tr-b") or "basic" in plan_code or "cơ bản" in plan_code:
+            return "basic"
+        return plan_code
     return "free"
 
 def require_plan(window, feature_name: str, allowed_plans: list[str]) -> bool:
-    plan = get_current_plan()
-    if plan in allowed_plans or plan == "enterprise":
+    plan = get_current_plan().lower().strip()
+    allowed_plans_lower = [p.lower().strip() for p in allowed_plans]
+    if plan in allowed_plans_lower or plan == "enterprise":
         return True
         
     from app.dialogs import show_warning
