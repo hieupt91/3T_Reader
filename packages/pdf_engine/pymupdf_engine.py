@@ -83,8 +83,17 @@ class PyMuPdfEngine:
 
                 page = doc[page_no - 1]
                 pdf_left, pdf_bottom, pdf_right, pdf_top = op.get("box", (0, 0, 0, 0))
-                page_h = page.rect.height
-                rect = fitz.Rect(pdf_left, page_h - pdf_top, pdf_right, page_h - pdf_bottom)
+                
+                # Convert from PDF User Space (origin bottom-left) to PyMuPDF Unrotated Space (origin top-left)
+                unrot_h = page.cropbox.height
+                pt1_unrot = fitz.Point(pdf_left, unrot_h - pdf_top)
+                pt2_unrot = fitz.Point(pdf_right, unrot_h - pdf_bottom)
+                
+                # Apply page rotation to get PyMuPDF Rotated Space (which is what insert_textbox expects)
+                pt1_rot = pt1_unrot * page.rotation_matrix
+                pt2_rot = pt2_unrot * page.rotation_matrix
+                
+                rect = fitz.Rect(pt1_rot, pt2_rot)
 
                 try:
                     op_type = op.get("type")

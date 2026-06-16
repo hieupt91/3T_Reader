@@ -354,76 +354,50 @@ class LicenseActivationDialog(QDialog):
 
 def check_license_on_startup(window) -> bool:
     """
-    Kiểm tra license khi khởi động.
-    Luồng:
-      1. License hợp lệ → chạy bình thường
-      2. Chưa có license:
-         a. Trial chưa bắt đầu → hiện dialog (có nút Dùng thử + Kích hoạt)
-         b. Trial đang chạy   → chạy bình thường + banner đếm ngược
-         c. Trial hết hạn     → hiện dialog chỉ có Kích hoạt (bắt buộc)
+    Kiểm tra license khi khởi động. (Freemium Model)
+    Nếu không có license hợp lệ -> Chạy ở chế độ FREE.
     """
     from app.config import VPS_LICENSE_BASE_URL
     if not VPS_LICENSE_BASE_URL:
-        return True  # bypass mode — không cần license
+        return True  # bypass mode
 
     from packages.license_client import get_license_client
     client = get_license_client()
     status = client.validate_cached()
 
     if status.active:
-        _show_license_badge(window, status.plan_code or "", status.expires_at)
+        _show_license_badge(window, status.plan_code or "free", status.expires_at)
         _start_heartbeat(window, client)
+    else:
+        _show_license_badge(window, "free", None)
+
+    return True
+
+def get_current_plan() -> str:
+    from packages.license_client import get_license_client
+    status = get_license_client().validate_cached()
+    if status.active:
+        return status.plan_code or "free"
+    return "free"
+
+def require_plan(window, feature_name: str, allowed_plans: list[str]) -> bool:
+    plan = get_current_plan()
+    if plan in allowed_plans or plan == "enterprise":
         return True
-
-    # Không có license — kiểm tra trial
-    from packages.license_client.trial import has_trial_started, get_or_init_trial
-
-    if not has_trial_started():
-        # Lần đầu dùng app → hiện dialog cho người dùng chọn
-        dlg = LicenseActivationDialog(window, show_trial_option=True, quit_on_close=False)
-        dlg.exec()
-
-        if dlg.was_activated():
-            r = dlg.get_activation_result()
-            _show_license_badge(window, r.status.plan_code or "" if r else "", r.status.expires_at if r else None)
-            _start_heartbeat(window, get_license_client())
-            return True
-
-        if dlg.was_trial_chosen():
-            trial = get_or_init_trial()
-            _show_trial_banner(window, trial["days_remaining"])
-            return True
-
-        # Bấm "Để sau" → tự động bắt đầu trial, app chạy bình thường
-        from packages.license_client.trial import start_trial
-        try:
-            start_trial()
-        except Exception:
-            pass
-        trial = get_or_init_trial()
-        _show_trial_banner(window, trial["days_remaining"])
-        return True
-
-    # Trial đã bắt đầu — kiểm tra còn hạn không
-    trial = get_or_init_trial()
-
-    if not trial["expired"]:
-        # Vẫn trong thời gian dùng thử
-        _show_trial_banner(window, trial["days_remaining"])
-        return True
-
-    # Trial hết hạn → bắt buộc kích hoạt, Thoát = thoát hẳn app
-    dlg = LicenseActivationDialog(window, show_trial_option=False, quit_on_close=True)
-    dlg.exec()
-
-    if dlg.was_activated():
-        r = dlg.get_activation_result()
-        _remove_trial_banner(window)
-        _show_license_badge(window, r.status.plan_code or "" if r else "", r.status.expires_at if r else None)
-        _start_heartbeat(window, get_license_client())
-        return True
-
-    return False  # user bấm "Thoát ứng dụng"
+        
+    from app.dialogs import show_warning
+    # Show warning based on plans
+    if "personal" in allowed_plans:
+        req = "Cá Nhân"
+    else:
+        req = "Doanh Nghiệp"
+    show_warning(
+        window,
+        "Nâng cấp tính năng",
+        f"Tính năng {feature_name} yêu cầu gói {req} hoặc cao hơn.\n"
+        "Vui lòng nâng cấp để sử dụng."
+    )
+    return False
 
 
 def open_license_dialog(window):
@@ -455,8 +429,8 @@ def _show_license_badge(window, plan_code: str = "", expires_at=None):
     _remove_trial_banner(window)
     _remove_license_badge(window)
 
-    plan_names = {"3TR-B": "Cơ Bản", "3TR-P": "Cá Nhân", "3TR-E": "Doanh Nghiệp"}
-    plan_label = plan_names.get(plan_code[:5] if plan_code else "", "")
+    plan_names = {"free": "Miễn Phí", "personal": "Cá Nhân", "enterprise": "Doanh Nghiệp", "3TR-B": "Cơ Bản", "3TR-P": "Cá Nhân", "3TR-E": "Doanh Nghiệp"}
+    plan_label = plan_names.get(plan_code, plan_names.get(plan_code[:5] if plan_code else "", ""))
     plan_str = f" — {plan_label}" if plan_label else ""
 
     exp_str = ""

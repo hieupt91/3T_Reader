@@ -182,7 +182,16 @@ class VpsLicenseClient:
         expires_at = _parse_dt(resp.get("expires_at"))
         grace_days = _normalize_grace_days(resp.get("grace_days"))
         grace_until = (expires_at + timedelta(days=grace_days)) if expires_at else None
-        plan_code = resp.get("license_key", license_key)
+        plan_code = resp.get("plan")
+        if not plan_code:
+            if license_key.startswith("3TR-E"):
+                plan_code = "enterprise"
+            elif license_key.startswith("3TR-P"):
+                plan_code = "personal"
+            elif license_key.startswith("3TR-B"):
+                plan_code = "basic"
+            else:
+                plan_code = "free"
 
         self._save_cache(
             {
@@ -239,7 +248,7 @@ class VpsLicenseClient:
         refreshed_cache = dict(cache)
         refreshed_cache.update(
             {
-                "plan_code": resp.get("license_key") or cache.get("plan_code", ""),
+                "plan_code": resp.get("plan") or cache.get("plan_code", "free"),
                 "expires_at": resp.get("expires_at", cache.get("expires_at", "")),
                 "grace_days": grace_days,
             }
@@ -284,7 +293,7 @@ class VpsLicenseClient:
             )
             return LicenseStatus(
                 active=bool(resp.get("ok", False)),
-                plan_code=cache.get("plan_code", ""),
+                plan_code=resp.get("plan", cache.get("plan_code", "free")),
                 message=resp.get("message", ""),
             )
         except Exception:

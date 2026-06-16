@@ -618,16 +618,22 @@ def _normalise_pdfjs_appearance_boxes(pdf_path: str, original_data: bytes) -> by
                             parent_obj = parent.get_object() if hasattr(parent, "get_object") else parent
                             if parent_obj is not None:
                                 is_signed = parent_obj.get("/V") is not None
-
-                        painted = False
-                        if is_signed:
-                            # Try to paint the REAL appearance stream first so we don't lose red stamps/original visuals
-                            painted = _paint_signature_widget_appearance(pdf, page, annot_obj, f"SigAP_{page_index}_{annot_idx}")
                         
-                        # Only fallback to synthetic overlay if there is no real visual appearance, or if it's unsigned
-                        if not painted:
-                            if (overlay := _signature_overlay_from_annot(annot_obj)) is not None:
-                                signature_overlays.setdefault(page_index, []).append(overlay)
+                        if is_signed:
+                            annot_obj["/Subtype"] = pikepdf.Name("/Stamp")
+                            if "/FT" in annot_obj:
+                                del annot_obj["/FT"]
+                            if "/V" in annot_obj:
+                                del annot_obj["/V"]
+                            if "/T" in annot_obj:
+                                del annot_obj["/T"]
+                            # When it is converted to /Stamp, PDF.js natively renders the appearance stream.
+                            # So we do not need to synthesize an overlay unless we want to hide it.
+                            # We just let PDF.js render it natively.
+                            continue
+                            
+                        if (overlay := _signature_overlay_from_annot(annot_obj)) is not None:
+                            signature_overlays.setdefault(page_index, []).append(overlay)
                         
                         removed_signature_widgets += 1
                         changed = True
@@ -775,93 +781,7 @@ def _signature_appearance_bbox_is_normal(annot) -> bool:
         x1, y1, x2, y2 = [float(v) for v in bbox]
         return x1 < x2 and y1 < y2
     except Exception:
-        return False
-
-
-def _paint_signature_widget_appearance(pdf, page, annot, resource_name: str) -> bool:
-    """Flatten a signature widget's real appearance into the display-only page."""
-    try:
-        import pikepdf
-
-        stream = _signature_appearance_stream(annot)
-        if stream is None:
-            return False
-        rect = [float(v) for v in annot.get("/Rect")]
-        if len(rect) != 4:
-            return False
-        left, bottom, right, top = (
-            min(rect[0], rect[2]),
-            min(rect[1], rect[3]),
-            max(rect[0], rect[2]),
-            max(rect[1], rect[3]),
-        )
-        width = right - left
-        height = top - bottom
-        if width <= 0 or height <= 0:
-            return False
-
-        bbox = stream.get("/BBox")
-        if bbox and len(bbox) == 4:
-            bx0, by0, bx1, by1 = [float(v) for v in bbox]
-            bx0, bx1 = sorted((bx0, bx1))
-            by0, by1 = sorted((by0, by1))
-            bbox_w = (bx1 - bx0) or width
-            bbox_h = (by1 - by0) or height
-        else:
-            bx0, by0, bbox_w, bbox_h = 0.0, 0.0, width, height
-
-        sx = width / bbox_w
-        sy = height / bbox_h
-        tx = left - bx0 * sx
-        ty = bottom - by0 * sy
-
-        resources = page.obj.get("/Resources")
-        if resources is None:
-            resources = pikepdf.Dictionary()
-            page.obj["/Resources"] = resources
-        xobjects = resources.get("/XObject")
-        if xobjects is None:
-            xobjects = pikepdf.Dictionary()
-            resources["/XObject"] = xobjects
-        name = pikepdf.Name("/" + "".join(ch if ch.isalnum() else "_" for ch in resource_name))
-        if hasattr(stream, "read_raw_bytes"):
-            stream_bytes = bytes(stream.read_raw_bytes())
-            stream_copy = pikepdf.Stream(pdf, stream_bytes)
-            preserve_keys = {
-                "/Type", "/Subtype", "/FormType", "/Matrix", "/Resources",
-                "/Group", "/OC", "/StructParent", "/Metadata",
-                "/Filter", "/DecodeParms",
-            }
-        else:
-            stream_bytes = bytes(stream.read_bytes())
-            stream_copy = pikepdf.Stream(pdf, stream_bytes)
-            preserve_keys = {
-                "/Type", "/Subtype", "/FormType", "/Matrix", "/Resources",
-                "/Group", "/OC", "/StructParent", "/Metadata",
-            }
-        for key, value in stream.items():
-            if str(key) in {"/Length", "/BBox"}:
-                continue
-            if str(key) not in preserve_keys:
-                continue
-            stream_copy[key] = value
-        stream_copy["/BBox"] = pikepdf.Array([0.0, 0.0, bbox_w, bbox_h])
-        xobjects[name] = stream_copy
-
-        content = (
-            f"q\n{sx:.8f} 0 0 {sy:.8f} {tx:.8f} {ty:.8f} cm\n"
-            f"{name} Do\nQ\n"
-        ).encode("ascii")
-        new_stream = pikepdf.Stream(pdf, content)
-        existing = page.obj.get("/Contents")
-        if existing is None:
-            page.obj["/Contents"] = new_stream
-        elif isinstance(existing, pikepdf.Array):
-            existing.append(new_stream)
-        else:
-            page.obj["/Contents"] = pikepdf.Array([existing, new_stream])
-        return True
-    except Exception:
+        # Removed _paint_signature_widget_appearance and _signature_appearance_stream
         return False
 
 
