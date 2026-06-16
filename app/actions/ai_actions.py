@@ -9,6 +9,10 @@ from app.actions._guard import require_document
 @require_document(show_message=True)
 def open_translate_dialog(window):
     """Mở dialog dịch thuật trang PDF hiện tại."""
+    from app.license_dialog import require_plan
+    if not require_plan(window, "Dịch văn bản AI", ["enterprise"]):
+        return
+
     pdf_path = _current_pdf_path(window)
     current_page = _current_page(window)
 
@@ -20,6 +24,10 @@ def open_translate_dialog(window):
 @require_document(show_message=True)
 def open_summarize_dialog(window):
     """Mở dialog tóm tắt tài liệu."""
+    from app.license_dialog import require_plan
+    if not require_plan(window, "Tóm tắt tài liệu bằng AI", ["enterprise"]):
+        return
+
     pdf_path = _current_pdf_path(window)
 
     from app.ai_summarize_dialog import AISummarizeDialog
@@ -30,6 +38,10 @@ def open_summarize_dialog(window):
 @require_document(show_message=True)
 def open_chat_dialog(window):
     """Mở dialog chat với PDF (non-modal, có thể giữ mở khi đọc)."""
+    from app.license_dialog import require_plan
+    if not require_plan(window, "Trợ lý AI ChatPDF", ["enterprise"]):
+        return
+
     pdf_path = _current_pdf_path(window)
 
     existing = getattr(window, "_ai_chat_dialog", None)
@@ -48,6 +60,10 @@ def open_chat_dialog(window):
 @require_document(show_message=True)
 def open_search_dialog(window):
     """Mở dialog tìm kiếm theo nghĩa (non-modal, có thể giữ mở khi đọc)."""
+    from app.license_dialog import require_plan
+    if not require_plan(window, "Tìm kiếm ngữ nghĩa (Semantic Search)", ["enterprise"]):
+        return
+
     pdf_path = _current_pdf_path(window)
 
     existing = getattr(window, "_ai_search_dialog", None)

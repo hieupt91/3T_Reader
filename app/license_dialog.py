@@ -359,7 +359,8 @@ def check_license_on_startup(window) -> bool:
     """
     from app.config import VPS_LICENSE_BASE_URL
     if not VPS_LICENSE_BASE_URL:
-        return True  # bypass mode
+        # We don't bypass anymore. We just treat it as free mode if there's no URL configured
+        pass
 
     from packages.license_client import get_license_client
     client = get_license_client()

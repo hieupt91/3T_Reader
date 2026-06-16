@@ -383,6 +383,10 @@ def _legacy_ocr_full_document(window):
 # definitions above so both OCR buttons use one non-modal dialog instance.
 def ocr_current_page(window):
     """OCR current page without opening a modal overlay."""
+    from app.license_dialog import require_plan
+    if not require_plan(window, "Nhận dạng chữ (OCR) trang hiện tại", ["personal", "enterprise"]):
+        return
+
     if _raise_active_ocr_dialog(window):
         return
 
@@ -419,6 +423,10 @@ def ocr_current_page(window):
 
 def ocr_full_document(window):
     """OCR whole document without stacking modal overlays."""
+    from app.license_dialog import require_plan
+    if not require_plan(window, "Nhận dạng chữ (OCR) toàn bộ tài liệu", ["enterprise"]):
+        return
+
     if _raise_active_ocr_dialog(window):
         return
 

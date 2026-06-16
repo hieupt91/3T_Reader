@@ -2886,6 +2886,10 @@ def _run_usb_signing_batch_subprocess(
 
 
 def sign_document_batch(window):
+    from app.license_dialog import require_plan
+    if not require_plan(window, "Ký tài liệu hàng loạt (Batch Sign)", ["personal", "enterprise"]):
+        return
+
     if not window.current_path:
         from packages.qt_compat.QtWidgets import QMessageBox
         QMessageBox.warning(window, "Lỗi", "Vui lòng mở một tài liệu mẫu trước để làm căn cứ chọn vị trí ký.")
