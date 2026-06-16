@@ -45,10 +45,11 @@ from app.actions.brightness import brightness_up, brightness_down, apply_brightn
 from styles.theme import toggle_theme, is_dark
 from app.actions.annotate import (
     highlight_text, rotate_page_cw, rotate_page_ccw,
-    delete_current_page, merge_pdf, extract_pages,
+    delete_current_page,
     underline_text, strikeout_text, add_comment, enable_note_tools,
     has_pending_annotations,
 )
+from app.actions.pages import merge_pdfs_action, split_pdf_action
 from app.actions.sign import (
     check_token,
     create_signature_field,
@@ -831,8 +832,8 @@ class PDFReaderApp(QMainWindow):
         p2.add_group(g_rot)
 
         g_org = RibbonGroup("Tổ chức")
-        _act_merge   = make("Ghép PDF",   "folder_open.svg", "Ghép PDF vào cuối", None, lambda: merge_pdf(self))
-        _act_extract = make("Trích xuất", "save.svg",        "Trích xuất trang",   None, lambda: extract_pages(self))
+        _act_merge   = make("Ghép PDF",   "folder_open.svg", "Ghép PDF vào cuối", None, lambda: merge_pdfs_action(self))
+        _act_extract = make("Trích xuất", "save.svg",        "Trích xuất trang",   None, lambda: split_pdf_action(self))
         _act_pgnum   = make("Số trang",   "insert_text.svg", "Thêm số trang",      None, lambda: add_page_numbers(self))
         g_org.add(make_action_btn(_act_merge,   "Ghép PDF"))
         g_org.add(make_action_btn(_act_extract, "Trích xuất"))
@@ -1282,11 +1283,11 @@ class PDFReaderApp(QMainWindow):
         menu_pages.addSeparator()
 
         act_merge = menu_pages.addAction("Ghép PDF vào cuối...")
-        act_merge.triggered.connect(lambda: merge_pdf(self))
+        act_merge.triggered.connect(lambda: merge_pdfs_action(self))
         act_merge.setIcon(svg_icon("merge_pdf.svg", size=16, color="#4fc080"))
 
         act_extract = menu_pages.addAction("Trích xuất trang...")
-        act_extract.triggered.connect(lambda: extract_pages(self))
+        act_extract.triggered.connect(lambda: split_pdf_action(self))
         act_extract.setIcon(svg_icon("extract.svg", size=16, color="#f07858"))
 
         self.menu_security = top_menu("menu_security", self._t("menu.security", "Bảo mật"))
@@ -1638,16 +1639,17 @@ class PDFReaderApp(QMainWindow):
 
         def _handle_sidebar_action(action_name, page_num, v=viewer):
             v.goto_page(page_num)
-            from app.actions.annotate import delete_current_page
-            from app.actions.document_ops import extract_pages
             if action_name == "delete":
+                from app.actions.annotate import delete_current_page
                 delete_current_page(self)
             elif action_name == "insert_after":
                 pass # insert_blank_page(self)
             elif action_name == "extract":
-                pass # TODO: call extract
+                from app.actions.pages import extract_single_page
+                extract_single_page(self, page_num)
             elif action_name == "rotate":
-                pass # TODO: call rotate
+                from app.actions.annotate import rotate_page_cw
+                rotate_page_cw(self)
 
         self.sidebar.load_thumbnails(
             state["source_path"],

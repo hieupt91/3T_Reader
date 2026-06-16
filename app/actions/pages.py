@@ -564,3 +564,29 @@ def split_pdf_action(window):
         f"Đã tạo {len(out_paths)} file tại:\n{out_dir}"
     )
     window.status.showMessage(f"Đã tách thành {len(out_paths)} file PDF", 5000)
+
+def extract_single_page(window, page_num: int):
+    path = _current_pdf_path(window)
+    if not path:
+        return
+    import os
+    import pikepdf
+    from packages.qt_compat.QtWidgets import QFileDialog
+    
+    default_name = f"{os.path.splitext(os.path.basename(path))[0]}_trang_{page_num}.pdf"
+    out_path, _ = QFileDialog.getSaveFileName(
+        window, f"Lưu trang {page_num}", default_name, "PDF Files (*.pdf)"
+    )
+    if not out_path:
+        return
+        
+    try:
+        with pikepdf.open(path) as pdf:
+            dst = pikepdf.Pdf.new()
+            dst.pages.append(pdf.pages[page_num - 1])
+            dst.save(out_path)
+            
+        show_info(window, "Thành công", f"Đã trích xuất trang {page_num} ra:\n{os.path.basename(out_path)}")
+        window.status.showMessage(f"Đã trích xuất trang {page_num} ra {os.path.basename(out_path)}", 4000)
+    except Exception as e:
+        show_warning(window, "Lỗi trích xuất", str(e))
