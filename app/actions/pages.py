@@ -300,14 +300,61 @@ def rotate_pages_action(window):
     else:
         rotations = {page_spin.value(): deg}
 
-    tmp = make_staged_pdf_path(path)
+    # --- Bắt đầu: Zero-reload Lazy Rotation ---
+    page_target = 0 if _all_pages[0] else page_spin.value()
+    js_code = f"""
+        (function() {{
+            let angle = {deg};
+            let pageNum = {page_target};
+            
+            // Xoay bằng CSS Transform để mượt nhất và không kích hoạt render lại canvas của PDF.js
+            function applyCSSRotation(targetPage, rot) {{
+                let pageDiv = document.querySelector(`.page[data-page-number="${{targetPage}}"]`);
+                if (pageDiv) {{
+                    let currentRot = parseInt(pageDiv.getAttribute('data-css-rotation') || '0');
+                    let newRot = (currentRot + rot) % 360;
+                    pageDiv.setAttribute('data-css-rotation', newRot);
+                    pageDiv.style.transition = 'transform 0.25s ease';
+                    pageDiv.style.transform = `rotate(${{newRot}}deg)`;
+                }}
+            }}
+
+            if (pageNum === 0) {{
+                // Xoay tất cả
+                let allPages = document.querySelectorAll('.page');
+                allPages.forEach(p => {{
+                    let pn = p.getAttribute('data-page-number');
+                    if (pn) applyCSSRotation(parseInt(pn), angle);
+                }});
+            }} else {{
+                // Xoay 1 trang
+                applyCSSRotation(pageNum, angle);
+            }}
+        }})();
+    """
     try:
-        get_pdf_engine().rotate_pages(path, tmp, rotations)
-        replace_document_with_staged(window, tmp, target_path=path, page=max(1, page_spin.value()))
-    except Exception as e:
-        remove_path_quietly(tmp)
-        show_warning(window, "Lỗi xoay trang", str(e))
-        return
+        window.viewer.page().runJavaScript(js_code)
+    except Exception:
+        pass
+
+    def _burn_rotation_in_background():
+        import shutil
+        import tempfile
+        tmp = make_staged_pdf_path(path)
+        try:
+            get_pdf_engine().rotate_pages(path, tmp, rotations)
+            shutil.move(tmp, path)
+        except Exception as e:
+            remove_path_quietly(tmp)
+            try:
+                with open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a") as f:
+                    f.write(f"Background rotate error: {e}\n")
+            except Exception:
+                pass
+
+    import threading
+    threading.Thread(target=_burn_rotation_in_background, daemon=True).start()
+    # --- Kết thúc: Zero-reload Lazy Rotation ---
 
     if hasattr(window, "_active_state") and window._active_state():
         window._active_state()["source_path"] = path
