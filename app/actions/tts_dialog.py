@@ -35,6 +35,7 @@ _OPENAI_TTS_MODEL = "gpt-4o-mini-tts"
 _MAX_TTS_CHARS = 3500
 _OFFLINE_MODE = "offline"
 _OPENAI_MODE = "openai"
+_PIPER_MODE = "piper"
 _LANGUAGE_CHOICES = [
     ("auto", "Tu nhan dien"),
     ("vi", "Tieng Viet"),
@@ -342,6 +343,7 @@ class TTSDialog(QDialog):
         mode_layout = QHBoxLayout()
         mode_layout.addWidget(QLabel("Che do:"))
         self.mode_cb = QComboBox()
+        self.mode_cb.addItem("Piper TTS (AI Offline Mượt)", _PIPER_MODE)
         self.mode_cb.addItem("Offline (giong may)", _OFFLINE_MODE)
         self.mode_cb.addItem("AI Key (OpenAI TTS)", _OPENAI_MODE)
         self.mode_cb.currentIndexChanged.connect(self._refresh_voice_options)
@@ -381,6 +383,12 @@ class TTSDialog(QDialog):
         self.btn_install_voice.clicked.connect(self._open_voice_install)
         self.btn_refresh_voices = QPushButton("Lam moi giong")
         self.btn_refresh_voices.clicked.connect(self._reload_voices)
+
+        self.btn_piper_mgr = QPushButton("Cửa hàng Giọng AI...")
+        self.btn_piper_mgr.clicked.connect(self._open_piper_manager)
+        self.btn_piper_mgr.setVisible(False)
+        
+        helper_layout.addWidget(self.btn_piper_mgr)
         helper_layout.addWidget(self.btn_install_voice)
         helper_layout.addWidget(self.btn_refresh_voices)
         helper_layout.addStretch()
@@ -414,6 +422,8 @@ class TTSDialog(QDialog):
         mode = self.mode_cb.currentData()
         if mode == _OPENAI_MODE:
             self.btn_play.setEnabled(bool(os.environ.get("OPENAI_API_KEY")))
+        elif mode == _PIPER_MODE:
+            self.btn_play.setEnabled(self.voice_cb.count() > 0)
         else:
             self.btn_play.setEnabled((not self._offline_voice_missing) and self.voice_cb.count() > 0)
 
@@ -424,6 +434,7 @@ class TTSDialog(QDialog):
         self._offline_voice_missing = False
         self.btn_install_voice.setVisible(False)
         self.btn_install_voice.setEnabled(False)
+        self.btn_piper_mgr.setVisible(False)
 
         if mode == _OPENAI_MODE:
             for voice_id, label in _OPENAI_VOICES:
@@ -433,6 +444,23 @@ class TTSDialog(QDialog):
                 self._set_status("Dung OPENAI_API_KEY da luu de doc giong AI.")
             else:
                 self._set_status("Chua co OPENAI_API_KEY. Vao AI > Cai dat AI de nhap key.")
+        elif mode == _PIPER_MODE:
+            from app.actions.piper_tts_manager import fetch_available_piper_voices
+            piper_voices = [v for v in fetch_available_piper_voices() if v.is_downloaded]
+            target_lang = self.language_cb.currentData()
+            matching = [v for v in piper_voices if v.language == target_lang or target_lang == "auto"]
+            
+            if target_lang == "auto" and len(piper_voices) > 0:
+                self.voice_cb.addItem("⭐ Tự động chọn giọng theo văn bản", "auto_piper")
+                
+            for voice in matching:
+                self.voice_cb.addItem(voice.name, voice)
+            self.btn_piper_mgr.setVisible(True)
+            self._offline_voice_missing = len(matching) == 0 and target_lang != "auto"
+            if len(piper_voices) > 0:
+                self._set_status(f"Piper TTS da san sang cho {_language_label(target_lang)}.")
+            else:
+                self._set_status(f"Chua co giong Piper cho {_language_label(target_lang)}. Bam 'Cửa hàng Giọng AI' de tai them.")
         else:
             target_lang = self._selected_language()
             matching = [voice for voice in self.voices if _voice_matches_language(voice, target_lang)]
@@ -454,6 +482,12 @@ class TTSDialog(QDialog):
 
         self.voice_cb.blockSignals(False)
         self._sync_play_button_state()
+
+    def _open_piper_manager(self):
+        from app.actions.piper_tts_manager import PiperVoiceManagerDialog
+        dlg = PiperVoiceManagerDialog(self)
+        dlg.exec()
+        self._refresh_voice_options()
 
     def _open_voice_install(self):
         lang = self._selected_language()
@@ -514,9 +548,51 @@ class TTSDialog(QDialog):
         self._stop_requested.clear()
         self._set_playing(True)
         self._bridge.status.emit("Dang chuan bi doc...")
-        target = self._run_openai_tts if mode == _OPENAI_MODE else self._run_offline_tts
-        self._thread = threading.Thread(target=target, daemon=True)
+        
+        if mode == _PIPER_MODE:
+            self._thread = threading.Thread(target=self._run_piper_tts, daemon=True)
+        elif mode == _OPENAI_MODE:
+            self._thread = threading.Thread(target=self._run_openai_tts, daemon=True)
+        else:
+            self._thread = threading.Thread(target=self._run_offline_tts, daemon=True)
+            
         self._thread.start()
+
+    def _run_piper_tts(self):
+        from app.actions.piper_tts_manager import synthesize_audio_piper, fetch_available_piper_voices
+        voice_or_auto = self.voice_cb.currentData()
+        if not voice_or_auto:
+            self._bridge.finished.emit(False, "Chua chon giong Piper.")
+            return
+            
+        voice = voice_or_auto
+        if voice_or_auto == "auto_piper":
+            lang_code = _guess_language_code(self.text_to_speak)
+            piper_voices = [v for v in fetch_available_piper_voices() if v.is_downloaded]
+            lang_voices = [v for v in piper_voices if v.language == lang_code]
+            if not lang_voices:
+                # Fallback to English if not found, or the first downloaded
+                if piper_voices:
+                    voice = piper_voices[0]
+                else:
+                    self._bridge.finished.emit(False, f"Chưa tải giọng Piper cho {lang_code}.")
+                    return
+            else:
+                voice = lang_voices[0]
+                
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            audio_path = f.name
+            
+        self._bridge.status.emit(f"Dang tong hop giong Piper ({voice.name})...")
+        speed_val = self.rate_slider.value()
+        ok = synthesize_audio_piper(self.text_to_speak, voice.local_onnx_path, audio_path, speed_val)
+        if not ok:
+            self._bridge.finished.emit(False, "Loi tao giong Piper.")
+            return
+            
+        _start_async_wav(audio_path)
+        self._bridge.finished.emit(True, f"Dang phat Piper TTS: {voice.name}")
 
     def _run_offline_tts(self):
         voice = self.voice_cb.currentData()

@@ -66,3 +66,9 @@ skills-lock.json
 !.env.example
 admin-config.json
 pass.txt
+venv_piper/
+piper_bin/
+piper_voices/
+piper_macos.tar.gz
+piper_whl/
+piper_tts*.whl
