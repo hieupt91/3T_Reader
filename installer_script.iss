@@ -2,7 +2,7 @@
 ; Kịch bản tạo bộ cài đặt chuyên nghiệp cho 3T Reader
 ; ================================================================
 #define MyAppName      "3T Reader"
-#define MyAppVersion   "1.0.16"
+#define MyAppVersion   "1.0.18"
 #define MyAppPublisher "3T Company"
 #define MyAppExeName   "3T_Reader.exe"
 
@@ -54,14 +54,23 @@ SetupIconFile=assets\app.ico
 PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
 
-; KHÔNG đăng ký file association .pdf
-; (tránh Windows dùng app này làm handler .pdf → gây re-launch khi in)
-ChangesAssociations=no
-
-; Cho phép nâng cấp không cần gỡ bản cũ
+; Đăng ký file association .pdf để hiện icon đỏ
+ChangesAssociations=yes
 CloseApplications=yes
 RestartApplications=no
 RestartIfNeededByRun=no
+
+[Registry]
+Root: HKCR; Subkey: ".pdf"; ValueType: string; ValueName: ""; ValueData: "3TReader.PDF"; Flags: uninsdeletevalue
+Root: HKCR; Subkey: ".pdf\OpenWithProgids"; ValueType: string; ValueName: "3TReader.PDF"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCR; Subkey: "3TReader.PDF"; ValueType: string; ValueName: ""; ValueData: "PDF Document"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "3TReader.PDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\assets\pdf_icon.ico"
+Root: HKCR; Subkey: "3TReader.PDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+Root: HKCR; Subkey: "Applications\{#MyAppExeName}"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{#MyAppName}"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "Applications\{#MyAppExeName}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\assets\pdf_icon.ico"
+Root: HKCR; Subkey: "Applications\{#MyAppExeName}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+Root: HKCR; Subkey: "Applications\{#MyAppExeName}\SupportedTypes"; ValueType: string; ValueName: ".pdf"; ValueData: ""; Flags: uninsdeletevalue
+; Cho phép nâng cấp không cần gỡ bản cũ
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -71,7 +80,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; Toàn bộ thư mục build onedir của PyInstaller
-Source: "dist\3T_Reader\*"; \
+Source: "dist\3T_Reader_Secure\*"; \
   DestDir: "{app}"; \
   Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -98,6 +107,7 @@ Filename: "{app}\{#MyAppExeName}"; \
   WorkingDir: "{app}"; \
   Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; \
   Flags: nowait postinstall skipifsilent
+Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; Flags: runhidden
 
 [UninstallDelete]
 ; Xoá sạch thư mục khi gỡ cài đặt

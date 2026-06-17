@@ -59,9 +59,20 @@ if os.path.isdir(_DOWNLOADS):
 
 # ── Sales page & admin ────────────────────────────────────────────
 
-@app.get("/", response_class=FileResponse)
+@app.get("/", response_class=HTMLResponse)
 def index():
-    return FileResponse(_STATIC / "index.html", media_type="text/html")
+    from fastapi.responses import Response
+
+    with open(_STATIC / "index.html", "rb") as f:
+        html = f.read()
+    return Response(
+        content=html,
+        media_type="text/html",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/admin", response_class=FileResponse)
@@ -427,9 +438,17 @@ async def upload_release(
     import hashlib
     import shutil
 
-    target = "mac" if platform.lower() in ("mac", "darwin", "macos") else "win"
+    platform_key = (platform or "").strip().lower()
+    if platform_key in ("mac", "darwin", "macos"):
+        target = "mac"
+        ext = ".dmg"
+    elif platform_key in ("win-portable", "portable", "windows-portable"):
+        target = "win-portable"
+        ext = ".zip"
+    else:
+        target = "win"
+        ext = ".exe"
     safe_version = re.sub(r"[^0-9A-Za-z._-]", "", version).strip() or "1.0.0"
-    ext = ".dmg" if target == "mac" else ".exe"
     downloads_dir = os.environ.get("THREET_DOWNLOADS_DIR", "/downloads")
     os.makedirs(downloads_dir, exist_ok=True)
 
@@ -452,6 +471,9 @@ async def upload_release(
         cfg["mac_version"] = safe_version
         cfg["mac_url"] = download_url
         cfg["mac_sha256"] = sha256
+    elif target == "win-portable":
+        cfg["portable_url"] = download_url
+        cfg["portable_sha256"] = sha256
     else:
         cfg["win_version"] = safe_version
         cfg["win_url"] = download_url
@@ -478,17 +500,24 @@ def get_update_config(_=Depends(_require_admin)) -> dict:
 
 
 class UpdateConfigRequest(BaseModel):
-    mac_version: str = ""
-    mac_url: str = ""
-    win_version: str = ""
-    win_url: str = ""
-    release_notes: str = ""
-    mandatory: bool = False
+    mac_version: str | None = None
+    mac_url: str | None = None
+    mac_sha256: str | None = None
+    win_version: str | None = None
+    win_url: str | None = None
+    win_sha256: str | None = None
+    portable_url: str | None = None
+    portable_sha256: str | None = None
+    release_notes: str | None = None
+    mandatory: bool | None = None
+    signature: str | None = None
 
 
 @app.post("/api/admin/update-config")
 def set_update_config(req: UpdateConfigRequest, _=Depends(_require_admin)) -> dict:
-    admin_config.set_update_config(req.model_dump())
+    current = admin_config.get_update_config()
+    current.update(req.model_dump(exclude_none=True))
+    admin_config.set_update_config(current)
     # Inject updated config into update_service so next check picks it up
     update_service.admin_config = admin_config
     return {"ok": True}

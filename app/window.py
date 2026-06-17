@@ -681,6 +681,8 @@ class PDFReaderApp(QMainWindow):
         self.act_sign_file    = make("Ký PFX",    "file_plus.svg",    "Ký bằng file PFX/P12", None, lambda: sign_with_pfx(self))
         self.act_signature_field = make("Ô ký",   "object_plus.svg",  "Tạo ô ký số trên PDF", None, lambda: create_signature_field(self))
         self.act_verify_signature = make("Kiểm tra", "signature_check.svg", "Kiểm tra tính pháp lý chữ ký số của PDF", None, lambda: verify_signed_document(self))
+        
+        self.act_tts = make("Đọc sách", "volume.svg", "Đọc văn bản thành tiếng (TTS)", None, lambda: __import__("app.actions.tts_dialog", fromlist=["open_tts_dialog"]).open_tts_dialog(self))
 
         # ── SpinBox trang & zoom ──────────────────────────────────────────
         self.page_spin = QSpinBox()
@@ -750,6 +752,7 @@ class PDFReaderApp(QMainWindow):
         g_view.add(make_action_btn(self.act_toggle_toc_btn,     "Mục lục"))
         g_view.add(make_action_btn(self.act_theme_toggle,       "Chủ đề"))
         g_view.add(make_action_btn(self.act_fullscreen,         "Toàn màn"))
+        g_view.add(make_action_btn(self.act_tts,                "Đọc sách"))
 
         self._lang_toolbar_button = QToolButton(self)
         self._lang_toolbar_button.setAutoRaise(True)
@@ -896,6 +899,11 @@ class PDFReaderApp(QMainWindow):
         g_ai.add(make_action_btn(_act_srch,  "Tìm nghĩa"))
         g_ai.add(make_action_btn(_act_aiset, "AI Key"))
         p4.add_group(g_ai, add_sep=False)
+        
+        g_tts = RibbonGroup("Đọc Sách")
+        g_tts.add(make_action_btn(self.act_tts, "Đọc sách"))
+        p4.add_group(g_tts, add_sep=False)
+        
         p4.add_stretch()
 
         self.ribbon.add_tab(self._t("tab.ocr_ai", "OCR & AI"), p4)
@@ -2043,6 +2051,7 @@ class PDFReaderApp(QMainWindow):
         _set_action("act_sign", "action.sign", "Ký số")
         _set_action("act_signature_field", "action.signature_field", "Ô ký")
         _set_action("act_verify_signature", "action.verify", "Kiểm tra")
+        _set_action("act_tts", "action.tts", "Đọc sách")
         if hasattr(self, "ribbon"):
             self.ribbon.set_tab_text(0, self._t("tab.file_view", "Tệp & Xem"))
             self.ribbon.set_tab_text(1, self._t("tab.annotate", "Chú thích"))

@@ -14,6 +14,11 @@ env/
 # Build artifacts
 /build/
 /dist/
+/build_obf/
+/build_secure_tmp/
+/dist_obf/
+/tmp_portable_check/
+/tmp_portable_check_new/
 docs/api/_build/
 *.manifest
 *.pkg
@@ -31,10 +36,19 @@ recent_files.json
 *.bak
 pytest_tmp/
 app_log.txt
+cloudflared.err
+cloudflared.log
+crash_log.txt
+output.log
+debug/
 doc_content.txt
 read_doc.py
 make_icon.py
 tai_lieu_moi.pdf
+docs.zip
+original_index.html
+static/index_backup.html
+static/original_vps_index.html
 
 # IDE / OS
 .DS_Store
@@ -50,3 +64,5 @@ skills-lock.json
 .env
 .env.*
 !.env.example
+admin-config.json
+pass.txt

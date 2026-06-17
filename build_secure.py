@@ -19,7 +19,7 @@ def main():
     os.makedirs(build_dir, exist_ok=True)
     
     # Copy essential directories to build_secure_tmp
-    for item in ["app", "assets", "core", "packages", "third_party", "main.py", "3T_Reader.spec"]:
+    for item in ["app", "assets", "core", "packages", "styles", "third_party", "main.py", "3T_Reader.spec"]:
         src_item = src_dir / item
         dst_item = build_dir / item
         if src_item.is_dir():
@@ -50,10 +50,14 @@ def main():
         ]
         
         # Run Nuitka
-        subprocess.run(cmd, cwd=build_dir, check=True)
-        
-        # Nuitka creates a .pyd file and a .build folder. 
-        # We need to delete the original .py file so PyInstaller uses the .pyd
+        try:
+            subprocess.run(cmd, cwd=build_dir, check=True)
+        except subprocess.CalledProcessError as exc:
+            print(f" -> WARNING: Nuitka failed for {rel_path} ({exc}). Keeping source module and continuing.")
+            continue
+
+        # Nuitka creates a .pyd file and a .build folder.
+        # Delete the original .py file so PyInstaller prefers the native module.
         os.remove(file_path)
         print(f" -> Successfully secured {rel_path}")
 

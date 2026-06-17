@@ -1,0 +1,663 @@
+import json
+import locale
+import os
+import re
+import tempfile
+import threading
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+import pyttsx3
+import requests
+
+from packages.qt_compat.QtCore import QObject, Qt, QUrl, pyqtSignal
+from packages.qt_compat.QtGui import QDesktopServices
+from packages.qt_compat.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QVBoxLayout,
+)
+
+
+_OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech"
+_OPENAI_TTS_MODEL = "gpt-4o-mini-tts"
+_MAX_TTS_CHARS = 3500
+_OFFLINE_MODE = "offline"
+_OPENAI_MODE = "openai"
+_LANGUAGE_CHOICES = [
+    ("auto", "Tu nhan dien"),
+    ("vi", "Tieng Viet"),
+    ("en", "English"),
+    ("fr", "Francais"),
+    ("zh", "中文"),
+    ("ko", "한국어"),
+    ("th", "ไทย"),
+]
+_OPENAI_VOICES = [
+    ("alloy", "Alloy"),
+    ("ash", "Ash"),
+    ("ballad", "Ballad"),
+    ("coral", "Coral"),
+    ("echo", "Echo"),
+    ("fable", "Fable"),
+    ("nova", "Nova"),
+    ("onyx", "Onyx"),
+    ("sage", "Sage"),
+    ("shimmer", "Shimmer"),
+    ("verse", "Verse"),
+    ("marin", "Marin"),
+    ("cedar", "Cedar"),
+]
+_VOICE_SETTINGS_URL = "ms-settings:speech"
+_LANGUAGE_SETTINGS_URL = "ms-settings:regionlanguage"
+_SPEAK_ASYNC = 1
+_SPEAK_PURGE = 2
+
+
+@dataclass
+class _OfflineVoice:
+    id: str
+    name: str
+    languages: list[str]
+    backend: str = "pyttsx3"
+
+
+class _TTSBridge(QObject):
+    status = pyqtSignal(str)
+    finished = pyqtSignal(bool, str)
+
+
+def _clean_text(text: str) -> str:
+    text = re.sub(r"\s+", " ", (text or "")).strip()
+    return text[:_MAX_TTS_CHARS]
+
+
+def _contains_vietnamese(text: str) -> bool:
+    return bool(
+        re.search(
+            r"[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]",
+            text,
+        )
+    )
+
+
+def _guess_language_code(text: str) -> str:
+    sample = (text or "")[:600]
+    if _contains_vietnamese(sample):
+        return "vi"
+    if re.search(r"[\u4e00-\u9fff]", sample):
+        return "zh"
+    if re.search(r"[\uac00-\ud7af]", sample):
+        return "ko"
+    if re.search(r"[\u0e00-\u0e7f]", sample):
+        return "th"
+    return "en"
+
+
+def _language_label(code: str) -> str:
+    for key, label in _LANGUAGE_CHOICES:
+        if key == code:
+            return label
+    return "English"
+
+
+def _normalize_voice_language(raw) -> str:
+    if isinstance(raw, bytes):
+        try:
+            raw = raw.decode("utf-8", errors="ignore")
+        except Exception:
+            raw = str(raw)
+    raw = str(raw or "").strip().lower().replace("_", "-")
+    if raw.startswith("\x05"):
+        raw = raw[1:]
+    return raw
+
+
+def _voice_languages(voice) -> list[str]:
+    langs = []
+    for raw in getattr(voice, "languages", []) or []:
+        norm = _normalize_voice_language(raw)
+        if norm:
+            langs.append(norm)
+    if not langs:
+        voice_id = str(getattr(voice, "id", "")).lower()
+        name = str(getattr(voice, "name", "")).lower()
+        for code in ("vi", "en", "fr", "zh", "ko", "th"):
+            if f"-{code}" in voice_id or f"_{code}" in voice_id or f" {code}" in name:
+                langs.append(code)
+                break
+    return langs
+
+
+def _voice_matches_language(voice, language_code: str) -> bool:
+    if language_code == "auto":
+        return True
+    langs = _voice_languages(voice)
+    if not langs:
+        return language_code == "en"
+    return any(lang == language_code or lang.startswith(f"{language_code}-") for lang in langs)
+
+
+def _voice_label(voice) -> str:
+    langs = _voice_languages(voice)
+    suffix = f" [{', '.join(langs)}]" if langs else ""
+    return f"{voice.name}{suffix}"
+
+
+def _lcid_hex_to_bcp47(raw: str) -> str:
+    raw = str(raw or "").strip().split(";")[0]
+    if not raw:
+        return ""
+    try:
+        return locale.windows_locale.get(int(raw, 16), "").replace("_", "-").lower()
+    except Exception:
+        return ""
+
+
+def _windows_sapi_voices() -> list[_OfflineVoice]:
+    if os.name != "nt":
+        return []
+    try:
+        import win32com.client
+    except Exception:
+        return []
+
+    roots = [
+        r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech\Voices",
+        r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech_OneCore\Voices",
+    ]
+    voices: list[_OfflineVoice] = []
+    seen: set[str] = set()
+    for root in roots:
+        try:
+            category = win32com.client.Dispatch("SAPI.SpObjectTokenCategory")
+            category.SetId(root, False)
+            tokens = category.EnumerateTokens()
+        except Exception:
+            continue
+        for index in range(getattr(tokens, "Count", 0)):
+            try:
+                token = tokens.Item(index)
+                token_id = str(token.Id)
+            except Exception:
+                continue
+            if token_id in seen:
+                continue
+            seen.add(token_id)
+            try:
+                name = str(token.GetDescription())
+            except Exception:
+                name = token_id.rsplit("\\", 1)[-1]
+            languages = []
+            try:
+                language_attr = token.GetAttribute("Language")
+                normalized = _lcid_hex_to_bcp47(language_attr)
+                if normalized:
+                    languages.append(normalized)
+            except Exception:
+                pass
+            voices.append(_OfflineVoice(id=token_id, name=name, languages=languages, backend="sapi"))
+    return voices
+
+
+def _safe_pyttsx3_voices() -> list[_OfflineVoice]:
+    try:
+        engine = pyttsx3.init()
+        try:
+            return [
+                _OfflineVoice(
+                    id=str(getattr(voice, "id", "")),
+                    name=str(getattr(voice, "name", "")),
+                    languages=_voice_languages(voice),
+                    backend="pyttsx3",
+                )
+                for voice in engine.getProperty("voices")
+            ]
+        finally:
+            try:
+                engine.stop()
+            except Exception:
+                pass
+    except Exception:
+        return []
+
+
+def _load_offline_voices() -> list[_OfflineVoice]:
+    windows_voices = _windows_sapi_voices()
+    if windows_voices:
+        return windows_voices
+    return _safe_pyttsx3_voices()
+
+
+def _rate_instruction(rate: int) -> str:
+    if rate <= 105:
+        return "Speak slowly and clearly."
+    if rate <= 145:
+        return "Speak at a calm, clear pace."
+    if rate <= 185:
+        return "Speak at a natural pace."
+    if rate <= 230:
+        return "Speak slightly faster, while staying clear."
+    return "Speak quickly but remain understandable."
+
+
+def _start_async_wav(path: str) -> None:
+    if os.name != "nt":
+        raise RuntimeError("AI TTS playback hien moi ho tro truc tiep tren Windows.")
+    import winsound
+
+    winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+
+
+def _stop_wav_playback() -> None:
+    if os.name == "nt":
+        import winsound
+
+        winsound.PlaySound(None, winsound.SND_PURGE)
+
+
+class TTSDialog(QDialog):
+    def __init__(self, parent=None, text=""):
+        super().__init__(parent)
+        self.setWindowTitle("Doc Sach Giong Noi (TTS)")
+        self.text_to_speak = _clean_text(text)
+        self.setMinimumSize(520, 280)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowStaysOnTopHint)
+
+        self.engine = None
+        self.voices = _load_offline_voices()
+        self._engine_run = None
+        self._speaker_run = None
+        self._thread = None
+        self._stop_requested = threading.Event()
+        self._offline_voice_missing = False
+        self._bridge = _TTSBridge(self)
+        self._bridge.status.connect(self._set_status)
+        self._bridge.finished.connect(self._on_finished)
+
+        self._build_ui()
+        self._refresh_voice_options()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("Che do:"))
+        self.mode_cb = QComboBox()
+        self.mode_cb.addItem("Offline (giong may)", _OFFLINE_MODE)
+        self.mode_cb.addItem("AI Key (OpenAI TTS)", _OPENAI_MODE)
+        self.mode_cb.currentIndexChanged.connect(self._refresh_voice_options)
+        mode_layout.addWidget(self.mode_cb)
+        layout.addLayout(mode_layout)
+
+        language_layout = QHBoxLayout()
+        language_layout.addWidget(QLabel("Ngon ngu:"))
+        self.language_cb = QComboBox()
+        for code, label in _LANGUAGE_CHOICES:
+            self.language_cb.addItem(label, code)
+        self.language_cb.currentIndexChanged.connect(self._refresh_voice_options)
+        language_layout.addWidget(self.language_cb)
+        layout.addLayout(language_layout)
+
+        voice_layout = QHBoxLayout()
+        voice_layout.addWidget(QLabel("Giong doc:"))
+        self.voice_cb = QComboBox()
+        voice_layout.addWidget(self.voice_cb)
+        layout.addLayout(voice_layout)
+
+        rate_layout = QHBoxLayout()
+        rate_layout.addWidget(QLabel("Toc do:"))
+        self.rate_slider = QSlider(Qt.Orientation.Horizontal)
+        self.rate_slider.setRange(50, 250)
+        self.rate_slider.setValue(150)
+        rate_layout.addWidget(self.rate_slider)
+        layout.addLayout(rate_layout)
+
+        self.status_lbl = QLabel("")
+        self.status_lbl.setWordWrap(True)
+        self.status_lbl.setStyleSheet("color:#6b7280;font-size:12px;")
+        layout.addWidget(self.status_lbl)
+
+        helper_layout = QHBoxLayout()
+        self.btn_install_voice = QPushButton("Tai/Cai giong")
+        self.btn_install_voice.clicked.connect(self._open_voice_install)
+        self.btn_refresh_voices = QPushButton("Lam moi giong")
+        self.btn_refresh_voices.clicked.connect(self._reload_voices)
+        helper_layout.addWidget(self.btn_install_voice)
+        helper_layout.addWidget(self.btn_refresh_voices)
+        helper_layout.addStretch()
+        layout.addLayout(helper_layout)
+
+        btn_layout = QHBoxLayout()
+        self.btn_play = QPushButton("Phat")
+        self.btn_stop = QPushButton("Dung")
+        self.btn_stop.setEnabled(False)
+        self.btn_play.clicked.connect(self._play)
+        self.btn_stop.clicked.connect(self._stop)
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_play)
+        btn_layout.addWidget(self.btn_stop)
+        layout.addLayout(btn_layout)
+
+    def _selected_language(self) -> str:
+        code = self.language_cb.currentData()
+        return _guess_language_code(self.text_to_speak) if code == "auto" else code
+
+    def _set_status(self, text: str):
+        self.status_lbl.setText(text)
+
+    def _reload_voices(self):
+        self.voices = _load_offline_voices()
+        self._refresh_voice_options()
+
+    def _sync_play_button_state(self):
+        if self.btn_stop.isEnabled():
+            return
+        mode = self.mode_cb.currentData()
+        if mode == _OPENAI_MODE:
+            self.btn_play.setEnabled(bool(os.environ.get("OPENAI_API_KEY")))
+        else:
+            self.btn_play.setEnabled((not self._offline_voice_missing) and self.voice_cb.count() > 0)
+
+    def _refresh_voice_options(self):
+        mode = self.mode_cb.currentData()
+        self.voice_cb.blockSignals(True)
+        self.voice_cb.clear()
+        self._offline_voice_missing = False
+        self.btn_install_voice.setVisible(False)
+        self.btn_install_voice.setEnabled(False)
+
+        if mode == _OPENAI_MODE:
+            for voice_id, label in _OPENAI_VOICES:
+                self.voice_cb.addItem(label, voice_id)
+            self.voice_cb.setCurrentIndex(max(0, self.voice_cb.findData("marin")))
+            if os.environ.get("OPENAI_API_KEY"):
+                self._set_status("Dung OPENAI_API_KEY da luu de doc giong AI.")
+            else:
+                self._set_status("Chua co OPENAI_API_KEY. Vao AI > Cai dat AI de nhap key.")
+        else:
+            target_lang = self._selected_language()
+            matching = [voice for voice in self.voices if _voice_matches_language(voice, target_lang)]
+            for voice in matching:
+                self.voice_cb.addItem(_voice_label(voice), voice)
+            if matching:
+                self._set_status(
+                    f"Offline dung giong Windows cho {_language_label(target_lang)}. "
+                    "Neu doc sai tieng, hay doi sang giong dung ngon ngu."
+                )
+            else:
+                self._offline_voice_missing = True
+                self.btn_install_voice.setVisible(True)
+                self.btn_install_voice.setEnabled(True)
+                self._set_status(
+                    f"Windows chua co giong offline cho {_language_label(target_lang)}. "
+                    "Bam 'Tai/Cai giong' de mo cai dat, cai xong quay lai bam 'Lam moi giong'."
+                )
+
+        self.voice_cb.blockSignals(False)
+        self._sync_play_button_state()
+
+    def _open_voice_install(self):
+        lang = self._selected_language()
+        opened = False
+        opened = QDesktopServices.openUrl(QUrl(_VOICE_SETTINGS_URL)) or opened
+        opened = QDesktopServices.openUrl(QUrl(_LANGUAGE_SETTINGS_URL)) or opened
+        if opened:
+            self._set_status(
+                f"Da mo cai dat Windows cho {_language_label(lang)}. "
+                "Hay them Speech/Language pack, sau do quay lai bam 'Lam moi giong'."
+            )
+        else:
+            from app.dialogs import show_info
+
+            show_info(
+                self,
+                "Cai giong offline",
+                "Khong mo duoc trang cai dat tu dong. "
+                "Hay vao Windows Settings > Speech hoac Language & region de cai them voice.",
+            )
+
+    def _set_playing(self, playing: bool):
+        self.btn_play.setEnabled(False if playing else self.btn_play.isEnabled())
+        self.btn_stop.setEnabled(playing)
+        self.mode_cb.setEnabled(not playing)
+        self.language_cb.setEnabled(not playing)
+        self.voice_cb.setEnabled(not playing)
+        self.rate_slider.setEnabled(not playing)
+        self.btn_refresh_voices.setEnabled(not playing)
+        self.btn_install_voice.setEnabled((not playing) and self._offline_voice_missing)
+        if not playing:
+            self._sync_play_button_state()
+
+    def _play(self):
+        if not self.text_to_speak.strip():
+            from app.dialogs import show_warning
+
+            show_warning(self, "Loi", "Khong tim thay van ban tren trang hien tai.")
+            return
+
+        mode = self.mode_cb.currentData()
+        if mode == _OFFLINE_MODE and self._offline_voice_missing:
+            from app.dialogs import show_warning
+
+            show_warning(
+                self,
+                "Thieu giong offline",
+                "Windows chua co giong offline cho ngon ngu nay. "
+                "Bam 'Tai/Cai giong', cai xong roi quay lai bam 'Lam moi giong'.",
+            )
+            return
+        if mode == _OPENAI_MODE and not os.environ.get("OPENAI_API_KEY"):
+            from app.dialogs import show_warning
+
+            show_warning(self, "Thieu AI Key", "Chua co OPENAI_API_KEY. Vao AI > Cai dat AI de nhap key.")
+            return
+
+        self._stop_requested.clear()
+        self._set_playing(True)
+        self._bridge.status.emit("Dang chuan bi doc...")
+        target = self._run_openai_tts if mode == _OPENAI_MODE else self._run_offline_tts
+        self._thread = threading.Thread(target=target, daemon=True)
+        self._thread.start()
+
+    def _run_offline_tts(self):
+        voice = self.voice_cb.currentData()
+        rate = self.rate_slider.value()
+        try:
+            self._bridge.status.emit("Dang doc offline...")
+            if isinstance(voice, _OfflineVoice) and voice.backend == "sapi":
+                self._run_windows_sapi_tts(voice, rate)
+            else:
+                self._run_pyttsx3_tts(voice.id if isinstance(voice, _OfflineVoice) else voice, rate)
+            self._bridge.finished.emit(True, "Da dung." if self._stop_requested.is_set() else "Doc offline xong.")
+        except Exception as exc:
+            self._bridge.finished.emit(False, f"Loi doc offline: {exc}")
+        finally:
+            self._engine_run = None
+            self._speaker_run = None
+
+    def _run_pyttsx3_tts(self, voice_id: str, rate: int):
+        self._engine_run = pyttsx3.init()
+        self._engine_run.setProperty("rate", rate)
+        if voice_id:
+            self._engine_run.setProperty("voice", voice_id)
+        self._engine_run.say(self.text_to_speak)
+        self._engine_run.startLoop(False)
+        while self._engine_run.isBusy():
+            if self._stop_requested.is_set():
+                self._engine_run.stop()
+                break
+            self._engine_run.iterate()
+            time.sleep(0.05)
+        try:
+            self._engine_run.endLoop()
+        except Exception:
+            pass
+
+    def _run_windows_sapi_tts(self, voice: _OfflineVoice, rate: int):
+        import win32com.client
+
+        self._speaker_run = win32com.client.Dispatch("SAPI.SpVoice")
+        self._speaker_run.Rate = max(-10, min(10, int(round((rate - 150) / 10))))
+        category = win32com.client.Dispatch("SAPI.SpObjectTokenCategory")
+        root = voice.id.rsplit("\\Tokens\\", 1)[0]
+        category.SetId(root, False)
+        tokens = category.EnumerateTokens()
+        selected = None
+        for index in range(getattr(tokens, "Count", 0)):
+            token = tokens.Item(index)
+            if str(token.Id).lower() == voice.id.lower():
+                selected = token
+                break
+        if selected is None:
+            raise RuntimeError("Khong tim thay giong Windows da chon.")
+        self._speaker_run.Voice = selected
+        self._speaker_run.Speak(self.text_to_speak, _SPEAK_ASYNC)
+        while not self._speaker_run.WaitUntilDone(100):
+            if self._stop_requested.is_set():
+                self._speaker_run.Speak("", _SPEAK_ASYNC | _SPEAK_PURGE)
+                break
+
+    def _synthesize_openai_wav(self) -> str:
+        voice_id = self.voice_cb.currentData() or "marin"
+        rate = self.rate_slider.value()
+        language_code = self._selected_language()
+        text = _clean_text(self.text_to_speak)
+        payload = {
+            "model": _OPENAI_TTS_MODEL,
+            "voice": voice_id,
+            "input": text,
+            "instructions": f"Read this text naturally in {_language_label(language_code)}. {_rate_instruction(rate)}",
+            "response_format": "wav",
+        }
+        headers = {
+            "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
+            "Content-Type": "application/json",
+        }
+        response = requests.post(_OPENAI_TTS_URL, headers=headers, json=payload, timeout=120)
+        if not response.ok:
+            message = response.text
+            try:
+                payload = response.json()
+                message = payload.get("error", {}).get("message", message)
+            except json.JSONDecodeError:
+                pass
+            raise RuntimeError(message)
+
+        temp_dir = Path(tempfile.gettempdir()) / "3t_reader_tts"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        audio_path = temp_dir / "tts_openai.wav"
+        audio_path.write_bytes(response.content)
+        return str(audio_path)
+
+    def _run_openai_tts(self):
+        try:
+            self._bridge.status.emit("Dang tao giong AI tu key da luu...")
+            audio_path = self._synthesize_openai_wav()
+            if self._stop_requested.is_set():
+                self._bridge.finished.emit(True, "Da dung.")
+                return
+            self._bridge.status.emit("Dang phat giong AI...")
+            _start_async_wav(audio_path)
+            approx_seconds = max(2.0, len(self.text_to_speak) / 14.0)
+            deadline = time.time() + approx_seconds
+            while time.time() < deadline and not self._stop_requested.is_set():
+                time.sleep(0.1)
+            if self._stop_requested.is_set():
+                _stop_wav_playback()
+                self._bridge.finished.emit(True, "Da dung.")
+            else:
+                self._bridge.finished.emit(True, "Doc AI xong.")
+        except Exception as exc:
+            self._bridge.finished.emit(False, f"Loi AI TTS: {exc}")
+
+    def _stop(self):
+        self._stop_requested.set()
+        try:
+            if self._engine_run is not None:
+                self._engine_run.stop()
+        except Exception:
+            pass
+        try:
+            if self._speaker_run is not None:
+                self._speaker_run.Speak("", _SPEAK_ASYNC | _SPEAK_PURGE)
+        except Exception:
+            pass
+        try:
+            _stop_wav_playback()
+        except Exception:
+            pass
+        self._set_playing(False)
+        self._set_status("Da dung.")
+
+    def _on_finished(self, ok: bool, message: str):
+        self._set_playing(False)
+        self._set_status(message)
+        if not ok:
+            from app.dialogs import show_warning
+
+            show_warning(self, "Doc sach", message)
+
+    def closeEvent(self, event):
+        self._stop()
+        super().closeEvent(event)
+
+
+def open_tts_dialog(window):
+    existing = getattr(window, "_tts_dialog", None)
+    if existing is not None and existing.isVisible():
+        existing.raise_()
+        existing.activateWindow()
+        return
+
+    viewer = getattr(window, "viewer", None)
+    if not viewer:
+        from app.dialogs import show_warning
+
+        show_warning(window, "Loi", "Vui long mo mot tep PDF truoc.")
+        return
+
+    try:
+        from app.actions.ai_actions import load_ai_config
+
+        load_ai_config()
+    except Exception:
+        pass
+
+    text = ""
+    try:
+        import pypdfium2 as pdfium
+
+        pdf_path = getattr(window, "current_path", "") or getattr(viewer, "_path", "")
+        page_number = 1
+        if hasattr(viewer, "get_current_page"):
+            page_number = max(1, int(viewer.get_current_page() or 1))
+        elif hasattr(viewer, "_current_page"):
+            page_number = max(1, int(getattr(viewer, "_current_page", 1) or 1))
+        if pdf_path and os.path.isfile(pdf_path):
+            doc = pdfium.PdfDocument(pdf_path)
+            try:
+                if 1 <= page_number <= len(doc):
+                    page = doc[page_number - 1]
+                    try:
+                        textpage = page.get_textpage()
+                        try:
+                            text = (textpage.get_text_range() or "").strip()
+                        finally:
+                            textpage.close()
+                    finally:
+                        page.close()
+            finally:
+                doc.close()
+    except Exception:
+        text = ""
+
+    dlg = TTSDialog(window, text=text)
+    window._tts_dialog = dlg
+    dlg.show()
