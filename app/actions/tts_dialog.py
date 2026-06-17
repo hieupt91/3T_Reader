@@ -2,11 +2,13 @@ import json
 import locale
 import os
 import re
+import sys
 import tempfile
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+import subprocess
 
 import pyttsx3
 import requests
@@ -227,7 +229,35 @@ def _safe_pyttsx3_voices() -> list[_OfflineVoice]:
         return []
 
 
+def _macos_say_voices() -> list[_OfflineVoice]:
+    if sys.platform != "darwin":
+        return []
+    try:
+        res = subprocess.run(["say", "-v", "?"], capture_output=True, text=True)
+        voices = []
+        for line in res.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("#")
+            voice_info = parts[0].strip()
+            tokens = voice_info.split()
+            if len(tokens) >= 2:
+                locale_str = tokens[-1]
+                name_full = " ".join(tokens[:-1])
+                name_clean = name_full.split("(")[0].strip()
+                lang = locale_str.split("_")[0].lower()
+                voices.append(_OfflineVoice(id=name_clean, name=name_full, languages=[lang], backend="say"))
+        return voices
+    except Exception:
+        return []
+
+
 def _load_offline_voices() -> list[_OfflineVoice]:
+    if sys.platform == "darwin":
+        mac_voices = _macos_say_voices()
+        if mac_voices:
+            return mac_voices
     windows_voices = _windows_sapi_voices()
     if windows_voices:
         return windows_voices
@@ -246,16 +276,32 @@ def _rate_instruction(rate: int) -> str:
     return "Speak quickly but remain understandable."
 
 
-def _start_async_wav(path: str) -> None:
-    if os.name != "nt":
-        raise RuntimeError("AI TTS playback hien moi ho tro truc tiep tren Windows.")
-    import winsound
+_afplay_proc = None
 
-    winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+
+def _start_async_wav(path: str) -> None:
+    if sys.platform == "darwin":
+        global _afplay_proc
+        _stop_wav_playback()
+        _afplay_proc = subprocess.Popen(["afplay", path])
+    elif os.name == "nt":
+        import winsound
+
+        winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+    else:
+        raise RuntimeError("AI TTS playback hien chua ho tro tren he dieu hanh nay.")
 
 
 def _stop_wav_playback() -> None:
-    if os.name == "nt":
+    if sys.platform == "darwin":
+        global _afplay_proc
+        if _afplay_proc is not None:
+            try:
+                _afplay_proc.terminate()
+            except Exception:
+                pass
+            _afplay_proc = None
+    elif os.name == "nt":
         import winsound
 
         winsound.PlaySound(None, winsound.SND_PURGE)
@@ -473,6 +519,8 @@ class TTSDialog(QDialog):
             self._bridge.status.emit("Dang doc offline...")
             if isinstance(voice, _OfflineVoice) and voice.backend == "sapi":
                 self._run_windows_sapi_tts(voice, rate)
+            elif isinstance(voice, _OfflineVoice) and voice.backend == "say":
+                self._run_macos_say_tts(voice, rate)
             else:
                 self._run_pyttsx3_tts(voice.id if isinstance(voice, _OfflineVoice) else voice, rate)
             self._bridge.finished.emit(True, "Da dung." if self._stop_requested.is_set() else "Doc offline xong.")
@@ -481,6 +529,15 @@ class TTSDialog(QDialog):
         finally:
             self._engine_run = None
             self._speaker_run = None
+
+    def _run_macos_say_tts(self, voice: _OfflineVoice, rate: int):
+        wpm = str(rate)
+        self._speaker_run = subprocess.Popen(["say", "-v", voice.id, "-r", wpm, self.text_to_speak])
+        while self._speaker_run.poll() is None:
+            if self._stop_requested.is_set():
+                self._speaker_run.terminate()
+                break
+            time.sleep(0.1)
 
     def _run_pyttsx3_tts(self, voice_id: str, rate: int):
         self._engine_run = pyttsx3.init()
