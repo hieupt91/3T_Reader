@@ -15,6 +15,15 @@ if os.path.isdir('third_party/tesseract'):
 elif os.path.isdir(r'C:\Program Files\Tesseract-OCR'):
     datas += [(r'C:\Program Files\Tesseract-OCR', 'Tesseract-OCR')]
 
+import sys
+if sys.platform == 'darwin':
+    if os.path.isdir('venv_piper'):
+        datas += [('venv_piper', 'venv_piper')]
+else:
+    if os.path.isdir('piper_bin'):
+        datas += [('piper_bin', 'piper_bin')]
+
+
 
 def _merge_collected(package_name):
     collected_datas, collected_binaries, collected_hiddenimports = collect_all(package_name)
