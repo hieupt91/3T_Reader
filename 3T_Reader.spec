@@ -76,3 +76,25 @@ coll = COLLECT(
     upx_exclude=[],
     name='3T_Reader',
 )
+
+import sys
+if sys.platform == 'darwin':
+    app = BUNDLE(
+        coll,
+        name='3T Reader.app',
+        icon='assets/app.icns' if os.path.exists('assets/app.icns') else None,
+        bundle_identifier='com.3t.reader',
+        info_plist={
+            'CFBundleShortVersionString': '1.0.7',
+            'NSHighResolutionCapable': 'True',
+            'NSMicrophoneUsageDescription': 'Used for audio recording',
+            'CFBundleDocumentTypes': [
+                {
+                    'CFBundleTypeName': 'PDF Document',
+                    'CFBundleTypeRole': 'Editor',
+                    'LSHandlerRank': 'Owner',
+                    'LSItemContentTypes': ['com.adobe.pdf']
+                }
+            ]
+        }
+    )
