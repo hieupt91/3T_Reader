@@ -10,7 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 
-import pyttsx3
+try:
+    import pyttsx3
+except ImportError:
+    pyttsx3 = None
+
 import requests
 
 from packages.qt_compat.QtCore import QObject, Qt, QUrl, pyqtSignal
@@ -208,6 +212,8 @@ def _windows_sapi_voices() -> list[_OfflineVoice]:
 
 
 def _safe_pyttsx3_voices() -> list[_OfflineVoice]:
+    if pyttsx3 is None:
+        return []
     try:
         engine = pyttsx3.init()
         try:
