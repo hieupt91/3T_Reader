@@ -124,9 +124,9 @@ class LicenseActivationDialog(QDialog):
     _sig_ok  = Signal(object)  # ActivationResult
     _sig_err = Signal(str)     # error message
 
-    def __init__(self, parent=None, show_trial_option: bool = True, quit_on_close: bool = False):
+    def __init__(self, parent=None, show_trial_option: bool = True, quit_on_close: bool = False, current_status=None):
         super().__init__(parent)
-        self.setWindowTitle("Kích hoạt 3T Reader")
+        self.setWindowTitle("Kích hoạt / Nâng cấp 3T Reader")
         self.setModal(True)
         self.setStyleSheet(_STYLE)
         self.setWindowFlags(
@@ -139,6 +139,7 @@ class LicenseActivationDialog(QDialog):
         self._trial_chosen = False
         self._show_trial_option = show_trial_option
         self._quit_on_close = quit_on_close
+        self._current_status = current_status
         self._trial_info = self._load_trial_info()
         self._sig_ok.connect(self._finish_ok)
         self._sig_err.connect(self._finish_err)
@@ -172,12 +173,18 @@ class LicenseActivationDialog(QDialog):
         root.setSpacing(0)
 
         # Header
-        title = QLabel("Kích hoạt 3T Reader")
+        title = QLabel("Kích hoạt / Nâng cấp 3T Reader")
         title.setObjectName("title")
         root.addWidget(title)
 
         root.addSpacing(4)
-        sub = QLabel("Nhập license key để sử dụng đầy đủ tính năng.")
+        if self._current_status and self._current_status.active:
+            plan_names = {"free": "Miễn Phí", "personal": "Cá Nhân", "enterprise": "Doanh Nghiệp", "3tr-b": "Cơ Bản", "3tr-p": "Cá Nhân", "3tr-e": "Doanh Nghiệp"}
+            code = (self._current_status.plan_code or "free").lower().strip()
+            plan_label = plan_names.get(code, code.upper())
+            sub = QLabel(f"Bạn đang dùng gói: {plan_label}.\nNhập mã mới để Nâng cấp hoặc Gia hạn.")
+        else:
+            sub = QLabel("Nhập license key để sử dụng đầy đủ tính năng.")
         sub.setObjectName("subtitle")
         root.addWidget(sub)
 
@@ -394,18 +401,22 @@ def require_plan(window, feature_name: str, allowed_plans: list[str]) -> bool:
     if plan in allowed_plans_lower or plan == "enterprise":
         return True
         
-    from app.dialogs import show_warning
-    # Show warning based on plans
+    from packages.qt_compat.QtWidgets import QMessageBox
     if "personal" in allowed_plans:
         req = "Cá Nhân"
     else:
         req = "Doanh Nghiệp"
-    show_warning(
+        
+    reply = QMessageBox.question(
         window,
         "Nâng cấp tính năng",
-        f"Tính năng {feature_name} yêu cầu gói {req} hoặc cao hơn.\n"
-        "Vui lòng nâng cấp để sử dụng."
+        f"Tính năng {feature_name} yêu cầu gói {req} hoặc cao hơn.\n\n"
+        "Bạn có muốn nhập mã Nâng cấp Bản quyền ngay bây giờ không?",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.Yes
     )
+    if reply == QMessageBox.StandardButton.Yes:
+        open_license_dialog(window)
     return False
 
 
@@ -413,15 +424,8 @@ def open_license_dialog(window):
     """Mở dialog từ menu License — dùng khi app đang chạy."""
     from packages.license_client import get_license_client
     status = get_license_client().validate_cached()
-    if status.active:
-        exp = status.expires_at
-        from app.dialogs import show_info
-        exp_str = exp.strftime("%d/%m/%Y") if exp else "không xác định"
-        show_info(window, "Bản quyền đang hoạt động",
-                  f"License key đã kích hoạt.\nHết hạn: {exp_str}")
-        return
 
-    dlg = LicenseActivationDialog(window, show_trial_option=True)
+    dlg = LicenseActivationDialog(window, show_trial_option=not status.active, current_status=status)
     dlg.exec()
     if dlg.was_activated():
         r = dlg.get_activation_result()
