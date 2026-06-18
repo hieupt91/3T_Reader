@@ -520,7 +520,8 @@ def load_language_pack(code: str) -> dict[str, str]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return _normalize_language_pack_payload(data, expected_code=code)
+        normalized = _normalize_language_pack_payload(data, expected_code=code)
+        return normalized if normalized is not None else {}
     except Exception:
         return {}
 
@@ -533,17 +534,17 @@ def save_language_pack(code: str, data: dict[str, str]) -> Path:
     return path
 
 
-def _normalize_language_pack_payload(data, *, expected_code: str) -> dict[str, str]:
+def _normalize_language_pack_payload(data, *, expected_code: str) -> dict[str, str] | None:
     if isinstance(data, dict) and data.get("code") and str(data.get("code")) != expected_code:
-        return {}
+        return None
     if isinstance(data, dict) and isinstance(data.get("strings"), dict):
         data = data["strings"]
     if not isinstance(data, dict):
-        return {}
+        return None
     strings = {str(k): str(v) for k, v in data.items()}
     sample = "\n".join(strings.values())
     if any(marker in sample for marker in _MOJIBAKE_MARKERS):
-        return {}
+        return None
     return strings
 
 
@@ -638,7 +639,7 @@ def download_language_pack(code: str, parent=None) -> tuple[bool, str]:
                     with open(tmp_path, "r", encoding="utf-8") as f:
                         payload = json.load(f)
                     normalized = _normalize_language_pack_payload(payload, expected_code=code)
-                    if not normalized:
+                    if normalized is None:
                         raise RuntimeError("Downloaded language pack failed validation")
                     tmp_path.replace(save_path)
                     if progress is not None:
