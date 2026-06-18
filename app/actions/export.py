@@ -88,7 +88,7 @@ class _ExportWorker(QObject):
 
 def _run_in_thread(window, task: str, pdf_path: str, output_path: str):
     existing = getattr(window, "_export_thread", None)
-    if existing is not None and existing.isRunning():
+    if existing is not None and (getattr(existing, "isRunning", lambda: False)() or getattr(existing, "is_alive", lambda: False)()):
         show_warning(window, "Đang xuất file", "Vui lòng chờ thao tác xuất hiện tại hoàn tất.")
         return
 
@@ -98,9 +98,8 @@ def _run_in_thread(window, task: str, pdf_path: str, output_path: str):
         except OSError:
             pass
 
+    import threading
     worker = _ExportWorker(task, pdf_path, output_path)
-    thread = QThread(window)
-    worker.moveToThread(thread)
     progress = QProgressDialog("Đang chuẩn bị xuất file…", "Hủy", 0, 0, window)
     progress.setWindowTitle("Xuất Word/Excel")
     progress.setWindowModality(Qt.WindowModality.WindowModal)
@@ -114,6 +113,7 @@ def _run_in_thread(window, task: str, pdf_path: str, output_path: str):
 
     def _finish(ok: bool, err: str):
         progress.close()
+        setattr(window, "_export_thread", None)
         if not ok and "Da huy" in (err or ""):
             try:
                 if os.path.exists(output_path):
@@ -124,13 +124,9 @@ def _run_in_thread(window, task: str, pdf_path: str, output_path: str):
 
     worker.progress.connect(_progress)
     worker.finished.connect(_finish)
-    worker.finished.connect(thread.quit)
-    worker.finished.connect(worker.deleteLater)
-    thread.finished.connect(thread.deleteLater)
-    thread.finished.connect(lambda: setattr(window, "_export_thread", None))
-    thread.started.connect(worker.run)
     progress.canceled.connect(worker.cancel)
 
+    thread = threading.Thread(target=worker.run, daemon=True)
     window._export_thread = thread
     window.status.showMessage("Đang chạy bộ xử lý xuất…", 0)
     progress.show()

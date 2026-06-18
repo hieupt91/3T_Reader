@@ -4,12 +4,12 @@ from packages.qt_compat.QtWidgets import (
     QMenu,
 )
 from packages.qt_compat.QtGui import QPixmap, QImage, QIcon
-from packages.qt_compat.QtCore import Qt, QSize, QThread, QTimer, pyqtSignal
+from packages.qt_compat.QtCore import Qt, QSize, QObject, QTimer, pyqtSignal
 
 from packages.pdf_engine import get_pdf_engine
 
 
-class ThumbnailLoader(QThread):
+class ThumbnailLoader(QObject):
     thumbnailReady = pyqtSignal(int, QImage)
     finishedLoading = pyqtSignal()
 
@@ -18,6 +18,20 @@ class ThumbnailLoader(QThread):
         self.pdf_path = pdf_path
         self.page_numbers = page_numbers
         self.render_scale = max(0.3, min(0.9, float(render_scale)))
+        import threading
+        self._interrupt_event = threading.Event()
+        self._thread = None
+
+    def start(self):
+        import threading
+        self._thread = threading.Thread(target=self.run, daemon=True)
+        self._thread.start()
+
+    def requestInterruption(self):
+        self._interrupt_event.set()
+
+    def isRunning(self):
+        return self._thread is not None and self._thread.is_alive()
 
     def run(self):
         try:
@@ -28,7 +42,7 @@ class ThumbnailLoader(QThread):
 
         try:
             for page_number in self.page_numbers:
-                if self.isInterruptionRequested():
+                if self._interrupt_event.is_set():
                     break
                 rendered = doc.render_page_rgb(page_number, scale=self.render_scale)
                 image = QImage(
@@ -42,7 +56,6 @@ class ThumbnailLoader(QThread):
         finally:
             doc.close()
             self.finishedLoading.emit()
-
 
 class ThumbnailSidebar(QDockWidget):
     def __init__(self, parent=None):

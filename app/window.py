@@ -2710,10 +2710,14 @@ class PDFReaderApp(QMainWindow):
             self._update_check_thread.join(timeout=2.0)
 
         signing_thread = getattr(self, "_signing_thread", None)
-        if signing_thread is not None and signing_thread.isRunning():
-            signing_thread.quit()
-            if not signing_thread.wait(3000):
-                self._closing = False
+        is_running = False
+        if signing_thread is not None:
+            is_running = getattr(signing_thread, "isRunning", lambda: False)() or getattr(signing_thread, "is_alive", lambda: False)()
+        if is_running:
+            if hasattr(signing_thread, "quit"):
+                signing_thread.quit()
+                if not signing_thread.wait(3000):
+                    self._closing = False
                 QMessageBox.warning(
                     self,
                     "Đang ký số",
@@ -2721,13 +2725,24 @@ class PDFReaderApp(QMainWindow):
                 )
                 event.ignore()
                 return
+            else:
+                signing_thread.join(timeout=3.0)
+                if signing_thread.is_alive():
+                    self._closing = False
+                    QMessageBox.warning(
+                        self,
+                        "Đang ký số",
+                        "Vui lòng chờ thao tác ký hiện tại hoàn tất rồi hãy đóng ứng dụng.",
+                    )
+                    event.ignore()
+                    return
 
         if self._token_monitor_timer is not None:
             self._token_monitor_timer.stop()
 
-        if self._token_check_thread is not None and self._token_check_thread.isRunning():
-            self._token_check_thread.quit()
-            self._token_check_thread.wait(1000)
+        if self._token_check_thread is not None and getattr(self._token_check_thread, "is_alive", lambda: False)():
+            # Python threading.Thread doesn't have quit(). Just wait briefly.
+            self._token_check_thread.join(timeout=1.0)
 
         queue = getattr(self, "_annotation_op_queue", None)
         if queue is not None or has_pending_annotations(self):
@@ -2788,9 +2803,8 @@ class PDFReaderApp(QMainWindow):
             timer.stop()
 
         thread = self._token_check_thread
-        if thread is not None and thread.isRunning():
-            thread.quit()
-            thread.wait(1500)
+        if thread is not None and getattr(thread, "is_alive", lambda: False)():
+            thread.join(timeout=1.5)
 
     def _resume_token_monitor(self):
         """Resume USB presence checks after signing finishes."""
@@ -2805,26 +2819,21 @@ class PDFReaderApp(QMainWindow):
             return
 
         signing_thread = getattr(self, "_signing_thread", None)
-        if signing_thread is not None and signing_thread.isRunning():
+        if signing_thread is not None and (getattr(signing_thread, "isRunning", lambda: False)() or getattr(signing_thread, "is_alive", lambda: False)()):
             return
 
-        if self._token_check_thread is not None and self._token_check_thread.isRunning():
+        if self._token_check_thread is not None and getattr(self._token_check_thread, "is_alive", lambda: False)():
             return
 
+        import threading
         worker = _TokenPresenceWorker()
-        thread = QThread(self)
-        worker.moveToThread(thread)
         worker.result.connect(self._on_token_presence_result)
         worker.error.connect(self._on_token_presence_error)
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(self._cleanup_token_presence_worker)
-        thread.started.connect(worker.run)
+        worker.finished.connect(self._cleanup_token_presence_worker)
 
         self._token_check_worker = worker
-        self._token_check_thread = thread
-        thread.start()
+        self._token_check_thread = threading.Thread(target=worker.run, daemon=True)
+        self._token_check_thread.start()
 
     def _cleanup_token_presence_worker(self):
         self._token_check_worker = None

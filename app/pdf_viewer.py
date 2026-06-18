@@ -13,7 +13,10 @@ from app.webchannel import register_webchannel_object
 
 class _DebugPage(QWebEnginePage):
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
-        print(f"[JS:{level.name}:{lineNumber}] {message}", flush=True)
+        try:
+            print(f"[JS:{level.name}:{lineNumber}] {message}", flush=True)
+        except Exception:
+            pass
 
 
 class _PageStateBridge(QtCore.QObject):

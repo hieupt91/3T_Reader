@@ -1,12 +1,12 @@
 #!/usr/bin/expect -f
 set timeout -1
-spawn scp -P 2222 dist/3T_Reader.dmg hieupt@192.168.1.254:/home/hieupt/
+spawn scp -P 2222 -r piper_voices hieupt@192.168.1.254:/home/hieupt/
 expect {
     "yes/no" {
         send "yes\r"
         exp_continue
     }
-    "password:" {
+    "assword:" {
         send "Congnghe3t\r"
     }
 }

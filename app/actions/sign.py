@@ -138,7 +138,7 @@ class _SigningWorker(QObject):
 
 def _run_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[str, str, str] | None]:
     existing = getattr(window, "_signing_thread", None)
-    if existing is not None and existing.isRunning():
+    if existing is not None and (getattr(existing, "isRunning", lambda: False)() or getattr(existing, "is_alive", lambda: False)()):
         show_warning(window, "Đang ký số", "Vui lòng chờ thao tác ký hiện tại hoàn tất.")
         return False, ("SigningBusy", "Đang có thao tác ký đang chạy.", "")
 
@@ -147,9 +147,8 @@ def _run_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[s
     if callable(pause_token_monitor):
         pause_token_monitor()
 
+    import threading
     worker = _SigningWorker(fn)
-    thread = QThread(window)
-    worker.moveToThread(thread)
 
     loop = QEventLoop(window)
     result: dict[str, object] = {"ok": False, "error": None}
@@ -167,21 +166,17 @@ def _run_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[s
 
     worker.succeeded.connect(_finish_success)
     worker.failed.connect(_finish_error)
-    worker.succeeded.connect(thread.quit)
-    worker.failed.connect(thread.quit)
-    worker.succeeded.connect(worker.deleteLater)
-    worker.failed.connect(worker.deleteLater)
-    thread.finished.connect(thread.deleteLater)
-    thread.finished.connect(lambda: setattr(window, "_signing_thread", None))
-    thread.started.connect(worker.run)
 
+    thread = threading.Thread(target=worker.run, daemon=True)
     window._signing_thread = thread
     try:
         if hasattr(window, "status"):
             window.status.showMessage(status_message, 0)
         thread.start()
         loop.exec()
+        thread.join(timeout=2.0)
     finally:
+        setattr(window, "_signing_thread", None)
         if hasattr(window, "status"):
             window.status.clearMessage()
         if callable(resume_token_monitor):

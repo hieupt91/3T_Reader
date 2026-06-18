@@ -24,30 +24,33 @@ class FunctionWorker(QObject):
 
 def start_dialog_task(owner, fn, *, on_success, on_error, thread_attr: str = "_task_thread", worker_attr: str = "_task_worker") -> bool:
     existing = getattr(owner, thread_attr, None)
-    if existing is not None and existing.isRunning():
+    if existing is not None and (getattr(existing, "isRunning", lambda: False)() or getattr(existing, "is_alive", lambda: False)()):
         return False
 
+    import threading
     worker = FunctionWorker(fn)
-    thread = QThread(owner)
-    worker.moveToThread(thread)
 
-    worker.finished.connect(on_success)
-    worker.error.connect(on_error)
-    worker.finished.connect(thread.quit)
-    worker.error.connect(thread.quit)
-    worker.finished.connect(worker.deleteLater)
-    worker.error.connect(worker.deleteLater)
-    thread.finished.connect(thread.deleteLater)
-    thread.finished.connect(lambda: setattr(owner, thread_attr, None))
-    thread.finished.connect(lambda: setattr(owner, worker_attr, None))
-    thread.started.connect(worker.run)
+    def _wrap_success(result):
+        setattr(owner, thread_attr, None)
+        setattr(owner, worker_attr, None)
+        on_success(result)
 
+    def _wrap_error(err, tb):
+        setattr(owner, thread_attr, None)
+        setattr(owner, worker_attr, None)
+        on_error(err, tb)
+
+    worker.finished.connect(_wrap_success)
+    worker.error.connect(_wrap_error)
+
+    thread = threading.Thread(target=worker.run, daemon=True)
     setattr(owner, worker_attr, worker)
     setattr(owner, thread_attr, thread)
     thread.start()
+
     return True
 
 
 def dialog_task_running(owner, thread_attr: str = "_task_thread") -> bool:
     thread = getattr(owner, thread_attr, None)
-    return bool(thread is not None and thread.isRunning())
+    return bool(thread is not None and getattr(thread, "is_alive", lambda: False)())

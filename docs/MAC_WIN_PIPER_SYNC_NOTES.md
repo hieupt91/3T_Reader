@@ -32,3 +32,9 @@ Khi ấn Tải/Cập nhật, nếu `voice.onnx_url` rỗng (giọng local cũ kh
 ---
 **Hành động tiếp theo:**
 Đội Win vui lòng `git pull` bản `release-1.0.7-baseline-ocr-ai` mới nhất để thừa hưởng bản sửa lỗi toàn diện này vào `app/actions/piper_tts_manager.py`.
+
+## 5. Bổ sung tính năng "Đọc trang hiện tại" và "Đọc đoạn bôi đen"
+**Cơ chế hoạt động:**
+- Trong `app/actions/tts_dialog.py`, phần mềm đã tích hợp tính năng tự động quét nội dung. Nếu người dùng chọn "Đọc đoạn bôi đen", ứng dụng sẽ gọi lệnh lấy dữ liệu từ `window.__3tReadSelectionPayload()`.
+- Để tính năng bôi đen đọc được text ngay cả khi không có tọa độ vùng chọn (`rects`), đội Mac đã sửa lại Hook của trình đọc PDF trong `assets/js/pdfjs_ui_hooks.js`.
+- **Đội Win lưu ý:** Gộp (Merge) bản cập nhật `pdfjs_ui_hooks.js` và `tts_dialog.py` mới nhất để hỗ trợ người dùng có thể bôi đen chữ trên PDF và ấn nút Đọc một cách mượt mà nhất, tránh lỗi không tìm thấy chữ.

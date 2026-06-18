@@ -27,6 +27,7 @@ from packages.qt_compat.QtWidgets import (
     QPushButton,
     QSlider,
     QVBoxLayout,
+    QSpinBox,
 )
 
 
@@ -77,11 +78,14 @@ class _OfflineVoice:
 class _TTSBridge(QObject):
     status = pyqtSignal(str)
     finished = pyqtSignal(bool, str)
+    audioReady = pyqtSignal(str)
 
 
-def _clean_text(text: str) -> str:
-    text = re.sub(r"\s+", " ", (text or "")).strip()
-    return text[:_MAX_TTS_CHARS]
+def _clean_text(text: str, max_chars: int = _MAX_TTS_CHARS) -> str:
+    text = str(text or "").strip()
+    if len(text) > max_chars:
+        text = text[:max_chars] + "... (Văn bản quá dài, đã bị cắt bớt)"
+    return text
 
 
 def _contains_vietnamese(text: str) -> bool:
@@ -315,10 +319,15 @@ def _stop_wav_playback() -> None:
 
 
 class TTSDialog(QDialog):
-    def __init__(self, parent=None, text=""):
+    def __init__(self, parent=None, page_text="", selected_text="", pages_text=None, current_page=1):
         super().__init__(parent)
         self.setWindowTitle("Doc Sach Giong Noi (TTS)")
-        self.text_to_speak = _clean_text(text)
+        self.pages_text = pages_text or []
+        self.current_page = current_page
+        self.page_text = _clean_text(page_text)
+        self.selected_text = _clean_text(selected_text)
+        self.full_text = _clean_text("\n\n".join(self.pages_text))
+        self.text_to_speak = self.selected_text if self.selected_text else self.page_text
         self.setMinimumSize(520, 280)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowStaysOnTopHint)
 
@@ -332,6 +341,16 @@ class TTSDialog(QDialog):
         self._bridge = _TTSBridge(self)
         self._bridge.status.connect(self._set_status)
         self._bridge.finished.connect(self._on_finished)
+        self._bridge.audioReady.connect(self._on_audio_ready)
+
+        try:
+            from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+            self._media_player = QMediaPlayer(self)
+            self._audio_output = QAudioOutput(self)
+            self._media_player.setAudioOutput(self._audio_output)
+            self._media_player.mediaStatusChanged.connect(self._on_media_status_changed)
+        except ImportError:
+            self._media_player = None
 
         self._build_ui()
         self._refresh_voice_options()
@@ -339,6 +358,39 @@ class TTSDialog(QDialog):
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
+
+        scope_layout = QHBoxLayout()
+        scope_layout.addWidget(QLabel("Pham vi:"))
+        self.scope_cb = QComboBox()
+        self.scope_cb.addItem("Đoạn văn bản bôi đen", "selection")
+        self.scope_cb.addItem("Toàn bộ trang hiện tại", "page")
+        self.scope_cb.addItem("Toàn bộ tài liệu", "document")
+        self.scope_cb.addItem("Trang tuỳ chọn", "custom")
+        if not self.selected_text:
+            self.scope_cb.setCurrentIndex(1)
+            self.scope_cb.setEnabled(True)
+        self.scope_cb.currentIndexChanged.connect(self._on_scope_changed)
+        scope_layout.addWidget(self.scope_cb)
+
+        self.page_from_spin = QSpinBox()
+        self.page_from_spin.setRange(1, max(1, len(self.pages_text)))
+        self.page_from_spin.setValue(self.current_page)
+        self.page_from_spin.setVisible(False)
+        self.page_to_spin = QSpinBox()
+        self.page_to_spin.setRange(1, max(1, len(self.pages_text)))
+        self.page_to_spin.setValue(min(len(self.pages_text), self.current_page + 1))
+        self.page_to_spin.setVisible(False)
+        self.page_dash_lbl = QLabel("-")
+        self.page_dash_lbl.setVisible(False)
+        
+        self.page_from_spin.valueChanged.connect(self._update_custom_pages_text)
+        self.page_to_spin.valueChanged.connect(self._update_custom_pages_text)
+
+        scope_layout.addWidget(self.page_from_spin)
+        scope_layout.addWidget(self.page_dash_lbl)
+        scope_layout.addWidget(self.page_to_spin)
+
+        layout.addLayout(scope_layout)
 
         mode_layout = QHBoxLayout()
         mode_layout.addWidget(QLabel("Che do:"))
@@ -370,7 +422,11 @@ class TTSDialog(QDialog):
         self.rate_slider = QSlider(Qt.Orientation.Horizontal)
         self.rate_slider.setRange(50, 250)
         self.rate_slider.setValue(150)
+        self.rate_slider.valueChanged.connect(self._on_rate_changed)
         rate_layout.addWidget(self.rate_slider)
+        self.rate_value_lbl = QLabel("1.0x")
+        self.rate_value_lbl.setMinimumWidth(40)
+        rate_layout.addWidget(self.rate_value_lbl)
         layout.addLayout(rate_layout)
 
         self.status_lbl = QLabel("")
@@ -404,6 +460,60 @@ class TTSDialog(QDialog):
         btn_layout.addWidget(self.btn_play)
         btn_layout.addWidget(self.btn_stop)
         layout.addLayout(btn_layout)
+
+    def _on_rate_changed(self, value: int):
+        ratio = max(0.2, min(3.0, value / 150.0))
+        if hasattr(self, 'rate_value_lbl'):
+            self.rate_value_lbl.setText(f"{ratio:.1f}x")
+        if self._media_player is not None:
+            self._media_player.setPlaybackRate(ratio)
+
+    def _on_audio_ready(self, audio_path: str):
+        if self._media_player is not None:
+            self._media_player.setSource(QUrl.fromLocalFile(audio_path))
+            self._on_rate_changed(self.rate_slider.value())
+            self._media_player.play()
+        else:
+            _start_async_wav(audio_path)
+
+    def _on_media_status_changed(self, status):
+        try:
+            from PySide6.QtMultimedia import QMediaPlayer
+            if status == QMediaPlayer.MediaStatus.EndOfMedia:
+                if getattr(self, "_is_playing", False):
+                    self._bridge.finished.emit(True, "Doc xong.")
+        except ImportError:
+            pass
+
+    def _on_scope_changed(self):
+        data = self.scope_cb.currentData()
+        is_custom = (data == "custom")
+        self.page_from_spin.setVisible(is_custom)
+        self.page_dash_lbl.setVisible(is_custom)
+        self.page_to_spin.setVisible(is_custom)
+
+        if data == "selection":
+            self.text_to_speak = self.selected_text
+            if not self.text_to_speak:
+                self._set_status("Khong co van ban nao dang duoc boi den.")
+        elif data == "document":
+            self.text_to_speak = self.full_text
+            if not self.text_to_speak:
+                self._set_status("Khong the lay van ban toan bo tai lieu.")
+        elif data == "custom":
+            self._update_custom_pages_text()
+        else:
+            self.text_to_speak = self.page_text
+
+    def _update_custom_pages_text(self):
+        if not self.pages_text:
+            return
+        start = self.page_from_spin.value() - 1
+        end = self.page_to_spin.value()
+        if start > end - 1:
+            start = end - 1
+        texts = self.pages_text[max(0, start):max(1, end)]
+        self.text_to_speak = _clean_text("\n\n".join(texts))
 
     def _selected_language(self) -> str:
         code = self.language_cb.currentData()
@@ -512,12 +622,14 @@ class TTSDialog(QDialog):
             )
 
     def _set_playing(self, playing: bool):
+        self._is_playing = playing
         self.btn_play.setEnabled(False if playing else self.btn_play.isEnabled())
         self.btn_stop.setEnabled(playing)
         self.mode_cb.setEnabled(not playing)
         self.language_cb.setEnabled(not playing)
         self.voice_cb.setEnabled(not playing)
-        self.rate_slider.setEnabled(not playing)
+        # Enable the rate slider even when playing so user can dynamically adjust speed!
+        self.rate_slider.setEnabled(True)
         self.btn_refresh_voices.setEnabled(not playing)
         self.btn_install_voice.setEnabled((not playing) and self._offline_voice_missing)
         if not playing:
@@ -595,14 +707,13 @@ class TTSDialog(QDialog):
             audio_path = f.name
             
         self._bridge.status.emit(f"Dang tong hop giong Piper ({voice.name})...")
-        speed_val = self.rate_slider.value()
-        ok = synthesize_audio_piper(self.text_to_speak, voice.local_onnx_path, audio_path, speed_val)
+        ok = synthesize_audio_piper(self.text_to_speak, voice.local_onnx_path, audio_path, 100)
         if not ok:
             self._bridge.finished.emit(False, "Loi tao giong Piper.")
             return
-            
-        _start_async_wav(audio_path)
-        self._bridge.finished.emit(True, f"Dang phat Piper TTS: {voice.name}")
+
+        self._bridge.audioReady.emit(audio_path)
+        self._bridge.status.emit(f"Dang phat Piper TTS: {voice.name}")
 
     def _run_offline_tts(self):
         voice = self.voice_cb.currentData()
@@ -677,7 +788,7 @@ class TTSDialog(QDialog):
         voice_id = self.voice_cb.currentData() or "marin"
         rate = self.rate_slider.value()
         language_code = self._selected_language()
-        text = _clean_text(self.text_to_speak)
+        text = _clean_text(self.text_to_speak, max_chars=4000)
         payload = {
             "model": _OPENAI_TTS_MODEL,
             "voice": voice_id,
@@ -712,22 +823,18 @@ class TTSDialog(QDialog):
             if self._stop_requested.is_set():
                 self._bridge.finished.emit(True, "Da dung.")
                 return
+            self._bridge.audioReady.emit(audio_path)
             self._bridge.status.emit("Dang phat giong AI...")
-            _start_async_wav(audio_path)
-            approx_seconds = max(2.0, len(self.text_to_speak) / 14.0)
-            deadline = time.time() + approx_seconds
-            while time.time() < deadline and not self._stop_requested.is_set():
-                time.sleep(0.1)
-            if self._stop_requested.is_set():
-                _stop_wav_playback()
-                self._bridge.finished.emit(True, "Da dung.")
-            else:
-                self._bridge.finished.emit(True, "Doc AI xong.")
         except Exception as exc:
             self._bridge.finished.emit(False, f"Loi AI TTS: {exc}")
 
     def _stop(self):
         self._stop_requested.set()
+        try:
+            if getattr(self, "_media_player", None) is not None:
+                self._media_player.stop()
+        except Exception:
+            pass
         try:
             if self._engine_run is not None:
                 self._engine_run.stop()
@@ -774,39 +881,60 @@ def open_tts_dialog(window):
 
     try:
         from app.actions.ai_actions import load_ai_config
-
         load_ai_config()
     except Exception:
         pass
 
-    text = ""
-    try:
-        import pypdfium2 as pdfium
-
-        pdf_path = getattr(window, "current_path", "") or getattr(viewer, "_path", "")
+    def _on_selection_received(sel_text):
+        page_text = ""
+        full_texts = []
         page_number = 1
-        if hasattr(viewer, "get_current_page"):
-            page_number = max(1, int(viewer.get_current_page() or 1))
-        elif hasattr(viewer, "_current_page"):
-            page_number = max(1, int(getattr(viewer, "_current_page", 1) or 1))
-        if pdf_path and os.path.isfile(pdf_path):
-            doc = pdfium.PdfDocument(pdf_path)
-            try:
-                if 1 <= page_number <= len(doc):
-                    page = doc[page_number - 1]
-                    try:
-                        textpage = page.get_textpage()
+        try:
+            import pypdfium2 as pdfium
+            pdf_path = getattr(window, "current_path", "") or getattr(viewer, "_path", "")
+            if hasattr(viewer, "get_current_page"):
+                page_number = max(1, int(viewer.get_current_page() or 1))
+            elif hasattr(viewer, "_current_page"):
+                page_number = max(1, int(getattr(viewer, "_current_page", 1) or 1))
+            if pdf_path and os.path.isfile(pdf_path):
+                doc = pdfium.PdfDocument(pdf_path)
+                try:
+                    if 1 <= page_number <= len(doc):
+                        page = doc[page_number - 1]
                         try:
-                            text = (textpage.get_text_range() or "").strip()
+                            textpage = page.get_textpage()
+                            try:
+                                page_text = (textpage.get_text_range() or "").strip()
+                            finally:
+                                textpage.close()
                         finally:
-                            textpage.close()
-                    finally:
-                        page.close()
-            finally:
-                doc.close()
-    except Exception:
-        text = ""
+                            page.close()
+                            
+                    full_texts = []
+                    for i in range(len(doc)):
+                        p = doc[i]
+                        tp = p.get_textpage()
+                        t = tp.get_text_range() or ""
+                        tp.close()
+                        p.close()
+                        full_texts.append(t.strip())
+                finally:
+                    doc.close()
+        except Exception:
+            page_text = ""
+            full_texts = []
 
-    dlg = TTSDialog(window, text=text)
-    window._tts_dialog = dlg
-    dlg.show()
+        sel_text = str(sel_text or "").strip()
+        dlg = TTSDialog(window, page_text=page_text, selected_text=sel_text, pages_text=full_texts, current_page=page_number)
+        window._tts_dialog = dlg
+        dlg.show()
+
+    try:
+        from app.actions.annotate import _get_selection_payload_sync
+        payload = _get_selection_payload_sync(window)
+        sel_text = ""
+        if isinstance(payload, dict):
+            sel_text = str(payload.get("text") or "").strip()
+        _on_selection_received(sel_text)
+    except Exception:
+        _on_selection_received("")

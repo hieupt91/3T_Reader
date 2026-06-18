@@ -332,7 +332,7 @@
     function updateSelectionCache() {
         try {
             var payload = collectSelectionPayload();
-            if (payload && payload.rects && payload.rects.length > 0) {
+            if (payload && (payload.text || (payload.rects && payload.rects.length > 0))) {
                 payload.timestamp = Date.now();
                 window.__3tLastSelectionPayload = payload;
             }
@@ -341,13 +341,13 @@
 
     window.__3tReadSelectionPayload = function () {
         var payload = collectSelectionPayload();
-        if (payload && payload.rects && payload.rects.length > 0) {
+        if (payload && (payload.text || (payload.rects && payload.rects.length > 0))) {
             payload.timestamp = Date.now();
             window.__3tLastSelectionPayload = payload;
             return payload;
         }
         var cached = window.__3tLastSelectionPayload;
-        if (cached && cached.rects && cached.rects.length > 0 && Date.now() - (cached.timestamp || 0) < 60000) {
+        if (cached && (cached.text || (cached.rects && cached.rects.length > 0)) && Date.now() - (cached.timestamp || 0) < 60000) {
             return cached;
         }
         return payload || { text: '', rects: [] };
