@@ -2116,6 +2116,63 @@ class PDFReaderApp(QMainWindow):
         if hasattr(self, "page_label") and self.page_label.text() == "Trang: -":
             self.page_label.setText(self._t("status.page", "Trang: -"))
 
+        # Ribbon Groups
+        if hasattr(self, "g_file"): self.g_file.set_title(self._t("group.file", "Tệp"))
+        if hasattr(self, "g_nav"): self.g_nav.set_title(self._t("group.nav", "Điều hướng"))
+        if hasattr(self, "g_zoom"): self.g_zoom.set_title(self._t("group.zoom", "Thu phóng"))
+        if hasattr(self, "g_view"): self.g_view.set_title(self._t("group.view", "Giao diện"))
+        if hasattr(self, "g_mark"): self.g_mark.set_title(self._t("group.mark", "Đánh dấu"))
+        if hasattr(self, "g_edit"): self.g_edit.set_title(self._t("group.edit", "Chỉnh sửa"))
+        if hasattr(self, "g_undo"): self.g_undo.set_title(self._t("group.undo", "Lịch sử"))
+        if hasattr(self, "g_rot"): self.g_rot.set_title(self._t("group.rot", "Xoay / Xóa"))
+        if hasattr(self, "g_org"): self.g_org.set_title(self._t("group.org", "Tổ chức"))
+        if hasattr(self, "g_sec"): self.g_sec.set_title(self._t("group.sec", "Bảo mật"))
+        if hasattr(self, "g_exp"): self.g_exp.set_title(self._t("group.exp", "Xuất"))
+        if hasattr(self, "g_ocr"): self.g_ocr.set_title(self._t("group.ocr", "OCR"))
+        if hasattr(self, "g_ai"): self.g_ai.set_title(self._t("group.ai", "AI"))
+        if hasattr(self, "g_tts"): self.g_tts.set_title(self._t("group.tts", "Đọc sách"))
+        if hasattr(self, "g_sign"): self.g_sign.set_title(self._t("group.sign", "Chữ ký số"))
+        if hasattr(self, "g_verify"): self.g_verify.set_title(self._t("group.verify", "Kiểm tra"))
+
+        # Extra Actions
+        _set_action("act_toggle_sidebar_btn", "action.sidebar", "Thumb")
+        _set_action("act_toggle_toc_btn", "action.toc", "Mục lục")
+        _set_action("act_comment", "action.comment", "Ghi chú")
+        _set_action("act_rcw", "action.rot_cw", "Xoay phải")
+        _set_action("act_rccw", "action.rot_ccw", "Xoay trái")
+        _set_action("act_del", "action.del_page", "Xóa trang")
+        _set_action("act_merge", "action.merge", "Ghép PDF")
+        _set_action("act_extract", "action.extract", "Trích xuất")
+        _set_action("act_pgnum", "action.pgnum", "Số trang")
+        _set_action("act_wm", "action.wm", "Watermark")
+        _set_action("act_rmwm", "action.rmwm", "Xóa watermark")
+        _set_action("act_setpw", "action.setpw", "Đặt mật khẩu")
+        _set_action("act_rmpw", "action.rmpw", "Xóa mật khẩu")
+        _set_action("act_comp", "action.comp", "Nén PDF")
+        _set_action("act_word", "action.word", "Word")
+        _set_action("act_xl", "action.excel", "Excel")
+        _set_action("act_img", "action.image", "Ảnh")
+        _set_action("act_txt", "action.text", "Văn bản")
+        _set_action("act_ocr1", "action.ocr1", "OCR trang")
+        _set_action("act_ocr2", "action.ocr2", "OCR toàn bộ")
+        _set_action("act_chat", "action.chat", "Chat PDF")
+        _set_action("act_sum", "action.sum", "Tóm tắt")
+        _set_action("act_trans", "action.trans", "Dịch")
+        _set_action("act_srch", "action.srch", "Tìm nghĩa")
+        _set_action("act_aiset", "action.ai_key", "AI Key")
+        _set_action("act_token", "action.token", "Kiểm tra USB")
+        _set_action("act_sign2", "action.sign", "Ký số")
+        _set_action("act_sign_settings", "action.sign_set", "Cài đặt")
+        _set_action("act_sign3", "action.sign_pfx", "Ký PFX")
+        _set_action("act_sign_batch", "action.sign_batch", "Ký lô")
+        _set_action("act_field", "action.field", "Ô ký")
+        _set_action("act_handw", "action.handw", "Ký tay/dấu")
+
+        # Now update the ToolButton text if it was updated in the Action. 
+        # Wait, QToolButton with setDefaultAction updates AUTOMATICALLY!
+        # But earlier my test showed it DOES update. 
+        # So we don't need to manually update QToolButton!
+
     def _show_audit_log(self):
         from app.audit_log_dialog import AuditLogDialog
         dlg = AuditLogDialog(self)

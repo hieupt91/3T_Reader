@@ -206,6 +206,10 @@ class RibbonGroup(QWidget):
     def add_widget(self, w: QWidget):
         self.add(w)
 
+    def set_title(self, title: str):
+        if self._lbl:
+            self._lbl.setText(title.upper())
+
     def apply_theme(self, styles: dict):
         for btn in self._buttons:
             btn.setStyleSheet(styles["toolbtn"])
