@@ -182,7 +182,10 @@ class LicenseActivationDialog(QDialog):
             plan_names = {"free": "Miễn Phí", "personal": "Cá Nhân", "enterprise": "Doanh Nghiệp", "3tr-b": "Cơ Bản", "3tr-p": "Cá Nhân", "3tr-e": "Doanh Nghiệp"}
             code = (self._current_status.plan_code or "free").lower().strip()
             plan_label = plan_names.get(code, code.upper())
-            sub = QLabel(f"Bạn đang dùng gói: {plan_label}.\nNhập mã mới để Nâng cấp hoặc Gia hạn.")
+            if code in ["enterprise", "3tr-e"]:
+                sub = QLabel(f"Bạn đang dùng gói: {plan_label} (Cao cấp nhất).\nNhập mã để Gia hạn thời gian sử dụng.")
+            else:
+                sub = QLabel(f"Bạn đang dùng gói: {plan_label}.\nNhập mã mới để Nâng cấp hoặc Gia hạn.")
         else:
             sub = QLabel("Nhập license key để sử dụng đầy đủ tính năng.")
         sub.setObjectName("subtitle")
