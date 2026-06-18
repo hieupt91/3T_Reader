@@ -140,7 +140,12 @@ def _piper_index_candidates() -> list[str]:
 
 
 def _open_no_proxy(request: urllib.request.Request, timeout: int = 12):
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    import ssl
+    ssl_context = ssl._create_unverified_context()
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=ssl_context),
+        urllib.request.ProxyHandler({})
+    )
     return opener.open(request, timeout=timeout)
 
 
@@ -170,9 +175,10 @@ def get_piper_voices_dir() -> Path:
     return base
 
 def fetch_available_piper_voices() -> list[PiperVoiceInfo]:
-    """Tải danh sách các giọng có trên VPS và kiểm tra xem đã tải về máy chưa."""
+    """Tải danh sách các giọng có trên VPS và cập nhật thông tin nếu đã tải."""
     voices = _scan_local_piper_voices()
-    seen_ids = {voice.id for voice in voices}
+    voices_by_id = {v.id: v for v in voices}
+    
     try:
         data = None
         resolved_index_url = ""
@@ -192,26 +198,42 @@ def fetch_available_piper_voices() -> list[PiperVoiceInfo]:
         local_dir = get_piper_voices_dir()
         
         for item in data:
-            onnx_path = local_dir / f"{item['id']}.onnx"
-            json_path = local_dir / f"{item['id']}.onnx.json"
-            
+            v_id = item["id"]
+            onnx_path = local_dir / f"{v_id}.onnx"
+            json_path = local_dir / f"{v_id}.onnx.json"
             is_dl = onnx_path.exists() and json_path.exists()
-            if item["id"] in seen_ids and is_dl:
-                continue
             
-            voices.append(PiperVoiceInfo(
-                id=item["id"],
-                name=item["name"],
-                language=item["language"],
-                size=item["size"],
-                onnx_url=urljoin(resolved_index_url, item["onnx_url"]),
-                json_url=urljoin(resolved_index_url, item["json_url"]),
-                local_onnx_path=str(onnx_path),
-                local_json_path=str(json_path),
-                is_downloaded=is_dl
-            ))
+            onnx_url = urljoin(resolved_index_url, item["onnx_url"])
+            json_url = urljoin(resolved_index_url, item["json_url"])
+            
+            if v_id in voices_by_id:
+                # Update existing local voice with full info from VPS
+                v = voices_by_id[v_id]
+                v.name = item["name"]
+                v.language = item["language"]
+                v.size = item["size"]
+                v.onnx_url = onnx_url
+                v.json_url = json_url
+                v.is_downloaded = is_dl
+            else:
+                # Add new voice from VPS
+                v = PiperVoiceInfo(
+                    id=v_id,
+                    name=item["name"],
+                    language=item["language"],
+                    size=item["size"],
+                    onnx_url=onnx_url,
+                    json_url=json_url,
+                    local_onnx_path=str(onnx_path),
+                    local_json_path=str(json_path),
+                    is_downloaded=is_dl
+                )
+                voices.append(v)
+                voices_by_id[v_id] = v
+                
     except Exception as e:
         print(f"Lỗi khi lấy danh sách giọng Piper: {e}")
+        
     return voices
 
 def preprocess_text_for_piper(text: str) -> str:
@@ -340,13 +362,18 @@ class PiperVoiceManagerDialog(QDialog):
             return
         voice = item.data(Qt.UserRole)
         
+        if not voice.onnx_url:
+            QMessageBox.warning(self, "Lỗi", "Giọng đọc này không có trên máy chủ để tải/cập nhật.")
+            return
+        
         self.btn_download.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         
-        self.dl_thread = DownloadThread(voice, self)
+        self.dl_thread = DownloadThread(voice) # Remove 'self' as parent to prevent PySide6 destruction crash
         self.dl_thread.progress.connect(self.progress_bar.setValue)
         self.dl_thread.download_completed.connect(self._on_download_finished)
+        self.dl_thread.finished.connect(self.dl_thread.deleteLater) # Auto cleanup
         self.dl_thread.start()
         
     def _on_download_finished(self, success):
