@@ -94,8 +94,9 @@ if sys.platform == 'darwin':
         icon='assets/app.icns' if os.path.exists('assets/app.icns') else None,
         bundle_identifier='com.3t.reader',
         info_plist={
-            'CFBundleShortVersionString': '1.0.7',
-            'NSHighResolutionCapable': 'True',
+            'CFBundleShortVersionString': '1.0.19',
+            'CFBundleVersion': '1.0.19',
+            'NSHighResolutionCapable': True,
             'NSMicrophoneUsageDescription': 'Used for audio recording',
             'CFBundleDocumentTypes': [
                 {

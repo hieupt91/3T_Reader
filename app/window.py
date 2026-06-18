@@ -1843,35 +1843,42 @@ class PDFReaderApp(QMainWindow):
             QTimer.singleShot(0, lambda: self._start_update_check(show_up_to_date=True, show_errors=True))
 
     def _start_update_check(self, *, show_up_to_date: bool, show_errors: bool):
+        import threading as _threading
         from app.config import VPS_LICENSE_BASE_URL, UPDATE_CHANNEL
         from app.version import APP_VERSION
 
-        if self._update_check_thread is not None and self._update_check_thread.isRunning():
+        # Kiểm tra thread Python đang chạy (thay QThread để tránh bug PySide6 6.11+Python3.14)
+        if self._update_check_thread is not None and self._update_check_thread.is_alive():
             if show_errors:
                 self._pending_manual_update_check = True
                 self.status.showMessage("Đang kiểm tra cập nhật nền, sẽ kiểm tra lại ngay sau đó...", 5000)
             return
 
         self._pending_manual_update_check = False
-
         self.status.showMessage("Đang kiểm tra cập nhật...", 0 if show_errors else 3000)
 
+        # Worker vẫn là QObject — nhưng KHÔNG moveToThread.
+        # Worker ở main thread, Python thread chỉ gọi worker.run().
+        # Signal emit từ Python thread sẽ được Qt tự queue về main thread (thread-safe).
         worker = UpdateCheckWorker(VPS_LICENSE_BASE_URL, APP_VERSION, UPDATE_CHANNEL)
-        thread = QThread(self)
-        worker.moveToThread(thread)
         worker.available.connect(self._show_update_dialog)
         if show_up_to_date:
             worker.up_to_date.connect(self._on_update_up_to_date)
         worker.error.connect(lambda msg: self._on_update_check_error(msg, show_errors))
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(self._cleanup_update_check_worker)
-        thread.started.connect(worker.run)
+        worker.finished.connect(lambda: QTimer.singleShot(0, self._cleanup_update_check_worker))
 
         self._update_check_worker = worker
-        self._update_check_thread = thread
-        thread.start()
+
+        # Dùng Python thread — KHÔNG dùng QThread để tránh QObjectWrapper destructor bug
+        def _run_and_cleanup():
+            try:
+                worker.run()
+            except Exception:
+                pass
+
+        t = _threading.Thread(target=_run_and_cleanup, daemon=True, name="update-check")
+        self._update_check_thread = t
+        t.start()
 
     def _auto_check_update(self):
         """Silent check lúc khởi động — chỉ hiện dialog nếu có bản mới."""
@@ -2699,9 +2706,8 @@ class PDFReaderApp(QMainWindow):
                     event.ignore()
                     return
 
-        if self._update_check_thread is not None and self._update_check_thread.isRunning():
-            self._update_check_thread.quit()
-            self._update_check_thread.wait(2000)
+        if self._update_check_thread is not None and self._update_check_thread.is_alive():
+            self._update_check_thread.join(timeout=2.0)
 
         signing_thread = getattr(self, "_signing_thread", None)
         if signing_thread is not None and signing_thread.isRunning():

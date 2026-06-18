@@ -93,10 +93,16 @@ def preprocess_text_for_piper(text: str) -> str:
 def synthesize_audio_piper(text: str, model_path: str, output_wav_path: str, speed_val: int = 100) -> bool:
     """Tạo file WAV sử dụng thư viện piper-tts."""
     text = preprocess_text_for_piper(text)
-    if os.name == "nt":
-        piper_bin_path = os.path.join(os.getcwd(), "piper_bin", "piper.exe")
+    import sys
+    if getattr(sys, 'frozen', False):
+        base_dir = sys._MEIPASS
     else:
-        piper_bin_path = os.path.join(os.getcwd(), "venv_piper", "bin", "piper")
+        base_dir = os.getcwd()
+
+    if os.name == "nt":
+        piper_bin_path = os.path.join(base_dir, "piper_bin", "piper.exe")
+    else:
+        piper_bin_path = os.path.join(base_dir, "venv_piper", "bin", "piper")
         
     if not os.path.exists(piper_bin_path):
         piper_bin_path = "piper" # fallback

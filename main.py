@@ -46,7 +46,10 @@ def _install_crash_logging() -> None:
     try:
         log_path = os.path.join(os.path.dirname(__file__), "app_log.txt")
         _crash_log_handle = open(log_path, "a", encoding="utf-8", buffering=1)
-        faulthandler.enable(file=_crash_log_handle, all_threads=True)
+        # Chỉ bật faulthandler cho main thread — KHÔNG dùng all_threads=True
+        # vì all_threads=True sẽ khiến SIGSEGV ở QThread (do PySide6 GC race condition)
+        # lan ra và kill toàn bộ app thay vì chỉ log và tiếp tục.
+        faulthandler.enable(file=_crash_log_handle, all_threads=False)
     except Exception:
         return
 
@@ -138,8 +141,16 @@ if __name__ == "__main__":
     except Exception:
         pass
     apply_theme(_initial_theme)
-    _ui_font = {"Darwin": "SF Pro Text", "Windows": "Segoe UI"}.get(_platform.system(), "")
-    app.setFont(QFont(_ui_font, 10))
+    # macOS: ".AppleSystemUIFont" là tên Qt nhận được để map sang SF Pro
+    # Tránh dùng "SF Pro Text" hoặc "-apple-system" vì Qt không resolve được
+    if _platform.system() == "Darwin":
+        _ui_font = ".AppleSystemUIFont"
+    elif _platform.system() == "Windows":
+        _ui_font = "Segoe UI"
+    else:
+        _ui_font = ""
+    if _ui_font:
+        app.setFont(QFont(_ui_font, 10))
     app.setApplicationName(APP_NAME)
 
     from app.icon_utils import app_logo_icon
