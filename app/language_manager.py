@@ -542,9 +542,6 @@ def _normalize_language_pack_payload(data, *, expected_code: str) -> dict[str, s
     if not isinstance(data, dict):
         return None
     strings = {str(k): str(v) for k, v in data.items()}
-    sample = "\n".join(strings.values())
-    if any(marker in sample for marker in _MOJIBAKE_MARKERS):
-        return None
     return strings
 
 
