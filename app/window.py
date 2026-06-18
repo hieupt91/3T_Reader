@@ -900,9 +900,9 @@ class PDFReaderApp(QMainWindow):
         self.g_ai.add(make_action_btn(self._act_aiset, "AI Key"))
         p4.add_group(self.g_ai, add_sep=False)
         
-        g_tts = RibbonGroup("Đọc Sách")
-        g_tts.add(make_action_btn(self.act_tts, "Đọc sách"))
-        p4.add_group(g_tts, add_sep=False)
+        self.g_tts = RibbonGroup("Đọc Sách")
+        self.g_tts.add(make_action_btn(self.act_tts, "Đọc sách"))
+        p4.add_group(self.g_tts, add_sep=False)
         
         p4.add_stretch()
 
@@ -911,7 +911,7 @@ class PDFReaderApp(QMainWindow):
         # ─── Tab 5: Ký số ─────────────────────────────────────────────────
         p5 = RibbonPanel()
 
-        g_sign = RibbonGroup("Chữ ký số")
+        self.g_sign = RibbonGroup("Chữ ký số")
         self._act_token = make("USB token",  "usb.svg",  "Kiểm tra USB ký số",  None, lambda: check_token(self))
         self._act_sign2 = make("Ký số",      "usb.svg",  "Ký số tài liệu",      None, lambda: sign_document(self))
         self._act_sign_settings = make("Cài đặt", "settings.svg", "Cài đặt Ký số & TSA", None, lambda: self.open_signing_settings())
@@ -919,14 +919,14 @@ class PDFReaderApp(QMainWindow):
         self._act_sign3 = make("Ký PFX",     "file_plus.svg",    "Ký bằng file PFX/P12", None, lambda: sign_with_pfx(self))
         self._act_field = make("Ô ký",       "object_plus.svg",  "Tạo ô ký số trên PDF", None, lambda: create_signature_field(self))
         self._act_handw = make("Ký tay/dấu", "pen.svg",  "Chèn chữ ký tay, mẫu chữ ký hoặc con dấu PNG", None, lambda: sign_handwritten(self))
-        g_sign.add(make_action_btn(self._act_token, "Kiểm tra USB"))
-        g_sign.add(make_action_btn(self._act_sign2, "Ký số"))
-        g_sign.add(make_action_btn(self._act_sign_settings, "Cài đặt"))
-        g_sign.add(make_action_btn(self._act_sign3, "Ký PFX"))
-        g_sign.add(make_action_btn(self._act_sign_batch, "Ký lô"))
-        g_sign.add(make_action_btn(self._act_field, "Ô ký"))
-        g_sign.add(make_action_btn(self._act_handw, "Ký tay/dấu"))
-        p5.add_group(g_sign, add_sep=False)
+        self.g_sign.add(make_action_btn(self._act_token, "Kiểm tra USB"))
+        self.g_sign.add(make_action_btn(self._act_sign2, "Ký số"))
+        self.g_sign.add(make_action_btn(self._act_sign_settings, "Cài đặt"))
+        self.g_sign.add(make_action_btn(self._act_sign3, "Ký PFX"))
+        self.g_sign.add(make_action_btn(self._act_sign_batch, "Ký lô"))
+        self.g_sign.add(make_action_btn(self._act_field, "Ô ký"))
+        self.g_sign.add(make_action_btn(self._act_handw, "Ký tay/dấu"))
+        p5.add_group(self.g_sign, add_sep=False)
 
         self.g_verify = RibbonGroup("Kiểm tra")
         self.g_verify.add(make_action_btn(self.act_verify_signature, "Kiểm tra"))
@@ -2032,146 +2032,39 @@ class PDFReaderApp(QMainWindow):
             QMessageBox.warning(self, "Tải gói ngôn ngữ", "\n\n".join(message))
 
     def _apply_language_texts(self):
-        def _set_action(attr: str, key: str, fallback: str):
-            action = getattr(self, attr, None)
-            if action is not None:
-                action.setText(self._t(key, fallback))
-
-        # Local Actions now bound to self
-        _set_action("_act_comment", "action.comment", "Ghi chú")
-        _set_action("_act_rcw", "action.rotate_cw", "Xoay phải")
-        _set_action("_act_rccw", "action.rotate_ccw", "Xoay trái")
-        _set_action("_act_del", "action.delete_page", "Xóa trang")
-        _set_action("_act_merge", "action.merge_pdf", "Ghép PDF")
-        _set_action("_act_extract", "action.extract_page", "Trích xuất")
-        _set_action("_act_pgnum", "action.page_number", "Số trang")
-        _set_action("_act_wm", "action.watermark", "Watermark")
-        _set_action("_act_rmwm", "action.remove_watermark", "Xóa watermark")
-        _set_action("_act_setpw", "action.set_password", "Đặt mật khẩu")
-        _set_action("_act_rmpw", "action.remove_password", "Xóa mật khẩu")
-        _set_action("_act_comp", "action.compress", "Nén PDF")
-        _set_action("_act_word", "action.export_word", "Word")
-        _set_action("_act_xl", "action.export_excel", "Excel")
-        _set_action("_act_img", "action.export_image", "Ảnh")
-        _set_action("_act_txt", "action.export_text", "Văn bản")
-        _set_action("_act_ocr1", "action.ocr_page", "OCR trang")
-        _set_action("_act_ocr2", "action.ocr_document", "OCR toàn bộ")
-        _set_action("_act_chat", "action.chat_pdf", "Chat PDF")
-        _set_action("_act_sum", "action.summary", "Tóm tắt")
-        _set_action("_act_trans", "action.translate", "Dịch")
-        _set_action("_act_srch", "action.semantic_search", "Tìm nghĩa")
-        _set_action("_act_key", "action.ai_settings", "AI Key")
-        _set_action("_act_usb", "action.sign", "Kiểm tra USB")
-        _set_action("_act_sign", "action.sign", "Sign")
-        _set_action("_act_settings", "action.ai_settings", "Cài đặt")
-        _set_action("_act_pfx", "action.sign", "Ký PFX")
-        _set_action("_act_batch", "action.sign", "Ký lô")
-        _set_action("_act_field", "action.signature_field", "Signature field")
-        _set_action("_act_hand", "action.hand_sign", "Ký tay/dấu")
-        _set_action("_act_verify", "action.verify", "Verify")
+        """Cập nhật toàn bộ text UI theo ngôn ngữ hiện tại.
         
-        # Ribbon Groups
-        if hasattr(self, "g_file"): self.g_file.set_title(self._t("group.file", "TỆP"))
-        if hasattr(self, "g_nav"): self.g_nav.set_title(self._t("group.navigate", "ĐIỀU HƯỚNG"))
-        if hasattr(self, "g_zoom"): self.g_zoom.set_title(self._t("group.zoom", "THU PHÓNG"))
-        if hasattr(self, "g_view"): self.g_view.set_title(self._t("group.view", "CHẾ ĐỘ XEM"))
-        if hasattr(self, "g_mark"): self.g_mark.set_title(self._t("group.mark", "ĐÁNH DẤU"))
-        if hasattr(self, "g_edit"): self.g_edit.set_title(self._t("group.edit", "CHỈNH SỬA"))
-        if hasattr(self, "g_undo"): self.g_undo.set_title(self._t("group.undo", "LỊCH SỬ"))
-        if hasattr(self, "g_rot"): self.g_rot.set_title(self._t("group.rotate", "XOAY / XÓA"))
-        if hasattr(self, "g_org"): self.g_org.set_title(self._t("group.organize", "TỔ CHỨC"))
-        if hasattr(self, "g_sec"): self.g_sec.set_title(self._t("group.security", "BẢO MẬT"))
-        if hasattr(self, "g_exp"): self.g_exp.set_title(self._t("group.export", "XUẤT"))
-        if hasattr(self, "g_ocr"): self.g_ocr.set_title(self._t("group.ocr", "OCR"))
-        if hasattr(self, "g_ai"): self.g_ai.set_title(self._t("group.ai", "AI"))
-        if hasattr(self, "g_rd"): self.g_rd.set_title(self._t("group.read", "ĐỌC SÁCH"))
-        if hasattr(self, "g_usbsign"): self.g_usbsign.set_title(self._t("group.usbsign", "CHỮ KÝ SỐ"))
-        if hasattr(self, "g_verify"): self.g_verify.set_title(self._t("group.verify", "KIỂM TRA"))
+        Tên biến thực tế (self.xxx) được đọc trực tiếp từ _build_toolbar_impl:
+        - self.act_open, self.act_new_pdf, self.act_save, self.act_save_as, self.act_print
+        - self.act_prev, self.act_next, self.act_zoom_in, self.act_zoom_out, self.act_fit
+        - self.act_highlight, self.act_highlight_color, self.act_underline, self.act_strikeout
+        - self.act_insert_text, self.act_insert_image, self.act_draw, self.act_redact
+        - self.act_delete_object, self.act_select_inserted, self.act_undo
+        - self.act_toggle_sidebar_btn, self.act_toggle_toc_btn, self.act_toggle_annotations_btn
+        - self.act_theme_toggle, self.act_fullscreen, self.act_tts
+        - self.act_verify_signature (alias: self.act_sign, self.act_sign_file, self.act_signature_field)
+        
+        Private actions (tạo trong _build_toolbar_impl, KHÔNG có trong toolbar cũ):
+        - self._act_comment (Tab Annotate)
+        - self._act_rcw, self._act_rccw, self._act_del (Tab Page - Rotate/Delete)
+        - self._act_merge, self._act_extract, self._act_pgnum (Tab Page - Organize)
+        - self._act_wm, self._act_rmwm, self._act_setpw, self._act_rmpw, self._act_comp (Tab Security)
+        - self._act_word, self._act_xl, self._act_img, self._act_txt (Tab Export)
+        - self._act_ocr1, self._act_ocr2 (Tab OCR)
+        - self._act_chat, self._act_sum, self._act_trans, self._act_srch, self._act_aiset (Tab AI)
+        - self._act_token, self._act_sign2, self._act_sign_settings, self._act_sign3 (Tab Sign)
+        - self._act_sign_batch, self._act_field, self._act_handw (Tab Sign)
+        
+        Groups: self.g_file, g_nav, g_zoom, g_view, g_mark, g_edit, g_undo, g_rot, g_org,
+                self.g_sec, g_exp, g_ocr, g_ai, g_tts, g_sign, g_verify
+        """
+        def _set(attr: str, key: str, fallback: str):
+            """Cập nhật text cho action/widget có tên attr trên self."""
+            obj = getattr(self, attr, None)
+            if obj is not None:
+                obj.setText(self._t(key, fallback))
 
-        if hasattr(self, "menu_file"):
-            self.menu_file.setTitle(self._t("menu.file", "Tệp"))
-        if hasattr(self, "menu_nav"):
-            self.menu_nav.setTitle(self._t("menu.navigate", "Điều hướng"))
-        if hasattr(self, "menu_view"):
-            self.menu_view.setTitle(self._t("menu.view", "Xem"))
-        if hasattr(self, "menu_tools"):
-            self.menu_tools.setTitle(self._t("menu.tools", "Công cụ"))
-        if hasattr(self, "menu_pages"):
-            self.menu_pages.setTitle(self._t("menu.page", "Trang"))
-        if hasattr(self, "menu_security"):
-            self.menu_security.setTitle(self._t("menu.security", "Bảo mật"))
-        if hasattr(self, "menu_sign"):
-            self.menu_sign.setTitle(self._t("menu.sign", "Chữ ký số"))
-        if hasattr(self, "menu_ocr"):
-            self.menu_ocr.setTitle(self._t("menu.ocr", "OCR"))
-        if hasattr(self, "menu_ai"):
-            self.menu_ai.setTitle(self._t("menu.ai", "AI"))
-        if hasattr(self, "menu_license"):
-            self.menu_license.setTitle(self._t("menu.license", "License"))
-        if hasattr(self, "menu_language"):
-            self.menu_language.setTitle(self._t("menu.language", "Ngôn ngữ"))
-        if hasattr(self, "act_lang_vi"):
-            self.act_lang_vi.setText(self._t("lang.vietnamese", "Tiếng Việt"))
-        if hasattr(self, "act_lang_en"):
-            self.act_lang_en.setText(self._t("lang.english", "English"))
-        if hasattr(self, "act_lang_fr"):
-            self.act_lang_fr.setText(self._t("lang.french", "Français"))
-        if hasattr(self, "act_lang_zh"):
-            self.act_lang_zh.setText(self._t("lang.chinese", "中文"))
-        if hasattr(self, "act_lang_ko"):
-            self.act_lang_ko.setText(self._t("lang.korean", "한국어"))
-        if hasattr(self, "act_lang_th"):
-            self.act_lang_th.setText(self._t("lang.thai", "ไทย"))
-        if hasattr(self, "act_lang_refresh"):
-            self.act_lang_refresh.setText(self._t("lang.download", "Tải gói ngôn ngữ..."))
-        if hasattr(self, "_lang_toolbar_button"):
-            self._lang_toolbar_button.setText(self._t("menu.language", "Ngôn ngữ"))
-            self._lang_toolbar_button.setToolTip(self._t("menu.language", "Ngôn ngữ"))
-        if hasattr(self, "act_lang_vi_tb"):
-            self.act_lang_vi_tb.setText(self._t("lang.vietnamese", "Tiếng Việt"))
-        if hasattr(self, "act_lang_en_tb"):
-            self.act_lang_en_tb.setText(self._t("lang.english", "English"))
-        if hasattr(self, "act_lang_fr_tb"):
-            self.act_lang_fr_tb.setText(self._t("lang.french", "Français"))
-        if hasattr(self, "act_lang_zh_tb"):
-            self.act_lang_zh_tb.setText(self._t("lang.chinese", "中文"))
-        if hasattr(self, "act_lang_ko_tb"):
-            self.act_lang_ko_tb.setText(self._t("lang.korean", "한국어"))
-        if hasattr(self, "act_lang_th_tb"):
-            self.act_lang_th_tb.setText(self._t("lang.thai", "ไทย"))
-        if hasattr(self, "act_lang_refresh_tb"):
-            self.act_lang_refresh_tb.setText(self._t("lang.download", "Tải gói ngôn ngữ..."))
-        if hasattr(self, "menu_help"):
-            self.menu_help.setTitle(self._t("menu.help", "Trợ giúp"))
-        _set_action("act_open", "action.open", "Mở tệp")
-        _set_action("act_new_pdf", "action.new_pdf", "PDF mới")
-        _set_action("act_recent", "action.recent", "Gần đây")
-        _set_action("act_save", "action.save", "Lưu")
-        _set_action("act_save_as", "action.save_as", "Lưu mới")
-        _set_action("act_print", "action.print", "In")
-        _set_action("act_prev", "action.prev", "Trang trước")
-        _set_action("act_next", "action.next", "Trang sau")
-        _set_action("act_zoom_in", "action.zoom_in", "Phóng to")
-        _set_action("act_zoom_out", "action.zoom_out", "Thu nhỏ")
-        _set_action("act_fit", "action.fit", "Vừa trang")
-        _set_action("act_theme_toggle", "action.theme", "Giao diện")
-        _set_action("act_fullscreen", "action.fullscreen", "Toàn màn")
-        _set_action("act_highlight", "action.highlight", "Tô sáng")
-        _set_action("act_insert_text", "action.insert_text", "Chèn chữ")
-        _set_action("act_insert_image", "action.insert_image", "Chèn ảnh")
-        _set_action("act_draw", "action.draw", "Vẽ tự do")
-        _set_action("act_redact", "action.redact", "Xóa trắng")
-        _set_action("act_delete_object", "action.delete_object", "Xóa đối tượng")
-        _set_action("act_highlight_color", "action.highlight_color", "Màu tô")
-        _set_action("act_underline", "action.underline", "Gạch dưới")
-        _set_action("act_strikeout", "action.strikeout", "Gạch ngang")
-        _set_action("act_toggle_annotations_btn", "action.annotations", "Chú thích")
-        _set_action("act_select_inserted", "action.select_object", "Chọn & Xoay")
-        _set_action("act_undo", "action.undo", "Hoàn tác")
-        _set_action("act_sign", "action.sign", "Ký số")
-        _set_action("act_signature_field", "action.signature_field", "Ô ký")
-        _set_action("act_verify_signature", "action.verify", "Kiểm tra")
-        _set_action("act_tts", "action.tts", "Đọc sách")
+        # ── Ribbon Tab labels ──────────────────────────────────────────────
         if hasattr(self, "ribbon"):
             self.ribbon.set_tab_text(0, self._t("tab.file_view", "Tệp & Xem"))
             self.ribbon.set_tab_text(1, self._t("tab.annotate", "Chú thích"))
@@ -2179,67 +2072,140 @@ class PDFReaderApp(QMainWindow):
             self.ribbon.set_tab_text(3, self._t("tab.security_export", "Bảo mật & Xuất"))
             self.ribbon.set_tab_text(4, self._t("tab.ocr_ai", "OCR & AI"))
             self.ribbon.set_tab_text(5, self._t("tab.sign", "Ký số"))
-        if hasattr(self, "file_label") and self.file_label.text() == "Chưa mở tệp":
+
+        # ── Ribbon Group labels ────────────────────────────────────────────
+        for attr, key, fb in [
+            ("g_file",    "group.file",      "Tệp"),
+            ("g_nav",     "group.navigate",  "Điều hướng"),
+            ("g_zoom",    "group.zoom",      "Thu phóng"),
+            ("g_view",    "group.view",      "Giao diện"),
+            ("g_mark",    "group.mark",      "Đánh dấu"),
+            ("g_edit",    "group.edit",      "Chỉnh sửa"),
+            ("g_undo",    "group.undo",      "Lịch sử"),
+            ("g_rot",     "group.rotate",    "Xoay / Xóa"),
+            ("g_org",     "group.organize",  "Tổ chức"),
+            ("g_sec",     "group.security",  "Bảo mật"),
+            ("g_exp",     "group.export",    "Xuất"),
+            ("g_ocr",     "group.ocr",       "OCR"),
+            ("g_ai",      "group.ai",        "AI"),
+            ("g_tts",     "group.read",      "Đọc sách"),
+            ("g_sign",    "group.usbsign",   "Chữ ký số"),
+            ("g_verify",  "group.verify",    "Kiểm tra"),
+        ]:
+            grp = getattr(self, attr, None)
+            if grp is not None:
+                grp.set_title(self._t(key, fb))
+
+        # ── Public Actions (self.act_xxx) ──────────────────────────────────
+        _set("act_open",                 "action.open",           "Mở tệp")
+        _set("act_new_pdf",              "action.new_pdf",        "PDF mới")
+        _set("act_recent",               "action.recent",         "Gần đây")
+        _set("act_save",                 "action.save",           "Lưu")
+        _set("act_save_as",              "action.save_as",        "Lưu mới")
+        _set("act_print",                "action.print",          "In")
+        _set("act_prev",                 "action.prev",           "Trang trước")
+        _set("act_next",                 "action.next",           "Trang sau")
+        _set("act_zoom_in",              "action.zoom_in",        "Phóng to")
+        _set("act_zoom_out",             "action.zoom_out",       "Thu nhỏ")
+        _set("act_fit",                  "action.fit",            "Vừa trang")
+        _set("act_theme_toggle",         "action.theme",          "Giao diện")
+        _set("act_fullscreen",           "action.fullscreen",     "Toàn màn")
+        _set("act_highlight",            "action.highlight",      "Tô sáng")
+        _set("act_highlight_color",      "action.fill_color",     "Màu tô")
+        _set("act_underline",            "action.underline",      "Gạch dưới")
+        _set("act_strikeout",            "action.strikeout",      "Gạch ngang")
+        _set("act_insert_text",          "action.insert_text",    "Chèn chữ")
+        _set("act_insert_image",         "action.insert_image",   "Chèn ảnh")
+        _set("act_draw",                 "action.draw",           "Vẽ tự do")
+        _set("act_redact",               "action.redact",         "Xóa trắng")
+        _set("act_delete_object",        "action.delete_object",  "Xóa đối tượng")
+        _set("act_select_inserted",      "action.select_object",  "Chọn & Xoay")
+        _set("act_undo",                 "action.undo",           "Hoàn tác")
+        _set("act_toggle_sidebar_btn",   "action.thumbnail",      "Thumb")
+        _set("act_toggle_toc_btn",       "action.toc",            "Mục lục")
+        _set("act_toggle_annotations_btn","action.annotations",   "Chú thích")
+        _set("act_tts",                  "action.tts",            "Đọc sách")
+        _set("act_verify_signature",     "action.verify",         "Kiểm tra")
+
+        # ── Private Actions (self._act_xxx) — đặt tên đúng theo code ──────
+        _set("_act_comment",         "action.comment",           "Ghi chú")
+        _set("_act_rcw",             "action.rotate_cw",         "Xoay phải")
+        _set("_act_rccw",            "action.rotate_ccw",        "Xoay trái")
+        _set("_act_del",             "action.delete_page",       "Xóa trang")
+        _set("_act_merge",           "action.merge_pdf",         "Ghép PDF")
+        _set("_act_extract",         "action.extract_page",      "Trích xuất")
+        _set("_act_pgnum",           "action.page_number",       "Số trang")
+        _set("_act_wm",              "action.watermark",         "Watermark")
+        _set("_act_rmwm",            "action.remove_watermark",  "Xóa watermark")
+        _set("_act_setpw",           "action.set_password",      "Đặt mật khẩu")
+        _set("_act_rmpw",            "action.remove_password",   "Xóa mật khẩu")
+        _set("_act_comp",            "action.compress",          "Nén PDF")
+        _set("_act_word",            "action.export_word",       "Word")
+        _set("_act_xl",              "action.export_excel",      "Excel")
+        _set("_act_img",             "action.export_image",      "Ảnh")
+        _set("_act_txt",             "action.export_text",       "Văn bản")
+        _set("_act_ocr1",            "action.ocr_page",          "OCR trang")
+        _set("_act_ocr2",            "action.ocr_document",      "OCR toàn bộ")
+        _set("_act_chat",            "action.chat_pdf",          "Chat PDF")
+        _set("_act_sum",             "action.summary",           "Tóm tắt")
+        _set("_act_trans",           "action.translate",         "Dịch")
+        _set("_act_srch",            "action.semantic_search",   "Tìm nghĩa")
+        _set("_act_aiset",           "action.ai_settings",       "AI Key")
+        _set("_act_token",           "action.check_usb",         "Kiểm tra USB")
+        _set("_act_sign2",           "action.sign",              "Ký số")
+        _set("_act_sign_settings",   "action.sign_settings",     "Cài đặt")
+        _set("_act_sign3",           "action.sign_pfx",          "Ký PFX")
+        _set("_act_sign_batch",      "action.sign_batch",        "Ký lô")
+        _set("_act_field",           "action.signature_field",   "Ô ký")
+        _set("_act_handw",           "action.hand_sign",         "Ký tay/dấu")
+
+        # ── Menus ──────────────────────────────────────────────────────────
+        for attr, key, fb in [
+            ("menu_file",     "menu.file",     "Tệp"),
+            ("menu_nav",      "menu.navigate", "Điều hướng"),
+            ("menu_view",     "menu.view",     "Xem"),
+            ("menu_tools",    "menu.tools",    "Công cụ"),
+            ("menu_pages",    "menu.page",     "Trang"),
+            ("menu_security", "menu.security", "Bảo mật"),
+            ("menu_sign",     "menu.sign",     "Chữ ký số"),
+            ("menu_ocr",      "menu.ocr",      "OCR"),
+            ("menu_ai",       "menu.ai",       "AI"),
+            ("menu_license",  "menu.license",  "License"),
+            ("menu_language", "menu.language", "Ngôn ngữ"),
+            ("menu_help",     "menu.help",     "Trợ giúp"),
+        ]:
+            m = getattr(self, attr, None)
+            if m is not None:
+                m.setTitle(self._t(key, fb))
+
+        # ── Language menu items ────────────────────────────────────────────
+        _set("act_lang_vi",        "lang.vietnamese", "Tiếng Việt")
+        _set("act_lang_en",        "lang.english",    "English")
+        _set("act_lang_fr",        "lang.french",     "Français")
+        _set("act_lang_zh",        "lang.chinese",    "中文")
+        _set("act_lang_ko",        "lang.korean",     "한국어")
+        _set("act_lang_th",        "lang.thai",       "ไทย")
+        _set("act_lang_refresh",   "lang.download",   "Tải gói ngôn ngữ...")
+        _set("act_lang_vi_tb",     "lang.vietnamese", "Tiếng Việt")
+        _set("act_lang_en_tb",     "lang.english",    "English")
+        _set("act_lang_fr_tb",     "lang.french",     "Français")
+        _set("act_lang_zh_tb",     "lang.chinese",    "中文")
+        _set("act_lang_ko_tb",     "lang.korean",     "한국어")
+        _set("act_lang_th_tb",     "lang.thai",       "ไทย")
+        _set("act_lang_refresh_tb","lang.download",   "Tải gói ngôn ngữ...")
+
+        if hasattr(self, "_lang_toolbar_button"):
+            self._lang_toolbar_button.setText(self._t("menu.language", "Ngôn ngữ"))
+            self._lang_toolbar_button.setToolTip(self._t("menu.language", "Ngôn ngữ"))
+
+        # ── Status bar ─────────────────────────────────────────────────────
+        if hasattr(self, "file_label") and self.file_label.text() in ("Chưa mở tệp", "No file opened"):
             self.file_label.setText(self._t("status.no_file", "Chưa mở tệp"))
-        if hasattr(self, "page_label") and self.page_label.text() == "Trang: -":
-            self.page_label.setText(self._t("status.page", "Trang: -"))
 
-        # Ribbon Groups
-        if hasattr(self, "g_file"): self.g_file.set_title(self._t("group.file", "Tệp"))
-        if hasattr(self, "g_nav"): self.g_nav.set_title(self._t("group.navigate", "Điều hướng"))
-        if hasattr(self, "g_zoom"): self.g_zoom.set_title(self._t("group.zoom", "Thu phóng"))
-        if hasattr(self, "g_view"): self.g_view.set_title(self._t("group.view", "Giao diện"))
-        if hasattr(self, "g_mark"): self.g_mark.set_title(self._t("group.mark", "Đánh dấu"))
-        if hasattr(self, "g_edit"): self.g_edit.set_title(self._t("group.edit", "Chỉnh sửa"))
-        if hasattr(self, "g_undo"): self.g_undo.set_title(self._t("group.history", "Lịch sử"))
-        if hasattr(self, "g_rot"): self.g_rot.set_title(self._t("group.rotate", "Xoay / Xóa"))
-        if hasattr(self, "g_org"): self.g_org.set_title(self._t("group.organize", "Tổ chức"))
-        if hasattr(self, "g_sec"): self.g_sec.set_title(self._t("group.security", "Bảo mật"))
-        if hasattr(self, "g_exp"): self.g_exp.set_title(self._t("group.export", "Xuất"))
-        if hasattr(self, "g_ocr"): self.g_ocr.set_title(self._t("group.ocr", "OCR"))
-        if hasattr(self, "g_ai"): self.g_ai.set_title(self._t("group.ai", "AI"))
-        if hasattr(self, "g_tts"): self.g_tts.set_title(self._t("group.tts", "Đọc sách"))
-        if hasattr(self, "g_sign"): self.g_sign.set_title(self._t("group.sign", "Chữ ký số"))
-        if hasattr(self, "g_verify"): self.g_verify.set_title(self._t("group.verify", "Kiểm tra"))
+        # ── Welcome widget ─────────────────────────────────────────────────
+        if hasattr(self, "_welcome_tab") and self._welcome_tab:
+            self._welcome_tab.apply_language_texts(self._t)
 
-        # Extra Actions
-        _set_action("act_toggle_sidebar_btn", "action.sidebar", "Thumb")
-        _set_action("act_toggle_toc_btn", "action.toc", "Mục lục")
-        _set_action("act_comment", "action.comment", "Ghi chú")
-        _set_action("act_rcw", "action.rotate_cw", "Xoay phải")
-        _set_action("act_rccw", "action.rotate_ccw", "Xoay trái")
-        _set_action("act_del", "action.delete_page", "Xóa trang")
-        _set_action("act_merge", "action.merge_pdf", "Ghép PDF")
-        _set_action("act_extract", "action.extract", "Trích xuất")
-        _set_action("act_pgnum", "action.page_numbers", "Số trang")
-        _set_action("act_wm", "action.watermark", "Watermark")
-        _set_action("act_rmwm", "action.remove_watermark", "Xóa watermark")
-        _set_action("act_setpw", "action.set_password", "Đặt mật khẩu")
-        _set_action("act_rmpw", "action.remove_password", "Xóa mật khẩu")
-        _set_action("act_comp", "action.compress", "Nén PDF")
-        _set_action("act_word", "action.word", "Word")
-        _set_action("act_xl", "action.excel", "Excel")
-        _set_action("act_img", "action.images", "Ảnh")
-        _set_action("act_txt", "action.text", "Văn bản")
-        _set_action("act_ocr1", "action.ocr_page", "OCR trang")
-        _set_action("act_ocr2", "action.ocr_document", "OCR toàn bộ")
-        _set_action("act_chat", "action.chat_pdf", "Chat PDF")
-        _set_action("act_sum", "action.summarize", "Tóm tắt")
-        _set_action("act_trans", "action.translate", "Dịch")
-        _set_action("act_srch", "action.search_semantic", "Tìm nghĩa")
-        _set_action("act_aiset", "action.ai_settings", "AI Key")
-        _set_action("act_token", "action.token", "Kiểm tra USB")
-        _set_action("act_sign2", "action.sign", "Ký số")
-        _set_action("act_sign_settings", "action.ai_settings", "Cài đặt")
-        _set_action("act_sign3", "action.sign", "Ký PFX")
-        _set_action("act_sign_batch", "action.sign", "Ký lô")
-        _set_action("act_field", "action.signature_field", "Ô ký")
-        _set_action("act_handw", "action.handwrite", "Ký tay/dấu")
-
-        # Now update the ToolButton text if it was updated in the Action. 
-        # Wait, QToolButton with setDefaultAction updates AUTOMATICALLY!
-        # But earlier my test showed it DOES update. 
-        # So we don't need to manually update QToolButton!
 
     def _show_audit_log(self):
         from app.audit_log_dialog import AuditLogDialog

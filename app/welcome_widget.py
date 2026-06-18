@@ -289,6 +289,49 @@ class WelcomeWidget(QWidget):
         # Apply initial styles
         self._apply_theme_styles()
 
+
+    def apply_language_texts(self, _t):
+        """Cập nhật text theo ngôn ngữ. _t là hàm translate: (key, fallback) -> str."""
+        if hasattr(self, "_tag_lbl"):
+            self._tag_lbl.setText(_t("welcome.read_everywhere", "ĐỌC MỌI LÚC  ·  HIỂU MỌI NƠI"))
+
+        card_data = [
+            (_t("welcome.card1.title", "Đọc PDF mượt mà"),      _t("welcome.card1.desc", "Hỗ trợ file lớn, xem toàn trang")),
+            (_t("welcome.card2.title", "Chỉnh sửa trực tiếp"),  _t("welcome.card2.desc", "Chèn text, ảnh, vẽ, tô sáng")),
+            (_t("welcome.card3.title", "Ký số USB Token"),       _t("welcome.card3.desc", "Viettel CA, VNPT CA, FPT CA")),
+            (_t("welcome.card4.title", "Bảo mật cao"),           _t("welcome.card4.desc", "Mã hoá, che nội dung nhạy cảm")),
+        ]
+        for i, (title, desc) in enumerate(card_data):
+            if i < len(self._card_title_labels):
+                self._card_title_labels[i].setText(title)
+            if i < len(self._card_desc_labels):
+                self._card_desc_labels[i].setText(desc)
+
+        # Buttons: tìm QPushButton trong widget
+        from packages.qt_compat.QtWidgets import QPushButton
+        btns = self.findChildren(QPushButton)
+        # Lọc 3 button action chính (có fixedHeight = 44)
+        action_btns = [b for b in btns if b.sizeHint().height() == 44 or b.minimumHeight() == 44]
+        btn_texts = [
+            _t("welcome.btn_open",   "Mở tệp PDF"),
+            _t("welcome.btn_new",    "Tạo PDF mới"),
+            _t("welcome.btn_recent", "Mở gần đây"),
+        ]
+        for i, btn in enumerate(action_btns[:3]):
+            btn.setText(f"   {btn_texts[i]}   ")
+
+        # Secondary labels (version, recent title)
+        for lbl in self._secondary_labels:
+            txt = lbl.text()
+            if txt.startswith("Tệp gần đây") or txt.startswith("Recent files"):
+                lbl.setText(_t("welcome.lbl_recent", "Tệp gần đây"))
+            elif txt.startswith("Phiên bản") or txt.startswith("Version"):
+                import app.version as _v
+                lbl.setText(f"{_t('welcome.version', 'Phiên bản')} {_v.APP_VERSION}")
+
+        if hasattr(self, "_hint_lbl"):
+            self._hint_lbl.setText(_t("welcome.drag_drop", "hoặc kéo & thả tệp PDF vào cửa sổ này"))
+
     def _recent_files(self) -> list[str]:
         recent = load_recent()
         if not isinstance(recent, list):
