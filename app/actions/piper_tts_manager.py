@@ -310,14 +310,23 @@ class DownloadThread(QThread):
 class PiperVoiceManagerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Quản lý Giọng đọc (Piper TTS)")
+        self._setup_ui()
+        self._load_voices()
+
+    def _t(self, key: str, fallback: str) -> str:
+        from app.language_manager import get_selected_language, get_translation
+        return get_translation(get_selected_language(), key, fallback)
+
+    def _setup_ui(self):
+        self.setWindowTitle(self._t("piper.title", "Quản lý Giọng đọc (Piper TTS)"))
         self.resize(500, 400)
         layout = QVBoxLayout(self)
         
-        self.info_lbl = QLabel("Đang tải danh sách giọng từ máy chủ...")
+        self.info_lbl = QLabel(self._t("piper.loading", "Đang tải danh sách giọng từ máy chủ..."))
         layout.addWidget(self.info_lbl)
         
         self.list_widget = QListWidget()
+        self.list_widget.itemDoubleClicked.connect(self._on_download)
         layout.addWidget(self.list_widget)
         
         self.progress_bar = QProgressBar()
@@ -325,32 +334,27 @@ class PiperVoiceManagerDialog(QDialog):
         layout.addWidget(self.progress_bar)
         
         btn_layout = QHBoxLayout()
-        self.btn_download = QPushButton("Tải về / Cập nhật")
+        self.btn_download = QPushButton(self._t("piper.btn_download", "Tải về / Cập nhật"))
         self.btn_download.clicked.connect(self._on_download)
-        self.btn_close = QPushButton("Đóng")
+        self.btn_close = QPushButton(self._t("piper.btn_close", "Đóng"))
         self.btn_close.clicked.connect(self.accept)
         btn_layout.addWidget(self.btn_download)
         btn_layout.addWidget(self.btn_close)
         layout.addLayout(btn_layout)
         
-        self.voices = []
-        self._load_voices()
-        
     def _load_voices(self):
         self.voices = fetch_available_piper_voices()
         self.list_widget.clear()
+        
         if not self.voices:
             self.btn_download.setEnabled(False)
-            self.info_lbl.setText(
-                "Chua co goi giong local va may chu chua publish thu vien giong. "
-                "Ban build hien tai da co runtime Piper; model se tai sau khi VPS co index.json, "
-                "hoac co the chep model vao piper_bin/models."
-            )
+            self.info_lbl.setText(self._t("piper.no_voices", "Không tìm thấy giọng đọc nào."))
             return
+            
         self.btn_download.setEnabled(True)
-        self.info_lbl.setText("Danh sách giọng (Vui lòng chọn để tải):")
+        self.info_lbl.setText(self._t("piper.list_desc", "Danh sách giọng (Vui lòng chọn để tải):"))
         for v in self.voices:
-            status = "[Đã tải]" if v.is_downloaded else f"[{v.size}]"
+            status = self._t("piper.downloaded", "[Đã tải]") if v.is_downloaded else f"[{v.size}]"
             item = QListWidgetItem(f"{status} {v.name} ({v.language})")
             item.setData(Qt.UserRole, v)
             self.list_widget.addItem(item)
@@ -358,12 +362,12 @@ class PiperVoiceManagerDialog(QDialog):
     def _on_download(self):
         item = self.list_widget.currentItem()
         if not item:
-            QMessageBox.warning(self, "Lỗi", "Vui lòng chọn một giọng để tải.")
+            QMessageBox.warning(self, self._t("msg.error", "Lỗi"), self._t("piper.select_prompt", "Vui lòng chọn một giọng để tải."))
             return
         voice = item.data(Qt.UserRole)
         
         if not voice.onnx_url:
-            QMessageBox.warning(self, "Lỗi", "Giọng đọc này không có trên máy chủ để tải/cập nhật.")
+            QMessageBox.warning(self, self._t("msg.error", "Lỗi"), self._t("piper.no_url_error", "Giọng đọc này không có trên máy chủ để tải/cập nhật."))
             return
         
         self.btn_download.setEnabled(False)
@@ -380,7 +384,7 @@ class PiperVoiceManagerDialog(QDialog):
         self.btn_download.setEnabled(True)
         self.progress_bar.setVisible(False)
         if success:
-            QMessageBox.information(self, "Thành công", "Đã tải xong gói giọng đọc!")
+            QMessageBox.information(self, self._t("msg.success", "Thành công"), self._t("piper.dl_success", "Đã tải xong gói giọng đọc!"))
             self._load_voices()
         else:
-            QMessageBox.critical(self, "Lỗi", "Tải thất bại, vui lòng kiểm tra mạng hoặc URL máy chủ.")
+            QMessageBox.critical(self, self._t("msg.error", "Lỗi"), self._t("piper.dl_fail", "Tải thất bại, vui lòng kiểm tra mạng hoặc URL máy chủ."))

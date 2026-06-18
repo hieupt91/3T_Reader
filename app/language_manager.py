@@ -611,10 +611,13 @@ def download_language_pack(code: str, parent=None) -> tuple[bool, str]:
             except OSError:
                 pass
 
+        import ssl
+        ssl_context = ssl._create_unverified_context()
+        
         opener = urllib.request.build_opener(
             urllib.request.ProxyHandler({}),
             urllib.request.HTTPHandler(),
-            urllib.request.HTTPSHandler(),
+            urllib.request.HTTPSHandler(context=ssl_context),
         )
         last_exc: Exception | None = None
         attempted: list[str] = []
