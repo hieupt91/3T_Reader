@@ -319,92 +319,132 @@ def _stop_wav_playback() -> None:
 
 
 class TTSDialog(QDialog):
-    def __init__(self, parent=None, get_text_cb=None):
+    def __init__(self, parent=None, page_text="", selected_text="", pages_text=None, current_page=1):
         super().__init__(parent)
-        self.get_text_cb = get_text_cb
-        self.voices = []
-        self._setup_ui()
-        self._load_voices()
-        
+        self.setWindowTitle(self._t("tts.title", "Đọc sách bằng AI (TTS)"))
+        self.pages_text = pages_text or []
+        self.current_page = current_page
+        self.page_text = _clean_text(page_text)
+        self.selected_text = _clean_text(selected_text)
+        self.full_text = _clean_text("\n\n".join(self.pages_text))
+        self.text_to_speak = self.selected_text if self.selected_text else self.page_text
+        self.setMinimumSize(520, 280)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowStaysOnTopHint)
+
+        self.engine = None
+        self.voices = _load_offline_voices()
+        self._engine_run = None
+        self._speaker_run = None
+        self._thread = None
+        self._stop_requested = threading.Event()
+        self._offline_voice_missing = False
+        self._bridge = _TTSBridge(self)
+        self._bridge.status.connect(self._set_status)
+        self._bridge.finished.connect(self._on_finished)
+        self._bridge.audioReady.connect(self._on_audio_ready)
+
+        try:
+            from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+            self._media_player = QMediaPlayer(self)
+            self._audio_output = QAudioOutput(self)
+            self._media_player.setAudioOutput(self._audio_output)
+            self._media_player.mediaStatusChanged.connect(self._on_media_status_changed)
+        except ImportError:
+            self._media_player = None
+
+        self._build_ui()
+        self._refresh_voice_options()
+
     def _t(self, key: str, fallback: str) -> str:
         from app.language_manager import get_selected_language, get_translation
         return get_translation(get_selected_language(), key, fallback)
 
-    def _setup_ui(self):
-        self.setWindowTitle(self._t("tts.title", "Đọc sách AI (TTS)"))
-        self.setMinimumWidth(380)
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
 
-        main_layout = QVBoxLayout(self)
-
-        # 1. Scope (Page or Selection)
         scope_layout = QHBoxLayout()
         scope_layout.addWidget(QLabel(self._t("tts.scope", "Phạm vi:")))
-        
-        self.radio_page = QRadioButton(self._t("tts.scope_page", "Trang hiện tại"))
-        self.radio_selection = QRadioButton(self._t("tts.scope_selection", "Vùng bôi đen"))
-        self.radio_page.setChecked(True)
-        scope_layout.addWidget(self.radio_page)
-        scope_layout.addWidget(self.radio_selection)
-        scope_layout.addStretch()
-        main_layout.addLayout(scope_layout)
+        self.scope_cb = QComboBox()
+        self.scope_cb.addItem(self._t("tts.scope_selection", "Đoạn văn bản bôi đen"), "selection")
+        self.scope_cb.addItem(self._t("tts.scope_page", "Toàn bộ trang hiện tại"), "page")
+        self.scope_cb.addItem(self._t("tts.scope_doc", "Toàn bộ tài liệu"), "document")
+        self.scope_cb.addItem(self._t("tts.scope_custom", "Trang tuỳ chọn"), "custom")
+        if not self.selected_text:
+            self.scope_cb.setCurrentIndex(1)
+            self.scope_cb.setEnabled(True)
+        self.scope_cb.currentIndexChanged.connect(self._on_scope_changed)
+        scope_layout.addWidget(self.scope_cb)
 
-        # 2. Reading Mode (Continuous or Single Page)
+        self.page_from_spin = QSpinBox()
+        self.page_from_spin.setRange(1, max(1, len(self.pages_text)))
+        self.page_from_spin.setValue(self.current_page)
+        self.page_from_spin.setVisible(False)
+        self.page_to_spin = QSpinBox()
+        self.page_to_spin.setRange(1, max(1, len(self.pages_text)))
+        self.page_to_spin.setValue(min(len(self.pages_text), self.current_page + 1))
+        self.page_to_spin.setVisible(False)
+        self.page_dash_lbl = QLabel("-")
+        self.page_dash_lbl.setVisible(False)
+        
+        self.page_from_spin.valueChanged.connect(self._update_custom_pages_text)
+        self.page_to_spin.valueChanged.connect(self._update_custom_pages_text)
+
+        scope_layout.addWidget(self.page_from_spin)
+        scope_layout.addWidget(self.page_dash_lbl)
+        scope_layout.addWidget(self.page_to_spin)
+
+        layout.addLayout(scope_layout)
+
         mode_layout = QHBoxLayout()
         mode_layout.addWidget(QLabel(self._t("tts.mode", "Chế độ:")))
+        self.mode_cb = QComboBox()
+        self.mode_cb.addItem("Piper TTS (AI Offline Mượt)", _PIPER_MODE)
+        self.mode_cb.addItem("Offline (Giọng máy)", _OFFLINE_MODE)
+        self.mode_cb.addItem("AI Key (OpenAI TTS)", _OPENAI_MODE)
+        self.mode_cb.currentIndexChanged.connect(self._refresh_voice_options)
+        mode_layout.addWidget(self.mode_cb)
+        layout.addLayout(mode_layout)
 
-        self.radio_continuous = QRadioButton(self._t("tts.mode_continuous", "Đọc liên tục (Chuyển trang)"))
-        self.radio_single = QRadioButton(self._t("tts.mode_single", "Chỉ đọc 1 trang/Đoạn"))
-        self.radio_continuous.setChecked(True)
-        mode_layout.addWidget(self.radio_continuous)
-        mode_layout.addWidget(self.radio_single)
-        mode_layout.addStretch()
-        main_layout.addLayout(mode_layout)
-
-        # 3. Settings Box
-        settings_group = QGroupBox(self._t("tts.settings", "Cài đặt Giọng đọc"))
-        settings_layout = QVBoxLayout()
-
-        # Language combo
         language_layout = QHBoxLayout()
         language_layout.addWidget(QLabel(self._t("tts.language", "Ngôn ngữ:")))
-        self.combo_lang = QComboBox()
-        self.combo_lang.currentIndexChanged.connect(self._on_language_changed)
-        language_layout.addWidget(self.combo_lang)
-        settings_layout.addLayout(language_layout)
+        self.language_cb = QComboBox()
+        for code, label in _LANGUAGE_CHOICES:
+            self.language_cb.addItem(label, code)
+        self.language_cb.currentIndexChanged.connect(self._refresh_voice_options)
+        language_layout.addWidget(self.language_cb)
+        layout.addLayout(language_layout)
 
-        # Voice combo
         voice_layout = QHBoxLayout()
         voice_layout.addWidget(QLabel(self._t("tts.voice", "Giọng đọc:")))
-        self.combo_voice = QComboBox()
-        voice_layout.addWidget(self.combo_voice)
-        settings_layout.addLayout(voice_layout)
+        self.voice_cb = QComboBox()
+        voice_layout.addWidget(self.voice_cb)
+        layout.addLayout(voice_layout)
 
-        # Rate slider
         rate_layout = QHBoxLayout()
         rate_layout.addWidget(QLabel(self._t("tts.rate", "Tốc độ:")))
-        self.slider_rate = QSlider(Qt.Horizontal)
-        self.slider_rate.setRange(5, 20)  # 0.5x to 2.0x
-        self.slider_rate.setValue(10)
-        self.slider_rate.valueChanged.connect(self._update_rate_label)
-        rate_layout.addWidget(self.slider_rate)
-        
+        self.rate_slider = QSlider(Qt.Orientation.Horizontal)
+        self.rate_slider.setRange(50, 250)
+        self.rate_slider.setValue(150)
+        self.rate_slider.valueChanged.connect(self._on_rate_changed)
+        rate_layout.addWidget(self.rate_slider)
         self.rate_value_lbl = QLabel("1.0x")
+        self.rate_value_lbl.setMinimumWidth(40)
         rate_layout.addWidget(self.rate_value_lbl)
-        settings_layout.addLayout(rate_layout)
+        layout.addLayout(rate_layout)
 
-        settings_group.setLayout(settings_layout)
-        main_layout.addWidget(settings_group)
+        self.status_lbl = QLabel("")
+        self.status_lbl.setWordWrap(True)
+        self.status_lbl.setStyleSheet("color:#6b7280;font-size:12px;")
+        layout.addWidget(self.status_lbl)
 
-        # Extra Buttons
-        extra_btns_layout = QHBoxLayout()
+        helper_layout = QHBoxLayout()
         self.btn_install_voice = QPushButton(self._t("tts.install_voice", "Tải/Cài giọng"))
         self.btn_install_voice.clicked.connect(self._open_voice_install)
-        self.btn_refresh_voices = QPushButton(self._t("tts.refresh_voices", "Làm mới danh sách"))
-        self.btn_refresh_voices.clicked.connect(self._load_voices)
-        extra_btns_layout.addWidget(self.btn_install_voice)
-        extra_btns_layout.addWidget(self.btn_refresh_voices)
+        self.btn_refresh_voices = QPushButton(self._t("tts.refresh_voices", "Làm mới giọng"))
+        self.btn_refresh_voices.clicked.connect(self._reload_voices)
 
-        self.btn_piper_mgr = QPushButton("Cửa hàng Giọng AI...")
+        self.btn_piper_mgr = QPushButton(self._t("tts.voice_store", "Cửa hàng Giọng AI..."))
         self.btn_piper_mgr.clicked.connect(self._open_piper_manager)
         self.btn_piper_mgr.setVisible(False)
         
@@ -415,8 +455,8 @@ class TTSDialog(QDialog):
         layout.addLayout(helper_layout)
 
         btn_layout = QHBoxLayout()
-        self.btn_play = QPushButton("Phat")
-        self.btn_stop = QPushButton("Dung")
+        self.btn_play = QPushButton(self._t("tts.play", "Phát"))
+        self.btn_stop = QPushButton(self._t("tts.stop", "Dừng"))
         self.btn_stop.setEnabled(False)
         self.btn_play.clicked.connect(self._play)
         self.btn_stop.clicked.connect(self._stop)
