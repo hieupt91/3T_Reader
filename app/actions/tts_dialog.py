@@ -445,7 +445,7 @@ class TTSDialog(QDialog):
             else:
                 self._set_status("Chua co OPENAI_API_KEY. Vao AI > Cai dat AI de nhap key.")
         elif mode == _PIPER_MODE:
-            from app.actions.piper_tts_manager import fetch_available_piper_voices
+            from app.actions.piper_tts_manager import fetch_available_piper_voices, has_local_piper_engine
             piper_voices = [v for v in fetch_available_piper_voices() if v.is_downloaded]
             target_lang = self.language_cb.currentData()
             matching = [v for v in piper_voices if v.language == target_lang or target_lang == "auto"]
@@ -457,10 +457,12 @@ class TTSDialog(QDialog):
                 self.voice_cb.addItem(voice.name, voice)
             self.btn_piper_mgr.setVisible(True)
             self._offline_voice_missing = len(matching) == 0 and target_lang != "auto"
-            if len(piper_voices) > 0:
+            if not has_local_piper_engine():
+                self._set_status("Chua co Piper engine trong piper_bin. Can bo sung piper.exe truoc khi doc.")
+            elif len(piper_voices) > 0:
                 self._set_status(f"Piper TTS da san sang cho {_language_label(target_lang)}.")
             else:
-                self._set_status(f"Chua co giong Piper cho {_language_label(target_lang)}. Bam 'Cửa hàng Giọng AI' de tai them.")
+                self._set_status(f"Chua co giong Piper local cho {_language_label(target_lang)}. Dat model vao piper_bin/models hoac bam 'Cửa hàng Giọng AI' de tai them.")
         else:
             target_lang = self._selected_language()
             matching = [voice for voice in self.voices if _voice_matches_language(voice, target_lang)]
@@ -559,7 +561,15 @@ class TTSDialog(QDialog):
         self._thread.start()
 
     def _run_piper_tts(self):
-        from app.actions.piper_tts_manager import synthesize_audio_piper, fetch_available_piper_voices
+        from app.actions.piper_tts_manager import (
+            detect_language_for_tts,
+            fetch_available_piper_voices,
+            has_local_piper_engine,
+            synthesize_audio_piper,
+        )
+        if not has_local_piper_engine():
+            self._bridge.finished.emit(False, "Chua co Piper engine trong piper_bin.")
+            return
         voice_or_auto = self.voice_cb.currentData()
         if not voice_or_auto:
             self._bridge.finished.emit(False, "Chua chon giong Piper.")
@@ -567,7 +577,7 @@ class TTSDialog(QDialog):
             
         voice = voice_or_auto
         if voice_or_auto == "auto_piper":
-            lang_code = _guess_language_code(self.text_to_speak)
+            lang_code = detect_language_for_tts(self.text_to_speak)
             piper_voices = [v for v in fetch_available_piper_voices() if v.is_downloaded]
             lang_voices = [v for v in piper_voices if v.language == lang_code]
             if not lang_voices:

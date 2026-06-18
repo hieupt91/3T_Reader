@@ -2,14 +2,15 @@ import json
 import os
 import re
 import sys
-import tempfile
 import urllib.request
 import subprocess
 from pathlib import Path
 from dataclasses import dataclass
+from urllib.parse import urljoin
 
-# Đường dẫn URL chứa index.json trên VPS
-VPS_VOICE_INDEX_URL = "http://127.0.0.1:8080/index.json"
+from app.config import VPS_LICENSE_BASE_URL
+
+_PIPER_INDEX_ENV = "THREET_PIPER_INDEX_URL"
 
 @dataclass
 class PiperVoiceInfo:
@@ -22,6 +23,140 @@ class PiperVoiceInfo:
     local_onnx_path: str = ""
     local_json_path: str = ""
     is_downloaded: bool = False
+
+
+def _current_base_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", os.getcwd()))
+    return Path(os.getcwd())
+
+
+def get_bundled_piper_models_dir() -> Path:
+    if os.name == "nt":
+        return _current_base_dir() / "piper_bin" / "models"
+    return _current_base_dir() / "venv_piper" / "models"
+
+
+def has_local_piper_models() -> bool:
+    for base in (get_bundled_piper_models_dir(), get_piper_voices_dir()):
+        if any(base.glob("*.onnx")):
+            return True
+    return False
+
+
+def get_local_piper_engine_path() -> Path:
+    base_dir = _current_base_dir()
+    if os.name == "nt":
+        candidates = [
+            base_dir / "piper_bin" / "piper.exe",
+            base_dir / "piper_bin" / "piper" / "piper.exe",
+        ]
+    else:
+        candidates = [base_dir / "venv_piper" / "bin" / "piper"]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def has_local_piper_engine() -> bool:
+    return get_local_piper_engine_path().exists()
+
+
+def detect_language_for_tts(text: str) -> str:
+    sample = (text or "").strip()[:2000]
+    if not sample:
+        return "en"
+    letters = re.findall(r"[A-Za-zÀ-ỹà-ỹ]", sample)
+    if not letters:
+        return "en"
+    vi_letters = re.findall(r"[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]", sample)
+    return "vi" if (len(vi_letters) / max(1, len(letters))) > 0.30 else "en"
+
+
+def _voice_language_from_name(voice_id: str) -> str:
+    lowered = voice_id.lower()
+    if lowered.startswith("vi_") or "vi_vn" in lowered or "vivos" in lowered:
+        return "vi"
+    if lowered.startswith("en_") or "en_us" in lowered or "ryan" in lowered:
+        return "en"
+    return "unknown"
+
+
+def _voice_display_name(voice_id: str) -> str:
+    language = _voice_language_from_name(voice_id)
+    if language == "vi":
+        return f"{voice_id} [Tieng Viet]"
+    if language == "en":
+        return f"{voice_id} [English]"
+    return voice_id
+
+
+def _scan_local_piper_voices() -> list[PiperVoiceInfo]:
+    voices: list[PiperVoiceInfo] = []
+    seen: set[str] = set()
+    for base in (get_bundled_piper_models_dir(), get_piper_voices_dir()):
+        if not base.exists():
+            continue
+        for onnx_path in sorted(base.glob("*.onnx")):
+            json_path = Path(str(onnx_path) + ".json")
+            if not json_path.exists():
+                alt_json = onnx_path.with_suffix(".onnx.json")
+                json_path = alt_json if alt_json.exists() else json_path
+            if not json_path.exists():
+                continue
+            voice_id = onnx_path.stem
+            if voice_id in seen:
+                continue
+            seen.add(voice_id)
+            voices.append(
+                PiperVoiceInfo(
+                    id=voice_id,
+                    name=_voice_display_name(voice_id),
+                    language=_voice_language_from_name(voice_id),
+                    size=f"{round(onnx_path.stat().st_size / (1024 * 1024), 1)} MB",
+                    onnx_url="",
+                    json_url="",
+                    local_onnx_path=str(onnx_path),
+                    local_json_path=str(json_path),
+                    is_downloaded=True,
+                )
+            )
+    return voices
+
+
+def _piper_index_candidates() -> list[str]:
+    override = os.environ.get(_PIPER_INDEX_ENV, "").strip()
+    if override:
+        return [override]
+    base = VPS_LICENSE_BASE_URL.rstrip("/")
+    return [
+        f"{base}/downloads/piper/index.json",
+        f"{base}/piper/index.json",
+        f"{base}/downloads/voices/index.json",
+        f"{base}/voices/index.json",
+        f"{base}/index.json",
+    ]
+
+
+def _open_no_proxy(request: urllib.request.Request, timeout: int = 12):
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return opener.open(request, timeout=timeout)
+
+
+def _download_no_proxy(url: str, dest_path: str, progress_cb=None) -> None:
+    req = urllib.request.Request(url, headers={"User-Agent": "3T_Reader"})
+    with _open_no_proxy(req, timeout=120) as resp, open(dest_path, "wb") as out:
+        total_size = int(resp.headers.get("Content-Length", "0") or "0")
+        downloaded = 0
+        while True:
+            chunk = resp.read(65536)
+            if not chunk:
+                break
+            out.write(chunk)
+            downloaded += len(chunk)
+            if progress_cb and total_size > 0:
+                progress_cb(downloaded, total_size)
 
 def get_piper_voices_dir() -> Path:
     """Thư mục chứa các mô hình giọng nói Piper trên máy khách."""
@@ -36,11 +171,23 @@ def get_piper_voices_dir() -> Path:
 
 def fetch_available_piper_voices() -> list[PiperVoiceInfo]:
     """Tải danh sách các giọng có trên VPS và kiểm tra xem đã tải về máy chưa."""
-    voices = []
+    voices = _scan_local_piper_voices()
+    seen_ids = {voice.id for voice in voices}
     try:
-        req = urllib.request.Request(VPS_VOICE_INDEX_URL, headers={"User-Agent": "3T_Reader"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
+        data = None
+        resolved_index_url = ""
+        last_error = None
+        for candidate in _piper_index_candidates():
+            try:
+                req = urllib.request.Request(candidate, headers={"User-Agent": "3T_Reader"})
+                with _open_no_proxy(req, timeout=12) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    resolved_index_url = str(resp.geturl())
+                break
+            except Exception as exc:
+                last_error = exc
+        if data is None:
+            raise RuntimeError(f"Không tìm thấy voice index public. Lỗi cuối: {last_error}")
             
         local_dir = get_piper_voices_dir()
         
@@ -49,35 +196,22 @@ def fetch_available_piper_voices() -> list[PiperVoiceInfo]:
             json_path = local_dir / f"{item['id']}.onnx.json"
             
             is_dl = onnx_path.exists() and json_path.exists()
+            if item["id"] in seen_ids and is_dl:
+                continue
             
             voices.append(PiperVoiceInfo(
                 id=item["id"],
                 name=item["name"],
                 language=item["language"],
                 size=item["size"],
-                onnx_url=item["onnx_url"],
-                json_url=item["json_url"],
+                onnx_url=urljoin(resolved_index_url, item["onnx_url"]),
+                json_url=urljoin(resolved_index_url, item["json_url"]),
                 local_onnx_path=str(onnx_path),
                 local_json_path=str(json_path),
                 is_downloaded=is_dl
             ))
     except Exception as e:
         print(f"Lỗi khi lấy danh sách giọng Piper: {e}")
-        local_dir = get_piper_voices_dir()
-        for onnx_file in local_dir.glob("*.onnx"):
-            json_file = local_dir / f"{onnx_file.stem}.onnx.json"
-            if json_file.exists():
-                voices.append(PiperVoiceInfo(
-                    id=onnx_file.stem,
-                    name=onnx_file.stem,
-                    language="unknown",
-                    size="unknown",
-                    onnx_url="",
-                    json_url="",
-                    local_onnx_path=str(onnx_file),
-                    local_json_path=str(json_file),
-                    is_downloaded=True
-                ))
     return voices
 
 def preprocess_text_for_piper(text: str) -> str:
@@ -93,19 +227,9 @@ def preprocess_text_for_piper(text: str) -> str:
 def synthesize_audio_piper(text: str, model_path: str, output_wav_path: str, speed_val: int = 100) -> bool:
     """Tạo file WAV sử dụng thư viện piper-tts."""
     text = preprocess_text_for_piper(text)
-    import sys
-    if getattr(sys, 'frozen', False):
-        base_dir = sys._MEIPASS
-    else:
-        base_dir = os.getcwd()
-
-    if os.name == "nt":
-        piper_bin_path = os.path.join(base_dir, "piper_bin", "piper.exe")
-    else:
-        piper_bin_path = os.path.join(base_dir, "venv_piper", "bin", "piper")
-        
+    piper_bin_path = str(get_local_piper_engine_path())
     if not os.path.exists(piper_bin_path):
-        piper_bin_path = "piper" # fallback
+        piper_bin_path = "piper"  # fallback
 
     # Calculate length_scale from speed_val (50 to 200, default 100)
     # length_scale > 1 is slower, < 1 is faster. 
@@ -149,12 +273,12 @@ class DownloadThread(QThread):
 
     def run(self):
         try:
-            def _report(block_num, block_size, total_size):
+            def _report(done_bytes, total_size):
                 if total_size > 0:
-                    percent = int(block_num * block_size * 100 / total_size)
+                    percent = int(done_bytes * 100 / total_size)
                     self.progress.emit(min(percent, 100))
-            urllib.request.urlretrieve(self.voice.onnx_url, self.voice.local_onnx_path, reporthook=_report)
-            urllib.request.urlretrieve(self.voice.json_url, self.voice.local_json_path)
+            _download_no_proxy(self.voice.onnx_url, self.voice.local_onnx_path, progress_cb=_report)
+            _download_no_proxy(self.voice.json_url, self.voice.local_json_path)
             self.voice.is_downloaded = True
             self.download_completed.emit(True)
         except Exception as e:
@@ -194,8 +318,14 @@ class PiperVoiceManagerDialog(QDialog):
         self.voices = fetch_available_piper_voices()
         self.list_widget.clear()
         if not self.voices:
-            self.info_lbl.setText("Không thể lấy danh sách giọng từ máy chủ.")
+            self.btn_download.setEnabled(False)
+            self.info_lbl.setText(
+                "Chua co goi giong local va may chu chua publish thu vien giong. "
+                "Ban build hien tai da co runtime Piper; model se tai sau khi VPS co index.json, "
+                "hoac co the chep model vao piper_bin/models."
+            )
             return
+        self.btn_download.setEnabled(True)
         self.info_lbl.setText("Danh sách giọng (Vui lòng chọn để tải):")
         for v in self.voices:
             status = "[Đã tải]" if v.is_downloaded else f"[{v.size}]"

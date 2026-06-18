@@ -19,7 +19,13 @@ def main():
     os.makedirs(build_dir, exist_ok=True)
     
     # Copy essential directories to build_secure_tmp
-    for item in ["app", "assets", "core", "packages", "styles", "third_party", "main.py", "3T_Reader.spec"]:
+    build_items = ["app", "assets", "core", "packages", "styles", "third_party", "main.py", "3T_Reader.spec"]
+    if (src_dir / "piper_bin").exists():
+        build_items.append("piper_bin")
+    if (src_dir / "venv_piper").exists():
+        build_items.append("venv_piper")
+
+    for item in build_items:
         src_item = src_dir / item
         dst_item = build_dir / item
         if src_item.is_dir():
