@@ -265,9 +265,17 @@ def synthesize_audio_piper(text: str, model_path: str, output_wav_path: str, spe
             "--sentence_silence", "0.5",
             "--length_scale", str(length_scale)
         ]
-        process = subprocess.Popen(
-            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
+        popen_kwargs = {
+            "stdin": subprocess.PIPE,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+        }
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            popen_kwargs["startupinfo"] = startupinfo
+            popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        process = subprocess.Popen(cmd, **popen_kwargs)
         out, err = process.communicate(input=text.encode('utf-8'))
         
         if process.returncode != 0:
