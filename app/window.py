@@ -19,7 +19,7 @@ from packages.qt_compat.QtWidgets import (
     QDialog,
     QColorDialog,
 )
-from packages.qt_compat.QtGui import QAction, QKeySequence, QCloseEvent, QImage, QPainter, QColor
+from packages.qt_compat.QtGui import QAction, QKeySequence, QCloseEvent, QImage, QPainter, QColor, QPageLayout
 from packages.qt_compat.QtCore import Qt, QSize, QPoint, QTimer, QThread, QRect, QObject, pyqtSignal, pyqtSlot
 from packages.qt_compat.QtWebEngineWidgets import QWebEngineView
 from app.pdf_viewer import PDFViewerWidget
@@ -982,11 +982,41 @@ class PDFReaderApp(QMainWindow):
             printer.setResolution(150)
         except Exception:
             pass
+        try:
+            pdf = get_pdf_engine().open(pdf_path)
+            try:
+                current_page = 1
+                viewer = getattr(self, "viewer", None)
+                if viewer and hasattr(viewer, "get_current_page"):
+                    current_page = max(1, int(viewer.get_current_page() or 1))
+                elif viewer and hasattr(viewer, "_current_page"):
+                    current_page = max(1, int(getattr(viewer, "_current_page", 1) or 1))
+                page_w_pt, page_h_pt = pdf.page_size(current_page)
+                printer.setPageOrientation(self._page_orientation_for_pdf_size(page_w_pt, page_h_pt))
+            finally:
+                pdf.close()
+        except Exception:
+            pass
 
         dialog = QPrintDialog(printer, self)
         dialog.setWindowTitle("In tài liệu")
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._do_print_pages(printer, pdf_path)
+
+    @staticmethod
+    def _page_orientation_for_pdf_size(page_w_pt: float, page_h_pt: float):
+        return (
+            QPageLayout.Orientation.Landscape
+            if float(page_w_pt or 0) > float(page_h_pt or 0)
+            else QPageLayout.Orientation.Portrait
+        )
+
+    @staticmethod
+    def _apply_printer_orientation(printer: QPrinter, orientation) -> bool:
+        try:
+            return bool(printer.setPageOrientation(orientation))
+        except Exception:
+            return False
 
     def _do_print_pages(self, printer: QPrinter, pdf_path: str):
         """Vẽ từng trang PDF lên printer — chạy trên main thread qua paintRequested.
@@ -1014,10 +1044,6 @@ class PDFReaderApp(QMainWindow):
             return
 
         try:
-            page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
-            w = int(page_rect.width())
-            h = int(page_rect.height())
-
             from_page = printer.fromPage()
             to_page   = printer.toPage()
             total     = pdf.page_count
@@ -1038,6 +1064,15 @@ class PDFReaderApp(QMainWindow):
             progress.setAutoClose(True)
             progress.setAutoReset(False)
 
+            current_orientation = None
+            if page_list:
+                try:
+                    page_w_pt, page_h_pt = pdf.page_size(page_list[0] + 1)
+                    current_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)
+                    self._apply_printer_orientation(printer, current_orientation)
+                except Exception:
+                    current_orientation = printer.pageLayout().orientation()
+
             painter = QPainter()
             if not painter.begin(printer):
                 progress.cancel()
@@ -1053,13 +1088,20 @@ class PDFReaderApp(QMainWindow):
                 progress.setLabelText(f"Đang in trang {page_num + 1} / {total}…")
                 QApplication.processEvents()
 
-                if i > 0:
-                    printer.newPage()
-
                 try:
                     page_w_pt, page_h_pt = pdf.page_size(page_num + 1)
                 except Exception:
                     page_w_pt, page_h_pt = 595.0, 842.0
+                target_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)
+                if i > 0:
+                    if target_orientation != current_orientation:
+                        self._apply_printer_orientation(printer, target_orientation)
+                    printer.newPage()
+                current_orientation = target_orientation
+
+                page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
+                w = int(page_rect.width())
+                h = int(page_rect.height())
                 page_pixels = max(1.0, page_w_pt * page_h_pt)
                 scale_by_pixels = (max_render_pixels / page_pixels) ** 0.5
                 target_scale = min(
