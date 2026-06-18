@@ -17,12 +17,19 @@ LANGUAGE_SETTINGS_KEY = "3TReader/language"
 DEFAULT_LANGUAGE = "vi"
 
 LANGUAGE_LABELS = {
-    "vi": "Tiếng Việt",
-    "en": "English",
-    "fr": "Français",
-    "zh": "中文",
-    "ko": "한국어",
-    "th": "ไทย",
+    "vi": "Tiếng Việt", "en": "English", "fr": "Français", "zh": "中文", "ko": "한국어", "th": "ไทย",
+    "ja": "日本語", "es": "Español", "de": "Deutsch", "ru": "Русский", "ar": "العربية", "pt": "Português",
+    "it": "Italiano", "hi": "हिन्दी", "tr": "Türkçe", "nl": "Nederlands", "pl": "Polski", "id": "Bahasa Indonesia",
+    "ms": "Bahasa Melayu", "fil": "Filipino", "sv": "Svenska", "no": "Norsk", "da": "Dansk", "fi": "Suomi",
+    "el": "Ελληνικά", "he": "עברית", "cs": "Čeština", "hu": "Magyar", "ro": "Română", "uk": "Українська",
+    "bn": "বাংলা", "ur": "اردو", "fa": "فارسی", "ta": "தமிழ்", "te": "తెలుగు", "mr": "मराठी", "gu": "ગુજરાતી",
+    "kn": "ಕನ್ನಡ", "ml": "മലയാളം", "pa": "ਪੰਜਾਬੀ", "jv": "Basa Jawa", "su": "Basa Sunda", "km": "ខ្មែរ",
+    "my": "မြန်မာ", "lo": "ລາວ", "am": "አማርኛ", "sw": "Kiswahili", "yo": "Yorùbá", "ig": "Igbo", "zu": "isiZulu",
+    "af": "Afrikaans", "sq": "Shqip", "hy": "Հայերեն", "az": "Azərbaycan", "eu": "Euskara", "be": "Беларуская",
+    "bs": "Bosanski", "bg": "Български", "ca": "Català", "hr": "Hrvatski", "et": "Eesti", "gl": "Galego",
+    "ka": "ქართული", "is": "Íslenska", "kk": "Қазақ тілі", "ky": "Кыргызча", "lv": "Latviešu", "lt": "Lietuvių",
+    "mk": "Македонски", "mn": "Монгол", "ne": "नेपाली", "sr": "Српски", "sk": "Slovenčina", "sl": "Slovenščina",
+    "tg": "Тоҷикӣ", "uz": "Oʻzbekcha", "cy": "Cymraeg", "yi": "ייִדיש", "xh": "isiXhosa"
 }
 
 _MOJIBAKE_MARKERS = (
@@ -546,15 +553,16 @@ def _normalize_language_pack_payload(data, *, expected_code: str) -> dict[str, s
 
 
 def get_translation(code: str, key: str, fallback: str) -> str:
-    code = code if code in LANGUAGE_LABELS else DEFAULT_LANGUAGE
     builtin = BUILTIN_TRANSLATIONS.get(code, {})
-    if code == DEFAULT_LANGUAGE and key in builtin:
+    if code in BUILTIN_TRANSLATIONS and key in builtin:
         return builtin[key]
 
     pack = load_language_pack(code)
     if key in pack:
         return pack[key]
-    return builtin.get(key, fallback)
+
+    en_builtin = BUILTIN_TRANSLATIONS.get("en", {})
+    return builtin.get(key, en_builtin.get(key, fallback))
 
 
 def download_language_pack(code: str, parent=None) -> tuple[bool, str]:

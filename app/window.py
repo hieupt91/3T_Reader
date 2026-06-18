@@ -1419,21 +1419,8 @@ class PDFReaderApp(QMainWindow):
         menu_license = self.menu_license
 
         self.menu_language = top_menu("menu_language", self._t("menu.language", "Ngôn ngữ"))
-        self.act_lang_vi = self.menu_language.addAction(self._t("lang.vietnamese", "Tiếng Việt"))
-        self.act_lang_en = self.menu_language.addAction(self._t("lang.english", "English"))
-        self.act_lang_fr = self.menu_language.addAction(self._t("lang.french", "Français"))
-        self.act_lang_zh = self.menu_language.addAction(self._t("lang.chinese", "中文"))
-        self.act_lang_ko = self.menu_language.addAction(self._t("lang.korean", "한국어"))
-        self.act_lang_th = self.menu_language.addAction(self._t("lang.thai", "ไทย"))
-        self.menu_language.addSeparator()
-        self.act_lang_refresh = self.menu_language.addAction(self._t("lang.download", "Tải gói ngôn ngữ..."))
-        self.act_lang_vi.triggered.connect(lambda: self._set_language("vi"))
-        self.act_lang_en.triggered.connect(lambda: self._set_language("en"))
-        self.act_lang_fr.triggered.connect(lambda: self._set_language("fr"))
-        self.act_lang_zh.triggered.connect(lambda: self._set_language("zh"))
-        self.act_lang_ko.triggered.connect(lambda: self._set_language("ko"))
-        self.act_lang_th.triggered.connect(lambda: self._set_language("th"))
-        self.act_lang_refresh.triggered.connect(lambda: self._refresh_language_pack())
+        self._populate_language_menu()
+        
         act_activate = menu_license.addAction("🔑  Kích hoạt / Nhập key...")
         act_activate.setShortcut(QKeySequence("Ctrl+Shift+L"))
         act_activate.triggered.connect(lambda: self._open_license_dialog())
@@ -1953,6 +1940,36 @@ class PDFReaderApp(QMainWindow):
             self.raise_()
             self.activateWindow()
             QMessageBox.warning(self, "Không kiểm tra được cập nhật", safe_message)
+
+    def _populate_language_menu(self):
+        try:
+            self.menu_language.clear()
+        except RuntimeError:
+            pass
+            
+        from app.language_manager import available_languages, language_pack_path
+        
+        self.act_lang_vi = self.menu_language.addAction(self._t("lang.vietnamese", "Tiếng Việt"))
+        self.act_lang_en = self.menu_language.addAction(self._t("lang.english", "English"))
+        self.act_lang_vi.triggered.connect(lambda: self._set_language("vi"))
+        self.act_lang_en.triggered.connect(lambda: self._set_language("en"))
+        
+        self.menu_language.addSeparator()
+        
+        added = False
+        for item in available_languages():
+            code = item["code"]
+            if code in ("vi", "en"): continue
+            if language_pack_path(code).exists():
+                act = self.menu_language.addAction(item["label"])
+                act.triggered.connect(lambda checked=False, c=code: self._set_language(c))
+                added = True
+                
+        if added:
+            self.menu_language.addSeparator()
+            
+        self.act_lang_refresh = self.menu_language.addAction(self._t("lang.download", "Tải gói ngôn ngữ..."))
+        self.act_lang_refresh.triggered.connect(lambda: self._refresh_language_pack())
 
     def _set_language(self, code: str):
         code = code if code in ("vi", "en", "fr", "zh", "ko", "th") else "vi"

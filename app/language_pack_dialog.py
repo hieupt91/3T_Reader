@@ -3,6 +3,7 @@ from __future__ import annotations
 from packages.qt_compat.QtCore import Qt
 from packages.qt_compat.QtWidgets import (
     QCheckBox,
+    QLineEdit,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -33,6 +34,11 @@ class LanguagePackDialog(QDialog):
         title.setWordWrap(True)
         title.setTextFormat(Qt.TextFormat.PlainText)
         root.addWidget(title)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Tìm kiếm ngôn ngữ (ví dụ: Nhật, Hàn, English)...")
+        self.search_input.textChanged.connect(self._filter_languages)
+        root.addWidget(self.search_input)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -73,6 +79,14 @@ class LanguagePackDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+
+    def _filter_languages(self, text: str):
+        text = text.lower()
+        for code, check in self._checks.items():
+            if text in check.text().lower() or text in code.lower():
+                check.show()
+            else:
+                check.hide()
 
     def _select_all(self):
         for check in self._checks.values():
