@@ -3,289 +3,1414 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3T Reader - Quản Trị Hệ Thống</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>3T Reader - Quan Tri He Thong</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
-            --bg-color: #0f172a;
-            --surface-color: rgba(30, 41, 59, 0.7);
-            --surface-border: rgba(255, 255, 255, 0.1);
-            --text-primary: #f8fafc;
-            --text-secondary: #94a3b8;
-            --accent-primary: #3b82f6;
-            --gradient-1: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-            --danger: #ef4444;
-            --success: #10b981;
+            --bg: #09111f;
+            --bg-soft: #122038;
+            --panel: rgba(18, 32, 56, 0.84);
+            --panel-strong: rgba(12, 22, 40, 0.96);
+            --border: rgba(255, 255, 255, 0.08);
+            --text: #f6f8fc;
+            --muted: #93a4c2;
+            --primary: #39a0ff;
+            --primary-2: #6f7cff;
+            --success: #22c55e;
             --warning: #f59e0b;
+            --danger: #ef4444;
+            --shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+            --radius: 22px;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; }
-        body {
-            background-color: var(--bg-color); color: var(--text-primary);
-            min-height: 100vh; display: flex;
-            background-image: radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
-                              radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.15) 0px, transparent 50%);
-            background-attachment: fixed;
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: "Outfit", sans-serif;
         }
-        .glass { background: var(--surface-color); backdrop-filter: blur(16px); border: 1px solid var(--surface-border); }
-        
-        #login-overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(15,23,42,0.9); z-index: 1000; transition: 0.5s; }
-        .login-box { padding: 40px; border-radius: 24px; text-align: center; width: 400px; }
-        .login-box h2 { margin-bottom: 30px; background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .input-group { margin-bottom: 20px; text-align: left; }
-        .input-control { width: 100%; padding: 12px; border-radius: 12px; background: rgba(0,0,0,0.2); border: 1px solid var(--surface-border); color: white; margin-top: 8px;}
-        .btn { width: 100%; padding: 14px; border-radius: 12px; background: var(--gradient-1); color: white; border: none; font-weight: 600; cursor: pointer; transition: 0.3s; }
-        .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(59,130,246,0.3); }
-        
-        #app { display: flex; width: 100%; opacity: 0; transition: 0.5s; }
-        #app.visible { opacity: 1; }
-        
-        .sidebar { width: 280px; height: 100vh; padding: 24px; position: sticky; top: 0; display: flex; flex-direction: column; }
-        .logo { font-size: 24px; font-weight: 700; margin-bottom: 40px; }
-        .nav-item { padding: 12px 16px; border-radius: 12px; color: var(--text-secondary); cursor: pointer; margin-bottom: 8px; display: flex; gap: 12px; }
-        .nav-item.active { background: var(--gradient-1); color: white; }
-        .nav-item:hover:not(.active) { background: rgba(255,255,255,0.05); }
-        .logout-btn { margin-top: auto; color: var(--danger); }
-        
-        .main-content { flex: 1; padding: 40px; overflow-y: auto; }
-        .header { margin-bottom: 40px; }
-        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 40px; }
-        .stat-card { padding: 24px; border-radius: 20px; display: flex; align-items: center; gap: 20px; }
-        .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
-        .stat-info p { font-size: 28px; font-weight: 700; }
-        
-        .data-section { border-radius: 20px; padding: 24px; }
-        table { width: 100%; border-collapse: separate; border-spacing: 0 8px; }
-        th { text-align: left; padding: 12px 16px; color: var(--text-secondary); }
-        td { padding: 16px; background: rgba(255,255,255,0.02); }
-        .badge { padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
-        .bg-warning { background: rgba(245,158,11,0.1); color: var(--warning); }
-        .bg-success { background: rgba(16,185,129,0.1); color: var(--success); }
-        .bg-primary { background: rgba(59,130,246,0.1); color: var(--accent-primary); }
-        
-        .action-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 8px; }
-        .action-btn:hover { color: white; }
-        
-        .tab-content { display: none; }
-        .tab-content.active { display: block; animation: fadeIn 0.4s; }
-        @keyframes fadeIn { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform:translateY(0); } }
-        
-        .toast { position: fixed; bottom: 24px; right: 24px; padding: 16px 24px; border-radius: 12px; background: var(--surface-color); color: white; transform: translateX(150%); transition: 0.3s; z-index: 2000;}
-        .toast.show { transform: translateX(0); }
+
+        body {
+            min-height: 100vh;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(57, 160, 255, 0.18), transparent 26%),
+                radial-gradient(circle at bottom right, rgba(111, 124, 255, 0.16), transparent 24%),
+                linear-gradient(180deg, #07101d 0%, #0b1424 100%);
+        }
+
+        .glass {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            backdrop-filter: blur(18px);
+            box-shadow: var(--shadow);
+        }
+
+        .hidden { display: none !important; }
+
+        #login-overlay {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: rgba(5, 10, 18, 0.88);
+            z-index: 50;
+        }
+
+        .login-card {
+            width: min(960px, 100%);
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            border-radius: 32px;
+            overflow: hidden;
+        }
+
+        .login-hero {
+            padding: 44px;
+            background:
+                linear-gradient(150deg, rgba(57, 160, 255, 0.22), rgba(111, 124, 255, 0.1)),
+                linear-gradient(180deg, #10203a 0%, #0b1426 100%);
+        }
+
+        .login-hero h1 {
+            font-size: 38px;
+            line-height: 1.05;
+            margin-bottom: 18px;
+        }
+
+        .login-hero p {
+            color: var(--muted);
+            line-height: 1.6;
+            max-width: 440px;
+        }
+
+        .hero-points {
+            margin-top: 28px;
+            display: grid;
+            gap: 14px;
+        }
+
+        .hero-points div {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            color: #dce7fb;
+        }
+
+        .hero-points i {
+            width: 36px;
+            height: 36px;
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.08);
+            color: #8fd2ff;
+        }
+
+        .login-box {
+            padding: 36px;
+            background: var(--panel-strong);
+        }
+
+        .login-box h2 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .login-box .sub {
+            color: var(--muted);
+            margin-bottom: 24px;
+            line-height: 1.5;
+        }
+
+        .field,
+        .field-inline {
+            display: grid;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .field-inline {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #d9e5f7;
+            letter-spacing: 0.02em;
+        }
+
+        input,
+        select,
+        textarea,
+        button {
+            font: inherit;
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.09);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text);
+            padding: 12px 14px;
+            border-radius: 14px;
+            outline: none;
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            color: #7f93b2;
+        }
+
+        textarea {
+            min-height: 92px;
+            resize: vertical;
+        }
+
+        .btn,
+        .btn-secondary,
+        .btn-danger {
+            border: none;
+            border-radius: 14px;
+            padding: 12px 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.16s ease, opacity 0.16s ease;
+        }
+
+        .btn:hover,
+        .btn-secondary:hover,
+        .btn-danger:hover {
+            transform: translateY(-1px);
+        }
+
+        .btn {
+            color: white;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-2) 100%);
+        }
+
+        .btn-secondary {
+            color: #d8e5fb;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .btn-danger {
+            color: white;
+            background: rgba(239, 68, 68, 0.88);
+        }
+
+        .btn-block { width: 100%; }
+
+        #app {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: 290px;
+            padding: 26px 20px;
+            border-right: 1px solid var(--border);
+            background: rgba(7, 13, 25, 0.72);
+            position: sticky;
+            top: 0;
+            height: 100vh;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: 800;
+            margin-bottom: 22px;
+        }
+
+        .role-badge {
+            display: inline-flex;
+            padding: 7px 12px;
+            border-radius: 999px;
+            background: rgba(57, 160, 255, 0.12);
+            color: #9ad8ff;
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 22px;
+        }
+
+        .nav {
+            display: grid;
+            gap: 8px;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            color: var(--muted);
+            cursor: pointer;
+        }
+
+        .nav-item.active {
+            color: white;
+            background: linear-gradient(135deg, rgba(57, 160, 255, 0.28), rgba(111, 124, 255, 0.24));
+        }
+
+        .nav-item i {
+            width: 20px;
+            text-align: center;
+        }
+
+        .sidebar-foot {
+            position: absolute;
+            left: 20px;
+            right: 20px;
+            bottom: 24px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .main {
+            flex: 1;
+            padding: 28px;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            align-items: flex-start;
+            margin-bottom: 22px;
+        }
+
+        .topbar h1 {
+            font-size: 30px;
+            margin-bottom: 8px;
+        }
+
+        .topbar p {
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .status-chip {
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.06);
+            color: #cfe0fb;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            padding: 20px;
+            border-radius: var(--radius);
+        }
+
+        .stat-label {
+            color: var(--muted);
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 800;
+        }
+
+        .content-grid {
+            display: grid;
+            gap: 18px;
+        }
+
+        .section {
+            border-radius: var(--radius);
+            padding: 22px;
+        }
+
+        .section-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .section-head h2 {
+            font-size: 22px;
+        }
+
+        .section-head p {
+            color: var(--muted);
+            margin-top: 6px;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .cards-2,
+        .cards-3 {
+            display: grid;
+            gap: 16px;
+        }
+
+        .cards-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .cards-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+        .mini-card {
+            border-radius: 18px;
+            padding: 18px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .mini-card h3 {
+            font-size: 14px;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+
+        .mini-card strong {
+            font-size: 22px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 14px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            color: #9db1d0;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            font-size: 14px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .badge.active { background: rgba(34, 197, 94, 0.12); color: #63e089; }
+        .badge.pending { background: rgba(245, 158, 11, 0.14); color: #ffc45b; }
+        .badge.revoked { background: rgba(239, 68, 68, 0.14); color: #ff8f8f; }
+        .badge.info { background: rgba(57, 160, 255, 0.14); color: #8fd2ff; }
+        .badge.neutral { background: rgba(255, 255, 255, 0.08); color: #d6e2f5; }
+
+        .muted {
+            color: var(--muted);
+        }
+
+        .table-wrap {
+            overflow: auto;
+        }
+
+        .device-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .device-item {
+            padding: 10px 12px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .device-item-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 4px;
+        }
+
+        .inline-form {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: end;
+        }
+
+        .inline-form .field {
+            margin-bottom: 0;
+            min-width: 180px;
+            flex: 1;
+        }
+
+        .pill {
+            display: inline-flex;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.06);
+            color: #d8e5fb;
+            font-size: 12px;
+            font-weight: 600;
+            margin: 2px 6px 2px 0;
+        }
+
+        .tab-pane {
+            display: none;
+        }
+
+        .tab-pane.active {
+            display: grid;
+            gap: 18px;
+        }
+
+        .toast {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            padding: 14px 18px;
+            border-radius: 14px;
+            background: rgba(11, 19, 34, 0.96);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: white;
+            min-width: 260px;
+            transform: translateY(20px);
+            opacity: 0;
+            transition: 0.2s ease;
+            z-index: 80;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        @media (max-width: 1100px) {
+            .stats-grid,
+            .cards-2,
+            .cards-3,
+            .login-card {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                width: 86px;
+                padding: 18px 12px;
+            }
+
+            .sidebar .label,
+            .sidebar .role-badge,
+            .sidebar-foot .btn-secondary span,
+            .sidebar-foot .btn-danger span,
+            .logo span {
+                display: none;
+            }
+
+            .nav-item {
+                justify-content: center;
+            }
+
+            .main {
+                padding: 18px;
+            }
+        }
     </style>
 </head>
 <body>
     <div id="login-overlay">
-        <div class="login-box glass">
-            <h2>3T Reader Admin</h2>
-            <form id="login-form">
-                <div class="input-group">
-                    <label>Mật khẩu quản trị</label>
-                    <input type="password" id="password" class="input-control" placeholder="Nhập mật khẩu..." required>
+        <div class="login-card glass">
+            <div class="login-hero">
+                <h1>3T Admin Control Center</h1>
+                <p>Quan ly don hang, key ban quyen, nhan su, bang gia va file cap nhat Win/Mac/Portable trong mot giao dien duy nhat.</p>
+                <div class="hero-points">
+                    <div><i class="fa-solid fa-users-gear"></i><span>Phan quyen Admin va Nhan su ho tro</span></div>
+                    <div><i class="fa-solid fa-key"></i><span>Theo doi key, seat, thiet bi, lich su su dung</span></div>
+                    <div><i class="fa-solid fa-cloud-arrow-up"></i><span>Publish file cap nhat va quan ly release detail</span></div>
                 </div>
-                <button type="submit" class="btn">Đăng nhập</button>
-            </form>
+            </div>
+            <div class="login-box">
+                <h2>Dang nhap he thong</h2>
+                <p class="sub">Chon vai tro dang nhap. Staff co the chi thay nhung khu vuc duoc cap quyen.</p>
+                <form id="login-form">
+                    <div class="field">
+                        <label>Loai tai khoan</label>
+                        <select id="login-role">
+                            <option value="admin">Admin</option>
+                            <option value="staff">Nhan su</option>
+                        </select>
+                    </div>
+                    <div class="field hidden" id="username-field">
+                        <label>Tai khoan nhan su</label>
+                        <input type="text" id="username" placeholder="vi du: sale01">
+                    </div>
+                    <div class="field">
+                        <label>Mat khau</label>
+                        <input type="password" id="password" placeholder="Nhap mat khau..." required>
+                    </div>
+                    <button type="submit" class="btn btn-block">Dang nhap</button>
+                </form>
+            </div>
         </div>
     </div>
 
-    <div id="app">
-        <aside class="sidebar glass">
-            <div class="logo"><i class="fa-solid fa-shield-halved" style="color:#3b82f6;"></i> 3T Admin</div>
-            <div class="nav-item active" data-tab="orders"><i class="fa-solid fa-cart-shopping"></i> Đơn hàng</div>
-            <div class="nav-item" data-tab="licenses"><i class="fa-solid fa-key"></i> Key Bản Quyền</div>
-            <div class="nav-item" data-tab="updates"><i class="fa-solid fa-cloud-arrow-up"></i> Cập nhật App</div>
-            <div class="nav-item logout-btn" id="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> Đăng xuất</div>
+    <div id="app" class="hidden">
+        <aside class="sidebar">
+            <div class="logo"><i class="fa-solid fa-shield-halved"></i> <span>3T Admin</span></div>
+            <div class="role-badge" id="role-badge">admin</div>
+            <div class="nav">
+                <div class="nav-item active" data-tab="dashboard"><i class="fa-solid fa-chart-line"></i><span class="label">Tong quan</span></div>
+                <div class="nav-item" data-tab="orders"><i class="fa-solid fa-cart-shopping"></i><span class="label">Don hang</span></div>
+                <div class="nav-item" data-tab="licenses"><i class="fa-solid fa-key"></i><span class="label">License</span></div>
+                <div class="nav-item admin-only" data-tab="staff"><i class="fa-solid fa-user-shield"></i><span class="label">Nhan su</span></div>
+                <div class="nav-item admin-only" data-tab="pricing"><i class="fa-solid fa-tags"></i><span class="label">Bang gia</span></div>
+                <div class="nav-item admin-only" data-tab="releases"><i class="fa-solid fa-box-open"></i><span class="label">Release files</span></div>
+                <div class="nav-item admin-only" data-tab="updates"><i class="fa-solid fa-cloud-arrow-up"></i><span class="label">Publish update</span></div>
+            </div>
+            <div class="sidebar-foot">
+                <button class="btn-secondary" id="refresh-all"><i class="fa-solid fa-rotate"></i> <span>Lam moi</span></button>
+                <button class="btn-danger" id="logout-btn"><i class="fa-solid fa-right-from-bracket"></i> <span>Dang xuat</span></button>
+            </div>
         </aside>
 
-        <main class="main-content">
-            <div class="header"><h1 id="page-title">Quản lý Đơn hàng</h1></div>
-            
+        <main class="main">
+            <div class="topbar">
+                <div>
+                    <h1 id="page-title">Tong quan he thong</h1>
+                    <p id="page-subtitle">Theo doi van hanh don hang, ban quyen va release tu mot dashboard hop nhat.</p>
+                </div>
+                <div class="status-chip"><i class="fa-solid fa-circle" style="color:#22c55e"></i><span id="session-info">San sang</span></div>
+            </div>
+
             <div class="stats-grid">
                 <div class="stat-card glass">
-                    <div class="stat-icon" style="background: rgba(245,158,11,0.1); color: var(--warning);"><i class="fa-solid fa-clock"></i></div>
-                    <div class="stat-info"><h3 style="color:var(--text-secondary)">Chờ duyệt</h3><p id="stat-pending">0</p></div>
+                    <div class="stat-label">Don cho duyet</div>
+                    <div class="stat-value" id="stat-pending">0</div>
                 </div>
                 <div class="stat-card glass">
-                    <div class="stat-icon" style="background: rgba(16,185,129,0.1); color: var(--success);"><i class="fa-solid fa-check"></i></div>
-                    <div class="stat-info"><h3 style="color:var(--text-secondary)">License Cấp</h3><p id="stat-active">0</p></div>
+                    <div class="stat-label">Doanh thu da duyet</div>
+                    <div class="stat-value" id="stat-revenue">0d</div>
+                </div>
+                <div class="stat-card glass">
+                    <div class="stat-label">Tong license</div>
+                    <div class="stat-value" id="stat-licenses">0</div>
+                </div>
+                <div class="stat-card glass">
+                    <div class="stat-label">Thiet bi dang hoat dong</div>
+                    <div class="stat-value" id="stat-devices">0</div>
                 </div>
             </div>
 
-            <div id="tab-orders" class="tab-content active data-section glass">
-                <div style="display:flex; justify-content:space-between; margin-bottom:20px;">
-                    <h2>Danh sách Đơn mua</h2>
-                    <button class="btn" style="width:120px; padding:10px;" onclick="loadOrders()">Làm mới</button>
-                </div>
-                <table>
-                    <thead><tr><th>Mã Đơn</th><th>Khách hàng</th><th>Gói (Plan)</th><th>Ngày tạo</th><th>Trạng thái</th><th style="text-align:right">Hành động</th></tr></thead>
-                    <tbody id="orders-tbody"></tbody>
-                </table>
-            </div>
+            <div class="content-grid">
+                <section id="tab-dashboard" class="tab-pane active">
+                    <div class="section glass">
+                        <div class="section-head">
+                            <div>
+                                <h2>Dashboard van hanh</h2>
+                                <p>Tong hop tinh trang don hang, license va thiet bi kich hoat.</p>
+                            </div>
+                        </div>
+                        <div class="cards-3" id="dashboard-cards"></div>
+                    </div>
+                    <div class="section glass">
+                        <div class="section-head">
+                            <div>
+                                <h2>Thiet bi moi nhat</h2>
+                                <p>Doc nhanh nhung may dang kich hoat gan day.</p>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>License</th>
+                                        <th>May</th>
+                                        <th>Platform</th>
+                                        <th>Version</th>
+                                        <th>Het han</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dashboard-devices"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
 
-            <div id="tab-licenses" class="tab-content data-section glass">
-                <div style="display:flex; justify-content:space-between; margin-bottom:20px;">
-                    <h2>License Đã Cấp</h2>
-                    <button class="btn" style="width:120px; padding:10px;" onclick="loadLicenses()">Làm mới</button>
-                </div>
-                <table>
-                    <thead><tr><th>License Key</th><th>Chủ sở hữu</th><th>Plan</th><th>Hết hạn</th><th>Thiết bị</th><th style="text-align:right">Hành động</th></tr></thead>
-                    <tbody id="licenses-tbody"></tbody>
-                </table>
-            </div>
+                <section id="tab-orders" class="tab-pane">
+                    <div class="section glass">
+                        <div class="section-head">
+                            <div>
+                                <h2>Quan ly don hang</h2>
+                                <p>Duyet, tu choi va theo doi tien trinh cap key theo tung don.</p>
+                            </div>
+                            <div class="actions">
+                                <button class="btn-secondary" onclick="loadOrders()"><i class="fa-solid fa-rotate"></i> Lam moi</button>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Ma don</th>
+                                        <th>Khach hang</th>
+                                        <th>Goi</th>
+                                        <th>So may</th>
+                                        <th>Thanh tien</th>
+                                        <th>Ngay tao</th>
+                                        <th>Trang thai</th>
+                                        <th>Xu ly</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="orders-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
 
-            <div id="tab-updates" class="tab-content data-section glass" style="max-width: 600px;">
-                <h2>Cấu hình Auto-Update</h2>
-                <form id="update-form" style="margin-top:20px;">
-                    <div class="input-group"><label>Phiên bản Windows</label><input type="text" id="win_version" class="input-control"></div>
-                    <div class="input-group"><label>Link tải Windows</label><input type="text" id="win_url" class="input-control"></div>
-                    <div class="input-group"><label>Phiên bản macOS</label><input type="text" id="mac_version" class="input-control"></div>
-                    <div class="input-group"><label>Link tải macOS</label><input type="text" id="mac_url" class="input-control"></div>
-                    <button type="submit" class="btn">Lưu Cấu Hình</button>
-                </form>
+                <section id="tab-licenses" class="tab-pane">
+                    <div class="section glass">
+                        <div class="section-head">
+                            <div>
+                                <h2>Quan ly license va key</h2>
+                                <p>Phan loai key chua dung, dang su dung, day seat va danh sach thiet bi kich hoat.</p>
+                            </div>
+                        </div>
+                        <div class="cards-3" id="license-summary"></div>
+                        <div class="section glass" style="margin-top:16px; padding:18px;">
+                            <div class="section-head">
+                                <div>
+                                    <h2>Tao key thu cong</h2>
+                                    <p>Cap nhanh key cho khach hang ma khong can qua don hang.</p>
+                                </div>
+                            </div>
+                            <form id="manual-license-form" class="inline-form">
+                                <div class="field">
+                                    <label>Ten khach hang</label>
+                                    <input type="text" id="manual-customer-name" placeholder="Cong ty / Ca nhan">
+                                </div>
+                                <div class="field">
+                                    <label>Loai goi</label>
+                                    <select id="manual-plan">
+                                        <option value="personal">Ca nhan</option>
+                                        <option value="basic">Co ban</option>
+                                        <option value="enterprise">Doanh nghiep</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label>Seat limit</label>
+                                    <input type="number" id="manual-seat-limit" min="1" value="1">
+                                </div>
+                                <button type="submit" class="btn">Tao key</button>
+                            </form>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>License</th>
+                                        <th>Khach hang</th>
+                                        <th>Loai</th>
+                                        <th>Seat</th>
+                                        <th>Trang thai</th>
+                                        <th>Thiet bi</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="licenses-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="tab-staff" class="tab-pane">
+                    <div class="section glass">
+                        <div class="section-head">
+                            <div>
+                                <h2>Quan ly nhan su</h2>
+                                <p>Tao user quan ly, cap quyen approve, reject va delete theo vai tro.</p>
+                            </div>
+                        </div>
+                        <form id="staff-form" class="inline-form">
+                            <div class="field">
+                                <label>Username</label>
+                                <input type="text" id="staff-username" placeholder="sale01">
+                            </div>
+                            <div class="field">
+                                <label>Mat khau</label>
+                                <input type="text" id="staff-password" placeholder="Mat khau tam">
+                            </div>
+                            <div class="field">
+                                <label>Quyen</label>
+                                <input type="text" id="staff-permissions" placeholder="approve,reject">
+                            </div>
+                            <button type="submit" class="btn">Tao nhan su</button>
+                        </form>
+                        <div class="table-wrap" style="margin-top:18px;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Username</th>
+                                        <th>Quyen hien tai</th>
+                                        <th>Cap nhat quyen</th>
+                                        <th>Xoa</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="staff-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="tab-pricing" class="tab-pane">
+                    <div class="section glass">
+                        <div class="section-head">
+                            <div>
+                                <h2>Bang gia</h2>
+                                <p>Cau hinh gia goi Co ban, Ca nhan va Doanh nghiep de don hang tinh tien dung.</p>
+                            </div>
+                        </div>
+                        <form id="pricing-form" class="cards-3">
+                            <div class="field">
+                                <label>Goi Co ban</label>
+                                <input type="number" id="price-basic" min="0">
+                            </div>
+                            <div class="field">
+                                <label>Goi Ca nhan</label>
+                                <input type="number" id="price-personal" min="0">
+                            </div>
+                            <div class="field">
+                                <label>Goi Doanh nghiep</label>
+                                <input type="number" id="price-enterprise" min="0">
+                            </div>
+                            <button type="submit" class="btn">Luu bang gia</button>
+                        </form>
+                    </div>
+                </section>
+
+                <section id="tab-releases" class="tab-pane">
+                    <div class="section glass">
+                        <div class="section-head">
+                            <div>
+                                <h2>Release files</h2>
+                                <p>Quan ly file cai dat Win, Mac va Portable. Day la danh sach file tren VPS, khong chi la link publish.</p>
+                            </div>
+                        </div>
+                        <div class="cards-3" id="release-current"></div>
+                        <div class="section glass" style="margin-top:16px; padding:18px;">
+                            <div class="section-head">
+                                <div>
+                                    <h2>Upload file moi</h2>
+                                    <p>Upload truc tiep len VPS va cap nhat publish sau khi file xong.</p>
+                                </div>
+                            </div>
+                            <form id="release-upload-form" class="inline-form">
+                                <div class="field">
+                                    <label>Platform</label>
+                                    <select id="upload-platform">
+                                        <option value="win">Windows Installer</option>
+                                        <option value="win-portable">Windows Portable</option>
+                                        <option value="mac">macOS DMG</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label>Version</label>
+                                    <input type="text" id="upload-version" placeholder="1.0.21">
+                                </div>
+                                <div class="field">
+                                    <label>File</label>
+                                    <input type="file" id="upload-file">
+                                </div>
+                                <button type="submit" class="btn">Upload</button>
+                            </form>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>File</th>
+                                        <th>Loai</th>
+                                        <th>Dung luong</th>
+                                        <th>SHA256</th>
+                                        <th>Publish</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="releases-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="tab-updates" class="tab-pane">
+                    <div class="section glass">
+                        <div class="section-head">
+                            <div>
+                                <h2>Publish update</h2>
+                                <p>Chon phien ban va link update dang duoc app Win/Mac doc tu API.</p>
+                            </div>
+                        </div>
+                        <form id="update-form" class="cards-2">
+                            <div class="field">
+                                <label>Windows version</label>
+                                <input type="text" id="win_version">
+                            </div>
+                            <div class="field">
+                                <label>Windows URL</label>
+                                <input type="text" id="win_url">
+                            </div>
+                            <div class="field">
+                                <label>Windows SHA256</label>
+                                <input type="text" id="win_sha256">
+                            </div>
+                            <div class="field">
+                                <label>Portable URL</label>
+                                <input type="text" id="portable_url">
+                            </div>
+                            <div class="field">
+                                <label>Portable SHA256</label>
+                                <input type="text" id="portable_sha256">
+                            </div>
+                            <div class="field">
+                                <label>macOS version</label>
+                                <input type="text" id="mac_version">
+                            </div>
+                            <div class="field">
+                                <label>macOS URL</label>
+                                <input type="text" id="mac_url">
+                            </div>
+                            <div class="field">
+                                <label>macOS SHA256</label>
+                                <input type="text" id="mac_sha256">
+                            </div>
+                            <div class="field" style="grid-column: 1 / -1;">
+                                <label>Release notes</label>
+                                <textarea id="release_notes" placeholder="Mo ta noi dung ban cap nhat..."></textarea>
+                            </div>
+                            <div class="field">
+                                <label>Bat buoc update</label>
+                                <select id="mandatory">
+                                    <option value="false">Khong</option>
+                                    <option value="true">Co</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn">Luu publish config</button>
+                        </form>
+                    </div>
+                </section>
             </div>
         </main>
     </div>
 
-    <div class="toast" id="toast"><span id="toast-msg"></span></div>
+    <div id="toast" class="toast"></div>
 
     <script>
-        let token = localStorage.getItem('admin_token') || '';
-        if (token) {
-            document.getElementById('login-overlay').style.display = 'none';
-            document.getElementById('app').classList.add('visible');
-            initApp();
+        let token = localStorage.getItem("admin_token") || "";
+        let role = localStorage.getItem("admin_role") || "admin";
+        let permissions = JSON.parse(localStorage.getItem("admin_permissions") || "[]");
+        let currentTab = "dashboard";
+
+        const tabTitles = {
+            dashboard: ["Tong quan he thong", "Tong hop van hanh don hang, ban quyen, nhan su va release."],
+            orders: ["Quan ly don hang", "Xu ly don dat mua, duyet key va theo doi doanh thu."],
+            licenses: ["Quan ly license", "Theo doi key, seat, thiet bi dang hoat dong va key chua dung."],
+            staff: ["Quan ly nhan su", "Tao user va phan cap quyen thao tac cho tung nhan vien."],
+            pricing: ["Bang gia & goi", "Dieu chinh gia de boi phan order va sales dung chung."],
+            releases: ["Release files", "Quan ly file tren VPS va doi chieu file dang publish."],
+            updates: ["Publish update", "Cau hinh API auto-update ma app Windows/macOS dang doc."]
+        };
+
+        function showToast(message, isError = false) {
+            const toast = document.getElementById("toast");
+            toast.textContent = message;
+            toast.style.borderColor = isError ? "rgba(239,68,68,0.35)" : "rgba(57,160,255,0.25)";
+            toast.classList.add("show");
+            setTimeout(() => toast.classList.remove("show"), 3200);
         }
 
-        document.getElementById('login-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const pwd = document.getElementById('password').value;
-            try {
-                const res = await fetch('/api/admin/login', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ password: pwd })
-                });
-                if (res.ok) {
-                    token = (await res.json()).token;
-                    localStorage.setItem('admin_token', token);
-                    document.getElementById('login-overlay').style.opacity = '0';
-                    setTimeout(() => {
-                        document.getElementById('login-overlay').style.display = 'none';
-                        document.getElementById('app').classList.add('visible');
-                        initApp();
-                    }, 500);
-                } else showToast('Sai mật khẩu!');
-            } catch(e) { showToast('Lỗi mạng'); }
-        });
+        function escapeHtml(text) {
+            return String(text || "").replace(/[&<>"']/g, (char) => ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                "\"": "&quot;",
+                "'": "&#039;"
+            }[char]));
+        }
 
-        document.getElementById('logout-btn').addEventListener('click', () => {
-            localStorage.removeItem('admin_token'); location.reload();
-        });
+        function formatMoney(value) {
+            return `${Number(value || 0).toLocaleString("vi-VN")}d`;
+        }
 
-        document.querySelectorAll('.nav-item[data-tab]').forEach(item => {
-            item.addEventListener('click', () => {
-                document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-                item.classList.add('active');
-                const t = item.getAttribute('data-tab');
-                document.getElementById('tab-' + t).classList.add('active');
-                document.getElementById('page-title').innerText = item.innerText;
-                if(t==='orders') loadOrders();
-                if(t==='licenses') loadLicenses();
-                if(t==='updates') loadUpdateConfig();
+        function formatDate(value) {
+            if (!value) return "-";
+            const d = new Date(value);
+            if (Number.isNaN(d.getTime())) return value;
+            return d.toLocaleString("vi-VN");
+        }
+
+        function statusBadge(status) {
+            const map = {
+                pending: ["pending", "Cho duyet"],
+                approved: ["active", "Da cap"],
+                rejected: ["revoked", "Tu choi"],
+                active: ["active", "Dang su dung"],
+                full: ["info", "Day seat"],
+                unused: ["neutral", "Chua dung"],
+                revoked: ["revoked", "Bi thu hoi"]
+            };
+            const [cls, label] = map[status] || ["neutral", status || "-"];
+            return `<span class="badge ${cls}">${label}</span>`;
+        }
+
+        async function fetchAPI(url, opts = {}) {
+            const headers = opts.headers || {};
+            headers["Authorization"] = `Bearer ${token}`;
+            if (!(opts.body instanceof FormData)) {
+                headers["Content-Type"] = headers["Content-Type"] || "application/json";
+            }
+            const res = await fetch(url, { ...opts, headers });
+            const text = await res.text();
+            let data = {};
+            try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+            if (res.status === 401 || res.status === 403) {
+                localStorage.removeItem("admin_token");
+                localStorage.removeItem("admin_role");
+                localStorage.removeItem("admin_permissions");
+                location.reload();
+                throw new Error("Phien dang nhap het han");
+            }
+            if (!res.ok) {
+                throw new Error(data.detail || data.message || data.raw || "Yeu cau that bai");
+            }
+            return data;
+        }
+
+        function applyRoleUI() {
+            document.getElementById("role-badge").textContent = role === "admin" ? "admin" : `staff: ${permissions.join(", ") || "read"}`;
+            document.querySelectorAll(".admin-only").forEach((node) => {
+                node.classList.toggle("hidden", role !== "admin");
             });
-        });
-
-        async function fetchAPI(url, opts={}) {
-            if(!opts.headers) opts.headers = {};
-            opts.headers['Authorization'] = 'Bearer ' + token;
-            opts.headers['Content-Type'] = 'application/json';
-            const r = await fetch(url, opts);
-            if(r.status===401||r.status===403) { localStorage.removeItem('admin_token'); location.reload(); }
-            return r.json();
+            document.getElementById("session-info").textContent = role === "admin" ? "Che do Admin" : `Nhan su: ${permissions.join(", ") || "read"}`;
         }
 
-        function showToast(msg) {
-            document.getElementById('toast-msg').innerText = msg;
-            document.getElementById('toast').classList.add('show');
-            setTimeout(() => document.getElementById('toast').classList.remove('show'), 3000);
+        function activateTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll(".nav-item[data-tab]").forEach((node) => node.classList.toggle("active", node.dataset.tab === tab));
+            document.querySelectorAll(".tab-pane").forEach((node) => node.classList.toggle("active", node.id === `tab-${tab}`));
+            document.getElementById("page-title").textContent = tabTitles[tab][0];
+            document.getElementById("page-subtitle").textContent = tabTitles[tab][1];
+            loadTab(tab);
         }
 
-        function initApp() { loadOrders(); loadLicenses(); }
+        async function loadDashboard() {
+            const [dashboard, devices] = await Promise.all([
+                fetchAPI("/api/admin/dashboard"),
+                fetchAPI("/api/admin/devices")
+            ]);
+            document.getElementById("stat-pending").textContent = dashboard.orders.pending;
+            document.getElementById("stat-revenue").textContent = formatMoney(dashboard.orders.revenue_total);
+            document.getElementById("stat-licenses").textContent = dashboard.licenses.total;
+            document.getElementById("stat-devices").textContent = dashboard.devices.total;
+
+            document.getElementById("dashboard-cards").innerHTML = `
+                <div class="mini-card"><h3>License chua dung</h3><strong>${dashboard.licenses.unused}</strong></div>
+                <div class="mini-card"><h3>License dang hoat dong</h3><strong>${dashboard.licenses.active}</strong></div>
+                <div class="mini-card"><h3>License day seat</h3><strong>${dashboard.licenses.full}</strong></div>
+                <div class="mini-card"><h3>Seat da dung</h3><strong>${dashboard.licenses.used_seats}/${dashboard.licenses.total_seats}</strong></div>
+                <div class="mini-card"><h3>Key doanh nghiep</h3><strong>${dashboard.licenses.enterprise}</strong></div>
+                <div class="mini-card"><h3>May macOS</h3><strong>${dashboard.devices.mac}</strong></div>
+            `;
+
+            document.getElementById("dashboard-devices").innerHTML = devices.items.slice(0, 8).map((device) => `
+                <tr>
+                    <td><code>${escapeHtml(device.license_key)}</code></td>
+                    <td>${escapeHtml(device.machine_name || device.device_id)}</td>
+                    <td>${escapeHtml(device.platform || "-")}</td>
+                    <td>${escapeHtml(device.app_version || "-")}</td>
+                    <td>${formatDate(device.expires_at)}</td>
+                </tr>
+            `).join("") || `<tr><td colspan="5" class="muted">Chua co thiet bi nao kich hoat.</td></tr>`;
+        }
 
         async function loadOrders() {
-            const data = await fetchAPI('/api/admin/orders');
-            const tb = document.getElementById('orders-tbody');
-            tb.innerHTML = '';
-            let pendingCount = 0;
-            if(data.orders) {
-                data.orders.sort((a,b)=>b.created_at-a.created_at).forEach(o => {
-                    if(o.status === 'pending') pendingCount++;
-                    const st = o.status==='pending' ? '<span class="badge bg-warning">Chờ duyệt</span>' : 
-                               o.status==='approved' ? '<span class="badge bg-success">Đã cấp</span>' : '<span class="badge" style="background:#333">Hủy</span>';
-                    const act = o.status==='pending' ? `
-                        <button class="action-btn" style="color:var(--success)" onclick="approve('${o.id}')"><i class="fa-solid fa-check"></i> Duyệt</button>
-                    ` : (o.license_key ? `<span style="color:var(--success)">${o.license_key}</span>` : '');
-                    tb.innerHTML += `<tr>
-                        <td>${o.id.substring(0,8)}</td>
-                        <td><b>${o.customer_name}</b><br><small style="color:var(--text-secondary)">${o.customer_email}</small></td>
-                        <td><span class="badge bg-primary">${o.plan}</span></td>
-                        <td>${new Date(o.created_at*1000).toLocaleString('vi-VN')}</td>
-                        <td>${st}</td>
-                        <td style="text-align:right">${act}</td>
-                    </tr>`;
-                });
-            }
-            document.getElementById('stat-pending').innerText = pendingCount;
-        }
-
-        async function approve(id) {
-            if(confirm('Duyệt đơn này và cấp Key?')) {
-                await fetchAPI(`/api/admin/orders/${id}/approve`, {method:'POST'});
-                showToast('Đã cấp key!'); loadOrders(); loadLicenses();
-            }
+            const data = await fetchAPI("/api/admin/orders");
+            const rows = (data.orders || []).map((order) => {
+                const actions = [];
+                if (order.status === "pending" && (role === "admin" || permissions.includes("approve"))) {
+                    actions.push(`<button class="btn-secondary" onclick="approveOrder('${order.id}')">Duyet</button>`);
+                }
+                if (order.status === "pending" && (role === "admin" || permissions.includes("reject"))) {
+                    actions.push(`<button class="btn-danger" onclick="rejectOrder('${order.id}')">Tu choi</button>`);
+                }
+                return `
+                    <tr>
+                        <td><code>${escapeHtml(order.id)}</code></td>
+                        <td><strong>${escapeHtml(order.customer_name)}</strong><div class="muted">${escapeHtml(order.customer_email)}</div></td>
+                        <td>${escapeHtml(order.plan)}</td>
+                        <td>${escapeHtml(order.quantity || 1)}</td>
+                        <td>${formatMoney(order.amount_total)}</td>
+                        <td>${formatDate(order.created_at)}</td>
+                        <td>${statusBadge(order.status)}</td>
+                        <td>${actions.join(" ") || `<span class="muted">${escapeHtml(order.license_key || "-")}</span>`}</td>
+                    </tr>
+                `;
+            }).join("");
+            document.getElementById("orders-tbody").innerHTML = rows || `<tr><td colspan="8" class="muted">Chua co don hang.</td></tr>`;
         }
 
         async function loadLicenses() {
-            const data = await fetchAPI('/api/admin/licenses');
-            const tb = document.getElementById('licenses-tbody');
-            tb.innerHTML = '';
-            if(data.licenses) {
-                document.getElementById('stat-active').innerText = data.licenses.length;
-                data.licenses.forEach(l => {
-                    tb.innerHTML += `<tr>
-                        <td style="color:var(--accent-primary); font-family:monospace; font-weight:bold;">${l.key}</td>
-                        <td>${l.user}</td>
-                        <td><span class="badge bg-primary">${l.plan}</span></td>
-                        <td>${new Date(l.expires_at*1000).toLocaleDateString('vi-VN')}</td>
-                        <td>${l.device_id||'Chưa Kích Hoạt'}</td>
-                        <td style="text-align:right"><button class="action-btn" style="color:var(--danger)" onclick="alert('Tính năng xóa chưa bật')"><i class="fa-solid fa-trash"></i></button></td>
-                    </tr>`;
-                });
-            }
+            const data = await fetchAPI("/api/admin/licenses");
+            const summary = data.summary || {};
+            document.getElementById("license-summary").innerHTML = `
+                <div class="mini-card"><h3>Tong license</h3><strong>${summary.total || 0}</strong></div>
+                <div class="mini-card"><h3>Chua su dung</h3><strong>${summary.unused || 0}</strong></div>
+                <div class="mini-card"><h3>Dang hoat dong</h3><strong>${summary.active || 0}</strong></div>
+                <div class="mini-card"><h3>Day seat</h3><strong>${summary.full || 0}</strong></div>
+                <div class="mini-card"><h3>Doanh nghiep</h3><strong>${summary.enterprise || 0}</strong></div>
+                <div class="mini-card"><h3>Seat da dung</h3><strong>${summary.used_seats || 0}/${summary.total_seats || 0}</strong></div>
+            `;
+
+            const rows = (data.items || []).map((item) => {
+                const devices = item.devices.length ? `
+                    <div class="device-list">
+                        ${item.devices.map((device) => `
+                            <div class="device-item">
+                                <div class="device-item-head">
+                                    <strong>${escapeHtml(device.machine_name || device.device_id)}</strong>
+                                    ${role === "admin" ? `<button class="btn-danger" style="padding:6px 10px;" onclick="revokeDevice('${item.license_key}', '${device.device_id}')">Thu hoi</button>` : ""}
+                                </div>
+                                <div class="muted">${escapeHtml(device.platform)} | ${escapeHtml(device.app_version || "-")} | het han ${formatDate(device.expires_at)}</div>
+                            </div>
+                        `).join("")}
+                    </div>
+                ` : `<span class="muted">Chua kich hoat</span>`;
+                return `
+                    <tr>
+                        <td><code>${escapeHtml(item.license_key)}</code></td>
+                        <td><strong>${escapeHtml(item.customer_name)}</strong></td>
+                        <td>
+                            ${statusBadge(item.status)}
+                            <div class="muted" style="margin-top:6px;">${escapeHtml(item.plan)} / ${escapeHtml(item.customer_type)}</div>
+                        </td>
+                        <td>${item.used_seats}/${item.seat_limit}<div class="muted">Trong ${item.available_seats}</div></td>
+                        <td><span class="pill">Revoked: ${item.revoked_devices}</span></td>
+                        <td>${devices}</td>
+                    </tr>
+                `;
+            }).join("");
+            document.getElementById("licenses-tbody").innerHTML = rows || `<tr><td colspan="6" class="muted">Chua co license.</td></tr>`;
+        }
+
+        async function loadStaff() {
+            if (role !== "admin") return;
+            const data = await fetchAPI("/api/admin/staff");
+            const rows = (data.staff || []).map((item) => `
+                <tr>
+                    <td><strong>${escapeHtml(item.username)}</strong></td>
+                    <td>${(item.permissions || []).map((p) => `<span class="pill">${escapeHtml(p)}</span>`).join("") || `<span class="muted">Khong co</span>`}</td>
+                    <td>
+                        <div class="inline-form">
+                            <div class="field">
+                                <input id="perm-${escapeHtml(item.username)}" type="text" value="${escapeHtml((item.permissions || []).join(","))}">
+                            </div>
+                            <button class="btn-secondary" onclick="updateStaff('${escapeHtml(item.username)}')">Luu</button>
+                        </div>
+                    </td>
+                    <td><button class="btn-danger" onclick="deleteStaff('${escapeHtml(item.username)}')">Xoa</button></td>
+                </tr>
+            `).join("");
+            document.getElementById("staff-tbody").innerHTML = rows || `<tr><td colspan="4" class="muted">Chua co tai khoan staff.</td></tr>`;
+        }
+
+        async function loadPricing() {
+            if (role !== "admin") return;
+            const data = await fetchAPI("/api/admin/pricing");
+            document.getElementById("price-basic").value = data.prices.basic || 0;
+            document.getElementById("price-personal").value = data.prices.personal || 0;
+            document.getElementById("price-enterprise").value = data.prices.enterprise || 0;
+        }
+
+        async function loadReleases() {
+            if (role !== "admin") return;
+            const data = await fetchAPI("/api/admin/releases");
+            const current = data.current || {};
+            document.getElementById("release-current").innerHTML = `
+                <div class="mini-card"><h3>Windows publish</h3><strong>${escapeHtml(current.win_version || "-")}</strong><div class="muted">${escapeHtml(current.win_url || "-")}</div></div>
+                <div class="mini-card"><h3>Portable publish</h3><strong>${current.portable_url ? "Dang co" : "Chua co"}</strong><div class="muted">${escapeHtml(current.portable_url || "-")}</div></div>
+                <div class="mini-card"><h3>macOS publish</h3><strong>${escapeHtml(current.mac_version || "-")}</strong><div class="muted">${escapeHtml(current.mac_url || "-")}</div></div>
+            `;
+            const rows = (data.items || []).map((item) => `
+                <tr>
+                    <td><strong>${escapeHtml(item.filename)}</strong><div class="muted">${escapeHtml(item.download_url)}</div></td>
+                    <td>${escapeHtml(item.platform)}</td>
+                    <td>${(item.size / 1024 / 1024).toFixed(1)} MB</td>
+                    <td><code>${escapeHtml(item.sha256 || "-")}</code></td>
+                    <td>${item.published ? statusBadge("active") : statusBadge("unused")}</td>
+                </tr>
+            `).join("");
+            document.getElementById("releases-tbody").innerHTML = rows || `<tr><td colspan="5" class="muted">Chua co file release.</td></tr>`;
         }
 
         async function loadUpdateConfig() {
-            const data = await fetchAPI('/api/admin/update-config');
-            if(data) {
-                document.getElementById('win_version').value = data.win_version || '';
-                document.getElementById('win_url').value = data.win_url || '';
-                document.getElementById('mac_version').value = data.mac_version || '';
-                document.getElementById('mac_url').value = data.mac_url || '';
-            }
+            if (role !== "admin") return;
+            const data = await fetchAPI("/api/admin/update-config");
+            [
+                "win_version", "win_url", "win_sha256", "portable_url", "portable_sha256",
+                "mac_version", "mac_url", "mac_sha256", "release_notes"
+            ].forEach((id) => {
+                document.getElementById(id).value = data[id] || "";
+            });
+            document.getElementById("mandatory").value = String(Boolean(data.mandatory));
         }
-        document.getElementById('update-form').addEventListener('submit', async(e)=>{
-            e.preventDefault();
-            const payload = {
-                win_version: document.getElementById('win_version').value,
-                win_url: document.getElementById('win_url').value,
-                mac_version: document.getElementById('mac_version').value,
-                mac_url: document.getElementById('mac_url').value,
-                release_notes: ''
-            };
-            const r = await fetchAPI('/api/admin/update-config', {method:'POST', body:JSON.stringify(payload)});
-            if(r.ok) showToast('Lưu cấu hình update thành công');
+
+        async function loadTab(tab) {
+            if (tab === "dashboard") return loadDashboard();
+            if (tab === "orders") return loadOrders();
+            if (tab === "licenses") return loadLicenses();
+            if (tab === "staff") return loadStaff();
+            if (tab === "pricing") return loadPricing();
+            if (tab === "releases") return loadReleases();
+            if (tab === "updates") return loadUpdateConfig();
+        }
+
+        async function approveOrder(orderId) {
+            if (!confirm("Duyet don nay va cap key?")) return;
+            await fetchAPI(`/api/admin/orders/${orderId}/approve`, { method: "POST" });
+            showToast("Da duyet don va cap key.");
+            await Promise.all([loadOrders(), loadDashboard(), loadLicenses()]);
+        }
+
+        async function rejectOrder(orderId) {
+            if (!confirm("Tu choi don nay?")) return;
+            await fetchAPI(`/api/admin/orders/${orderId}/reject`, { method: "POST" });
+            showToast("Da tu choi don.");
+            await Promise.all([loadOrders(), loadDashboard()]);
+        }
+
+        async function revokeDevice(licenseKey, deviceId) {
+            if (!confirm("Thu hoi thiet bi nay khoi license?")) return;
+            await fetchAPI(`/api/admin/licenses/${encodeURIComponent(licenseKey)}/revoke-device?device_id=${encodeURIComponent(deviceId)}`, {
+                method: "POST"
+            });
+            showToast("Da thu hoi thiet bi.");
+            await Promise.all([loadLicenses(), loadDashboard()]);
+        }
+
+        async function updateStaff(username) {
+            const value = document.getElementById(`perm-${username}`).value;
+            const permissionsValue = value.split(",").map((part) => part.trim()).filter(Boolean);
+            await fetchAPI(`/api/admin/staff/${encodeURIComponent(username)}`, {
+                method: "PUT",
+                body: JSON.stringify({ permissions: permissionsValue })
+            });
+            showToast("Da cap nhat quyen.");
+            await loadStaff();
+        }
+
+        async function deleteStaff(username) {
+            if (!confirm(`Xoa nhan su ${username}?`)) return;
+            await fetchAPI(`/api/admin/staff/${encodeURIComponent(username)}`, { method: "DELETE" });
+            showToast("Da xoa nhan su.");
+            await loadStaff();
+        }
+
+        document.getElementById("login-role").addEventListener("change", (e) => {
+            document.getElementById("username-field").classList.toggle("hidden", e.target.value !== "staff");
         });
+
+        document.getElementById("login-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const selectedRole = document.getElementById("login-role").value;
+            const password = document.getElementById("password").value;
+            try {
+                let data;
+                if (selectedRole === "admin") {
+                    const res = await fetch("/api/admin/login", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ password })
+                    });
+                    data = await res.json();
+                    if (!res.ok) throw new Error(data.detail || "Dang nhap that bai");
+                } else {
+                    const username = document.getElementById("username").value.trim();
+                    const res = await fetch("/api/staff/login", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ username, password })
+                    });
+                    data = await res.json();
+                    if (!res.ok) throw new Error(data.detail || "Dang nhap that bai");
+                }
+                token = data.token;
+                role = data.role || selectedRole;
+                permissions = data.permissions || [];
+                localStorage.setItem("admin_token", token);
+                localStorage.setItem("admin_role", role);
+                localStorage.setItem("admin_permissions", JSON.stringify(permissions));
+                document.getElementById("login-overlay").classList.add("hidden");
+                document.getElementById("app").classList.remove("hidden");
+                applyRoleUI();
+                activateTab("dashboard");
+                showToast("Dang nhap thanh cong.");
+            } catch (error) {
+                showToast(error.message || "Dang nhap that bai", true);
+            }
+        });
+
+        document.getElementById("logout-btn").addEventListener("click", () => {
+            localStorage.removeItem("admin_token");
+            localStorage.removeItem("admin_role");
+            localStorage.removeItem("admin_permissions");
+            location.reload();
+        });
+
+        document.getElementById("refresh-all").addEventListener("click", () => loadTab(currentTab));
+
+        document.querySelectorAll(".nav-item[data-tab]").forEach((node) => {
+            node.addEventListener("click", () => {
+                if (node.classList.contains("hidden")) return;
+                activateTab(node.dataset.tab);
+            });
+        });
+
+        document.getElementById("manual-license-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            try {
+                await fetchAPI("/api/admin/licenses/manual-create", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        customer_name: document.getElementById("manual-customer-name").value,
+                        plan: document.getElementById("manual-plan").value,
+                        seat_limit: Number(document.getElementById("manual-seat-limit").value || 1)
+                    })
+                });
+                showToast("Da tao key thu cong.");
+                e.target.reset();
+                document.getElementById("manual-seat-limit").value = 1;
+                await Promise.all([loadLicenses(), loadDashboard()]);
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
+        document.getElementById("staff-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            try {
+                await fetchAPI("/api/admin/staff", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        username: document.getElementById("staff-username").value.trim(),
+                        password: document.getElementById("staff-password").value,
+                        permissions: document.getElementById("staff-permissions").value.split(",").map((part) => part.trim()).filter(Boolean)
+                    })
+                });
+                showToast("Da tao nhan su.");
+                e.target.reset();
+                await loadStaff();
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
+        document.getElementById("pricing-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            try {
+                await fetchAPI("/api/admin/pricing", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        basic: Number(document.getElementById("price-basic").value || 0),
+                        personal: Number(document.getElementById("price-personal").value || 0),
+                        enterprise: Number(document.getElementById("price-enterprise").value || 0)
+                    })
+                });
+                showToast("Da luu bang gia.");
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
+        document.getElementById("release-upload-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const file = document.getElementById("upload-file").files[0];
+            if (!file) {
+                showToast("Chua chon file upload.", true);
+                return;
+            }
+            const form = new FormData();
+            form.append("platform", document.getElementById("upload-platform").value);
+            form.append("version", document.getElementById("upload-version").value.trim());
+            form.append("file", file);
+            try {
+                await fetchAPI("/api/admin/upload-release", {
+                    method: "POST",
+                    body: form,
+                    headers: {}
+                });
+                showToast("Upload release thanh cong.");
+                e.target.reset();
+                await Promise.all([loadReleases(), loadUpdateConfig()]);
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
+        document.getElementById("update-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            try {
+                await fetchAPI("/api/admin/update-config", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        win_version: document.getElementById("win_version").value.trim(),
+                        win_url: document.getElementById("win_url").value.trim(),
+                        win_sha256: document.getElementById("win_sha256").value.trim(),
+                        portable_url: document.getElementById("portable_url").value.trim(),
+                        portable_sha256: document.getElementById("portable_sha256").value.trim(),
+                        mac_version: document.getElementById("mac_version").value.trim(),
+                        mac_url: document.getElementById("mac_url").value.trim(),
+                        mac_sha256: document.getElementById("mac_sha256").value.trim(),
+                        release_notes: document.getElementById("release_notes").value.trim(),
+                        mandatory: document.getElementById("mandatory").value === "true"
+                    })
+                });
+                showToast("Da luu publish config.");
+                await Promise.all([loadUpdateConfig(), loadReleases()]);
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
+        if (token) {
+            document.getElementById("login-overlay").classList.add("hidden");
+            document.getElementById("app").classList.remove("hidden");
+            applyRoleUI();
+            activateTab("dashboard");
+        }
     </script>
 </body>
 </html>

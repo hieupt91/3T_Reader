@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import secrets as _secrets
+from datetime import datetime, timezone
 from pathlib import Path
 
 _KEY_PATTERN = re.compile(r'^3TR-[BPE]-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
@@ -48,6 +49,7 @@ _STATIC = Path(__file__).parent / "static"
 _active_tokens: set[str] = set()
 _staff_tokens: dict[str, dict] = {}  # token → {username, permissions}
 _bearer = HTTPBearer(auto_error=False)
+_LICENSE_PREFIX = {"basic": "3TR-B", "personal": "3TR-P", "enterprise": "3TR-E"}
 
 app = FastAPI(title=settings.app_name, version="0.3.0")
 
@@ -156,6 +158,96 @@ def _require_staff_or_admin(creds: HTTPAuthorizationCredentials | None = Depends
     if tok in _staff_tokens:
         return _staff_tokens[tok]
     raise HTTPException(status_code=401, detail="Phiên đăng nhập hết hạn")
+
+
+def _guess_customer_type(plan: str) -> str:
+    return "enterprise" if plan == "enterprise" else "personal"
+
+
+def _license_status(record) -> str:
+    if record.active_devices:
+        if len(record.active_devices) >= record.seat_limit:
+            return "full"
+        return "active"
+    if record.revoked_devices:
+        return "revoked"
+    return "unused"
+
+
+def _format_device(record, device_id: str, payload: dict) -> dict:
+    expires_at = payload.get("expires_at", "")
+    issued_at = payload.get("issued_at", "")
+    expired = license_service._is_expired(expires_at)
+    return {
+        "device_id": device_id,
+        "machine_name": payload.get("machine_name", ""),
+        "platform": payload.get("platform", ""),
+        "app_version": payload.get("app_version", ""),
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+        "status": "expired" if expired else "active",
+        "license_key": record.license_key,
+    }
+
+
+def _license_to_admin_item(record) -> dict:
+    devices = [
+        _format_device(record, device_id, payload)
+        for device_id, payload in sorted(record.active_devices.items())
+    ]
+    used_seats = len(record.active_devices)
+    revoked_count = len(record.revoked_devices)
+    return {
+        "license_key": record.license_key,
+        "customer_name": record.customer_name,
+        "plan": getattr(record, "plan", "personal"),
+        "customer_type": _guess_customer_type(getattr(record, "plan", "personal")),
+        "seat_limit": record.seat_limit,
+        "used_seats": used_seats,
+        "available_seats": max(0, record.seat_limit - used_seats),
+        "revoked_devices": revoked_count,
+        "status": _license_status(record),
+        "devices": devices,
+        "last_expires_at": max((d["expires_at"] for d in devices), default=""),
+    }
+
+
+def _build_license_summary(items: list[dict]) -> dict:
+    summary = {
+        "total": len(items),
+        "unused": 0,
+        "active": 0,
+        "full": 0,
+        "revoked": 0,
+        "enterprise": 0,
+        "personal": 0,
+        "total_seats": 0,
+        "used_seats": 0,
+    }
+    for item in items:
+        summary[item["status"]] = summary.get(item["status"], 0) + 1
+        summary[item["customer_type"]] = summary.get(item["customer_type"], 0) + 1
+        summary["total_seats"] += int(item["seat_limit"])
+        summary["used_seats"] += int(item["used_seats"])
+    return summary
+
+
+def _make_license_key(plan: str) -> str:
+    prefix = _LICENSE_PREFIX.get(plan, "3TR-P")
+    parts = [prefix] + [
+        "".join(_secrets.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") for _ in range(4))
+        for _ in range(3)
+    ]
+    return "-".join(parts)
+
+
+def _release_file_type(name: str) -> str:
+    lower = name.lower()
+    if lower.endswith(".dmg"):
+        return "mac"
+    if lower.endswith(".zip"):
+        return "win-portable"
+    return "win"
 
 
 @app.post("/api/admin/forgot-password")
@@ -511,6 +603,7 @@ class UpdateConfigRequest(BaseModel):
     release_notes: str | None = None
     mandatory: bool | None = None
     signature: str | None = None
+    prices: dict[str, int] | None = None
 
 
 @app.post("/api/admin/update-config")
@@ -523,31 +616,160 @@ def set_update_config(req: UpdateConfigRequest, _=Depends(_require_admin)) -> di
     return {"ok": True}
 
 @app.get("/api/admin/licenses")
-def admin_licenses() -> dict:
+def admin_licenses(_=Depends(_require_staff_or_admin)) -> dict:
+    items = [_license_to_admin_item(record) for record in license_service.licenses.values()]
+    items.sort(key=lambda item: (item["status"] != "active", item["customer_name"].lower(), item["license_key"]))
+    summary = _build_license_summary(items)
+    return {"items": items, "licenses": items, "summary": summary}
+
+
+class ManualLicenseCreateRequest(BaseModel):
+    customer_name: str
+    plan: str = "personal"
+    seat_limit: int = 1
+
+
+@app.post("/api/admin/licenses/manual-create")
+def admin_create_license(req: ManualLicenseCreateRequest, _=Depends(_require_admin)) -> dict:
+    customer_name = req.customer_name.strip()
+    plan = (req.plan or "personal").strip().lower()
+    seat_limit = max(1, min(int(req.seat_limit or 1), 500))
+    if not customer_name:
+        raise HTTPException(status_code=400, detail="Tên khách hàng không được để trống")
+    if plan not in {"basic", "personal", "enterprise"}:
+        raise HTTPException(status_code=400, detail="Plan không hợp lệ")
+    license_key = _make_license_key(plan)
+    from .models import LicenseRecord
+
+    record = LicenseRecord(
+        license_key=license_key,
+        customer_name=customer_name,
+        seat_limit=seat_limit,
+        plan=plan,
+    )
+    license_service.licenses[license_key] = record
+    license_service._save()
+    return {"ok": True, "item": _license_to_admin_item(record)}
+
+
+@app.post("/api/admin/licenses/{license_key}/revoke-device")
+def admin_revoke_device(license_key: str, device_id: str, _=Depends(_require_admin)) -> dict:
+    record = license_service.licenses.get(license_key)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy license key")
+    if device_id not in record.active_devices:
+        raise HTTPException(status_code=404, detail="Không tìm thấy thiết bị đang kích hoạt")
+    record.active_devices.pop(device_id, None)
+    record.revoked_devices.add(device_id)
+    license_service._save()
+    return {"ok": True, "item": _license_to_admin_item(record)}
+
+
+@app.get("/api/admin/pricing")
+def admin_get_pricing(_=Depends(_require_admin)) -> dict:
+    cfg = admin_config.get_update_config()
+    prices = admin_config.get_prices()
     return {
-        "items": [
-            {
-                "license_key": record.license_key,
-                "customer_name": record.customer_name,
-                "seat_limit": record.seat_limit,
-                "active_devices": len(record.active_devices),
-            }
-            for record in license_service.licenses.values()
-        ]
+        "prices": prices,
+        "plans": [
+            {"code": "basic", "label": "Cơ bản", "price": prices.get("basic", 300000)},
+            {"code": "personal", "label": "Cá nhân", "price": prices.get("personal", 500000)},
+            {"code": "enterprise", "label": "Doanh nghiệp", "price": prices.get("enterprise", 800000)},
+        ],
+        "mandatory_update": bool(cfg.get("mandatory", False)),
+    }
+
+
+class PricingUpdateRequest(BaseModel):
+    basic: int
+    personal: int
+    enterprise: int
+
+
+@app.post("/api/admin/pricing")
+def admin_set_pricing(req: PricingUpdateRequest, _=Depends(_require_admin)) -> dict:
+    current = admin_config.get_update_config()
+    current["prices"] = {
+        "basic": max(0, int(req.basic)),
+        "personal": max(0, int(req.personal)),
+        "enterprise": max(0, int(req.enterprise)),
+    }
+    admin_config.set_update_config(current)
+    return {"ok": True, "prices": current["prices"]}
+
+
+@app.get("/api/admin/releases")
+def admin_releases(_=Depends(_require_admin)) -> dict:
+    downloads_dir = Path(os.environ.get("THREET_DOWNLOADS_DIR", "/downloads"))
+    cfg = admin_config.get_update_config()
+    published_hashes = {
+        Path(cfg.get("win_url", "")).name: cfg.get("win_sha256", ""),
+        Path(cfg.get("mac_url", "")).name: cfg.get("mac_sha256", ""),
+        Path(cfg.get("portable_url", "")).name: cfg.get("portable_sha256", ""),
+    }
+    items: list[dict] = []
+    if downloads_dir.exists():
+        for path in sorted(downloads_dir.glob("3TReader-*"), key=lambda p: p.stat().st_mtime, reverse=True):
+            stat = path.stat()
+            sha256 = published_hashes.get(path.name, "")
+            items.append(
+                {
+                    "filename": path.name,
+                    "platform": _release_file_type(path.name),
+                    "size": stat.st_size,
+                    "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                    "download_url": f"{os.environ.get('THREET_PUBLIC_BASE_URL', 'https://reader.3tcomputer.com')}/downloads/{path.name}",
+                    "sha256": sha256,
+                    "published": path.name in {
+                        Path(cfg.get("win_url", "")).name,
+                        Path(cfg.get("mac_url", "")).name,
+                        Path(cfg.get("portable_url", "")).name,
+                    },
+                }
+            )
+    return {
+        "items": items,
+        "current": {
+            "win_version": cfg.get("win_version", ""),
+            "win_url": cfg.get("win_url", ""),
+            "mac_version": cfg.get("mac_version", ""),
+            "mac_url": cfg.get("mac_url", ""),
+            "portable_url": cfg.get("portable_url", ""),
+            "release_notes": cfg.get("release_notes", ""),
+            "mandatory": bool(cfg.get("mandatory", False)),
+        },
+    }
+
+
+@app.get("/api/admin/dashboard")
+def admin_dashboard(_=Depends(_require_staff_or_admin)) -> dict:
+    orders = order_store.list_orders()
+    licenses = [_license_to_admin_item(record) for record in license_service.licenses.values()]
+    devices = []
+    for item in licenses:
+        devices.extend(item["devices"])
+    return {
+        "orders": {
+            "total": len(orders),
+            "pending": sum(1 for order in orders if order.get("status") == "pending"),
+            "approved": sum(1 for order in orders if order.get("status") == "approved"),
+            "rejected": sum(1 for order in orders if order.get("status") == "rejected"),
+            "revenue_total": sum(int(order.get("amount_total") or 0) for order in orders if order.get("status") == "approved"),
+        },
+        "licenses": _build_license_summary(licenses),
+        "devices": {
+            "total": len(devices),
+            "windows": sum(1 for device in devices if device.get("platform") == "windows"),
+            "mac": sum(1 for device in devices if device.get("platform") == "darwin"),
+            "expired": sum(1 for device in devices if device.get("status") == "expired"),
+        },
     }
 
 
 @app.get("/api/admin/devices")
-def admin_devices() -> dict:
+def admin_devices(_=Depends(_require_staff_or_admin)) -> dict:
     devices = []
     for record in license_service.licenses.values():
         for device_id, payload in record.active_devices.items():
-            devices.append(
-                {
-                    "license_key": record.license_key,
-                    "device_id": device_id,
-                    "platform": payload.get("platform", ""),
-                    "app_version": payload.get("app_version", ""),
-                }
-            )
+            devices.append(_format_device(record, device_id, payload))
     return {"items": devices}
