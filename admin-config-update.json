@@ -1,0 +1,12 @@
+{
+  "win_version": "1.0.21",
+  "win_url": "https://reader.3tcomputer.com/downloads/3TReader-1.0.21-win-r3.exe",
+  "win_sha256": "D55E576DF79691C87B45AFAC71F9B855E08F5834CCBB945A3E5D4A8C80B6B452",
+  "release_notes": "Phiên bản 1.0.21: Tối ưu khởi động và nạp PDF cực nhanh. Nâng cấp Lazy Load.",
+  "mandatory": true,
+  "mac_version": "1.0.7",
+  "mac_url": "https://reader.3tcomputer.com/downloads/3TReader-1.0.7-mac.dmg",
+  "portable_url": "https://reader.3tcomputer.com/downloads/3TReader-1.0.21-win-portable-r3.zip",
+  "portable_sha256": "B08DC0E9DF71BCE8A85E74D5AFC9931C4DE79B650E6C14B96E62C897F0A1CD43",
+  "mac_sha256": "2688599fd909649c710255452d4dd0d80d54bdb1d4974c74466e975dab8f6fa9"
+}

@@ -1,0 +1,22 @@
+services:
+  license-api:
+    build:
+      context: ../..
+      dockerfile: infra/backend/Dockerfile
+    env_file:
+      - .env
+    environment:
+      THREET_ENV: production
+      THREET_DEFAULT_UPDATE_VERSION: 1.0.17
+      THREET_DEFAULT_UPDATE_URL: https://reader.3tcomputer.com/downloads/3TReader-1.0.17-win.exe
+      THREET_UPDATE_URL_MAC: https://reader.3tcomputer.com/downloads/3TReader-1.0.7-mac.dmg
+      THREET_UPDATE_URL_WIN: https://reader.3tcomputer.com/downloads/3TReader-1.0.17-win.exe
+      THREET_DATA_DIR: /data
+      THREET_STATE_FILE: license-api-state.json
+      THREET_DOWNLOADS_DIR: /downloads
+      THREET_PUBLIC_BASE_URL: https://reader.3tcomputer.com
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../data:/data
+      - ../../downloads:/downloads
