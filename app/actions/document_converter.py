@@ -140,6 +140,11 @@ def get_libreoffice_bin() -> str:
         
     if path.exists():
         return str(path)
+    if bin_dir.exists():
+        exe_name = "soffice.exe" if sys.platform == "win32" else "soffice"
+        for found in bin_dir.rglob(exe_name):
+            if found.parent.name in {"program", "MacOS"}:
+                return str(found)
         
     # Fallback to system wide
     if sys.platform == "win32":
@@ -148,7 +153,7 @@ def get_libreoffice_bin() -> str:
     elif sys.platform == "darwin":
         if os.path.exists("/Applications/LibreOffice.app/Contents/MacOS/soffice"):
             return "/Applications/LibreOffice.app/Contents/MacOS/soffice"
-            
+
     return ""
 
 def convert_image_to_pdf(img_path: str) -> str:
@@ -159,6 +164,12 @@ def convert_image_to_pdf(img_path: str) -> str:
         img = img.convert("RGB")
     img.save(out_pdf, "PDF", resolution=100.0)
     return out_pdf
+
+def _validate_pdf(path: Path) -> bool:
+    if not path.exists() or path.stat().st_size < 5:
+        return False
+    with open(path, "rb") as fh:
+        return fh.read(4) == b"%PDF"
 
 def convert_office_to_pdf(window, file_path: str) -> str:
     # 1. Check for LibreOffice
@@ -191,31 +202,50 @@ def convert_office_to_pdf(window, file_path: str) -> str:
     
     out_dir = Path(tempfile.gettempdir()) / "3t_reader_docs"
     out_dir.mkdir(parents=True, exist_ok=True)
+    expected_pdf = out_dir / (Path(file_path).stem + ".pdf")
+    expected_pdf.unlink(missing_ok=True)
+    profile_dir = Path(tempfile.mkdtemp(prefix="3t_lo_profile_"))
     
     try:
         # Optimize cold start speed by disabling all UI, locks, and recovery checks
         cmd = [
             lo_bin, "--headless", "--invisible", "--nodefault", 
             "--nofirststartwizard", "--nolockcheck", "--nologo", "--norestore", 
+            f"-env:UserInstallation={profile_dir.as_uri()}",
             "--convert-to", "pdf", "--outdir", str(out_dir), file_path
         ]
         
         if sys.platform == "win32":
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=startupinfo)
+            subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                startupinfo=startupinfo,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=180,
+            )
         else:
-            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
         
-        expected_pdf = out_dir / (Path(file_path).stem + ".pdf")
         progress_dlg.close()
         
-        if expected_pdf.exists():
+        if _validate_pdf(expected_pdf):
             return str(expected_pdf)
+        QMessageBox.warning(
+            window,
+            _t("common.error", "Lỗi"),
+            _t("doc.conv.fail", "Chuyển đổi thất bại: ") + "LibreOffice không tạo được PDF hợp lệ.",
+        )
     except Exception as e:
         progress_dlg.close()
         QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.conv.fail", "Chuyển đổi thất bại: ") + str(e))
         
+    finally:
+        shutil.rmtree(profile_dir, ignore_errors=True)
+
     return ""
 
 def handle_xml_itax(window):
@@ -232,7 +262,8 @@ def handle_xml_itax(window):
     if ans == QMessageBox.StandardButton.Yes:
         import time
         url = f"{MODULES_BASE_URL}/itaxviewer_installer.exe?v={int(time.time())}"
-        temp_exe = Path(tempfile.gettempdir()) / "itaxviewer_installer.exe"
+        temp_exe = get_bin_dir() / "itaxviewer" / "itaxviewer_installer.exe"
+        temp_exe.parent.mkdir(parents=True, exist_ok=True)
         
         progress_dlg = QProgressDialog(_t("doc.itax.dl", "Đang tải iTaxViewer..."), _t("common.cancel", "Hủy"), 0, 100, window)
         progress_dlg.setWindowTitle(_t("doc.dl.title", "Tải Module Mở Rộng"))
