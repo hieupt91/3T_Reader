@@ -276,6 +276,11 @@ class AITranslateDialog(QDialog):
         self._btn_copy.setEnabled(False)
         self._btn_copy.clicked.connect(self._on_copy)
         btn_row.addWidget(self._btn_copy)
+        
+        self._btn_tts = QPushButton("🔊 Đọc văn bản")
+        self._btn_tts.setEnabled(False)
+        self._btn_tts.clicked.connect(self._on_tts)
+        btn_row.addWidget(self._btn_tts)
 
         root.addLayout(btn_row)
 
@@ -463,6 +468,7 @@ class AITranslateDialog(QDialog):
             self._progress.setRange(0, 0)
         self._btn_save.setEnabled(not busy and bool(self._result_text))
         self._btn_copy.setEnabled(not busy and bool(self._result_text))
+        self._btn_tts.setEnabled(not busy and bool(self._result_text))
 
     def _on_range_toggle(self, all_pages: bool):
         self._from_spin.setEnabled(not all_pages)
@@ -631,6 +637,7 @@ class AITranslateDialog(QDialog):
             self._set_status(f"✅ Dịch hoàn thành ({engine_name} → {tgt_name})", "#4FC080")
             self._btn_save.setEnabled(True)
             self._btn_copy.setEnabled(True)
+            self._btn_tts.setEnabled(True)
         else:
             err = result.error if result else "Lỗi không xác định"
             widget.setPlainText(f"❌ Lỗi: {err}")
@@ -644,13 +651,25 @@ class AITranslateDialog(QDialog):
     # ── Save / Copy ───────────────────────────────────────────────────────────
 
     def _on_copy(self):
+        if not self._result_text:
+            return
         from packages.qt_compat.QtWidgets import QApplication
         QApplication.clipboard().setText(self._result_text)
+        self._lbl_status.setText("Đã sao chép vào Clipboard!")
         orig = self._btn_copy.text()
         self._btn_copy.setText("✅ Đã sao chép!")
         QTimer.singleShot(1500, lambda: self._btn_copy.setText(orig))
 
+    def _on_tts(self):
+        if not self._result_text:
+            return
+        from app.actions.tts_dialog import TTSDialog
+        dlg = TTSDialog(self, page_text=self._result_text, selected_text=self._result_text)
+        dlg.exec()
+
     def _on_save(self):
+        if not self._result_text:
+            return
         base = os.path.splitext(os.path.basename(self._pdf_path or "document"))[0]
         tgt = self._get_tgt()
         default_name = f"{base}_dichthuat_{tgt}.txt"
