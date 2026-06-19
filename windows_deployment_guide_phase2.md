@@ -53,14 +53,14 @@ Khong nen nen boc them thu muc cha ben ngoai. Code hien tai co fallback tim `sof
 Windows:
 
 ```text
-%APPDATA%\3T Reader\modules\bin_win\libreoffice\
-%APPDATA%\3T Reader\modules\bin_win\itaxviewer\itaxviewer_installer.exe
+%APPDATA%\3T Reader\modules\libreoffice\
+%APPDATA%\3T Reader\modules\itaxviewer\itaxviewer_installer.exe
 ```
 
-Cache tai ve:
+File tam tai ve:
 
 ```text
-%LOCALAPPDATA%\3T Reader\Cache\modules\
+%TEMP%\libreoffice_win.zip
 ```
 
 Cach nay tranh loi duong dan co dau tieng Viet trong thu muc project hoac Desktop.
@@ -80,8 +80,8 @@ Build exe nhe nhu binh thuong:
 1. Xoa module cu neu muon test lan dau:
 
 ```powershell
-Remove-Item "$env:APPDATA\3T Reader\modules\bin_win\libreoffice" -Recurse -Force
-Remove-Item "$env:APPDATA\3T Reader\modules\bin_win\itaxviewer" -Recurse -Force
+Remove-Item "$env:APPDATA\3T Reader\modules\libreoffice" -Recurse -Force
+Remove-Item "$env:APPDATA\3T Reader\modules\itaxviewer" -Recurse -Force
 ```
 
 2. Mo app va keo tha file `.docx` hoac `.xlsx`.
