@@ -20,12 +20,8 @@ def _t(key: str, default: str) -> str:
     return get_translation(get_selected_language(), key, default)
 
 def get_bin_dir() -> Path:
-    base_dir = Path(getattr(sys, "_MEIPASS", os.getcwd()))
-    if sys.platform == "win32":
-        return base_dir / "bin_win"
-    elif sys.platform == "darwin":
-        return base_dir / "bin_mac"
-    return base_dir / "bin"
+    from packages.platform import get_app_data_dir
+    return Path(get_app_data_dir()) / "modules"
 
 class DownloadThread(QThread):
     progress = pyqtSignal(int)
@@ -38,6 +34,11 @@ class DownloadThread(QThread):
 
     def run(self):
         try:
+            import ssl
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
             req = urllib.request.Request(self.url, headers={"User-Agent": "3T_Reader"})
             context = ssl._create_unverified_context()
             opener = urllib.request.build_opener(
@@ -62,7 +63,8 @@ class DownloadThread(QThread):
 def download_and_extract_libreoffice(window) -> bool:
     is_win = sys.platform == "win32"
     zip_name = "libreoffice_win.zip" if is_win else "libreoffice_mac.zip"
-    url = f"{MODULES_BASE_URL}/{zip_name}"
+    import time
+    url = f"{MODULES_BASE_URL}/{zip_name}?v={int(time.time())}"
     
     # We will download it to temp, then extract to get_bin_dir() / "libreoffice"
     temp_zip = Path(tempfile.gettempdir()) / zip_name
@@ -93,6 +95,9 @@ def download_and_extract_libreoffice(window) -> bool:
             thread.terminate()
             return False
             
+    thread.wait()
+    QApplication.processEvents()
+            
     if not success:
         QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.dl.fail", "Tải thất bại: ") + error_msg)
         return False
@@ -104,11 +109,17 @@ def download_and_extract_libreoffice(window) -> bool:
     QApplication.processEvents()
     
     try:
-        import zipfile
+        import subprocess
         dest_dir = get_bin_dir() / "libreoffice"
         dest_dir.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(temp_zip, 'r') as zip_ref:
-            zip_ref.extractall(dest_dir)
+        
+        if sys.platform == "win32":
+            import zipfile
+            with zipfile.ZipFile(temp_zip, 'r') as zip_ref:
+                zip_ref.extractall(dest_dir)
+        else:
+            subprocess.run(["unzip", "-q", "-o", str(temp_zip), "-d", str(dest_dir)], check=True)
+            
         temp_zip.unlink(missing_ok=True)
     except Exception as e:
         QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.dl.extract_fail", "Giải nén thất bại: ") + str(e))
@@ -182,8 +193,12 @@ def convert_office_to_pdf(window, file_path: str) -> str:
     out_dir.mkdir(parents=True, exist_ok=True)
     
     try:
-        # soffice --headless --convert-to pdf --outdir <dir> <file>
-        cmd = [lo_bin, "--headless", "--convert-to", "pdf", "--outdir", str(out_dir), file_path]
+        # Optimize cold start speed by disabling all UI, locks, and recovery checks
+        cmd = [
+            lo_bin, "--headless", "--invisible", "--nodefault", 
+            "--nofirststartwizard", "--nolockcheck", "--nologo", "--norestore", 
+            "--convert-to", "pdf", "--outdir", str(out_dir), file_path
+        ]
         
         if sys.platform == "win32":
             startupinfo = subprocess.STARTUPINFO()
@@ -204,14 +219,60 @@ def convert_office_to_pdf(window, file_path: str) -> str:
     return ""
 
 def handle_xml_itax(window):
+    if sys.platform != "win32":
+        QMessageBox.warning(window, _t("doc.itax.title", "File Thuế XML"), _t("doc.itax.nowin", "Tính năng đọc file Thuế XML (iTaxViewer) trên MacOS đang trong quá trình cập nhật.\nXin vui lòng chờ các phiên bản tiếp theo."))
+        return
+
     ans = QMessageBox.question(
         window,
         _t("doc.itax.title", "File Thuế XML"),
-        _t("doc.itax.prompt", "Để đọc định dạng XML đặc thù của Thuế, bạn cần cài đặt phần mềm iTaxViewer của Tổng cục Thuế, sau đó dùng lệnh In ra PDF (Print to PDF).\n\nBạn có muốn mở trang tải iTaxViewer không?"),
+        _t("doc.itax.prompt", "Để đọc định dạng XML đặc thù của Thuế, bạn cần cài đặt phần mềm iTaxViewer.\n\nBạn có muốn tải bản cài đặt chuẩn từ máy chủ 3T Reader không?"),
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
     )
     if ans == QMessageBox.StandardButton.Yes:
-        QDesktopServices.openUrl(QUrl("https://thuedientu.gdt.gov.vn/"))
+        import time
+        url = f"{MODULES_BASE_URL}/itaxviewer_installer.exe?v={int(time.time())}"
+        temp_exe = Path(tempfile.gettempdir()) / "itaxviewer_installer.exe"
+        
+        progress_dlg = QProgressDialog(_t("doc.itax.dl", "Đang tải iTaxViewer..."), _t("common.cancel", "Hủy"), 0, 100, window)
+        progress_dlg.setWindowTitle(_t("doc.dl.title", "Tải Module Mở Rộng"))
+        progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dlg.setAutoClose(True)
+        progress_dlg.show()
+        
+        thread = DownloadThread(url, temp_exe)
+        thread.progress.connect(progress_dlg.setValue)
+        
+        success = False
+        error_msg = ""
+        
+        def on_finished(ok, err):
+            nonlocal success, error_msg
+            success = ok
+            error_msg = err
+            
+        thread.finished_dl.connect(on_finished)
+        thread.start()
+        
+        while thread.isRunning():
+            QApplication.processEvents()
+            if progress_dlg.wasCanceled():
+                thread.terminate()
+                return
+                
+        thread.wait()
+        QApplication.processEvents()
+                
+        if not success:
+            QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.dl.fail", "Tải thất bại: ") + error_msg)
+            return
+            
+        # Run installer
+        try:
+            import os
+            os.startfile(str(temp_exe))
+        except Exception as e:
+            QMessageBox.warning(window, _t("common.error", "Lỗi"), str(e))
 
 def process_file_and_open(window, file_path: str):
     """

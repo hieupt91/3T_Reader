@@ -64,12 +64,17 @@ def _sidebar_urls(window) -> list[QUrl]:
     return [QUrl.fromLocalFile(path) for path in paths]
 
 
-def _pick_pdf_file(window):
+def _pick_document_file(window):
     import sys
     dialog = QFileDialog(window)
-    dialog.setWindowTitle("Chọn tệp PDF")
+    dialog.setWindowTitle("Chọn tệp tài liệu")
     dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
-    dialog.setNameFilters(["Tệp PDF (*.pdf)", "Tất cả tệp (*)"])
+    dialog.setNameFilters([
+        "Tài liệu (*.pdf *.png *.jpg *.jpeg *.bmp *.doc *.docx *.xls *.xlsx *.xml)", 
+        "Tệp PDF (*.pdf)", 
+        "Hình ảnh (*.png *.jpg *.jpeg *.bmp)",
+        "Tất cả tệp (*)"
+    ])
     default_dir = _default_open_dir(window)
     if default_dir:
         dialog.setDirectory(default_dir)
@@ -78,11 +83,8 @@ def _pick_pdf_file(window):
         dialog.setSidebarUrls(sidebar_urls)
 
     if sys.platform in {"darwin", "win32"}:
-        # Native dialogs expose the OS locations users expect: Quick Access,
-        # This PC, Desktop/Documents/Downloads, external drives and network.
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, False)
     else:
-        # Linux: non-native dialog with Vietnamese labels.
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
         dialog.setLabelText(QFileDialog.DialogLabel.LookIn, "Tìm trong")
         dialog.setLabelText(QFileDialog.DialogLabel.FileName, "Tên tệp")
@@ -98,9 +100,14 @@ def _pick_pdf_file(window):
 
 def open_file(window, path=None):
     if not path:
-        path = _pick_pdf_file(window)
+        path = _pick_document_file(window)
     if path:
-        prepared = _prepare_pdf_source(window, path)
+        from app.actions.document_converter import process_file_and_open
+        pdf_path = process_file_and_open(window, path)
+        if not pdf_path:
+            return
+            
+        prepared = _prepare_pdf_source(window, pdf_path)
         if not prepared:
             return
 
