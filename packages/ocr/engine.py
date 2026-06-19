@@ -57,6 +57,13 @@ def _candidate_tesseract_paths() -> list[str]:
             str(Path(meipass) / "Tesseract-OCR" / exe_name),
             str(Path(meipass) / "third_party" / "tesseract" / exe_name)
         ])
+        
+    # Thêm đường dẫn chuẩn theo TIEU_CHUAN_DONG_BO_WIN_MAC
+    if sys.platform == "win32":
+        candidates.append(str(app_dir / "bin_win" / "tesseract" / exe_name))
+    elif sys.platform == "darwin":
+        candidates.append(str(app_dir / "bin_mac" / "tesseract" / exe_name))
+
     candidates.extend([
         str(app_dir / "Tesseract-OCR" / exe_name),
         str(app_dir / "third_party" / "tesseract" / exe_name),

@@ -33,7 +33,9 @@ def _current_base_dir() -> Path:
 
 def get_bundled_piper_models_dir() -> Path:
     if os.name == "nt":
-        return _current_base_dir() / "piper_bin" / "models"
+        return _current_base_dir() / "bin_win" / "piper_bin" / "models"
+    elif sys.platform == "darwin":
+        return _current_base_dir() / "bin_mac" / "piper_bin" / "models"
     return _current_base_dir() / "venv_piper" / "models"
 
 
@@ -48,8 +50,15 @@ def get_local_piper_engine_path() -> Path:
     base_dir = _current_base_dir()
     if os.name == "nt":
         candidates = [
+            base_dir / "bin_win" / "piper_bin" / "piper.exe",
+            base_dir / "bin_win" / "piper_bin" / "piper" / "piper.exe",
             base_dir / "piper_bin" / "piper.exe",
             base_dir / "piper_bin" / "piper" / "piper.exe",
+        ]
+    elif sys.platform == "darwin":
+        candidates = [
+            base_dir / "bin_mac" / "piper_bin" / "piper",
+            base_dir / "venv_piper" / "bin" / "piper"
         ]
     else:
         candidates = [base_dir / "venv_piper" / "bin" / "piper"]
