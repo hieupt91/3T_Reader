@@ -7,8 +7,8 @@ set -e
 
 APP_NAME="3T Reader"
 APP_BUNDLE="3T Reader.app"
-DMG_NAME="3T_Reader_mac_1.0.19"
-VERSION="1.0.19"
+DMG_NAME="3T_Reader_mac_1.0.20"
+VERSION="1.0.20"
 BUILD_DIR="dist"
 
 echo "╔══════════════════════════════════════════════╗"
