@@ -154,6 +154,24 @@ class AITranslateDialog(QDialog):
             self._input_edit.setPlainText(self._selected_text)
             QTimer.singleShot(300, self._auto_detect_input)
 
+    def _cleanup(self):
+        # Dừng hiệu ứng indeterminate của QProgressBar để tránh crash QUnifiedTimer
+        if hasattr(self, "_progress"):
+            self._progress.setRange(0, 100)
+            self._progress.setVisible(False)
+        # Dừng luồng nền nếu đang chạy
+        if getattr(self, "_thread", None) and self._thread.isRunning():
+            self._thread.quit()
+            self._thread.wait(500)
+
+    def closeEvent(self, event):
+        self._cleanup()
+        super().closeEvent(event)
+
+    def reject(self):
+        self._cleanup()
+        super().reject()
+
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
