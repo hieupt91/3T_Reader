@@ -8,7 +8,7 @@ def check_imports():
             for file in files:
                 if file.endswith('.py') and file != '__init__.py':
                     path = os.path.join(root, file)
-                    mod_name = path.replace('/', '.').replace('\\\\', '.')[:-3]
+                    mod_name = path.replace('/', '.').replace('\\', '.')[:-3]
                     try:
                         importlib.import_module(mod_name)
                     except Exception as e:

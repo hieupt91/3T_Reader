@@ -1,10 +1,13 @@
+from __future__ import annotations
 import os
 import re
 import uuid
 import json
+import typing
 from datetime import datetime, timezone
 
-import pikepdf
+if typing.TYPE_CHECKING:
+    import pikepdf
 
 from packages.qt_compat.QtCore import QObject, QEventLoop, QTimer, pyqtSlot
 from packages.qt_compat.QtWidgets import (
@@ -46,6 +49,7 @@ def _get_current_page(window) -> int:
 
 def _save_pikepdf_reload(window, pdf: pikepdf.Pdf, *, keep_page: bool = True):
     """Save pikepdf doc atomically to the active document and reload viewer."""
+    import pikepdf
     target_path = window.current_path
     if not target_path:
         raise ValueError("Không tìm thấy đường dẫn tài liệu hiện tại.")
@@ -127,6 +131,7 @@ class _AnnotationOpQueue(QObject):
 
         staged_path = ""
         try:
+            import pikepdf
             with pikepdf.open(requested_target) as pdf:
                 for _path, op in same_target:
                     op(pdf)
@@ -227,6 +232,7 @@ def _flush_annotations_before_heavy_op(window, target_path: str, operation_label
 
 
 def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str) -> None:
+    import pikepdf
     staged_path = ""
     try:
         staged_path = make_staged_pdf_path(target_path)
@@ -292,6 +298,7 @@ def _merge_rects_by_line(rects: list[tuple]) -> list[tuple[float, float, float, 
 
 
 def _pdf_date_now() -> pikepdf.String:
+    import pikepdf
     now = datetime.now(timezone.utc)
     return pikepdf.String(now.strftime("D:%Y%m%d%H%M%SZ"))
 
@@ -321,6 +328,7 @@ def _annotation_id(annot) -> str:
 def load_annotations(pdf_path: str, page_no: int | None = None) -> list[dict]:
     """Load supported PDF annotations. Currently exposes Text notes for the comment panel path."""
     items: list[dict] = []
+    import pikepdf
     with pikepdf.open(pdf_path) as pdf:
         for idx, page in enumerate(pdf.pages, start=1):
             if page_no is not None and idx != int(page_no):
@@ -444,6 +452,7 @@ def add_annotation(
     annot_id: str | None = None,
 ) -> str:
     """Add one supported annotation and return its stable PDF annotation id."""
+    import pikepdf
     if subtype != "Text":
         raise ValueError(f"Unsupported annotation subtype: {subtype}")
 
@@ -887,6 +896,7 @@ class _NoteToolsBridge(QObject):
             if not note:
                 show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
                 return
+            import pikepdf
             with pikepdf.open(self._pdf_path) as pdf:
                 if not _delete_note_by_id(pdf, note_id=note_id):
                     show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
@@ -1065,6 +1075,7 @@ def _update_note_rect_by_id(
     note_id: str,
     new_rect: tuple[float, float, float, float],
 ) -> bool:
+    import pikepdf
     page = pdf.pages[page_idx]
     annots = page.get("/Annots", [])
     for annot_idx, annot in enumerate(annots):
@@ -1084,6 +1095,7 @@ def _update_note_rect_by_id(
 
 
 def _update_note_content_by_id(pdf: pikepdf.Pdf, *, note_id: str, content: str) -> bool:
+    import pikepdf
     for page_idx, page in enumerate(pdf.pages):
         annots = page.get("/Annots", [])
         for annot_idx, annot in enumerate(annots):
@@ -1103,6 +1115,7 @@ def _update_note_content_by_id(pdf: pikepdf.Pdf, *, note_id: str, content: str) 
 
 
 def _delete_note_by_id(pdf: pikepdf.Pdf, *, note_id: str) -> bool:
+    import pikepdf
     for page_idx, page in enumerate(pdf.pages):
         annots = page.get("/Annots", None)
         if annots is None:
@@ -1122,6 +1135,7 @@ def _delete_note_by_id(pdf: pikepdf.Pdf, *, note_id: str) -> bool:
 
 
 def _delete_annotations_by_ids(pdf: pikepdf.Pdf, annot_ids: list[str]) -> int:
+    import pikepdf
     targets = {str(item) for item in annot_ids if str(item)}
     if not targets:
         return 0
@@ -1423,6 +1437,7 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
                          content: str = "",
                          annot_ids: list[str] | None = None):
     """Add Highlight/Underline/StrikeOut/Text annotation using pikepdf."""
+    import pikepdf
     _SUBTYPE = {
         "Highlight":  "/Highlight",
         "Underline":  "/Underline",
@@ -1777,6 +1792,7 @@ def _rotate_page(window, degrees: int):
             from app.actions._pdf_save import make_staged_pdf_path, remove_path_quietly
             tmp = make_staged_pdf_path(path)
             try:
+                import pikepdf
                 with pikepdf.open(path) as pdf:
                     page = pdf.pages[page_no - 1]
                     try:
@@ -1812,6 +1828,7 @@ def delete_current_page(window):
     if not _flush_annotations_before_heavy_op(window, path, "xoa trang"):
         return
     try:
+        import pikepdf
         with pikepdf.open(path) as pdf:
             total = len(pdf.pages)
             if total <= 1:
@@ -1848,6 +1865,7 @@ def merge_pdf(window):
     if not _flush_annotations_before_heavy_op(window, path, "ghep PDF"):
         return
     try:
+        import pikepdf
         with pikepdf.open(path) as pdf:
             with pikepdf.open(other_path) as other:
                 pdf.pages.extend(other.pages)
@@ -1865,6 +1883,7 @@ def merge_pdf(window):
 def extract_pages(window):
     """Extract a range of pages to a new PDF file."""
     path = window.current_path
+    import pikepdf
     with pikepdf.open(path) as _tmp:
         total = len(_tmp.pages)
 
@@ -1888,6 +1907,7 @@ def extract_pages(window):
         return
 
     try:
+        import pikepdf
         dst = pikepdf.Pdf.new()
         with pikepdf.open(path) as src:
             for p in pages:
