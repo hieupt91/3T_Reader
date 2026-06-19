@@ -378,7 +378,7 @@ def _google_translate_text(text: str, source_lang: str, target_lang: str) -> Tra
 
 def _offline_translate_text(text: str, source_lang: str, target_lang: str) -> TranslationResult:
     """Dịch bằng từ điển cục bộ hoặc AI offline (download từ VPS)."""
-    import os, json, re
+    import os, json, re, urllib.request
     from packages.platform import get_app_data_dir
     
     # Đường dẫn lưu gói ngôn ngữ offline tải từ VPS
@@ -386,31 +386,35 @@ def _offline_translate_text(text: str, source_lang: str, target_lang: str) -> Tr
     os.makedirs(offline_dir, exist_ok=True)
     dict_file = os.path.join(offline_dir, f"{source_lang}_{target_lang}.json")
     
-    # MÔ PHỎNG: Tải gói từ điển từ VPS nếu chưa có
+    # Tải gói từ điển từ VPS nếu chưa có trên máy khách
     if not os.path.exists(dict_file):
-        if source_lang == "en" and target_lang == "vi":
-            sample_dict = {
-                "hello": "xin chào", "world": "thế giới", "test": "kiểm tra", 
-                "document": "tài liệu", "translate": "dịch", "offline": "ngoại tuyến",
-                "this": "đây", "is": "là", "a": "một", "system": "hệ thống"
-            }
-        elif source_lang == "vi" and target_lang == "en":
-            sample_dict = {
-                "xin chào": "hello", "thế giới": "world", "kiểm tra": "test", 
-                "tài liệu": "document", "dịch": "translate", "ngoại tuyến": "offline",
-                "đây": "this", "là": "is", "một": "a", "hệ thống": "system"
-            }
-        else:
-            return TranslationResult(
-                original=text, translated="", source_lang=source_lang,
-                target_lang=target_lang, engine="offline",
-                error=f"Hiện tại trên VPS chưa có gói dữ liệu dịch: {source_lang.upper()} → {target_lang.upper()}."
-            )
-        # Lưu file từ điển mô phỏng việc tải thành công từ VPS
-        with open(dict_file, "w", encoding="utf-8") as f:
-            json.dump(sample_dict, f, ensure_ascii=False, indent=2)
+        vps_url = f"https://ssh.3tcomputer.com/static/dicts/{source_lang}_{target_lang}.json"
+        try:
+            req = urllib.request.Request(vps_url, headers={'User-Agent': 'Mozilla/5.0 3T-Reader'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                if response.status == 200:
+                    data = response.read().decode('utf-8')
+                    with open(dict_file, "w", encoding="utf-8") as f:
+                        f.write(data)
+                else:
+                    raise Exception(f"HTTP {response.status}")
+        except Exception as e:
+            # Fallback an toàn nếu chưa up từ điển lên VPS thành công
+            if source_lang == "en" and target_lang == "vi":
+                sample_dict = {"hello": "xin chào", "world": "thế giới", "test": "kiểm tra", "document": "tài liệu", "translate": "dịch", "offline": "ngoại tuyến", "this": "đây", "is": "là", "a": "một", "system": "hệ thống"}
+            elif source_lang == "vi" and target_lang == "en":
+                sample_dict = {"xin chào": "hello", "thế giới": "world", "kiểm tra": "test", "tài liệu": "document", "dịch": "translate", "ngoại tuyến": "offline", "đây": "this", "là": "is", "một": "a", "hệ thống": "system"}
+            else:
+                return TranslationResult(
+                    original=text, translated="", source_lang=source_lang,
+                    target_lang=target_lang, engine="offline",
+                    error=f"Lỗi tải từ điển từ VPS: {e}"
+                )
+            # Lưu file từ điển dự phòng
+            with open(dict_file, "w", encoding="utf-8") as f:
+                json.dump(sample_dict, f, ensure_ascii=False, indent=2)
             
-    # Đọc dữ liệu từ điển offline
+    # Đọc dữ liệu từ điển offline đã được tải về
     with open(dict_file, "r", encoding="utf-8") as f:
         dictionary = json.load(f)
         
