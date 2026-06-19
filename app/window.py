@@ -2463,21 +2463,25 @@ class PDFReaderApp(QMainWindow):
         dlg.exec()
 
     def _show_pdf_context_menu(self, viewer, pos):
+        viewer._web_view.page().runJavaScript(
+            "window.getSelection().toString().trim()",
+            lambda text: self._build_and_show_pdf_context_menu(viewer, pos, text)
+        )
+
+    def _build_and_show_pdf_context_menu(self, viewer, pos, selected_text):
         from packages.qt_compat.QtWidgets import QMenu
         from app.actions.sign import sign_document
         from app.actions.edit import insert_text_to_pdf, insert_image_to_pdf
         
         menu = QMenu(self)
         
-        has_selection = viewer._web_view.page().hasSelection()
-        if has_selection:
-            from packages.qt_compat.QtWebEngineCore import QWebEnginePage
+        if selected_text:
             act_copy = menu.addAction("✂️ Sao chép văn bản")
-            act_copy.triggered.connect(lambda: viewer._web_view.page().triggerAction(QWebEnginePage.WebAction.Copy))
+            act_copy.triggered.connect(lambda: viewer._web_view.page().runJavaScript("document.execCommand('copy')"))
             
             act_trans = menu.addAction("🌐 Dịch đoạn văn bản này")
             from app.actions.ai_actions import open_translate_dialog
-            act_trans.triggered.connect(lambda: open_translate_dialog(self, viewer._web_view.page().selectedText()))
+            act_trans.triggered.connect(lambda: open_translate_dialog(self, selected_text))
             
             menu.addSeparator()
 
