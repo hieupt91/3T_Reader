@@ -248,6 +248,42 @@ def convert_office_to_pdf(window, file_path: str) -> str:
 
     return ""
 
+def _find_itaxviewer_exe() -> str:
+    if sys.platform != "win32":
+        return ""
+
+    candidates = [
+        Path(os.environ.get("ProgramFiles(x86)", "")) / "iTax Viewer" / "iTaxViewer.exe",
+        Path(os.environ.get("ProgramFiles", "")) / "iTax Viewer" / "iTaxViewer.exe",
+        get_bin_dir() / "itaxviewer" / "iTaxViewer.exe",
+    ]
+    for path in candidates:
+        if path.exists():
+            return str(path)
+
+    for root in (os.environ.get("ProgramFiles(x86)", ""), os.environ.get("ProgramFiles", "")):
+        if not root:
+            continue
+        base = Path(root)
+        if base.exists():
+            for found in base.glob("iTax*/**/iTaxViewer.exe"):
+                return str(found)
+    return ""
+
+def _open_xml_with_itaxviewer(window, xml_path: str) -> bool:
+    exe = _find_itaxviewer_exe()
+    if not exe:
+        return False
+    try:
+        subprocess.Popen([exe, xml_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        status = getattr(window, "status", None)
+        if status is not None:
+            status.showMessage("Đã mở file XML bằng iTaxViewer.", 5000)
+        return True
+    except Exception as e:
+        QMessageBox.warning(window, _t("common.error", "Lỗi"), str(e))
+        return False
+
 def _run_itax_installer_silent(window, installer_path: Path) -> bool:
     try:
         startupinfo = subprocess.STARTUPINFO()
@@ -261,7 +297,7 @@ def _run_itax_installer_silent(window, installer_path: Path) -> bool:
         if hasattr(subprocess, "CREATE_NO_WINDOW"):
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-        subprocess.Popen(
+        proc = subprocess.Popen(
             [
                 str(installer_path),
                 "/VERYSILENT",
@@ -274,14 +310,24 @@ def _run_itax_installer_silent(window, installer_path: Path) -> bool:
         status = getattr(window, "status", None)
         if status is not None:
             status.showMessage("Đang cài iTaxViewer ở chế độ nền...", 5000)
-        return True
+        progress = QProgressDialog("Đang cài iTaxViewer ở chế độ nền...", "", 0, 0, window)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setCancelButton(None)
+        progress.show()
+        while proc.poll() is None:
+            QApplication.processEvents()
+        progress.close()
+        return proc.returncode == 0
     except Exception as e:
         QMessageBox.warning(window, _t("common.error", "Lỗi"), str(e))
         return False
 
-def handle_xml_itax(window):
+def handle_xml_itax(window, file_path: str):
     if sys.platform != "win32":
         QMessageBox.warning(window, _t("doc.itax.title", "File Thuế XML"), _t("doc.itax.nowin", "Tính năng đọc file Thuế XML (iTaxViewer) trên MacOS đang trong quá trình cập nhật.\nXin vui lòng chờ các phiên bản tiếp theo."))
+        return
+
+    if _open_xml_with_itaxviewer(window, file_path):
         return
 
     ans = QMessageBox.question(
@@ -329,7 +375,9 @@ def handle_xml_itax(window):
             QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.dl.fail", "Tải thất bại: ") + error_msg)
             return
             
-        _run_itax_installer_silent(window, temp_exe)
+        if _run_itax_installer_silent(window, temp_exe):
+            if not _open_xml_with_itaxviewer(window, file_path):
+                QMessageBox.warning(window, _t("common.error", "Lỗi"), "Đã cài iTaxViewer nhưng chưa tìm thấy iTaxViewer.exe để mở file XML.")
 
 def process_file_and_open(window, file_path: str):
     """
@@ -348,7 +396,7 @@ def process_file_and_open(window, file_path: str):
         return convert_office_to_pdf(window, file_path)
         
     if ext == ".xml":
-        handle_xml_itax(window)
+        handle_xml_itax(window, file_path)
         return ""
         
     QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.unsupported", f"Định dạng {ext} chưa được hỗ trợ."))
