@@ -203,8 +203,17 @@ def fetch_available_piper_voices() -> list[PiperVoiceInfo]:
             json_path = local_dir / f"{v_id}.onnx.json"
             is_dl = onnx_path.exists() and json_path.exists()
             
-            onnx_url = urljoin(resolved_index_url, item["onnx_url"])
-            json_url = urljoin(resolved_index_url, item["json_url"])
+            raw_onnx = item["onnx_url"]
+            raw_json = item["json_url"]
+            
+            # Hotfix cho trường hợp VPS trả về nhầm URL localhost
+            if raw_onnx.startswith("http://127.0.0.1:8080/"):
+                raw_onnx = raw_onnx.replace("http://127.0.0.1:8080/", "")
+            if raw_json.startswith("http://127.0.0.1:8080/"):
+                raw_json = raw_json.replace("http://127.0.0.1:8080/", "")
+                
+            onnx_url = urljoin(resolved_index_url, raw_onnx)
+            json_url = urljoin(resolved_index_url, raw_json)
             
             if v_id in voices_by_id:
                 # Update existing local voice with full info from VPS
