@@ -88,7 +88,7 @@ Remove-Item "$env:APPDATA\3T Reader\modules\itaxviewer" -Recurse -Force
 3. Dong y tai LibreOffice module.
 4. Xac nhan thanh progress chay, module bung vao `%APPDATA%`, va file duoc convert sang PDF hop le.
 5. Keo tha file `.xml`.
-6. Dong y tai iTaxViewer, xac nhan installer duoc luu vao `%APPDATA%`, chay ngam bang che do silent, sau do tu mo file XML vua chon.
+6. Keo tha XML se render thanh PDF va mo ngay trong 3T Reader. iTaxViewer chi dung lam module du phong khi can mo bang phan mem thue rieng.
 
 ## Loi thuong gap
 

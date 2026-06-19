@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 import ssl
 import urllib.request
+import xml.etree.ElementTree as ET
 
 from packages.qt_compat.QtWidgets import QMessageBox, QProgressDialog, QApplication
 from packages.qt_compat.QtCore import Qt, QThread, pyqtSignal, QUrl
@@ -164,6 +165,235 @@ def convert_image_to_pdf(img_path: str) -> str:
         img = img.convert("RGB")
     img.save(out_pdf, "PDF", resolution=100.0)
     return out_pdf
+
+def _xml_tag_name(tag: str) -> str:
+    return str(tag).split("}", 1)[-1].split(":", 1)[-1]
+
+def _xml_child(node, name: str):
+    if node is None:
+        return None
+    for child in list(node):
+        if _xml_tag_name(child.tag) == name:
+            return child
+    return None
+
+def _xml_children(node, name: str) -> list:
+    if node is None:
+        return []
+    return [child for child in list(node) if _xml_tag_name(child.tag) == name]
+
+def _xml_path(node, *names: str):
+    current = node
+    for name in names:
+        current = _xml_child(current, name)
+        if current is None:
+            return None
+    return current
+
+def _xml_text(node, *names: str) -> str:
+    target = _xml_path(node, *names) if names else node
+    return (target.text or "").strip() if target is not None else ""
+
+def _fmt_number(value: str) -> str:
+    try:
+        number = float(str(value).replace(",", ""))
+    except Exception:
+        return value or ""
+    if abs(number - round(number)) < 0.000001:
+        return f"{int(round(number)):,}"
+    return f"{number:,.2f}".rstrip("0").rstrip(".")
+
+def _draw_wrapped(c, text: str, x: float, y: float, width: float, font: str, size: float, leading: float) -> float:
+    from reportlab.lib.utils import simpleSplit
+
+    lines = simpleSplit(str(text or ""), font, size, width) or [""]
+    c.setFont(font, size)
+    for line in lines:
+        c.drawString(x, y, line)
+        y -= leading
+    return y
+
+def convert_xml_to_pdf(xml_path: str) -> str:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.utils import simpleSplit
+    from app.actions.document_ops import _resolve_reportlab_font
+
+    root = ET.parse(xml_path).getroot()
+    out_dir = Path(tempfile.gettempdir()) / "3t_reader_xml"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_pdf = out_dir / (Path(xml_path).stem + ".pdf")
+
+    c = canvas.Canvas(str(out_pdf), pagesize=A4)
+    page_w, page_h = A4
+    margin = 36
+    usable_w = page_w - margin * 2
+    y = page_h - margin
+    font = _resolve_reportlab_font(False)
+    bold = _resolve_reportlab_font(True)
+
+    def new_page():
+        nonlocal y
+        c.showPage()
+        y = page_h - margin
+
+    def ensure(height: float):
+        if y - height < margin:
+            new_page()
+
+    def section(title: str):
+        nonlocal y
+        ensure(28)
+        y -= 6
+        c.setFillColor(colors.HexColor("#eef3ff"))
+        c.rect(margin, y - 16, usable_w, 20, fill=1, stroke=0)
+        c.setFillColor(colors.HexColor("#102a43"))
+        c.setFont(bold, 11)
+        c.drawString(margin + 6, y - 10, title)
+        y -= 28
+        c.setFillColor(colors.black)
+
+    def kv(label: str, value: str):
+        nonlocal y
+        value = str(value or "").strip()
+        if not value:
+            return
+        text = f"{label}: {value}"
+        lines = simpleSplit(text, font, 9, usable_w)
+        ensure(max(14, len(lines) * 11))
+        c.setFont(font, 9)
+        for line in lines:
+            c.drawString(margin + 4, y, line)
+            y -= 11
+
+    def table_header(cols, widths):
+        nonlocal y
+        ensure(24)
+        x = margin
+        c.setFillColor(colors.HexColor("#e5e7eb"))
+        c.rect(margin, y - 16, sum(widths), 18, fill=1, stroke=1)
+        c.setFillColor(colors.black)
+        c.setFont(bold, 8)
+        for col, width in zip(cols, widths):
+            c.drawString(x + 3, y - 11, col)
+            x += width
+        y -= 18
+
+    def table_row(values, widths):
+        nonlocal y
+        wrapped = [simpleSplit(str(value or ""), font, 8, width - 5) or [""] for value, width in zip(values, widths)]
+        row_h = max(18, max(len(lines) for lines in wrapped) * 10 + 6)
+        if y - row_h < margin:
+            new_page()
+            table_header(["STT", "Tên hàng hóa/dịch vụ", "ĐVT", "SL", "Đơn giá", "Thành tiền", "Thuế"], widths)
+        x = margin
+        c.setFont(font, 8)
+        for lines, width in zip(wrapped, widths):
+            c.rect(x, y - row_h, width, row_h, fill=0, stroke=1)
+            yy = y - 11
+            for line in lines:
+                c.drawString(x + 3, yy, line)
+                yy -= 10
+            x += width
+        y -= row_h
+
+    dlh = _xml_child(root, "DLHDon") or root
+    ttchung = _xml_path(dlh, "TTChung")
+    nd = _xml_path(dlh, "NDHDon")
+    seller = _xml_path(nd, "NBan")
+    buyer = _xml_path(nd, "NMua")
+    totals = _xml_path(nd, "TToan")
+
+    title = _xml_text(ttchung, "THDon") or "Tài liệu XML"
+    c.setFont(bold, 16)
+    c.drawCentredString(page_w / 2, y, title.upper())
+    y -= 20
+    c.setFont(font, 8)
+    c.drawCentredString(page_w / 2, y, f"Nguồn: {xml_path}")
+    y -= 18
+
+    section("Thông tin chung")
+    for label, value in [
+        ("Ký hiệu mẫu số", _xml_text(ttchung, "KHMSHDon")),
+        ("Ký hiệu hóa đơn", _xml_text(ttchung, "KHHDon")),
+        ("Số hóa đơn", _xml_text(ttchung, "SHDon")),
+        ("Ngày lập", _xml_text(ttchung, "NLap")),
+        ("Tiền tệ", _xml_text(ttchung, "DVTTe")),
+        ("Hình thức thanh toán", _xml_text(ttchung, "HTTToan")),
+        ("Mã cơ quan thuế", _xml_text(root, "MCCQT")),
+    ]:
+        kv(label, value)
+
+    section("Bên bán")
+    for label, value in [
+        ("Tên", _xml_text(seller, "Ten")),
+        ("MST", _xml_text(seller, "MST")),
+        ("Địa chỉ", _xml_text(seller, "DChi")),
+        ("Điện thoại", _xml_text(seller, "SDThoai")),
+        ("Email", _xml_text(seller, "DCTDTu")),
+        ("Ngân hàng", _xml_text(seller, "TNHang")),
+        ("Số tài khoản", _xml_text(seller, "STKNHang")),
+    ]:
+        kv(label, value)
+
+    section("Bên mua")
+    for label, value in [
+        ("Tên", _xml_text(buyer, "Ten")),
+        ("MST", _xml_text(buyer, "MST")),
+        ("Địa chỉ", _xml_text(buyer, "DChi")),
+        ("Mã khách hàng", _xml_text(buyer, "MKHang")),
+        ("Người mua hàng", _xml_text(buyer, "HVTNMHang")),
+    ]:
+        kv(label, value)
+
+    items = _xml_children(_xml_path(nd, "DSHHDVu"), "HHDVu")
+    if items:
+        section("Hàng hóa / dịch vụ")
+        widths = [24, 210, 38, 42, 62, 72, 38]
+        table_header(["STT", "Tên hàng hóa/dịch vụ", "ĐVT", "SL", "Đơn giá", "Thành tiền", "Thuế"], widths)
+        for item in items:
+            table_row(
+                [
+                    _xml_text(item, "STT"),
+                    _xml_text(item, "THHDVu"),
+                    _xml_text(item, "DVTinh"),
+                    _fmt_number(_xml_text(item, "SLuong")),
+                    _fmt_number(_xml_text(item, "DGia")),
+                    _fmt_number(_xml_text(item, "ThTien")),
+                    _xml_text(item, "TSuat"),
+                ],
+                widths,
+            )
+
+    section("Tổng cộng")
+    for label, value in [
+        ("Tổng tiền chưa thuế", _fmt_number(_xml_text(totals, "TgTCThue"))),
+        ("Tổng tiền thuế", _fmt_number(_xml_text(totals, "TgTThue"))),
+        ("Tổng thanh toán", _fmt_number(_xml_text(totals, "TgTTTBSo"))),
+        ("Bằng chữ", _xml_text(totals, "TgTTTBChu")),
+        ("QR Code", _xml_text(root, "DLQRCode")),
+    ]:
+        kv(label, value)
+
+    if not ttchung and not nd:
+        section("Nội dung XML")
+        count = 0
+        for elem in root.iter():
+            text = (elem.text or "").strip()
+            if not text:
+                continue
+            tag = _xml_tag_name(elem.tag)
+            if tag in {"X509Certificate", "SignatureValue", "DigestValue"}:
+                text = text[:120] + "..."
+            kv(tag, text)
+            count += 1
+            if count >= 400:
+                kv("Ghi chú", "Nội dung XML quá dài, chỉ hiển thị 400 trường đầu.")
+                break
+
+    c.save()
+    return str(out_pdf)
 
 def _validate_pdf(path: Path) -> bool:
     if not path.exists() or path.stat().st_size < 5:
@@ -396,8 +626,7 @@ def process_file_and_open(window, file_path: str):
         return convert_office_to_pdf(window, file_path)
         
     if ext == ".xml":
-        handle_xml_itax(window, file_path)
-        return ""
+        return convert_xml_to_pdf(file_path)
         
     QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.unsupported", f"Định dạng {ext} chưa được hỗ trợ."))
     return ""
