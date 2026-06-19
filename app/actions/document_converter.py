@@ -248,6 +248,37 @@ def convert_office_to_pdf(window, file_path: str) -> str:
 
     return ""
 
+def _run_itax_installer_silent(window, installer_path: Path) -> bool:
+    try:
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        kwargs = {
+            "startupinfo": startupinfo,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "stdin": subprocess.DEVNULL,
+        }
+        if hasattr(subprocess, "CREATE_NO_WINDOW"):
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+        subprocess.Popen(
+            [
+                str(installer_path),
+                "/VERYSILENT",
+                "/SUPPRESSMSGBOXES",
+                "/NORESTART",
+                "/SP-",
+            ],
+            **kwargs,
+        )
+        status = getattr(window, "status", None)
+        if status is not None:
+            status.showMessage("Đang cài iTaxViewer ở chế độ nền...", 5000)
+        return True
+    except Exception as e:
+        QMessageBox.warning(window, _t("common.error", "Lỗi"), str(e))
+        return False
+
 def handle_xml_itax(window):
     if sys.platform != "win32":
         QMessageBox.warning(window, _t("doc.itax.title", "File Thuế XML"), _t("doc.itax.nowin", "Tính năng đọc file Thuế XML (iTaxViewer) trên MacOS đang trong quá trình cập nhật.\nXin vui lòng chờ các phiên bản tiếp theo."))
@@ -298,12 +329,7 @@ def handle_xml_itax(window):
             QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.dl.fail", "Tải thất bại: ") + error_msg)
             return
             
-        # Run installer
-        try:
-            import os
-            os.startfile(str(temp_exe))
-        except Exception as e:
-            QMessageBox.warning(window, _t("common.error", "Lỗi"), str(e))
+        _run_itax_installer_silent(window, temp_exe)
 
 def process_file_and_open(window, file_path: str):
     """
