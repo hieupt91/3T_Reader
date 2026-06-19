@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+import ssl
 import urllib.request
 
 from packages.qt_compat.QtWidgets import QMessageBox, QProgressDialog, QApplication
@@ -38,7 +39,12 @@ class DownloadThread(QThread):
     def run(self):
         try:
             req = urllib.request.Request(self.url, headers={"User-Agent": "3T_Reader"})
-            with urllib.request.urlopen(req, timeout=120) as resp, open(self.dest_path, "wb") as out:
+            context = ssl._create_unverified_context()
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({}),
+                urllib.request.HTTPSHandler(context=context),
+            )
+            with opener.open(req, timeout=120) as resp, open(self.dest_path, "wb") as out:
                 total = int(resp.headers.get("Content-Length", 0))
                 downloaded = 0
                 while True:

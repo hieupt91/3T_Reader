@@ -16,6 +16,7 @@ env/
 /dist/
 /build_obf/
 /build_secure_tmp/
+/build_modules/
 /dist_obf/
 /tmp_portable_check/
 /tmp_portable_check_new/

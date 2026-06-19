@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import threading
 
 from packages.qt_compat.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal
 from packages.qt_compat.QtWidgets import (
@@ -107,17 +106,37 @@ class _TranslateWorker(QObject):
     progress = pyqtSignal(int, int, str) # (current, total, status)
     error    = pyqtSignal(str)
 
-    def __init__(self, task_fn):
+    def __init__(self, task_fn, supports_progress: bool = False):
         super().__init__()
         self._task_fn = task_fn
+        self._supports_progress = supports_progress
 
     def run(self):
         try:
-            result = self._task_fn()
+            if self._supports_progress:
+                result = self._task_fn(self.progress.emit)
+            else:
+                result = self._task_fn()
             if isinstance(result, tuple):
                 self.finished.emit(result[0], result[1])
             else:
                 self.finished.emit(result, "")
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class _DetectWorker(QObject):
+    finished = pyqtSignal(str, str)
+    error = pyqtSignal(str)
+
+    def __init__(self, text: str):
+        super().__init__()
+        self._text = text
+
+    def run(self):
+        try:
+            code, name = detect_language(self._text)
+            self.finished.emit(code, name)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -144,6 +163,8 @@ class AITranslateDialog(QDialog):
         self._result_text  = ""
         self._thread       = None
         self._worker       = None
+        self._detect_thread = None
+        self._detect_worker = None
         self._detected_src  = ""
 
         self._build_ui()
@@ -155,22 +176,15 @@ class AITranslateDialog(QDialog):
             QTimer.singleShot(300, self._auto_detect_input)
 
     def _cleanup(self):
-        # Dừng hiệu ứng indeterminate của QProgressBar để tránh crash QUnifiedTimer
         if hasattr(self, "_progress"):
             self._progress.setRange(0, 100)
             self._progress.setVisible(False)
-        # Dừng luồng nền nếu đang chạy
         if getattr(self, "_thread", None) and self._thread.isRunning():
             self._thread.quit()
             self._thread.wait(500)
-
-    def closeEvent(self, event):
-        self._cleanup()
-        super().closeEvent(event)
-
-    def reject(self):
-        self._cleanup()
-        super().reject()
+        if getattr(self, "_detect_thread", None) and self._detect_thread.isRunning():
+            self._detect_thread.quit()
+            self._detect_thread.wait(500)
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -276,8 +290,8 @@ class AITranslateDialog(QDialog):
         self._btn_copy.setEnabled(False)
         self._btn_copy.clicked.connect(self._on_copy)
         btn_row.addWidget(self._btn_copy)
-        
-        self._btn_tts = QPushButton("🔊 Đọc văn bản")
+
+        self._btn_tts = QPushButton("Read Aloud")
         self._btn_tts.setEnabled(False)
         self._btn_tts.clicked.connect(self._on_tts)
         btn_row.addWidget(self._btn_tts)
@@ -484,28 +498,22 @@ class AITranslateDialog(QDialog):
         text = self._input_edit.toPlainText().strip()
         if not text:
             return
-        self._lbl_detected.setText("🔍 Đang nhận diện…")
+        if self._detect_thread and self._detect_thread.isRunning():
+            return
+        self._lbl_detected.setText("Dang nhan dien...")
         self._btn_detect.setEnabled(False)
+        self._detect_thread = QThread()
+        self._detect_worker = _DetectWorker(text)
+        self._detect_worker.moveToThread(self._detect_thread)
+        self._detect_thread.started.connect(self._detect_worker.run)
+        self._detect_worker.finished.connect(self._on_detect_done)
+        self._detect_worker.error.connect(self._on_detect_error)
+        self._detect_worker.finished.connect(self._detect_thread.quit)
+        self._detect_worker.error.connect(self._detect_thread.quit)
+        self._detect_thread.finished.connect(self._detect_thread.deleteLater)
+        self._detect_thread.start()
 
-        def _do():
-            return detect_language(text)
-
-        def _done(code, name):
-            self._detected_src = code
-            self._lbl_detected.setText(f"✅ Phát hiện: {name}")
-            self._btn_detect.setEnabled(True)
-            # Tự động cập nhật src combo nếu đang để auto
-            if self._get_src() == AUTO_DETECT:
-                pass  # Giữ "Tự động" — engine sẽ dùng detected khi dịch
-
-        def _run():
-            code, name = detect_language(text)
-            QTimer.singleShot(0, lambda: _done(code, name))
-
-        t = threading.Thread(target=_run, daemon=True)
-        t.start()
-
-    # ── Translate actions ─────────────────────────────────────────────────────
+    # Translate actions
 
     def _do_translate_text(self, engine_override: str = ""):
         text = self._input_edit.toPlainText().strip()
@@ -575,17 +583,12 @@ class AITranslateDialog(QDialog):
         self._progress.setValue(0)
         self._set_status("Đang khởi động dịch toàn tài liệu…")
 
-        def _progress_cb(current, total, status):
-            pct = int(current * 100 / max(total, 1))
-            QTimer.singleShot(0, lambda: self._progress.setValue(pct))
-            QTimer.singleShot(0, lambda: self._set_status(status))
-
-        def _task():
+        def _task(progress_signal):
             from packages.ai.translate import translate_pdf_document as _tpd
             doc_result = _tpd(
                 self._pdf_path, src, tgt, engine,
                 page_range=page_range,
-                progress_callback=_progress_cb,
+                progress_callback=progress_signal,
             )
             # Gộp kết quả thành một TranslationResult
             combined = TranslationResult(
@@ -595,24 +598,44 @@ class AITranslateDialog(QDialog):
             )
             return combined, src
 
-        self._run_task(_task, self._doc_result)
+        self._run_task(_task, self._doc_result, supports_progress=True)
 
-    def _run_task(self, task_fn, result_widget: QTextEdit):
+    def _run_task(self, task_fn, result_widget: QTextEdit, supports_progress: bool = False):
         """Chạy task trong thread riêng, cập nhật result_widget khi xong."""
-        if self._thread and self._thread.isRunning():
+        if ((self._thread and self._thread.isRunning()) or (self._detect_thread and self._detect_thread.isRunning())):
             self._set_status("Đang có tác vụ dịch khác chạy, vui lòng chờ.", "#E05050")
             return
 
         self._current_target_widget = result_widget
         self._thread = QThread()
-        self._worker = _TranslateWorker(task_fn)
+        self._worker = _TranslateWorker(task_fn, supports_progress=supports_progress)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
+        self._worker.progress.connect(self._on_worker_progress)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.finished.connect(self._thread.quit)
         self._worker.error.connect(self._thread.quit)
+        self._thread.finished.connect(self._thread.deleteLater)
         self._thread.start()
+
+    def _on_detect_done(self, code: str, name: str):
+        self._detected_src = code
+        self._lbl_detected.setText(f"Detected: {name}")
+        self._btn_detect.setEnabled(True)
+        self._detect_thread = None
+        self._detect_worker = None
+
+    def _on_detect_error(self, msg: str):
+        self._lbl_detected.setText(f"Detect failed: {msg}")
+        self._btn_detect.setEnabled(True)
+        self._detect_thread = None
+        self._detect_worker = None
+
+    def _on_worker_progress(self, current: int, total: int, status: str):
+        pct = int(current * 100 / max(total, 1))
+        self._progress.setValue(pct)
+        self._set_status(status)
 
     def _on_done(self, result: TranslationResult, actual_src: str):
         widget = getattr(self, "_current_target_widget", self._active_result_widget())
@@ -655,7 +678,7 @@ class AITranslateDialog(QDialog):
             return
         from packages.qt_compat.QtWidgets import QApplication
         QApplication.clipboard().setText(self._result_text)
-        self._lbl_status.setText("Đã sao chép vào Clipboard!")
+        self._lbl_status.setText("Copied to Clipboard!")
         orig = self._btn_copy.text()
         self._btn_copy.setText("✅ Đã sao chép!")
         QTimer.singleShot(1500, lambda: self._btn_copy.setText(orig))
@@ -695,8 +718,13 @@ class AITranslateDialog(QDialog):
         self._on_save()
 
     def closeEvent(self, event):
-        if self._thread and self._thread.isRunning():
+        self._cleanup()
+        if ((self._thread and self._thread.isRunning()) or (self._detect_thread and self._detect_thread.isRunning())):
             self._set_status("Đang chờ hoàn tất. Đóng lại sau khi xong.", "#E05050")
             event.ignore()
             return
         super().closeEvent(event)
+
+    def reject(self):
+        self._cleanup()
+        super().reject()

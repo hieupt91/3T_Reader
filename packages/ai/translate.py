@@ -12,7 +12,9 @@ Hỗ trợ 3 engine:
 """
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from typing import Callable, Iterator, Optional
 
@@ -109,17 +111,18 @@ def _lang_name(code: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def detect_language(text: str) -> tuple[str, str]:
-    """Nhận diện ngôn ngữ của văn bản.
-
-    Returns:
-        (lang_code, lang_name) — ví dụ: ("vi", "Tiếng Việt")
-        Trả về ("unknown", "Không xác định") nếu thất bại.
-    """
-    sample = (text or "").strip()[:500]  # Chỉ cần ~500 ký tự đầu
+    """Detect source language quickly with local-first fallback."""
+    sample = (text or "").strip()[:500]
     if not sample:
-        return "unknown", "Không xác định"
+        return "unknown", "Khong xac dinh"
 
-    # Phương pháp 1: Google Translate detection API (nhanh, miễn phí)
+    try:
+        lang_code = _heuristic_detect(sample)
+        if lang_code:
+            return lang_code, SUPPORTED_LANGUAGES.get(lang_code, lang_code.upper())
+    except Exception:
+        pass
+
     try:
         import urllib.request, urllib.parse, json as _json, ssl
         params = urllib.parse.urlencode({
@@ -130,9 +133,8 @@ def detect_language(text: str) -> tuple[str, str]:
             f"https://translate.googleapis.com/translate_a/single?{params}",
             headers={"User-Agent": "Mozilla/5.0"}
         )
-        with urllib.request.urlopen(req, timeout=8, context=ctx) as resp:
+        with urllib.request.urlopen(req, timeout=2, context=ctx) as resp:
             data = _json.loads(resp.read().decode("utf-8"))
-        # data[2] là mã ngôn ngữ được phát hiện
         detected_code = data[2] if len(data) > 2 and isinstance(data[2], str) else ""
         if detected_code and detected_code != "und":
             lang_name = SUPPORTED_LANGUAGES.get(detected_code, detected_code.upper())
@@ -140,7 +142,6 @@ def detect_language(text: str) -> tuple[str, str]:
     except Exception:
         pass
 
-    # Phương pháp 2: Dùng AI để nhận diện (fallback)
     try:
         from .provider import ask_ai, is_ai_available
         if is_ai_available():
@@ -152,7 +153,6 @@ def detect_language(text: str) -> tuple[str, str]:
             resp = ask_ai(prompt, max_tokens=10)
             if resp.success:
                 code = resp.text.strip().lower()[:5].strip("'\"` \n")
-                # Validate code
                 code = re.sub(r'[^a-z]', '', code)[:3]
                 if code:
                     lang_name = SUPPORTED_LANGUAGES.get(code, code.upper())
@@ -160,16 +160,7 @@ def detect_language(text: str) -> tuple[str, str]:
     except Exception:
         pass
 
-    # Phương pháp 3: Heuristic đơn giản dựa trên Unicode range
-    try:
-        lang_code = _heuristic_detect(sample)
-        if lang_code:
-            return lang_code, SUPPORTED_LANGUAGES.get(lang_code, lang_code.upper())
-    except Exception:
-        pass
-
-    return "unknown", "Không xác định"
-
+    return "unknown", "Khong xac dinh"
 
 def _heuristic_detect(text: str) -> str:
     """Nhận diện ngôn ngữ đơn giản dựa trên Unicode range."""
@@ -177,8 +168,8 @@ def _heuristic_detect(text: str) -> str:
     for ch in text:
         cp = ord(ch)
         # Tiếng Việt — Latin có dấu đặc trưng
-        if any(ch in "àáâãèéêìíòóôõùúýăđơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ"
-                       "ÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝĂĐƠƯẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼẾỀỂỄỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪỬỮỰỲỴỶỸ"):
+        if ch in ("àáâãèéêìíòóôõùúýăđơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ"
+                  "ÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝĂĐƠƯẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼẾỀỂỄỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪỬỮỰỲỴỶỸ"):
             counts["vi"] = counts.get("vi", 0) + 1
         # Tiếng Trung (CJK Unified Ideographs)
         elif 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF:
@@ -211,6 +202,35 @@ def _heuristic_detect(text: str) -> str:
     if ascii_count > len(text) * 0.6:
         return "en"
     return ""
+
+
+def _offline_dict_dir() -> str:
+    from packages.platform import get_app_data_dir
+
+    primary = os.path.join(get_app_data_dir(), "offline_dicts")
+    try:
+        os.makedirs(primary, exist_ok=True)
+        return primary
+    except OSError:
+        fallback = os.path.join(tempfile.gettempdir(), "3T Reader", "offline_dicts")
+        os.makedirs(fallback, exist_ok=True)
+        return fallback
+
+
+def _offline_dict_urls(source_lang: str, target_lang: str) -> list[str]:
+    from app.config import VPS_LICENSE_BASE_URL
+
+    name = f"{source_lang}_{target_lang}.json"
+    base = (VPS_LICENSE_BASE_URL or "").rstrip("/")
+    urls: list[str] = []
+    if base:
+        urls.extend([
+            f"{base}/downloads/translate/offline_dicts/{name}",
+            f"{base}/downloads/dicts/{name}",
+            f"{base}/static/dicts/{name}",
+        ])
+    urls.append(f"https://ssh.3tcomputer.com/static/dicts/{name}")
+    return urls
 
 
 def _extract_page_text(pdf_path: str, page_num: int) -> tuple[str, Optional[str]]:
@@ -377,57 +397,64 @@ def _google_translate_text(text: str, source_lang: str, target_lang: str) -> Tra
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _offline_translate_text(text: str, source_lang: str, target_lang: str) -> TranslationResult:
-    """Dịch bằng từ điển cục bộ hoặc AI offline (download từ VPS)."""
-    import os, json, re, urllib.request
-    from packages.platform import get_app_data_dir
-    
-    # Đường dẫn lưu gói ngôn ngữ offline tải từ VPS
-    offline_dir = os.path.join(get_app_data_dir(), "offline_dicts")
-    os.makedirs(offline_dir, exist_ok=True)
+    """Dich bang tu dien cuc bo hoac AI offline (download tu VPS)."""
+    import json
+    import urllib.request
+
+    offline_dir = _offline_dict_dir()
     dict_file = os.path.join(offline_dir, f"{source_lang}_{target_lang}.json")
-    
-    # Tải gói từ điển từ VPS nếu chưa có trên máy khách
+
     if not os.path.exists(dict_file):
-        vps_url = f"https://ssh.3tcomputer.com/static/dicts/{source_lang}_{target_lang}.json"
-        try:
-            req = urllib.request.Request(vps_url, headers={'User-Agent': 'Mozilla/5.0 3T-Reader'})
-            with urllib.request.urlopen(req, timeout=5) as response:
-                if response.status == 200:
-                    data = response.read().decode('utf-8')
-                    with open(dict_file, "w", encoding="utf-8") as f:
-                        f.write(data)
-                else:
+        download_error = None
+        for vps_url in _offline_dict_urls(source_lang, target_lang):
+            try:
+                req = urllib.request.Request(vps_url, headers={'User-Agent': 'Mozilla/5.0 3T-Reader'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    if response.status == 200:
+                        data = response.read().decode('utf-8')
+                        with open(dict_file, "w", encoding="utf-8") as f:
+                            f.write(data)
+                        break
                     raise Exception(f"HTTP {response.status}")
-        except Exception as e:
-            # Fallback an toàn nếu chưa up từ điển lên VPS thành công
+            except Exception as e:
+                download_error = e
+        if not os.path.exists(dict_file):
             if source_lang == "en" and target_lang == "vi":
-                sample_dict = {"hello": "xin chào", "world": "thế giới", "test": "kiểm tra", "document": "tài liệu", "translate": "dịch", "offline": "ngoại tuyến", "this": "đây", "is": "là", "a": "một", "system": "hệ thống"}
+                sample_dict = {"hello": "xin chao", "world": "the gioi", "test": "kiem tra", "document": "tai lieu", "translate": "dich", "offline": "ngoai tuyen", "this": "day", "is": "la", "a": "mot", "system": "he thong"}
             elif source_lang == "vi" and target_lang == "en":
-                sample_dict = {"xin chào": "hello", "thế giới": "world", "kiểm tra": "test", "tài liệu": "document", "dịch": "translate", "ngoại tuyến": "offline", "đây": "this", "là": "is", "một": "a", "hệ thống": "system"}
+                sample_dict = {"xin chao": "hello", "the gioi": "world", "kiem tra": "test", "tai lieu": "document", "dich": "translate", "ngoai tuyen": "offline", "day": "this", "la": "is", "mot": "a", "he thong": "system"}
             else:
                 return TranslationResult(
                     original=text, translated="", source_lang=source_lang,
                     target_lang=target_lang, engine="offline",
-                    error=f"Lỗi tải từ điển từ VPS: {e}"
+                    error=f"Offline dictionary download failed: {download_error}"
                 )
-            # Lưu file từ điển dự phòng
             with open(dict_file, "w", encoding="utf-8") as f:
                 json.dump(sample_dict, f, ensure_ascii=False, indent=2)
-            
-    # Đọc dữ liệu từ điển offline đã được tải về
-    with open(dict_file, "r", encoding="utf-8") as f:
-        dictionary = json.load(f)
-        
-    # Thuật toán dịch Offline đơn giản (Dịch từng từ/cụm từ có trong từ điển)
+
+    try:
+        with open(dict_file, "r", encoding="utf-8") as f:
+            dictionary = json.load(f)
+    except Exception:
+        if source_lang == "en" and target_lang == "vi":
+            dictionary = {"hello": "xin chao", "world": "the gioi", "test": "kiem tra", "document": "tai lieu", "translate": "dich", "offline": "ngoai tuyen", "this": "day", "is": "la", "a": "mot", "system": "he thong"}
+        elif source_lang == "vi" and target_lang == "en":
+            dictionary = {"xin chao": "hello", "the gioi": "world", "kiem tra": "test", "tai lieu": "document", "dich": "translate", "ngoai tuyen": "offline", "day": "this", "la": "is", "mot": "a", "he thong": "system"}
+        else:
+            return TranslationResult(
+                original=text, translated="", source_lang=source_lang,
+                target_lang=target_lang, engine="offline",
+                error="Offline dictionary cache is invalid."
+            )
+        with open(dict_file, "w", encoding="utf-8") as f:
+            json.dump(dictionary, f, ensure_ascii=False, indent=2)
+
     translated_text = text
-    # Dịch các cụm từ dài trước để tránh bị ghi đè cụm từ ngắn
     sorted_keys = sorted(dictionary.keys(), key=lambda k: len(k), reverse=True)
     for k in sorted_keys:
-        # Thay thế không phân biệt hoa thường
         translated_text = re.sub(rf'\b{k}\b', dictionary[k], translated_text, flags=re.IGNORECASE)
-        
-    # Thêm ghi chú để user biết đang chạy offline
-    translated_text = "[Chế độ Offline Từ Điển]\n" + translated_text
+
+    translated_text = "[Offline Dictionary Mode]\n" + translated_text
 
     return TranslationResult(
         original=text, translated=translated_text, source_lang=source_lang,
