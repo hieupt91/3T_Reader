@@ -765,6 +765,8 @@ def download_language_pack(code: str, parent=None) -> tuple[bool, str]:
                     return True, str(save_path)
                 last_exc = RuntimeError("Downloaded language pack is empty")
             except (HTTPError, URLError, TimeoutError, OSError, RuntimeError) as exc:
+                if str(exc) == "Cancelled":
+                    raise exc
                 last_exc = RuntimeError(_describe_error(url, exc))
                 if tmp_path.exists():
                     try:

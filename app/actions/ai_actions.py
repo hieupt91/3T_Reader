@@ -7,7 +7,7 @@ from app.actions._guard import require_document
 
 
 @require_document(show_message=True)
-def open_translate_dialog(window):
+def open_translate_dialog(window, initial_text: str = None):
     """Mở dialog dịch thuật trang PDF hiện tại."""
     from app.license_dialog import require_plan
     if not require_plan(window, "Dịch văn bản AI", ["enterprise"]):
@@ -17,7 +17,7 @@ def open_translate_dialog(window):
     current_page = _current_page(window)
 
     from app.ai_translate_dialog import AITranslateDialog
-    dlg = AITranslateDialog(window, pdf_path, current_page)
+    dlg = AITranslateDialog(window, pdf_path, current_page, selected_text=initial_text or "")
     dlg.exec()
 
 

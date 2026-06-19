@@ -2469,6 +2469,18 @@ class PDFReaderApp(QMainWindow):
         
         menu = QMenu(self)
         
+        has_selection = viewer._web_view.page().hasSelection()
+        if has_selection:
+            from packages.qt_compat.QtWebEngineCore import QWebEnginePage
+            act_copy = menu.addAction("✂️ Sao chép văn bản")
+            act_copy.triggered.connect(lambda: viewer._web_view.page().triggerAction(QWebEnginePage.WebAction.Copy))
+            
+            act_trans = menu.addAction("🌐 Dịch đoạn văn bản này")
+            from app.actions.ai_actions import open_translate_dialog
+            act_trans.triggered.connect(lambda: open_translate_dialog(self, viewer._web_view.page().selectedText()))
+            
+            menu.addSeparator()
+
         act_sign = menu.addAction("✍️ Ký số tại vị trí này")
         act_sign.triggered.connect(lambda: sign_document(self))
         
