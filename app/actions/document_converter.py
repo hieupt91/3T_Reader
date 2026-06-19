@@ -298,6 +298,310 @@ def convert_xml_to_pdf(xml_path: str) -> str:
             x += width
         y -= row_h
 
+    def tax_title(text: str, size: int = 14):
+        nonlocal y
+        lines = simpleSplit(str(text or ""), bold, size, usable_w) or [""]
+        ensure(len(lines) * (size + 3) + 4)
+        c.setFont(bold, size)
+        for line in lines:
+            c.drawCentredString(page_w / 2, y, line)
+            y -= size + 3
+
+    def node_values(node) -> dict:
+        if node is None:
+            return {}
+        return {_xml_tag_name(child.tag): _xml_text(child) for child in list(node)}
+
+    def ordered_codes(*groups) -> list:
+        codes = []
+        seen = set()
+        for group in groups:
+            if group is None:
+                continue
+            for child in list(group):
+                code = _xml_tag_name(child.tag)
+                if code not in seen:
+                    seen.add(code)
+                    codes.append(code)
+        return codes
+
+    balance_labels = {
+        "ct110": "Tài sản ngắn hạn",
+        "ct120": "Tiền và các khoản tương đương tiền",
+        "ct121": "Tiền",
+        "ct122": "Các khoản tương đương tiền",
+        "ct123": "Đầu tư tài chính ngắn hạn",
+        "ct124": "Dự phòng giảm giá đầu tư tài chính ngắn hạn",
+        "ct130": "Các khoản phải thu ngắn hạn",
+        "ct131": "Phải thu khách hàng",
+        "ct132": "Trả trước cho người bán",
+        "ct133": "Vốn kinh doanh ở đơn vị trực thuộc",
+        "ct134": "Phải thu khác",
+        "ct135": "Tài sản thiếu chờ xử lý",
+        "ct136": "Dự phòng phải thu ngắn hạn khó đòi",
+        "ct140": "Hàng tồn kho",
+        "ct141": "Hàng tồn kho",
+        "ct142": "Dự phòng giảm giá hàng tồn kho",
+        "ct150": "Tài sản ngắn hạn khác",
+        "ct151": "Thuế GTGT được khấu trừ",
+        "ct152": "Thuế và các khoản khác phải thu Nhà nước",
+        "ct160": "Tài sản dài hạn",
+        "ct161": "Tài sản cố định",
+        "ct162": "Bất động sản đầu tư",
+        "ct170": "Các khoản đầu tư tài chính dài hạn",
+        "ct180": "Tài sản dài hạn khác",
+        "ct181": "Phải thu dài hạn",
+        "ct182": "Tài sản dài hạn khác",
+        "ct200": "Tổng cộng tài sản",
+        "ct300": "Nợ phải trả",
+        "ct311": "Phải trả người bán",
+        "ct312": "Người mua trả tiền trước",
+        "ct313": "Thuế và các khoản phải nộp Nhà nước",
+        "ct314": "Phải trả người lao động",
+        "ct315": "Phải trả khác",
+        "ct316": "Vay và nợ thuê tài chính",
+        "ct317": "Dự phòng phải trả",
+        "ct318": "Quỹ khen thưởng, phúc lợi",
+        "ct319": "Quỹ phát triển khoa học và công nghệ",
+        "ct320": "Nợ dài hạn",
+        "ct400": "Vốn chủ sở hữu",
+        "ct411": "Vốn góp của chủ sở hữu",
+        "ct412": "Thặng dư vốn cổ phần",
+        "ct413": "Vốn khác của chủ sở hữu",
+        "ct414": "Cổ phiếu quỹ",
+        "ct415": "Chênh lệch tỷ giá hối đoái",
+        "ct416": "Các quỹ thuộc vốn chủ sở hữu",
+        "ct417": "Lợi nhuận sau thuế chưa phân phối",
+        "ct500": "Tổng cộng nguồn vốn",
+    }
+    kqhd_labels = {
+        "ct01": "Doanh thu bán hàng và cung cấp dịch vụ",
+        "ct02": "Các khoản giảm trừ doanh thu",
+        "ct10": "Doanh thu thuần về bán hàng và cung cấp dịch vụ",
+        "ct11": "Giá vốn hàng bán",
+        "ct20": "Lợi nhuận gộp về bán hàng và cung cấp dịch vụ",
+        "ct21": "Doanh thu hoạt động tài chính",
+        "ct22": "Chi phí tài chính",
+        "ct23": "Trong đó: Chi phí lãi vay",
+        "ct24": "Chi phí quản lý kinh doanh",
+        "ct30": "Lợi nhuận thuần từ hoạt động kinh doanh",
+        "ct31": "Thu nhập khác",
+        "ct32": "Chi phí khác",
+        "ct40": "Lợi nhuận khác",
+        "ct50": "Tổng lợi nhuận kế toán trước thuế",
+        "ct51": "Chi phí thuế thu nhập doanh nghiệp",
+        "ct60": "Lợi nhuận sau thuế thu nhập doanh nghiệp",
+    }
+    lctt_labels = {
+        "ct01": "Tiền thu từ bán hàng, cung cấp dịch vụ và doanh thu khác",
+        "ct02": "Tiền chi trả cho người cung cấp hàng hóa, dịch vụ",
+        "ct03": "Tiền chi trả cho người lao động",
+        "ct04": "Tiền lãi vay đã trả",
+        "ct05": "Thuế thu nhập doanh nghiệp đã nộp",
+        "ct06": "Tiền thu khác từ hoạt động kinh doanh",
+        "ct07": "Tiền chi khác cho hoạt động kinh doanh",
+        "ct20": "Lưu chuyển tiền thuần từ hoạt động kinh doanh",
+        "ct21": "Tiền chi để mua sắm, xây dựng TSCĐ và tài sản dài hạn khác",
+        "ct22": "Tiền thu từ thanh lý, nhượng bán TSCĐ và tài sản dài hạn khác",
+        "ct23": "Tiền chi cho vay, mua công cụ nợ của đơn vị khác",
+        "ct24": "Tiền thu hồi cho vay, bán lại công cụ nợ của đơn vị khác",
+        "ct25": "Tiền thu lãi cho vay, cổ tức và lợi nhuận được chia",
+        "ct30": "Lưu chuyển tiền thuần từ hoạt động đầu tư",
+        "ct31": "Tiền thu từ phát hành cổ phiếu, nhận vốn góp của chủ sở hữu",
+        "ct32": "Tiền trả lại vốn góp cho chủ sở hữu, mua lại cổ phiếu đã phát hành",
+        "ct33": "Tiền thu từ đi vay",
+        "ct34": "Tiền trả nợ gốc vay và nợ thuê tài chính",
+        "ct35": "Cổ tức, lợi nhuận đã trả cho chủ sở hữu",
+        "ct40": "Lưu chuyển tiền thuần từ hoạt động tài chính",
+        "ct50": "Lưu chuyển tiền thuần trong kỳ",
+        "ct60": "Tiền và tương đương tiền đầu kỳ",
+        "ct61": "Ảnh hưởng của thay đổi tỷ giá hối đoái",
+        "ct70": "Tiền và tương đương tiền cuối kỳ",
+    }
+
+    def tax_table_header(cols, widths):
+        nonlocal y
+        ensure(26)
+        x = margin
+        c.setFillColor(colors.HexColor("#dbeafe"))
+        c.rect(margin, y - 18, sum(widths), 20, fill=1, stroke=1)
+        c.setFillColor(colors.black)
+        c.setFont(bold, 7.5)
+        for col, width in zip(cols, widths):
+            lines = simpleSplit(str(col or ""), bold, 7.5, width - 6) or [""]
+            yy = y - 8
+            for line in lines[:2]:
+                c.drawString(x + 3, yy, line)
+                yy -= 8
+            x += width
+        y -= 20
+
+    def tax_table_row(values, widths, numeric_cols=None, strong=False):
+        nonlocal y
+        numeric_cols = set(numeric_cols or [])
+        row_font = bold if strong else font
+        wrapped = [simpleSplit(str(value or ""), row_font, 7.5, width - 6) or [""] for value, width in zip(values, widths)]
+        row_h = max(18, max(len(lines) for lines in wrapped) * 9 + 6)
+        if y - row_h < margin:
+            new_page()
+            return False
+        x = margin
+        c.setFont(row_font, 7.5)
+        for idx, (lines, width) in enumerate(zip(wrapped, widths)):
+            c.rect(x, y - row_h, width, row_h, fill=0, stroke=1)
+            yy = y - 10
+            for line in lines:
+                if idx in numeric_cols:
+                    c.drawRightString(x + width - 3, yy, line)
+                else:
+                    c.drawString(x + 3, yy, line)
+                yy -= 9
+            x += width
+        y -= row_h
+        return True
+
+    def draw_tax_table(title, headers, widths, rows, numeric_cols=None, total_codes=None):
+        section(title)
+        tax_table_header(headers, widths)
+        total_codes = set(total_codes or [])
+        for row in rows:
+            while not tax_table_row(row, widths, numeric_cols, strong=str(row[0]) in total_codes):
+                tax_table_header(headers, widths)
+
+    def format_tax_value(value: str) -> str:
+        value = str(value or "").strip()
+        if not value:
+            return ""
+        return _fmt_number(value)
+
+    def render_group_table(title, parent, group_names, headers, labels, show_all=True):
+        groups = [_xml_child(parent, name) for name in group_names]
+        values_by_group = [node_values(group) for group in groups]
+        rows = []
+        for code in ordered_codes(*groups):
+            vals = [format_tax_value(values.get(code, "")) for values in values_by_group]
+            if not show_all and not any(v and v != "0" for v in vals):
+                continue
+            rows.append([code, labels.get(code, code), *vals])
+        if rows:
+            widths = [38, 190, 48, 116, 116] if len(group_names) == 3 else [42, 230, 118, 118]
+            draw_tax_table(title, headers, widths, rows, numeric_cols=range(3, len(headers)), total_codes={"ct110", "ct200", "ct300", "ct400", "ct500", "ct10", "ct20", "ct30", "ct40", "ct50", "ct60", "ct70"})
+
+    def render_cdtk_table(pluc):
+        cdtk = _xml_child(pluc, "PL_CDTK")
+        if cdtk is None:
+            return
+        groups = [
+            (_xml_path(cdtk, "SoDuDauKy", "No"), _xml_path(cdtk, "SoDuDauKy", "Co")),
+            (_xml_path(cdtk, "SoPhatSinh", "No"), _xml_path(cdtk, "SoPhatSinh", "Co")),
+            (_xml_path(cdtk, "SoDuCuoiKy", "No"), _xml_path(cdtk, "SoDuCuoiKy", "Co")),
+        ]
+        code_groups = [item for pair in groups for item in pair]
+        value_maps = [(node_values(no), node_values(co)) for no, co in groups]
+        rows = []
+        for code in ordered_codes(*code_groups):
+            vals = []
+            for no_vals, co_vals in value_maps:
+                vals.extend([format_tax_value(no_vals.get(code, "")), format_tax_value(co_vals.get(code, ""))])
+            if any(v and v != "0" for v in vals):
+                rows.append([code, *vals])
+        if rows:
+            headers = ["TK", "Đầu kỳ Nợ", "Đầu kỳ Có", "Phát sinh Nợ", "Phát sinh Có", "Cuối kỳ Nợ", "Cuối kỳ Có"]
+            widths = [38, 78, 78, 78, 78, 78, 78]
+            draw_tax_table("Bảng cân đối tài khoản", headers, widths, rows, numeric_cols=range(1, 7))
+
+    def render_tax_declaration() -> bool:
+        nonlocal y
+        hoso = _xml_child(root, "HSoKhaiThue") if _xml_tag_name(root.tag) != "HSoKhaiThue" else root
+        if hoso is None:
+            return False
+
+        tkhai = _xml_path(hoso, "TTinChung", "TTinTKhaiThue", "TKhaiThue")
+        nnt = _xml_path(hoso, "TTinChung", "TTinTKhaiThue", "NNT")
+        ctieu = _xml_child(hoso, "CTieuTKhaiChinh")
+        pluc = _xml_child(hoso, "PLuc")
+
+        title = _xml_text(tkhai, "tenTKhai") or "Tờ khai thuế"
+        tax_title(title.upper(), 14)
+        subtitle = _xml_text(tkhai, "moTaBMau")
+        if subtitle:
+            tax_title(subtitle, 8)
+        y -= 4
+
+        period = _xml_text(tkhai, "KyKKhaiThue", "kyKKhai")
+        date_from = _xml_text(tkhai, "KyKKhaiThue", "kyKKhaiTuNgay")
+        date_to = _xml_text(tkhai, "KyKKhaiThue", "kyKKhaiDenNgay")
+        if date_from or date_to:
+            period = f"{date_from} - {date_to}".strip(" -")
+
+        section("Thông tin tờ khai")
+        for label, value in [
+            ("Mã tờ khai", _xml_text(tkhai, "maTKhai")),
+            ("Kỳ kê khai", period),
+            ("Loại tờ khai", _xml_text(tkhai, "loaiTKhai")),
+            ("Lần nộp", _xml_text(tkhai, "soLan")),
+            ("Cơ quan thuế", _xml_text(tkhai, "tenCQTNoiNop")),
+            ("Ngày lập tờ khai", _xml_text(tkhai, "ngayLapTKhai")),
+            ("Ngày ký", _xml_text(tkhai, "ngayKy")),
+        ]:
+            kv(label, value)
+
+        section("Người nộp thuế")
+        for label, value in [
+            ("Mã số thuế", _xml_text(nnt, "mst")),
+            ("Tên người nộp thuế", _xml_text(nnt, "tenNNT")),
+            ("Địa chỉ", _xml_text(nnt, "dchiNNT")),
+            ("Tỉnh/Thành phố", _xml_text(nnt, "tenTinhNNT")),
+            ("Điện thoại", _xml_text(nnt, "dthoaiNNT")),
+            ("Email", _xml_text(nnt, "emailNNT")),
+        ]:
+            kv(label, value)
+
+        if ctieu is not None:
+            render_group_table(
+                "Bảng cân đối kế toán",
+                ctieu,
+                ["ThuyetMinh", "SoCuoiNam", "SoDauNam"],
+                ["Mã", "Chỉ tiêu", "TM", "Số cuối năm", "Số đầu năm"],
+                balance_labels,
+            )
+            section("Thông tin lập biểu")
+            for label, value in [
+                ("BCTC đã kiểm toán", _xml_text(ctieu, "bctcDaKiemToan")),
+                ("Người lập biểu", _xml_text(ctieu, "nguoiLapBieu")),
+                ("Kế toán trưởng", _xml_text(ctieu, "keToanTruong")),
+                ("Ngày lập", _xml_text(ctieu, "ngayLap")),
+                ("Người đại diện theo pháp luật", _xml_text(ctieu, "nguoiDaiDienTheoPhapLuat")),
+            ]:
+                kv(label, value)
+
+        if pluc is not None:
+            kqhd = _xml_child(pluc, "PL_KQHDSXKD")
+            if kqhd is not None:
+                render_group_table(
+                    "Kết quả hoạt động sản xuất kinh doanh",
+                    kqhd,
+                    ["ThuyetMinh", "NamNay", "NamTruoc"],
+                    ["Mã", "Chỉ tiêu", "TM", "Năm nay", "Năm trước"],
+                    kqhd_labels,
+                )
+            lctt = _xml_child(pluc, "PL_LCTTTT")
+            if lctt is not None:
+                render_group_table(
+                    "Lưu chuyển tiền tệ",
+                    lctt,
+                    ["ThuyetMinh", "NamNay", "NamTruoc"],
+                    ["Mã", "Chỉ tiêu", "TM", "Năm nay", "Năm trước"],
+                    lctt_labels,
+                )
+            render_cdtk_table(pluc)
+
+        c.save()
+        return True
+
+    if render_tax_declaration():
+        return str(out_pdf)
+
     dlh = _xml_child(root, "DLHDon") or root
     ttchung = _xml_path(dlh, "TTChung")
     nd = _xml_path(dlh, "NDHDon")
