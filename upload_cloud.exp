@@ -1,9 +1,0 @@
-#!/usr/bin/expect -f
-set timeout -1
-spawn scp -o StrictHostKeyChecking=no -P 2222 -r piper_voices hieupt@ssh.3tcomputer.com:/home/hieupt/
-expect {
-    "assword:" {
-        send "Congnghe3t\r"
-    }
-}
-expect eof
