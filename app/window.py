@@ -2818,7 +2818,8 @@ class PDFReaderApp(QMainWindow):
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
-            if any(u.toLocalFile().lower().endswith(".pdf") for u in urls):
+            supported = (".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".doc", ".docx", ".xls", ".xlsx", ".xml")
+            if any(u.toLocalFile().lower().endswith(supported) for u in urls):
                 event.acceptProposedAction()
                 return
         event.ignore()
@@ -2831,11 +2832,23 @@ class PDFReaderApp(QMainWindow):
 
     def dropEvent(self, event):
         urls = event.mimeData().urls()
-        pdf_files = [u.toLocalFile() for u in urls if u.toLocalFile().lower().endswith(".pdf")]
-        for path in pdf_files:
+        supported = (".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".doc", ".docx", ".xls", ".xlsx", ".xml")
+        files = [u.toLocalFile() for u in urls if u.toLocalFile().lower().endswith(supported)]
+        
+        if not files:
+            return
+
+        from app.actions.document_converter import process_file_and_open
+        
+        opened_any = False
+        for path in files:
             if os.path.isfile(path):
-                self.open_document(path)
-        if pdf_files:
+                pdf_path = process_file_and_open(self, path)
+                if pdf_path and os.path.isfile(pdf_path):
+                    self.open_document(pdf_path)
+                    opened_any = True
+                    
+        if opened_any:
             event.acceptProposedAction()
 
     def closeEvent(self, event: QCloseEvent):

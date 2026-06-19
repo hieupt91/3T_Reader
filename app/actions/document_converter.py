@@ -1,0 +1,231 @@
+import os
+import sys
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+import urllib.request
+
+from packages.qt_compat.QtWidgets import QMessageBox, QProgressDialog, QApplication
+from packages.qt_compat.QtCore import Qt, QThread, pyqtSignal, QUrl
+from packages.qt_compat.QtGui import QDesktopServices
+
+from app.config import VPS_LICENSE_BASE_URL
+
+MODULES_BASE_URL = f"{VPS_LICENSE_BASE_URL.rstrip('/')}/downloads/modules"
+
+def _t(key: str, default: str) -> str:
+    from app.language_manager import get_selected_language, get_translation
+    return get_translation(get_selected_language(), key, default)
+
+def get_bin_dir() -> Path:
+    base_dir = Path(getattr(sys, "_MEIPASS", os.getcwd()))
+    if sys.platform == "win32":
+        return base_dir / "bin_win"
+    elif sys.platform == "darwin":
+        return base_dir / "bin_mac"
+    return base_dir / "bin"
+
+class DownloadThread(QThread):
+    progress = pyqtSignal(int)
+    finished_dl = pyqtSignal(bool, str)
+
+    def __init__(self, url, dest_path):
+        super().__init__()
+        self.url = url
+        self.dest_path = dest_path
+
+    def run(self):
+        try:
+            req = urllib.request.Request(self.url, headers={"User-Agent": "3T_Reader"})
+            with urllib.request.urlopen(req, timeout=120) as resp, open(self.dest_path, "wb") as out:
+                total = int(resp.headers.get("Content-Length", 0))
+                downloaded = 0
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    downloaded += len(chunk)
+                    if total > 0:
+                        self.progress.emit(int(downloaded * 100 / total))
+            self.finished_dl.emit(True, "")
+        except Exception as e:
+            self.finished_dl.emit(False, str(e))
+
+def download_and_extract_libreoffice(window) -> bool:
+    is_win = sys.platform == "win32"
+    zip_name = "libreoffice_win.zip" if is_win else "libreoffice_mac.zip"
+    url = f"{MODULES_BASE_URL}/{zip_name}"
+    
+    # We will download it to temp, then extract to get_bin_dir() / "libreoffice"
+    temp_zip = Path(tempfile.gettempdir()) / zip_name
+    
+    progress_dlg = QProgressDialog(_t("doc.dl.lo", "Đang tải bộ xử lý Word/Excel (LibreOffice)..."), _t("common.cancel", "Hủy"), 0, 100, window)
+    progress_dlg.setWindowTitle(_t("doc.dl.title", "Tải Module Mở Rộng"))
+    progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
+    progress_dlg.setAutoClose(True)
+    progress_dlg.show()
+    
+    thread = DownloadThread(url, temp_zip)
+    thread.progress.connect(progress_dlg.setValue)
+    
+    success = False
+    error_msg = ""
+    
+    def on_finished(ok, err):
+        nonlocal success, error_msg
+        success = ok
+        error_msg = err
+        
+    thread.finished_dl.connect(on_finished)
+    thread.start()
+    
+    while thread.isRunning():
+        QApplication.processEvents()
+        if progress_dlg.wasCanceled():
+            thread.terminate()
+            return False
+            
+    if not success:
+        QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.dl.fail", "Tải thất bại: ") + error_msg)
+        return False
+        
+    # Extract
+    progress_dlg.setLabelText(_t("doc.dl.extract", "Đang giải nén bộ xử lý..."))
+    progress_dlg.setRange(0, 0)
+    progress_dlg.show()
+    QApplication.processEvents()
+    
+    try:
+        import zipfile
+        dest_dir = get_bin_dir() / "libreoffice"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(temp_zip, 'r') as zip_ref:
+            zip_ref.extractall(dest_dir)
+        temp_zip.unlink(missing_ok=True)
+    except Exception as e:
+        QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.dl.extract_fail", "Giải nén thất bại: ") + str(e))
+        progress_dlg.close()
+        return False
+        
+    progress_dlg.close()
+    return True
+
+def get_libreoffice_bin() -> str:
+    bin_dir = get_bin_dir() / "libreoffice"
+    if sys.platform == "win32":
+        path = bin_dir / "App" / "libreoffice" / "program" / "soffice.exe"
+        if not path.exists():
+            path = bin_dir / "program" / "soffice.exe"
+    else:
+        path = bin_dir / "Contents" / "MacOS" / "soffice"
+        
+    if path.exists():
+        return str(path)
+        
+    # Fallback to system wide
+    if sys.platform == "win32":
+        for p in [r"C:\Program Files\LibreOffice\program\soffice.exe"]:
+            if os.path.exists(p): return p
+    elif sys.platform == "darwin":
+        if os.path.exists("/Applications/LibreOffice.app/Contents/MacOS/soffice"):
+            return "/Applications/LibreOffice.app/Contents/MacOS/soffice"
+            
+    return ""
+
+def convert_image_to_pdf(img_path: str) -> str:
+    from PIL import Image
+    out_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
+    img = Image.open(img_path)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    img.save(out_pdf, "PDF", resolution=100.0)
+    return out_pdf
+
+def convert_office_to_pdf(window, file_path: str) -> str:
+    # 1. Check for LibreOffice
+    lo_bin = get_libreoffice_bin()
+    if not lo_bin:
+        ans = QMessageBox.question(
+            window, 
+            _t("doc.lo.missing", "Thiếu Bộ Xử Lý"),
+            _t("doc.lo.prompt", "Để đọc file Word/Excel chính xác 100%, ứng dụng cần tải thêm Module LibreOffice (~150MB).\n\nBạn có muốn tải và cài đặt tự động không?"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if ans == QMessageBox.StandardButton.Yes:
+            if download_and_extract_libreoffice(window):
+                lo_bin = get_libreoffice_bin()
+            else:
+                return ""
+        else:
+            return ""
+            
+    if not lo_bin:
+        return ""
+        
+    # Show converting progress
+    progress_dlg = QProgressDialog(_t("doc.conv.doing", "Đang chuyển đổi hiển thị (sẽ mất vài giây)..."), "", 0, 0, window)
+    progress_dlg.setWindowTitle(_t("doc.conv.title", "Xử lý tài liệu"))
+    progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
+    progress_dlg.setCancelButton(None)
+    progress_dlg.show()
+    QApplication.processEvents()
+    
+    out_dir = Path(tempfile.gettempdir()) / "3t_reader_docs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        # soffice --headless --convert-to pdf --outdir <dir> <file>
+        cmd = [lo_bin, "--headless", "--convert-to", "pdf", "--outdir", str(out_dir), file_path]
+        
+        if sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=startupinfo)
+        else:
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        expected_pdf = out_dir / (Path(file_path).stem + ".pdf")
+        progress_dlg.close()
+        
+        if expected_pdf.exists():
+            return str(expected_pdf)
+    except Exception as e:
+        progress_dlg.close()
+        QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.conv.fail", "Chuyển đổi thất bại: ") + str(e))
+        
+    return ""
+
+def handle_xml_itax(window):
+    ans = QMessageBox.question(
+        window,
+        _t("doc.itax.title", "File Thuế XML"),
+        _t("doc.itax.prompt", "Để đọc định dạng XML đặc thù của Thuế, bạn cần cài đặt phần mềm iTaxViewer của Tổng cục Thuế, sau đó dùng lệnh In ra PDF (Print to PDF).\n\nBạn có muốn mở trang tải iTaxViewer không?"),
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+    )
+    if ans == QMessageBox.StandardButton.Yes:
+        QDesktopServices.openUrl(QUrl("https://thuedientu.gdt.gov.vn/"))
+
+def process_file_and_open(window, file_path: str):
+    """
+    Called from dropEvent or open action to convert non-PDFs to PDF.
+    Returns path to PDF to open, or empty if handled or failed.
+    """
+    ext = Path(file_path).suffix.lower()
+    
+    if ext == ".pdf":
+        return file_path
+        
+    if ext in (".png", ".jpg", ".jpeg", ".bmp"):
+        return convert_image_to_pdf(file_path)
+        
+    if ext in (".doc", ".docx", ".xls", ".xlsx"):
+        return convert_office_to_pdf(window, file_path)
+        
+    if ext == ".xml":
+        handle_xml_itax(window)
+        return ""
+        
+    QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.unsupported", f"Định dạng {ext} chưa được hỗ trợ."))
+    return ""
