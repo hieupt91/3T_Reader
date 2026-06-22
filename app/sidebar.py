@@ -66,7 +66,11 @@ class ThumbnailSidebar(QDockWidget):
 
         self.list = QListWidget()
         self.list.setIconSize(QSize(170, 170))
+        self.list.setGridSize(QSize(182, 226))
         self.list.setSpacing(8)
+        self.list.setViewMode(QListWidget.ViewMode.IconMode)
+        self.list.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self.list.setMovement(QListWidget.Movement.Static)
         
         self.list.setStyleSheet("""
             QListWidget {
@@ -142,7 +146,7 @@ class ThumbnailSidebar(QDockWidget):
         menu.addSeparator()
         act_rotate = menu.addAction("Xoay trang")
         act_delete = menu.addAction("Xóa trang")
-        act_extract = menu.addAction("Trích xuất trang")
+        act_extract = menu.addAction("Tách PDF...")
         act_insert_after = menu.addAction("Chèn trang sau")
         extra_actions = {
             act_rotate: "rotate",
@@ -202,6 +206,7 @@ class ThumbnailSidebar(QDockWidget):
             item = QListWidgetItem()
             item.setText(f"Trang {page_number}")
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item.setSizeHint(QSize(176, 220))
             self.list.addItem(item)
 
         self._populate_index = end_page + 1

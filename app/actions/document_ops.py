@@ -17,6 +17,7 @@ from app.actions._guard import require_document
 from app.actions._pdf_save import (
     make_staged_pdf_path,
     remove_path_quietly,
+    replace_file_with_retry,
     replace_document_with_staged,
 )
 from app.dialogs import show_warning, show_info
@@ -33,6 +34,12 @@ def _tmp_pdf():
 
 def _set_tmp_target(path: str):
     _tmp_pdf._current_target_path = path
+
+
+def _document_read_and_target_paths(window) -> tuple[str | None, str | None]:
+    read_path = getattr(window, "current_path", None)
+    target_path = window.get_display_path() if hasattr(window, "get_display_path") else None
+    return read_path, target_path or read_path
 
 
 def _resolve_reportlab_font(bold: bool = False) -> str:
@@ -260,7 +267,15 @@ def add_watermark(window):
     if not p["text"]:
         return
 
-    src = window.current_path
+    read_path, target_path = _document_read_and_target_paths(window)
+    if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
+        show_warning(
+            window,
+            "KhÃ´ng thá»ƒ Ä‘Ã¡nh sá»‘ trang trÃªn file Ä‘ang giáº£i mÃ£",
+            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi thÃªm sá»‘ trang Ä‘á»ƒ trÃ¡nh ghi nháº§m vÃ o báº£n táº¡m.",
+        )
+        return
+    src = target_path or read_path
     _set_tmp_target(src)
     out = _tmp_pdf()
 
@@ -329,7 +344,15 @@ def remove_watermark(window):
     if not ok:
         return
 
-    src = window.current_path
+    read_path, target_path = _document_read_and_target_paths(window)
+    if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
+        show_warning(
+            window,
+            "KhÃ´ng thá»ƒ xÃ³a sá»‘ trang trÃªn file Ä‘ang giáº£i mÃ£",
+            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi xÃ³a sá»‘ trang Ä‘á»ƒ trÃ¡nh ghi nháº§m vÃ o báº£n táº¡m.",
+        )
+        return
+    src = target_path or read_path
     _set_tmp_target(src)
     out = _tmp_pdf()
 
@@ -363,7 +386,10 @@ def remove_watermark(window):
 
             pdf.save(out)
 
-        replace_document_with_staged(window, out, target_path=src)
+        if os.path.abspath(str(read_path)) != os.path.abspath(str(src)):
+            replace_file_with_retry(out, src)
+        else:
+            replace_document_with_staged(window, out, target_path=src)
         window.status.showMessage(f"Đã xóa watermark trên {removed} trang", 4000)
 
     except Exception as e:
@@ -424,18 +450,31 @@ class _PasswordDialog(QDialog):
 
 @require_document(show_message=True)
 def set_pdf_password(window):
+    read_path, target_path = _document_read_and_target_paths(window)
+    src = target_path or read_path
+    
+    import pikepdf
+    try:
+        test_doc = pikepdf.open(src)
+        test_doc.close()
+    except pikepdf.PasswordError:
+        show_warning(window, "Đã có mật khẩu", "File này đã được đặt mật khẩu. Vui lòng xóa mật khẩu hiện tại trước khi đặt mật khẩu mới.")
+        return
+    except Exception as e:
+        show_warning(window, "Lỗi kiểm tra tệp", str(e))
+        return
+
     dlg = _PasswordDialog(window)
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return
 
     pw  = dlg.password()
-    src = window.current_path
     _set_tmp_target(src)
     out = _tmp_pdf()
 
     try:
         import pikepdf
-        with pikepdf.open(src) as doc:
+        with pikepdf.open(read_path) as doc:
             doc.save(
                 out,
                 encryption=pikepdf.Encryption(
@@ -444,7 +483,10 @@ def set_pdf_password(window):
                     R=6,
                 )
             )
-        replace_document_with_staged(window, out, target_path=src)
+        if os.path.abspath(str(read_path)) != os.path.abspath(str(src)):
+            replace_file_with_retry(out, src)
+        else:
+            replace_document_with_staged(window, out, target_path=src)
         window.status.showMessage("Đã đặt mật khẩu PDF", 4000)
     except Exception as e:
         show_warning(window, "Lỗi đặt mật khẩu", str(e))
@@ -500,7 +542,16 @@ def remove_pdf_password(window):
 
 @require_document(show_message=True)
 def compress_pdf(window):
-    src = window.current_path
+    read_path, target_path = _document_read_and_target_paths(window)
+    if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
+        show_warning(
+            window,
+            "KhÃ´ng thá»ƒ nÃ©n file Ä‘ang giáº£i mÃ£",
+            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi nÃ©n PDF Ä‘á»ƒ trÃ¡nh sai lá»‡ch tráº¡ng thÃ¡i mÃ£ hÃ³a.",
+        )
+        return
+
+    src = target_path or read_path
     _set_tmp_target(src)
     out = _tmp_pdf()
 
@@ -628,7 +679,15 @@ def _parse_range(text: str, max_page: int) -> list[int]:
 def export_pages_to_images(window):
     import pypdfium2 as pdfium
 
-    src = window.current_path
+    read_path, target_path = _document_read_and_target_paths(window)
+    if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
+        show_warning(
+            window,
+            "KhÃ´ng thá»ƒ Ä‘Ã¡nh sá»‘ trang trÃªn file Ä‘ang giáº£i mÃ£",
+            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi thÃªm sá»‘ trang Ä‘á»ƒ trÃ¡nh ghi nháº§m vÃ o báº£n táº¡m.",
+        )
+        return
+    src = target_path or read_path
 
     doc   = pdfium.PdfDocument(src)
     total = len(doc)
@@ -689,7 +748,6 @@ def export_pages_to_images(window):
         window.status.showMessage(
             f"Đã xuất {done} ảnh {p['fmt']} vào: {out_dir}", 6000
         )
-        # Mở thư mục output
         import subprocess, sys
         if sys.platform == "darwin":
             subprocess.Popen(["open", out_dir])
@@ -707,7 +765,15 @@ def export_pdf_to_text(window):
     """Trích xuất toàn bộ văn bản từ PDF ra file .txt."""
     import pypdfium2 as pdfium
 
-    src = window.current_path
+    read_path, target_path = _document_read_and_target_paths(window)
+    if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
+        show_warning(
+            window,
+            "KhÃ´ng thá»ƒ xÃ³a sá»‘ trang trÃªn file Ä‘ang giáº£i mÃ£",
+            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi xÃ³a sá»‘ trang Ä‘á»ƒ trÃ¡nh ghi nháº§m vÃ o báº£n táº¡m.",
+        )
+        return
+    src = target_path or read_path
     base_name = os.path.splitext(os.path.basename(src))[0]
 
     out_path, _ = QFileDialog.getSaveFileName(
@@ -753,6 +819,7 @@ def _page_number_overlay_bytes(w: float, h: float, label: str,
                                 position: str) -> bytes:
     """Tạo 1 trang PDF chứa số trang bằng reportlab."""
     from reportlab.pdfgen import canvas as rlcanvas
+    import io
     buf = io.BytesIO()
     c = rlcanvas.Canvas(buf, pagesize=(w, h))
     c.setFillColorRGB(0.3, 0.3, 0.3)
@@ -777,6 +844,81 @@ def _page_number_overlay_bytes(w: float, h: float, label: str,
     return buf.read()
 
 
+_PAGENUM_MARKER_KEY = "/_3TPageNumMarker"
+
+def _mark_pagenum_added(page) -> None:
+    try:
+        existing = page.obj.get(_PAGENUM_MARKER_KEY)
+        current = int(existing) if existing is not None else 0
+    except Exception:
+        current = 0
+    try:
+        page.obj[_PAGENUM_MARKER_KEY] = current + 1
+    except Exception:
+        pass
+
+
+def _remove_pagenums(pdf, page) -> bool:
+    import pikepdf
+
+    marker_value = page.obj.get(_PAGENUM_MARKER_KEY)
+    try:
+        remaining_marker = int(marker_value) if marker_value is not None else 0
+    except Exception:
+        remaining_marker = 0
+    if remaining_marker <= 0:
+        return False
+
+    contents = page.obj.get("/Contents")
+    if contents is None:
+        return False
+
+    stripped_overlay = False
+    if isinstance(contents, pikepdf.Array):
+        if len(contents) > 1:
+            del contents[-1]
+            stripped_overlay = True
+        elif len(contents) == 1:
+            content_obj = contents[0]
+        else:
+            return False
+    else:
+        content_obj = contents
+
+    if not stripped_overlay:
+        try:
+            raw = bytes(content_obj)
+        except Exception:
+            return False
+        if not raw:
+            return False
+
+        stripped = raw.rstrip()
+        start = stripped.rfind(b"\nq")
+        if start < 0 and stripped.startswith(b"q"):
+            start = 0
+        tail = stripped[start:] if start >= 0 else b""
+        if start >= 0 and b" Do" in tail and tail.endswith(b"Q"):
+            new_stream = pikepdf.Stream(pdf, raw[:start].rstrip() + b"\n")
+            if isinstance(contents, pikepdf.Array):
+                contents[0] = new_stream
+            else:
+                page.obj["/Contents"] = new_stream
+            stripped_overlay = True
+
+    if not stripped_overlay:
+        return False
+
+    if remaining_marker > 1:
+        page.obj[_PAGENUM_MARKER_KEY] = remaining_marker - 1
+    else:
+        try:
+            del page.obj[_PAGENUM_MARKER_KEY]
+        except Exception:
+            pass
+    return True
+
+
 @require_document(show_message=True)
 def add_page_numbers(window):
     """Thêm số trang vào cuối mỗi trang PDF."""
@@ -795,12 +937,21 @@ def add_page_numbers(window):
     if not ok:
         return
 
-    src = window.current_path
+    read_path, target_path = _document_read_and_target_paths(window)
+    if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
+        show_warning(
+            window,
+            "KhÃ´ng thá»ƒ Ä‘Ã¡nh sá»‘ trang trÃªn file Ä‘ang giáº£i mÃ£",
+            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi thÃªm sá»‘ trang Ä‘á»ƒ trÃ¡nh ghi nháº§m vÃ o báº£n táº¡m.",
+        )
+        return
+    src = target_path or read_path
     _set_tmp_target(src)
     tmp = _tmp_pdf()
     window.status.showMessage("Đang thêm số trang…", 0)
     try:
         import pikepdf
+        import io
 
         font_size = 10
         margin    = 20
@@ -814,12 +965,17 @@ def add_page_numbers(window):
                 w = float(mbox[2]) - float(mbox[0])
                 h = float(mbox[3]) - float(mbox[1])
 
+                # Remove existing page numbers before adding new ones
+                while _remove_pagenums(pdf, page):
+                    pass
+
                 overlay_data = _page_number_overlay_bytes(
                     w, h, label, font_size, margin, position
                 )
 
                 with pikepdf.open(io.BytesIO(overlay_data)) as ol_pdf:
                     page.add_overlay(ol_pdf.pages[0])
+                _mark_pagenum_added(page)
 
             pdf.save(tmp)
 
@@ -828,4 +984,40 @@ def add_page_numbers(window):
     except Exception as e:
         window.status.showMessage("", 0)
         show_warning(window, "Lỗi thêm số trang", str(e))
+        remove_path_quietly(tmp)
+
+
+@require_document(show_message=True)
+def remove_page_numbers(window):
+    """Xóa các số trang đã được thêm vào."""
+    read_path, target_path = _document_read_and_target_paths(window)
+    if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
+        show_warning(
+            window,
+            "KhÃ´ng thá»ƒ xÃ³a sá»‘ trang trÃªn file Ä‘ang giáº£i mÃ£",
+            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi xÃ³a sá»‘ trang Ä‘á»ƒ trÃ¡nh ghi nháº§m vÃ o báº£n táº¡m.",
+        )
+        return
+    src = target_path or read_path
+    _set_tmp_target(src)
+    tmp = _tmp_pdf()
+    window.status.showMessage("Đang xóa số trang…", 0)
+    try:
+        import pikepdf
+        deleted = False
+        with pikepdf.open(src) as pdf:
+            for page in pdf.pages:
+                while _remove_pagenums(pdf, page):
+                    deleted = True
+            pdf.save(tmp)
+
+        if deleted:
+            replace_document_with_staged(window, tmp, target_path=src)
+            window.status.showMessage("Đã xóa số trang thành công", 4000)
+        else:
+            remove_path_quietly(tmp)
+            window.status.showMessage("Không tìm thấy số trang nào để xóa", 4000)
+    except Exception as e:
+        window.status.showMessage("", 0)
+        show_warning(window, "Lỗi xóa số trang", str(e))
         remove_path_quietly(tmp)

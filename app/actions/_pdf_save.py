@@ -16,6 +16,16 @@ def current_viewer_page(window, default: int = 1) -> int:
         return default
 
 
+def current_viewer_zoom(window, default: str = "100") -> str:
+    try:
+        zoom = getattr(window.viewer, "_zoom", None)
+        if zoom:
+            return str(zoom)
+    except Exception:
+        pass
+    return default
+
+
 def remove_path_quietly(path: str | None) -> None:
     if not path:
         return
@@ -93,12 +103,14 @@ def reload_document(
     source_path: str,
     *,
     page: int | None = None,
-    zoom: str = "100",
+    zoom: str | None = None,
     display_path=_UNSET,
     temp_path=_UNSET,
+    soft_reload: bool = False,
 ) -> None:
     state = window._state_or_global() if hasattr(window, "_state_or_global") else None
     old_temp_path = state.get("temp_path") if isinstance(state, dict) else None
+    target_zoom = str(zoom or current_viewer_zoom(window))
 
     window.current_path = source_path
     if isinstance(state, dict):
@@ -116,10 +128,12 @@ def reload_document(
 
     target_page = max(1, int(page if page is not None else current_viewer_page(window)))
     
-    if hasattr(window.viewer, "reload_soft") and window.viewer._path == source_path and target_page == current_viewer_page(window):
-        window.viewer.reload_soft(source_path, zoom=zoom, page=target_page)
+    if soft_reload and hasattr(window.viewer, "reload_soft"):
+        window.viewer.reload_soft(source_path, zoom=target_zoom, page=target_page)
+    elif hasattr(window.viewer, "reload_soft") and window.viewer._path == source_path and target_page == current_viewer_page(window):
+        window.viewer.reload_soft(source_path, zoom=target_zoom, page=target_page)
     else:
-        window.viewer.load_pdf(source_path, page=target_page, zoom=zoom)
+        window.viewer.load_pdf(source_path, page=target_page, zoom=target_zoom)
 
 
 def replace_document_with_staged(
@@ -131,6 +145,8 @@ def replace_document_with_staged(
     page: int | None = None,
     display_path=_UNSET,
     temp_path=_UNSET,
+    zoom: str | None = None,
+    soft_reload: bool = True,
 ) -> str:
     if not staged_path:
         raise ValueError("Missing staged PDF path.")
@@ -148,16 +164,33 @@ def replace_document_with_staged(
     try:
         if not use_soft_reload:
             release_viewer_file_lock(window)
-        replace_file_with_retry(staged_path, resolved_target)
+        
+        try:
+            replace_file_with_retry(staged_path, resolved_target)
+        except PermissionError:
+            # If soft reload was attempted but file is locked, fallback to hard reload
+            if use_soft_reload:
+                use_soft_reload = False
+                release_viewer_file_lock(window)
+                replace_file_with_retry(staged_path, resolved_target, attempts=15)
+            else:
+                raise
     except Exception:
         remove_path_quietly(staged_path)
         raise
 
-    reload_document(
-        window,
-        resolved_target,
-        page=target_page,
-        display_path=display_path,
-        temp_path=temp_path,
-    )
+    if not use_soft_reload:
+        reload_document(
+            window,
+            resolved_target,
+            page=target_page,
+            zoom=zoom,
+            display_path=display_path,
+            temp_path=temp_path,
+            soft_reload=soft_reload,
+        )
+    else:
+        # For soft reload, we just call the viewer directly to avoid redundant reload_document logic
+        window.viewer.reload_soft(resolved_target, page=target_page, zoom=str(zoom or current_viewer_zoom(window)))
+        
     return resolved_target

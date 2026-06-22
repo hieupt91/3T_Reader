@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import os
 
 from app.actions import _pdf_save
@@ -9,6 +10,7 @@ from app.actions import edit
 class _FakeViewer:
     def __init__(self, page: int = 1):
         self._page = page
+        self._zoom = "100"
         self.loaded = []
 
     def get_current_page(self):
@@ -17,6 +19,18 @@ class _FakeViewer:
     def load_pdf(self, path, page=1, zoom="page-width"):
         self.loaded.append((path, page, zoom))
         self._page = page
+
+
+class _FakeSoftReloadViewer(_FakeViewer):
+    def __init__(self, page: int = 1, zoom: str = "175"):
+        super().__init__(page)
+        self._zoom = zoom
+        self.soft_loaded = []
+
+    def reload_soft(self, path, zoom="100", page=None, ops_json="[]", erase_json="[]"):
+        self.soft_loaded.append((path, page, zoom))
+        if page is not None:
+            self._page = page
 
 
 class _FakeWindow:
@@ -82,6 +96,30 @@ def test_replace_document_with_staged_updates_state_and_cleans_old_temp(tmp_path
     assert window._state["temp_path"] is None
     assert not old_temp.exists()
     assert window.viewer.loaded == [(str(target), 3, "100")]
+
+
+def test_replace_document_with_staged_prefers_soft_reload_and_keeps_zoom(tmp_path):
+    target = tmp_path / "doc.pdf"
+    target.write_bytes(b"old")
+    staged = _pdf_save.make_staged_pdf_path(str(target))
+    with open(staged, "wb") as fh:
+        fh.write(b"new")
+
+    window = _FakeWindow(str(target), temp_path=None, page=4)
+    window.viewer = _FakeSoftReloadViewer(page=4, zoom="175")
+    window.viewer._path = str(target)
+
+    _pdf_save.replace_document_with_staged(
+        window,
+        staged,
+        target_path=str(target),
+        display_path=str(target),
+        temp_path=None,
+    )
+
+    assert target.read_bytes() == b"new"
+    assert window.viewer.soft_loaded == [(str(target), 4, "175")]
+    assert window.viewer.loaded == []
 
 
 def test_ensure_edit_state_prefers_display_path_over_legacy_op_temp(tmp_path, monkeypatch):
@@ -173,3 +211,27 @@ def test_remove_path_quietly_no_error_on_missing(tmp_path):
 
 def test_remove_path_quietly_no_error_on_none():
     _pdf_save.remove_path_quietly(None)
+
+
+def test_document_ops_password_and_pagenum_regressions_are_guarded_in_source():
+    from app.actions import document_ops
+
+    set_password_src = inspect.getsource(document_ops.set_pdf_password)
+    compress_src = inspect.getsource(document_ops.compress_pdf)
+    add_page_numbers_src = inspect.getsource(document_ops.add_page_numbers)
+    remove_page_numbers_src = inspect.getsource(document_ops.remove_page_numbers)
+    remove_pagenum_src = inspect.getsource(document_ops._remove_pagenums)
+
+    assert "_document_read_and_target_paths(window)" in set_password_src
+    assert "with pikepdf.open(read_path) as doc:" in set_password_src
+    assert "replace_file_with_retry(out, src)" in set_password_src
+
+    assert "_document_read_and_target_paths(window)" in compress_src
+    assert "os.path.abspath(str(read_path)) != os.path.abspath(str(target_path))" in compress_src
+    assert "show_warning(" in compress_src
+
+    assert "_document_read_and_target_paths(window)" in add_page_numbers_src
+    assert "_document_read_and_target_paths(window)" in remove_page_numbers_src
+
+    assert "if remaining_marker > 1:" in remove_pagenum_src
+    assert 'page.obj[_PAGENUM_MARKER_KEY] = remaining_marker - 1' in remove_pagenum_src
