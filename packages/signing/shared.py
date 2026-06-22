@@ -14,6 +14,20 @@ _VALIDATE_STATUS_CACHE: OrderedDict[tuple[str, int, int, str], dict[str, object]
 _VALIDATE_STATUS_CACHE_MAX = 24
 
 
+def _make_output_staged_pdf_path(output_path: str, *, prefix: str = ".3t_sign_", suffix: str = ".pdf") -> str:
+    directory = os.path.dirname(os.path.abspath(output_path)) or os.getcwd()
+    os.makedirs(directory, exist_ok=True)
+    fd, staged_path = tempfile.mkstemp(prefix=prefix, suffix=suffix, dir=directory)
+    os.close(fd)
+    return staged_path
+
+
+def _replace_signed_output(staged_path: str, output_path: str) -> None:
+    if not staged_path or not os.path.exists(staged_path):
+        raise FileNotFoundError(staged_path or output_path)
+    os.replace(staged_path, output_path)
+
+
 class _TemporaryImportedPdfPage:
     """Imported PDF page that cleans up its source file after rendering."""
 
@@ -611,9 +625,7 @@ async def sign_pdf_with_session(
     if box is None:
         box = (50, 50, 300, 100)
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    tmp_path = tmp.name
-    tmp.close()
+    tmp_path = _make_output_staged_pdf_path(output_path)
 
     try:
         _signing_cert, cert_id, cert_details = _pick_signing_certificate(
@@ -727,7 +739,7 @@ async def sign_pdf_with_session(
                         output=out,
                     )
 
-        os.replace(tmp_path, output_path)
+        _replace_signed_output(tmp_path, output_path)
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -758,9 +770,7 @@ async def sign_pdf_with_pkcs12(
     if box is None:
         box = (50, 50, 300, 100)
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    tmp_path = tmp.name
-    tmp.close()
+    tmp_path = _make_output_staged_pdf_path(output_path)
 
     try:
         passphrase_bytes = passphrase.encode("utf-8") if isinstance(passphrase, str) else passphrase
@@ -882,7 +892,7 @@ async def sign_pdf_with_pkcs12(
                         output=out,
                     )
 
-        os.replace(tmp_path, output_path)
+        _replace_signed_output(tmp_path, output_path)
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)

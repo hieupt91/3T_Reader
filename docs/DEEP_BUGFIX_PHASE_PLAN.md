@@ -517,3 +517,31 @@ Kiem tra:
 Ket qua:
 
 - 23 passed.
+
+### Phase 2 - Signing Cross-Drive Output And Preview Cleanup
+
+Van de da xac dinh:
+
+- `packages/signing/shared.py` van ghi file ky vao temp mac dinh roi `shutil.move(tmp_path, output_path)`.
+- Tren Windows, temp thuong o `C:` trong khi user luu file ky o `D:` nen phat sinh `WinError 17`.
+- Flow pick vi tri ky trong `app/actions/sign.py` teardown WebChannel nhung chua ep chay JS cleanup trong `finally`, nen co the de sot listener/overlay sau khi dong prompt.
+
+Sua da lam:
+
+- Them helper `_make_output_staged_pdf_path(output_path)` de tao staged PDF ngay trong cung thu muc dich.
+- Them helper `_replace_signed_output(staged_path, output_path)` dung `os.replace` va khong xoa file dich truoc.
+- Ap helper moi cho ca `sign_pdf_with_session(...)` va `sign_pdf_with_pkcs12(...)`.
+- Bo `shutil.move(tmp_path, output_path)` trong hai flow ky chinh.
+- Trong `_pick_signature_placement(...)`, them JS cleanup call trong `finally` de dong sach overlay/listener cua pick-phase truoc khi teardown WebChannel.
+- Them test hoi quy cho staged path, giu nguyen output cu neu staged file loi, va contract khong con `shutil.move`.
+
+Kiem tra:
+
+```powershell
+.\.venv313\Scripts\python.exe -m py_compile app\actions\sign.py packages\signing\shared.py
+.\.venv313\Scripts\python.exe -m pytest tests\test_signing_pr4.py tests\test_pdf_save_helpers.py tests\test_smoke_windows.py
+```
+
+Ket qua:
+
+- 35 passed.

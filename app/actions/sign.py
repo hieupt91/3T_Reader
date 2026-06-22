@@ -71,6 +71,8 @@ def _cleanup_signature_preview(window, web_view=None):
     _set_signature_preview(window, None)
     if web_view is None:
         web_view = _get_web_view(window)
+    if web_view is not None:
+        web_view.page().runJavaScript("if (window.__readerPdfSignaturePickCleanup) window.__readerPdfSignaturePickCleanup();")
     _teardown_webchannel(web_view)
 
 
@@ -1087,7 +1089,9 @@ def _set_signature_preview(window, placement: dict | None, *, sig_image_url: str
     }}
 }})({payload_json});
 """
-    web_view.page().runJavaScript(script)
+    loop = QEventLoop()
+    web_view.page().runJavaScript(script, lambda _res: loop.quit())
+    loop.exec()
 
 
 def _set_signature_field_marks(window, placements: list[dict]) -> None:
@@ -1878,6 +1882,13 @@ def _pick_signature_placement(window, *, sig_image_url: str = "", sig_text_html:
         web_view.page().runJavaScript(pick_script)
         loop.exec()
     finally:
+        try:
+            web_view.page().runJavaScript(
+                "if (window.__readerPdfSignaturePickCleanup) { "
+                "try { window.__readerPdfSignaturePickCleanup(); } catch (_err) {} }"
+            )
+        except Exception:
+            pass
         _teardown_webchannel(web_view)
         prompt.deleteLater()
 

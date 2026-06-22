@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+import inspect
+import os
 
 
 def test_pick_signing_certificate_prefers_private_key_leaf(monkeypatch):
@@ -179,3 +181,55 @@ def test_validate_signed_pdf_status_uses_field_report_on_outer_parse_error(monke
     assert report["issuer_name"] == "VNPT-CA"
     assert report["serial_hex"] == "ABC123"
     assert "parse boom" in report["validation_error"]
+
+
+def test_signing_output_staged_path_uses_output_directory(tmp_path):
+    from packages.signing import shared
+
+    output_path = tmp_path / "nested" / "signed.pdf"
+
+    staged_path = shared._make_output_staged_pdf_path(str(output_path))
+
+    try:
+        assert os.path.dirname(staged_path) == str(output_path.parent)
+        assert os.path.exists(staged_path)
+    finally:
+        if os.path.exists(staged_path):
+            os.remove(staged_path)
+
+
+def test_replace_signed_output_preserves_existing_file_when_staged_missing(tmp_path):
+    from packages.signing import shared
+
+    output_path = tmp_path / "signed.pdf"
+    output_path.write_bytes(b"%PDF-old")
+
+    missing_staged = tmp_path / "missing.pdf"
+
+    try:
+        shared._replace_signed_output(str(missing_staged), str(output_path))
+        raise AssertionError("Expected FileNotFoundError")
+    except FileNotFoundError:
+        pass
+
+    assert output_path.read_bytes() == b"%PDF-old"
+
+
+def test_signing_shared_avoids_cross_drive_shutil_move():
+    from packages.signing import shared
+
+    session_src = inspect.getsource(shared.sign_pdf_with_session)
+    pkcs12_src = inspect.getsource(shared.sign_pdf_with_pkcs12)
+
+    assert "shutil.move(tmp_path, output_path)" not in session_src
+    assert "shutil.move(tmp_path, output_path)" not in pkcs12_src
+    assert "_replace_signed_output(tmp_path, output_path)" in session_src
+    assert "_replace_signed_output(tmp_path, output_path)" in pkcs12_src
+
+
+def test_pick_signature_placement_always_cleans_up_pick_overlay():
+    from app.actions import sign
+
+    src = inspect.getsource(sign._pick_signature_placement)
+
+    assert "window.__readerPdfSignaturePickCleanup" in src
