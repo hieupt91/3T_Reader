@@ -78,6 +78,14 @@ class _AnnotationOpQueue(QObject):
     def enqueue(self, target_path: str, op, *, delay_ms: int = 350) -> None:
         self._pending.append((os.path.abspath(target_path), op))
         self._last_error = ""
+        
+        from packages.qt_compat.QtCore import QSettings
+        auto_save = str(QSettings().value("3TReader/auto_save", "true")).lower() == "true"
+        if not auto_save:
+            if hasattr(self._window, "status"):
+                self._window.status.showMessage("Đã ghi nhận thay đổi (Nhấn Ctrl+S để lưu)", 2000)
+            return
+
         if hasattr(self._window, "status"):
             self._window.status.showMessage("Đang chờ tự động lưu chú thích...", 1200)
         self._timer.start(max(0, int(delay_ms)))
@@ -580,8 +588,12 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         return viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
     }
 
-    function removeOldOverlays() {
-        document.querySelectorAll('.threeTNoteOverlay,.threeTMarkOverlay').forEach(function(el) { el.remove(); });
+    function removeOldOverlays(pageNumber) {
+        var root = document;
+        if (pageNumber) {
+            root = document.querySelector('.page[data-page-number="' + pageNumber + '"]') || document;
+        }
+        root.querySelectorAll('.threeTNoteOverlay,.threeTMarkOverlay').forEach(function(el) { el.remove(); });
     }
 
     function positionForNote(pageView, note) {
@@ -700,9 +712,10 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         });
     }
 
-    function renderMarks(viewer, marks) {
+    function renderMarks(viewer, marks, pageNumber) {
         if (!Array.isArray(marks)) return;
         marks.forEach(function(mark) {
+            if (pageNumber && Number(mark.page_number) !== Number(pageNumber)) return;
             var pageView = pageViewFor(viewer, mark.page_number);
             if (!pageView || !pageView.viewport || !pageView.div) return;
             (mark.rects || []).forEach(function(pdfRect) {
@@ -746,8 +759,61 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         ensureStyle();
         removeOldOverlays();
         var cleanupFns = [];
+        var pageCleanupFns = {};
         var noteItems = notes.filter(function(item) { return item && item.kind !== 'mark'; });
         var markItems = notes.filter(function(item) { return item && item.kind === 'mark'; });
+
+        function cleanupPage(pageNumber) {
+            var key = String(pageNumber || '');
+            (pageCleanupFns[key] || []).forEach(function(fn) { try { fn(); } catch (_err) {} });
+            pageCleanupFns[key] = [];
+        }
+
+        function removePageOverlays(pageNumber) {
+            cleanupPage(pageNumber);
+            removeOldOverlays(pageNumber);
+        }
+
+        function addPageCleanup(pageNumber, fn) {
+            var key = String(pageNumber || '');
+            if (!pageCleanupFns[key]) pageCleanupFns[key] = [];
+            pageCleanupFns[key].push(fn);
+        }
+
+        function renderStickyNoteIcon(note) {
+            var pageView = pageViewFor(viewer, note.page_number);
+            if (!pageView || !pageView.viewport || !pageView.div) return;
+            var pageEl = pageView.div;
+            var node = document.createElement('button');
+            var localCleanupFns = [];
+            node.type = 'button';
+            node.className = 'threeTNoteOverlay';
+            node.textContent = '\uD83D\uDCCE';
+            node.dataset.threeTNoteId = note.id;
+            node.dataset.noteContent = note.content || '';
+            placeNode(node, pageView, note);
+            pageEl.appendChild(node);
+            bindNote(node, pageView, pageEl, note, bridge, localCleanupFns);
+            localCleanupFns.forEach(function(fn) { addPageCleanup(note.page_number, fn); });
+        }
+
+        function renderPage(pageNumber) {
+            if (!pageNumber) return;
+            removePageOverlays(pageNumber);
+            noteItems.forEach(function(note) {
+                if (Number(note.page_number) === Number(pageNumber)) renderStickyNoteIcon(note);
+            });
+            renderMarks(viewer, markItems, pageNumber);
+        }
+
+        function renderAll() {
+            Object.keys(pageCleanupFns).forEach(function(pageNumber) { cleanupPage(pageNumber); });
+            removeOldOverlays();
+            var pages = {};
+            noteItems.forEach(function(note) { pages[String(note.page_number)] = true; });
+            markItems.forEach(function(mark) { pages[String(mark.page_number)] = true; });
+            Object.keys(pages).forEach(function(pageNumber) { renderPage(Number(pageNumber)); });
+        }
 
         window.__3tNotesUpdateNote = function(updated) {
             if (!updated || !updated.id) return;
@@ -769,23 +835,29 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
                 });
         };
 
-        noteItems.forEach(function(note) {
-            var pageView = pageViewFor(viewer, note.page_number);
-            if (!pageView || !pageView.viewport || !pageView.div) return;
-            var node = document.createElement('button');
-            node.type = 'button';
-            node.className = 'threeTNoteOverlay';
-            node.textContent = '\uD83D\uDCCE';
-            node.dataset.threeTNoteId = note.id;
-            node.dataset.noteContent = note.content || '';
-            placeNode(node, pageView, note);
-            pageView.div.appendChild(node);
-            bindNote(node, pageView, pageView.div, note, bridge, cleanupFns);
-        });
-        renderMarks(viewer, markItems);
+        function doRender(event) {
+            var pageNumber = event && event.pageNumber ? Number(event.pageNumber) : 0;
+            if (pageNumber > 0) {
+                renderPage(pageNumber);
+            } else {
+                renderAll();
+            }
+        }
+        
+        renderAll();
+
+        if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {
+            window.PDFViewerApplication.pdfViewer.eventBus.on('pagerendered', doRender);
+            window.PDFViewerApplication.pdfViewer.eventBus.on('scalechanged', renderAll);
+            cleanupFns.push(function() {
+                window.PDFViewerApplication.pdfViewer.eventBus.off('pagerendered', doRender);
+                window.PDFViewerApplication.pdfViewer.eventBus.off('scalechanged', renderAll);
+            });
+        }
 
         window.__3tNoteToolsCleanup = function() {
             closeMenu();
+            Object.keys(pageCleanupFns).forEach(function(pageNumber) { cleanupPage(pageNumber); });
             cleanupFns.forEach(function(fn) { try { fn(); } catch (_err) {} });
             removeOldOverlays();
         };
@@ -2167,6 +2239,7 @@ def add_comment(window):
             return
 
     try:
+        import pikepdf
         with pikepdf.open(path) as pdf:
             if first_selection:
                 page_no = int(first_selection[0])

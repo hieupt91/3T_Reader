@@ -75,6 +75,20 @@ def test_text_mark_toolbar_uses_pdfjs_selection_rects_without_prompt_or_search()
     assert "getClientRects" not in selection_js
 
 
+def test_annotation_overlay_renderer_is_page_scoped_and_defines_page_element():
+    from app.actions import annotate
+
+    js = annotate._ARM_NOTE_TOOLS_JS
+
+    assert "function removeOldOverlays(pageNumber)" in js
+    assert "function renderPage(pageNumber)" in js
+    assert "var pageNumber = event && event.pageNumber ? Number(event.pageNumber) : 0;" in js
+    assert "renderStickyNoteIcon(viewer" not in js
+    assert "pageEl.appendChild(node)" in js
+    assert js.index("var pageEl = pageView.div;") < js.index("pageEl.appendChild(node)")
+    assert "removeOldOverlays();\n            noteItems.forEach" not in js
+
+
 def test_annotation_selection_falls_back_to_qt_selected_text(monkeypatch):
     from app.actions import annotate
 
