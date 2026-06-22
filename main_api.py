@@ -160,8 +160,30 @@ def _require_staff_or_admin(creds: HTTPAuthorizationCredentials | None = Depends
     raise HTTPException(status_code=401, detail="Phiên đăng nhập hết hạn")
 
 
+def _infer_plan(record) -> str:
+    raw_plan = str(getattr(record, "plan", "") or "").strip().lower()
+    if raw_plan in {"basic", "personal", "enterprise"}:
+        return raw_plan
+    key = str(getattr(record, "license_key", "") or "").upper()
+    if key.startswith("3TR-B-"):
+        return "basic"
+    if key.startswith("3TR-E-"):
+        return "enterprise"
+    return "personal"
+
+
+def _plan_label(plan: str) -> str:
+    return {
+        "basic": "Cơ bản",
+        "personal": "Cá nhân",
+        "enterprise": "Doanh nghiệp",
+    }.get(plan, plan)
+
+
 def _guess_customer_type(plan: str) -> str:
-    return "enterprise" if plan == "enterprise" else "personal"
+    if plan == "enterprise":
+        return "enterprise"
+    return "personal"
 
 
 def _license_status(record) -> str:
@@ -191,6 +213,7 @@ def _format_device(record, device_id: str, payload: dict) -> dict:
 
 
 def _license_to_admin_item(record) -> dict:
+    plan = _infer_plan(record)
     devices = [
         _format_device(record, device_id, payload)
         for device_id, payload in sorted(record.active_devices.items())
@@ -200,8 +223,9 @@ def _license_to_admin_item(record) -> dict:
     return {
         "license_key": record.license_key,
         "customer_name": record.customer_name,
-        "plan": getattr(record, "plan", "personal"),
-        "customer_type": _guess_customer_type(getattr(record, "plan", "personal")),
+        "plan": plan,
+        "plan_label": _plan_label(plan),
+        "customer_type": _guess_customer_type(plan),
         "seat_limit": record.seat_limit,
         "used_seats": used_seats,
         "available_seats": max(0, record.seat_limit - used_seats),
@@ -248,6 +272,203 @@ def _release_file_type(name: str) -> str:
     if lower.endswith(".zip"):
         return "win-portable"
     return "win"
+
+
+def _downloads_dir() -> Path:
+    return Path(os.environ.get("THREET_DOWNLOADS_DIR", "/downloads"))
+
+
+def _published_release_names() -> set[str]:
+    cfg = admin_config.get_update_config()
+    return {
+        Path(cfg.get("win_url", "")).name,
+        Path(cfg.get("mac_url", "")).name,
+        Path(cfg.get("portable_url", "")).name,
+    } - {""}
+
+
+def _asset_roots() -> dict[str, Path]:
+    root = _downloads_dir()
+    return {
+        "releases": root,
+        "voices": root / "piper",
+        "languages": root / "dicts",
+        "modules": root / "modules",
+    }
+
+
+def _safe_asset_path(category: str, relative_path: str) -> Path:
+    roots = _asset_roots()
+    if category not in roots:
+        raise HTTPException(status_code=400, detail="Danh mục tài nguyên không hợp lệ")
+    rel = (relative_path or "").replace("\\", "/").strip().lstrip("/")
+    if not rel or ".." in rel.split("/"):
+        raise HTTPException(status_code=400, detail="Đường dẫn tài nguyên không hợp lệ")
+    target = (roots[category] / rel).resolve()
+    base = roots[category].resolve()
+    if base not in target.parents and target != base:
+        raise HTTPException(status_code=400, detail="Đường dẫn vượt phạm vi cho phép")
+    return target
+
+
+_DEFAULT_PLAN_PRICES = {"basic": 300_000, "personal": 500_000, "enterprise": 800_000}
+_DEFAULT_PLAN_LABELS = {
+    "basic": "Gói Cơ bản",
+    "personal": "Gói Cá nhân",
+    "enterprise": "Gói Doanh nghiệp",
+}
+_DEFAULT_PAYMENT_CONFIG = {
+    "bank_name": "ACB (A Chau) - CN Quang Binh",
+    "bank_code": "ACB",
+    "account_number": "555566886",
+    "account_name": "CTY TNHH DTCN & XAY LAP 3T",
+    "transfer_note_template": "3TREADER {PLAN} {QTY}MAY {EMAIL}",
+    "payment_note": "Vui long ghi dung noi dung chuyen khoan de he thong doi soat va cap key tu dong.",
+}
+
+
+def _get_sales_config() -> dict:
+    cfg = admin_config.get_update_config()
+    prices = dict(_DEFAULT_PLAN_PRICES)
+    raw_prices = cfg.get("prices") or {}
+    for key in _DEFAULT_PLAN_PRICES:
+        try:
+            prices[key] = max(0, int(raw_prices.get(key, prices[key])))
+        except Exception:
+            pass
+
+    payment = dict(_DEFAULT_PAYMENT_CONFIG)
+    raw_payment = cfg.get("payment") or {}
+    for key, value in raw_payment.items():
+        if key in payment and value is not None:
+            payment[key] = str(value).strip()
+
+    promos = []
+    for item in cfg.get("promo_codes") or []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code", "")).strip().upper()
+        if not code:
+            continue
+        promo_type = str(item.get("type", "percent")).strip().lower()
+        if promo_type not in {"percent", "fixed"}:
+            promo_type = "percent"
+        try:
+            value = max(0, int(item.get("value", 0)))
+        except Exception:
+            value = 0
+        plans = item.get("plans") or []
+        normalized_plans = [str(plan).strip().lower() for plan in plans if str(plan).strip().lower() in _DEFAULT_PLAN_PRICES]
+        promos.append(
+            {
+                "code": code,
+                "label": str(item.get("label", code)).strip() or code,
+                "type": promo_type,
+                "value": value,
+                "active": bool(item.get("active", True)),
+                "plans": normalized_plans,
+                "note": str(item.get("note", "")).strip(),
+            }
+        )
+
+    return {"prices": prices, "payment": payment, "promo_codes": promos}
+
+
+def _build_transfer_note(template: str, plan: str, quantity: int, email: str, customer_name: str, promo_code: str = "") -> str:
+    base = template or _DEFAULT_PAYMENT_CONFIG["transfer_note_template"]
+    safe_email = (email or "").strip()
+    safe_name = (customer_name or "").strip().replace(" ", "")
+    note = base.format(
+        PLAN=plan.upper(),
+        PLAN_NAME=_DEFAULT_PLAN_LABELS.get(plan, plan),
+        QTY=quantity,
+        EMAIL=safe_email,
+        NAME=safe_name,
+        PROMO=promo_code.strip().upper(),
+    )
+    return " ".join(note.split()).strip()
+
+
+def _quote_order(plan: str, quantity: int, promo_code: str = "") -> dict:
+    sales = _get_sales_config()
+    prices = sales["prices"]
+    if plan not in prices:
+        raise HTTPException(status_code=400, detail="Plan khong hop le")
+    qty = max(1, min(int(quantity or 1), 100))
+    unit_price = int(prices[plan])
+    subtotal = unit_price * qty
+    promo_input = (promo_code or "").strip().upper()
+    applied_promo = None
+    discount_amount = 0
+
+    if promo_input:
+        promo = next((item for item in sales["promo_codes"] if item["code"] == promo_input and item["active"]), None)
+        if promo is None:
+            raise HTTPException(status_code=400, detail="Ma khuyen mai khong hop le hoac da het han")
+        allowed_plans = promo.get("plans") or []
+        if allowed_plans and plan not in allowed_plans:
+            raise HTTPException(status_code=400, detail="Ma khuyen mai khong ap dung cho goi nay")
+        if promo["type"] == "percent":
+            discount_amount = int(subtotal * promo["value"] / 100)
+        else:
+            discount_amount = int(promo["value"])
+        discount_amount = max(0, min(discount_amount, subtotal))
+        applied_promo = promo
+
+    total = max(0, subtotal - discount_amount)
+    return {
+        "plan": plan,
+        "plan_name": _DEFAULT_PLAN_LABELS.get(plan, plan),
+        "quantity": qty,
+        "unit_price": unit_price,
+        "subtotal": subtotal,
+        "discount_amount": discount_amount,
+        "total": total,
+        "promo_code": promo_input,
+        "promo": applied_promo,
+        "payment": sales["payment"],
+    }
+
+
+def _generate_order_id() -> str:
+    return f"ORD-{datetime.now(tz=timezone.utc).strftime('%Y%m%d')}-{_secrets.token_hex(3).upper()}"
+
+
+def _notify_admin_new_order(order: dict) -> None:
+    try:
+        from .services import order_service as order_service_module
+
+        if hasattr(order_service_module, "_email_admin"):
+            order_service_module._email_admin(order)
+    except Exception:
+        pass
+
+
+def _create_order_record(customer_name: str, customer_email: str, plan: str, quantity: int, promo_code: str = "") -> dict:
+    quote = _quote_order(plan, quantity, promo_code)
+    order = {
+        "id": _generate_order_id(),
+        "plan": plan,
+        "quantity": quote["quantity"],
+        "unit_price": quote["unit_price"],
+        "subtotal": quote["subtotal"],
+        "discount_amount": quote["discount_amount"],
+        "amount_total": quote["total"],
+        "promo_code": quote["promo_code"],
+        "promo_label": (quote["promo"] or {}).get("label", ""),
+        "customer_name": customer_name,
+        "customer_email": customer_email,
+        "status": "pending",
+        "created_at": datetime.now(tz=timezone.utc).isoformat(),
+        "approved_at": None,
+        "license_key": None,
+    }
+    data = order_store._load()
+    data.setdefault("orders", {})
+    data["orders"][order["id"]] = order
+    order_store._save(data)
+    _notify_admin_new_order(order)
+    return order
 
 
 @app.post("/api/admin/forgot-password")
@@ -372,19 +593,83 @@ class OrderSubmitRequest(BaseModel):
     customer_email: str
     plan: str
     quantity: int = 1
+    promo_code: str | None = None
 
 
 @app.post("/api/v1/order/submit")
 def submit_order(req: OrderSubmitRequest):
     if not req.customer_name.strip() or not req.customer_email.strip():
         raise HTTPException(status_code=422, detail="Vui lòng điền đầy đủ thông tin")
-    try:
-        order = order_store.create_order(
-            req.customer_name.strip(), req.customer_email.strip(), req.plan, req.quantity
-        )
-        return {"ok": True, "order_id": order["id"]}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    order = _create_order_record(
+        req.customer_name.strip(),
+        req.customer_email.strip(),
+        req.plan,
+        req.quantity,
+        req.promo_code or "",
+    )
+    return {
+        "ok": True,
+        "order_id": order["id"],
+        "amount_total": order["amount_total"],
+        "promo_code": order.get("promo_code", ""),
+    }
+
+
+@app.get("/api/public/site-config")
+def public_site_config() -> dict:
+    cfg = admin_config.get_update_config()
+    sales = _get_sales_config()
+    return {
+        "downloads": {
+            "win": {"version": cfg.get("win_version", ""), "url": cfg.get("win_url", "")},
+            "portable": {"url": cfg.get("portable_url", "")},
+            "mac": {"version": cfg.get("mac_version", ""), "url": cfg.get("mac_url", "")},
+        },
+        "plans": [
+            {"code": code, "name": _DEFAULT_PLAN_LABELS[code], "price": sales["prices"][code]}
+            for code in ("basic", "personal", "enterprise")
+        ],
+        "payment": sales["payment"],
+        "promo_codes": [
+            {
+                "code": item["code"],
+                "label": item["label"],
+                "type": item["type"],
+                "value": item["value"],
+                "plans": item["plans"],
+                "note": item["note"],
+            }
+            for item in sales["promo_codes"]
+            if item["active"]
+        ],
+    }
+
+
+@app.get("/api/public/order-quote")
+def public_order_quote(plan: str, quantity: int = 1, promo_code: str = "", email: str = "", customer_name: str = "") -> dict:
+    quote = _quote_order(plan, quantity, promo_code)
+    payment = quote["payment"]
+    note = _build_transfer_note(
+        payment.get("transfer_note_template", ""),
+        plan,
+        quote["quantity"],
+        email,
+        customer_name,
+        promo_code,
+    )
+    return {
+        "plan": quote["plan"],
+        "plan_name": quote["plan_name"],
+        "quantity": quote["quantity"],
+        "unit_price": quote["unit_price"],
+        "subtotal": quote["subtotal"],
+        "discount_amount": quote["discount_amount"],
+        "amount_total": quote["total"],
+        "promo_code": quote["promo_code"],
+        "promo_label": (quote["promo"] or {}).get("label", ""),
+        "payment": payment,
+        "transfer_note": note,
+    }
 
 
 # ── Health ────────────────────────────────────────────────────────
@@ -463,7 +748,7 @@ def heartbeat_v1(req: HeartbeatRequest) -> HeartbeatResponse:
 
 @app.post("/api/license/deactivate", response_model=DeactivateResponse)
 def deactivate(req: DeactivateRequest) -> DeactivateResponse:
-    result = license_service.deactivate(req.token, req.device_id)
+    result = license_service.deactivate(req.token, req.device_id, req.reason)
     return DeactivateResponse(ok=bool(result["ok"]), message=result["message"])
 
 
@@ -665,10 +950,23 @@ def admin_revoke_device(license_key: str, device_id: str, _=Depends(_require_adm
     return {"ok": True, "item": _license_to_admin_item(record)}
 
 
+@app.delete("/api/admin/licenses/{license_key}")
+def admin_delete_license(license_key: str, _=Depends(_require_admin)) -> dict:
+    record = license_service.licenses.get(license_key)
+    if record is None:
+        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y license key")
+    if record.active_devices:
+        raise HTTPException(status_code=400, detail="KhÃ´ng thá»ƒ xÃ³a key Ä‘ang cÃ³ thiáº¿t bá»‹ kÃ­ch hoáº¡t")
+    license_service.licenses.pop(license_key, None)
+    license_service._save()
+    return {"ok": True}
+
+
 @app.get("/api/admin/pricing")
 def admin_get_pricing(_=Depends(_require_admin)) -> dict:
     cfg = admin_config.get_update_config()
-    prices = admin_config.get_prices()
+    sales = _get_sales_config()
+    prices = sales["prices"]
     return {
         "prices": prices,
         "plans": [
@@ -676,6 +974,8 @@ def admin_get_pricing(_=Depends(_require_admin)) -> dict:
             {"code": "personal", "label": "Cá nhân", "price": prices.get("personal", 500000)},
             {"code": "enterprise", "label": "Doanh nghiệp", "price": prices.get("enterprise", 800000)},
         ],
+        "payment": sales["payment"],
+        "promo_codes": sales["promo_codes"],
         "mandatory_update": bool(cfg.get("mandatory", False)),
     }
 
@@ -684,6 +984,13 @@ class PricingUpdateRequest(BaseModel):
     basic: int
     personal: int
     enterprise: int
+    bank_name: str | None = None
+    bank_code: str | None = None
+    account_number: str | None = None
+    account_name: str | None = None
+    transfer_note_template: str | None = None
+    payment_note: str | None = None
+    promo_codes: list[dict] | None = None
 
 
 @app.post("/api/admin/pricing")
@@ -694,24 +1001,64 @@ def admin_set_pricing(req: PricingUpdateRequest, _=Depends(_require_admin)) -> d
         "personal": max(0, int(req.personal)),
         "enterprise": max(0, int(req.enterprise)),
     }
+    current["payment"] = {
+        "bank_name": (req.bank_name or "").strip() or _DEFAULT_PAYMENT_CONFIG["bank_name"],
+        "bank_code": (req.bank_code or "").strip().upper() or _DEFAULT_PAYMENT_CONFIG["bank_code"],
+        "account_number": (req.account_number or "").strip() or _DEFAULT_PAYMENT_CONFIG["account_number"],
+        "account_name": (req.account_name or "").strip() or _DEFAULT_PAYMENT_CONFIG["account_name"],
+        "transfer_note_template": (req.transfer_note_template or "").strip() or _DEFAULT_PAYMENT_CONFIG["transfer_note_template"],
+        "payment_note": (req.payment_note or "").strip() or _DEFAULT_PAYMENT_CONFIG["payment_note"],
+    }
+    promo_items = []
+    for item in req.promo_codes or []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code", "")).strip().upper()
+        if not code:
+            continue
+        promo_type = str(item.get("type", "percent")).strip().lower()
+        if promo_type not in {"percent", "fixed"}:
+            promo_type = "percent"
+        try:
+            value = max(0, int(item.get("value", 0)))
+        except Exception:
+            value = 0
+        raw_plans = item.get("plans", [])
+        if isinstance(raw_plans, str):
+            raw_plans = [part.strip() for part in raw_plans.split(",")]
+        plans = [str(plan).strip().lower() for plan in (raw_plans or []) if str(plan).strip().lower() in _DEFAULT_PLAN_PRICES]
+        promo_items.append(
+            {
+                "code": code,
+                "label": str(item.get("label", code)).strip() or code,
+                "type": promo_type,
+                "value": value,
+                "active": bool(item.get("active", True)),
+                "plans": plans,
+                "note": str(item.get("note", "")).strip(),
+            }
+        )
+    current["promo_codes"] = promo_items
     admin_config.set_update_config(current)
-    return {"ok": True, "prices": current["prices"]}
+    return {"ok": True, "prices": current["prices"], "payment": current["payment"], "promo_codes": current["promo_codes"]}
 
 
 @app.get("/api/admin/releases")
 def admin_releases(_=Depends(_require_admin)) -> dict:
-    downloads_dir = Path(os.environ.get("THREET_DOWNLOADS_DIR", "/downloads"))
+    downloads_dir = _downloads_dir()
     cfg = admin_config.get_update_config()
     published_hashes = {
         Path(cfg.get("win_url", "")).name: cfg.get("win_sha256", ""),
         Path(cfg.get("mac_url", "")).name: cfg.get("mac_sha256", ""),
         Path(cfg.get("portable_url", "")).name: cfg.get("portable_sha256", ""),
     }
+    published_names = _published_release_names()
     items: list[dict] = []
     if downloads_dir.exists():
         for path in sorted(downloads_dir.glob("3TReader-*"), key=lambda p: p.stat().st_mtime, reverse=True):
             stat = path.stat()
             sha256 = published_hashes.get(path.name, "")
+            is_published = path.name in published_names
             items.append(
                 {
                     "filename": path.name,
@@ -720,11 +1067,8 @@ def admin_releases(_=Depends(_require_admin)) -> dict:
                     "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
                     "download_url": f"{os.environ.get('THREET_PUBLIC_BASE_URL', 'https://reader.3tcomputer.com')}/downloads/{path.name}",
                     "sha256": sha256,
-                    "published": path.name in {
-                        Path(cfg.get("win_url", "")).name,
-                        Path(cfg.get("mac_url", "")).name,
-                        Path(cfg.get("portable_url", "")).name,
-                    },
+                    "published": is_published,
+                    "can_delete": not is_published,
                 }
             )
     return {
@@ -739,6 +1083,80 @@ def admin_releases(_=Depends(_require_admin)) -> dict:
             "mandatory": bool(cfg.get("mandatory", False)),
         },
     }
+
+
+@app.delete("/api/admin/releases/{filename}")
+def admin_delete_release(filename: str, _=Depends(_require_admin)) -> dict:
+    path = (_downloads_dir() / filename).resolve()
+    base = _downloads_dir().resolve()
+    if base not in path.parents:
+        raise HTTPException(status_code=400, detail="Tên file không hợp lệ")
+    if path.name in _published_release_names():
+        raise HTTPException(status_code=400, detail="Không thể xóa file đang được publish")
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Không tìm thấy file release")
+    path.unlink()
+    return {"ok": True}
+
+
+@app.get("/api/admin/assets")
+def admin_assets(_=Depends(_require_admin)) -> dict:
+    base_url = os.environ.get("THREET_PUBLIC_BASE_URL", "https://reader.3tcomputer.com")
+    items: list[dict] = []
+    for category, root in _asset_roots().items():
+        if not root.exists():
+            continue
+        for path in sorted((p for p in root.rglob("*") if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True):
+            rel = path.relative_to(root).as_posix()
+            stat = path.stat()
+            url_path = path.relative_to(_downloads_dir()).as_posix()
+            items.append(
+                {
+                    "category": category,
+                    "relative_path": rel,
+                    "filename": path.name,
+                    "size": stat.st_size,
+                    "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                    "download_url": f"{base_url}/downloads/{url_path}",
+                }
+            )
+    return {"items": items}
+
+
+@app.post("/api/admin/upload-asset")
+async def admin_upload_asset(
+    file: UploadFile = File(...),
+    category: str = "voices",
+    subdir: str = "",
+    _=Depends(_require_admin),
+):
+    import shutil
+
+    roots = _asset_roots()
+    if category not in roots or category == "releases":
+        raise HTTPException(status_code=400, detail="Danh mục upload không hợp lệ")
+    clean_subdir = (subdir or "").replace("\\", "/").strip().strip("/")
+    if ".." in clean_subdir.split("/"):
+        raise HTTPException(status_code=400, detail="Thư mục đích không hợp lệ")
+    target_dir = (roots[category] / clean_subdir).resolve()
+    base = roots[category].resolve()
+    if base not in target_dir.parents and target_dir != base:
+        raise HTTPException(status_code=400, detail="Thư mục đích vượt phạm vi cho phép")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = Path(file.filename or "asset.bin").name
+    dest = target_dir / safe_name
+    with open(dest, "wb") as f_out:
+        shutil.copyfileobj(file.file, f_out)
+    return {"ok": True, "filename": safe_name, "category": category, "subdir": clean_subdir}
+
+
+@app.delete("/api/admin/assets")
+def admin_delete_asset(category: str, path: str, _=Depends(_require_admin)) -> dict:
+    target = _safe_asset_path(category, path)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài nguyên")
+    target.unlink()
+    return {"ok": True}
 
 
 @app.get("/api/admin/dashboard")

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
+
+from packages.license_client import fingerprint
 
 from packages.license_client import trial, vps_client
 
@@ -48,3 +51,35 @@ def test_offline_validation_ignores_tampered_cache_grace_days(monkeypatch, tmp_p
 
     assert status is not None
     assert status.active is False
+
+
+def test_windows_fingerprint_ignores_hostname_when_machine_guid_exists(monkeypatch):
+    monkeypatch.setattr(fingerprint.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(fingerprint.platform, "machine", lambda: "AMD64")
+    monkeypatch.setattr(fingerprint, "_windows_machine_guid", lambda: "machine-guid-1")
+    monkeypatch.setattr(fingerprint.socket, "gethostname", lambda: "HOST-A")
+    monkeypatch.setenv("COMPUTERNAME", "HOST-A")
+
+    first = fingerprint.get_device_fingerprint()
+
+    monkeypatch.setattr(fingerprint.socket, "gethostname", lambda: "HOST-B")
+    monkeypatch.setenv("COMPUTERNAME", "HOST-B")
+
+    second = fingerprint.get_device_fingerprint()
+
+    assert first == second
+
+
+def test_vps_license_service_reuses_same_machine_seat_and_user_deactivate_does_not_revoke():
+    src = Path("vps_license_service.py").read_text(encoding="utf-8")
+
+    assert "def _find_reusable_device_id(" in src
+    assert "record.active_devices.pop(reusable_device_id)" in src
+    assert 'not in {"user_requested", "app_reinstall", "app_uninstall"}' in src
+    assert 'record.revoked_devices.discard(device_id)' in src
+
+
+def test_main_api_passes_deactivate_reason_to_license_service():
+    src = Path("main_api.py").read_text(encoding="utf-8")
+
+    assert "license_service.deactivate(req.token, req.device_id, req.reason)" in src

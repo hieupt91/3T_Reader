@@ -33,12 +33,19 @@ def _windows_machine_guid() -> str | None:
 
 
 def get_device_fingerprint() -> str:
-    parts = [
-        _windows_machine_guid(),
-        _stable_mac(),
-        os.environ.get("COMPUTERNAME") or socket.gethostname(),
-        platform.system(),
-        platform.machine(),
-    ]
+    win_guid = _windows_machine_guid()
+    if win_guid:
+        parts = [
+            win_guid,
+            platform.system(),
+            platform.machine(),
+        ]
+    else:
+        parts = [
+            _stable_mac(),
+            os.environ.get("COMPUTERNAME") or socket.gethostname(),
+            platform.system(),
+            platform.machine(),
+        ]
     normalized = [part for part in parts if part]
     return hashlib.sha256("|".join(normalized).encode("utf-8")).hexdigest()[:32]

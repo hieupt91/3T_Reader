@@ -545,3 +545,37 @@ Kiem tra:
 Ket qua:
 
 - 35 passed.
+
+### Phase 3 - License Seat Reuse On Reinstall
+
+Van de da xac dinh:
+
+- Fingerprint Windows hien tai co tron `COMPUTERNAME`; doi ten may hoac thay doi nguon fallback co the sinh `device_id` moi du cung may.
+- Backend seat logic chi so khop bang `device_id`; neu `device_id` lech nhe thi cung may van bi tinh seat moi.
+- Luong `deactivate` phia client gui `reason="user_requested"` nhung API route chua truyen `reason` vao service.
+- Service top-level cu dang dua `device_id` vao `revoked_devices` ngay ca khi user tu deactivate/app reinstall.
+
+Sua da lam:
+
+- `packages/license_client/fingerprint.py`:
+  - Neu co `MachineGuid` tren Windows thi fingerprint bo phu thuoc vao hostname.
+- `vps_license_service.py`:
+  - Them `_find_reusable_device_id(...)` de tai su dung seat neu cung `machine_name` + `platform`.
+  - Khi gap cung may nhung `device_id` moi, chuyen seat cu sang `device_id` moi thay vi an seat moi.
+  - `deactivate(..., reason)` khong dua vao `revoked_devices` neu la `user_requested`, `app_reinstall`, `app_uninstall`.
+- `main_api.py`:
+  - Route `/api/license/deactivate` truyen `req.reason` xuong service.
+- `tests/test_license_pr6.py`:
+  - Them test fingerprint Windows bo qua hostname khi co `MachineGuid`.
+  - Them source-contract test cho reusable seat, non-revoke deactivate, va API pass-through `reason`.
+
+Kiem tra:
+
+```powershell
+.\.venv313\Scripts\python.exe -m py_compile packages\license_client\fingerprint.py vps_license_service.py main_api.py
+.\.venv313\Scripts\python.exe -m pytest tests\test_license_pr6.py
+```
+
+Ket qua:
+
+- 5 passed.
