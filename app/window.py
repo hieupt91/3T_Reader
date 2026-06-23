@@ -1016,26 +1016,47 @@ class PDFReaderApp(QMainWindow):
         preview_viewer = PDFViewerWidget(parent=dialog)
         preview_viewer.load_pdf(pdf_path, zoom="page-width", page=current_page)
 
-        # ── Style chung cho toolbar preview ─────────────────────────────────
-        _TOOLBAR_BG  = "#16163a"
-        _TOOLBAR_BDR = "#2e2e5a"
-        _BTN_HOVER   = "#252552"
-        _BTN_PRESSED = "#1e1e4a"
-        _BTN_BORDER  = "#3a3a70"
-        _SPIN_BG     = "#1C1C36"
-        _SPIN_FG     = "#E0E8FF"
-        _SPIN_BDR    = "#3A3A60"
+        # ── Style theo theme sáng/tối ─────────────────────────────────────
+        _dark = is_dark()
+        if _dark:
+            _TOOLBAR_BG  = "#16163a"
+            _TOOLBAR_BDR = "#2e2e5a"
+            _BTN_HOVER   = "#252552"
+            _BTN_PRESSED = "#1e1e4a"
+            _BTN_BORDER  = "#3a3a70"
+            _BTN_CHECK   = "#1e1e60"
+            _BTN_CHECK_B = "#5b7cfa"
+            _BTN_CHECK_T = "#9ab8ff"
+            _BTN_TXT     = "#b0b8e0"
+            _SPIN_BG     = "#1C1C36"
+            _SPIN_FG     = "#E0E8FF"
+            _SPIN_BDR    = "#3A3A60"
+            _SEP_COL     = "#2e2e5a"
+        else:
+            _TOOLBAR_BG  = "#f4f6fb"
+            _TOOLBAR_BDR = "#d0d5e8"
+            _BTN_HOVER   = "#e4e8f8"
+            _BTN_PRESSED = "#d4d9f0"
+            _BTN_BORDER  = "#b8bfe0"
+            _BTN_CHECK   = "#dce6ff"
+            _BTN_CHECK_B = "#4a6ef5"
+            _BTN_CHECK_T = "#2a4ad0"
+            _BTN_TXT     = "#3a3a5a"
+            _SPIN_BG     = "#ffffff"
+            _SPIN_FG     = "#1a1a3a"
+            _SPIN_BDR    = "#b8bfe0"
+            _SEP_COL     = "#d0d5e8"
 
         _btn_ss = (
             "QToolButton{"
             "  border:1px solid transparent; border-radius:6px;"
             "  background:" + _TOOLBAR_BG + "; padding:4px 2px 2px 2px;"
-            "  font-size:10px; color:#b0b8e0;"
+            "  font-size:10px; color:" + _BTN_TXT + ";"
             "}"
             "QToolButton:hover{background:" + _BTN_HOVER + ";border-color:" + _BTN_BORDER + ";}"
             "QToolButton:pressed{background:" + _BTN_PRESSED + ";border-color:" + _BTN_BORDER + ";}"
             "QToolButton:checked{"
-            "  background:#1e1e60; border:1px solid #5b7cfa; color:#9ab8ff;"
+            "  background:" + _BTN_CHECK + "; border:1px solid " + _BTN_CHECK_B + "; color:" + _BTN_CHECK_T + ";"
             "}"
         )
         _spin_ss = (
@@ -1074,7 +1095,7 @@ class PDFReaderApp(QMainWindow):
             sep.setFrameShadow(QFrame.Shadow.Plain)
             sep.setFixedWidth(1)
             sep.setFixedHeight(36)
-            sep.setStyleSheet("QFrame{background:" + _TOOLBAR_BDR + ";background-color:" + _TOOLBAR_BDR + ";}")
+            sep.setStyleSheet("QFrame{background:" + _SEP_COL + ";background-color:" + _SEP_COL + ";}")
             return sep
 
         # ── Nhóm 1: Chế độ xem ──────────────────────────────────────────────
@@ -1094,6 +1115,14 @@ class PDFReaderApp(QMainWindow):
             icon_color="#7880b8", checkable=True, w=56,
         )
         btn_single.setChecked(True)
+
+        # QButtonGroup: chỉ một nút chế độ xem được chọn tại một thời điểm
+        from packages.qt_compat.QtWidgets import QButtonGroup
+        _view_group = QButtonGroup(dialog)
+        _view_group.setExclusive(True)
+        _view_group.addButton(btn_overview)
+        _view_group.addButton(btn_single)
+        _view_group.addButton(btn_facing)
 
         # ── Nhóm 2: Vừa trang & Zoom ────────────────────────────────────────
         btn_fit_width = _make_btn(
@@ -1161,6 +1190,12 @@ class PDFReaderApp(QMainWindow):
             icon_color="#9098c8", w=48, checkable=True,
         )
         btn_portrait.setChecked(True)
+
+        # QButtonGroup: Dọc/Ngang exclusive
+        _orient_group = QButtonGroup(dialog)
+        _orient_group.setExclusive(True)
+        _orient_group.addButton(btn_portrait)
+        _orient_group.addButton(btn_landscape)
 
         # ── Nhóm 5: In & Đóng ───────────────────────────────────────────────
         btn_print = _make_btn(
