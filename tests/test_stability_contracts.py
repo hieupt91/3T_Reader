@@ -186,6 +186,13 @@ def test_print_entry_uses_pdfjs_preview_for_screen_clarity():
     assert "self._open_pdfjs_print_preview(pdf_path)" in source
     assert "preview_viewer = PDFViewerWidget(parent=dialog)" in source
     assert 'preview_viewer.load_pdf(pdf_path, zoom="page-width", page=current_page)' in source
+    assert "btn_prev = QPushButton" in source
+    assert "btn_next = QPushButton" in source
+    assert "page_spin = QSpinBox()" in source
+    assert "zoom_spin = QSpinBox()" in source
+    assert "btn_fit_width = QPushButton" in source
+    assert "preview_viewer.page_changed.connect(_update_page)" in source
+    assert "preview_viewer.zoom_changed.connect(_update_zoom)" in source
     assert "def _open_qt_print_preview(" in source
 
 

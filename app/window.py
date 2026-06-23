@@ -1016,22 +1016,115 @@ class PDFReaderApp(QMainWindow):
         preview_viewer = PDFViewerWidget(parent=dialog)
         preview_viewer.load_pdf(pdf_path, zoom="page-width", page=current_page)
 
+        btn_prev = QPushButton("‹")
+        btn_next = QPushButton("›")
+        page_spin = QSpinBox()
+        page_spin.setRange(1, 1)
+        page_spin.setValue(current_page)
+        page_total = QLabel("/ ?")
+        btn_zoom_out = QPushButton("-")
+        zoom_spin = QSpinBox()
+        zoom_spin.setRange(25, 400)
+        zoom_spin.setValue(100)
+        zoom_spin.setSuffix("%")
+        btn_zoom_in = QPushButton("+")
+        btn_fit_width = QPushButton("Vừa rộng")
         btn_print = QPushButton("In...")
         btn_close = QPushButton("Đóng")
 
-        controls = QHBoxLayout()
-        controls.addStretch(1)
-        controls.addWidget(btn_print)
-        controls.addWidget(btn_close)
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(6)
+        toolbar.addWidget(btn_prev)
+        toolbar.addWidget(page_spin)
+        toolbar.addWidget(page_total)
+        toolbar.addWidget(btn_next)
+        toolbar.addSpacing(12)
+        toolbar.addWidget(btn_zoom_out)
+        toolbar.addWidget(zoom_spin)
+        toolbar.addWidget(btn_zoom_in)
+        toolbar.addWidget(btn_fit_width)
+        toolbar.addStretch(1)
+        toolbar.addWidget(btn_print)
+        toolbar.addWidget(btn_close)
 
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
+        layout.addLayout(toolbar)
         layout.addWidget(preview_viewer, 1)
-        layout.addLayout(controls)
+
+        def _run_pdfjs(js: str):
+            try:
+                preview_viewer._web_view.page().runJavaScript(js)
+            except Exception:
+                pass
+
+        def _set_page(pg: int):
+            _run_pdfjs(
+                f"""
+                (function() {{
+                    var app = window.PDFViewerApplication;
+                    if (!app || !app.pdfViewer) return;
+                    app.pdfViewer.currentPageNumber = {max(1, int(pg or 1))};
+                }})()
+                """
+            )
+
+        def _set_zoom(percent: int):
+            scale = max(25, min(400, int(percent or 100))) / 100.0
+            _run_pdfjs(
+                f"""
+                (function() {{
+                    var app = window.PDFViewerApplication;
+                    if (!app || !app.pdfViewer) return;
+                    app.pdfViewer.currentScaleValue = "{scale}";
+                }})()
+                """
+            )
+
+        def _fit_width():
+            _run_pdfjs(
+                """
+                (function() {
+                    var app = window.PDFViewerApplication;
+                    if (!app || !app.pdfViewer) return;
+                    app.pdfViewer.currentScaleValue = "page-width";
+                })()
+                """
+            )
+
+        def _update_page(page: int, total: int):
+            total = max(1, int(total or page or 1))
+            page = max(1, min(total, int(page or 1)))
+            try:
+                page_spin.blockSignals(True)
+                page_spin.setRange(1, total)
+                page_spin.setValue(page)
+            finally:
+                page_spin.blockSignals(False)
+            page_total.setText(f"/ {total}")
+
+        def _update_zoom(percent: int):
+            if percent <= 0:
+                return
+            try:
+                zoom_spin.blockSignals(True)
+                zoom_spin.setValue(max(25, min(400, int(percent))))
+            finally:
+                zoom_spin.blockSignals(False)
+
+        preview_viewer.page_changed.connect(_update_page)
+        preview_viewer.zoom_changed.connect(_update_zoom)
+        page_spin.valueChanged.connect(_set_page)
+        zoom_spin.editingFinished.connect(lambda: _set_zoom(zoom_spin.value()))
+        btn_prev.clicked.connect(lambda: _set_page(page_spin.value() - 1))
+        btn_next.clicked.connect(lambda: _set_page(page_spin.value() + 1))
+        btn_zoom_out.clicked.connect(lambda: _set_zoom(max(25, int(zoom_spin.value() / 1.1))))
+        btn_zoom_in.clicked.connect(lambda: _set_zoom(min(400, int(zoom_spin.value() * 1.1))))
+        btn_fit_width.clicked.connect(_fit_width)
 
         def _run_print():
-            printer = self._configured_pdf_printer(pdf_path, current_page=current_page)
+            printer = self._configured_pdf_printer(pdf_path, current_page=page_spin.value())
             print_dialog = QPrintDialog(printer, dialog)
             if print_dialog.exec() == QDialog.DialogCode.Accepted:
                 self._do_print_pages(printer, pdf_path, show_progress=True)
