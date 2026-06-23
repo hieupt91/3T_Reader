@@ -125,3 +125,28 @@ def test_inline_edit_scripts_use_shared_bridge_not_private_webchannels():
     assert "inline_text_bridge.js" in inline_editor
     assert "inline_image_bridge.js" in inline_editor
     assert "area_pick.js" in edit_actions
+
+
+def test_inline_image_preview_is_more_visible_and_guided():
+    inline_image_js = _read("assets/js/inline_image_bridge.js")
+
+    assert "PNG trong suot" in inline_image_js
+    assert "Keo de di chuyen" in inline_image_js
+    assert "data-3t-img-hud" in inline_image_js
+    assert "data-3t-img-body" in inline_image_js
+    assert "data-3t-img-ghost" in inline_image_js
+    assert "checker.style.cssText" in inline_image_js
+    assert "mix-blend-mode:normal" in inline_image_js
+    assert "transparentImage" in inline_image_js
+
+
+def test_background_rotate_uses_atomic_replace_not_shutil_move():
+    from app.actions import annotate, pages
+
+    annotate_src = inspect.getsource(annotate._rotate_page)
+    pages_src = inspect.getsource(pages.rotate_pages_action)
+
+    assert "replace_file_with_retry(tmp, path, attempts=12)" in annotate_src
+    assert "shutil.move(tmp, path)" not in annotate_src
+    assert "replace_file_with_retry(tmp, path, attempts=12)" in pages_src
+    assert "shutil.move(tmp, path)" not in pages_src

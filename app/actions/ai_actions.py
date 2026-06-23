@@ -45,8 +45,9 @@ def open_chat_dialog(window):
     pdf_path = _current_pdf_path(window)
 
     existing = getattr(window, "_ai_chat_dialog", None)
-    if existing is not None and existing.isVisible():
+    if existing is not None:
         existing.set_pdf(pdf_path)
+        existing.show()
         existing.raise_()
         existing.activateWindow()
         return
@@ -67,9 +68,10 @@ def open_search_dialog(window):
     pdf_path = _current_pdf_path(window)
 
     existing = getattr(window, "_ai_search_dialog", None)
-    if existing is not None and existing.isVisible():
+    if existing is not None:
         if existing._pdf_path != pdf_path:
             existing.set_pdf(pdf_path)
+        existing.show()
         existing.raise_()
         existing.activateWindow()
         return

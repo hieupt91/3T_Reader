@@ -1527,8 +1527,15 @@ def insert_image_to_pdf(window):
             raw = f.read()
         ext_clean = ext.lstrip(".").lower()
         mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "bmp": "bmp", "webp": "webp"}.get(ext_clean, "png")
+        has_alpha = False
+        try:
+            has_alpha = bool(QImage.fromData(raw).hasAlphaChannel())
+        except Exception:
+            pass
         data_url = f"data:image/{mime};base64,{base64.b64encode(raw).decode()}"
     except Exception:
+        mime = "png"
+        has_alpha = False
         data_url = ""
 
     op = {
@@ -1538,6 +1545,8 @@ def insert_image_to_pdf(window):
         "box":            box,
         "image_path":     image_path,
         "image_data_url": data_url,
+        "image_mime":     mime,
+        "image_has_alpha": has_alpha,
         "rotation":       result.get("rotation", 0),
     }
     state["next_id"] += 1
@@ -1553,6 +1562,9 @@ def insert_image_to_pdf(window):
 @require_document(show_message=True)
 def save_edits(window, *, reload_viewer: bool = True) -> bool:
     """Lưu các thay đổi (text/ảnh đã chèn) vào file gốc."""
+    if hasattr(window, "annotation_saver"):
+        window.annotation_saver.flush_all()
+        
     state = _get_edit_state(window)
     if not state:
         # Không có edit state — lưu thông thường

@@ -67,7 +67,7 @@ from app.actions.export import export_pdf_to_word, export_pdf_to_excel
 from app.actions.document_ops import (
     add_watermark, remove_watermark, set_pdf_password, remove_pdf_password,
     compress_pdf, export_pages_to_images,
-    export_pdf_to_text, add_page_numbers,
+    export_pdf_to_text, add_page_numbers, remove_page_numbers,
 )
 from app.sidebar import ThumbnailSidebar, BookmarkSidebar
 from app.annotation_sidebar import AnnotationSidebar
@@ -836,11 +836,13 @@ class PDFReaderApp(QMainWindow):
 
         self.g_org = RibbonGroup("Tổ chức")
         self._act_merge = make("Ghép PDF",   "folder_open.svg", "Ghép PDF vào cuối", None, lambda: merge_pdfs_action(self))
-        self._act_extract = make("Trích xuất", "save.svg",        "Trích xuất trang",   None, lambda: split_pdf_action(self))
+        self._act_extract = make("Tách PDF", "save.svg",        "Tách tài liệu",   None, lambda: split_pdf_action(self))
         self._act_pgnum = make("Số trang",   "insert_text.svg", "Thêm số trang",      None, lambda: add_page_numbers(self))
+        self._act_rmpgnum = make("Xóa số trang", "trash.svg", "Xóa số trang đã thêm", None, lambda: remove_page_numbers(self))
         self.g_org.add(make_action_btn(self._act_merge,   "Ghép PDF"))
-        self.g_org.add(make_action_btn(self._act_extract, "Trích xuất"))
+        self.g_org.add(make_action_btn(self._act_extract, "Tách PDF"))
         self.g_org.add(make_action_btn(self._act_pgnum,   "Số trang"))
+        self.g_org.add(make_action_btn(self._act_rmpgnum, "Xóa số trang"))
         p2.add_group(self.g_org, add_sep=False)
         p2.add_stretch()
 
@@ -972,9 +974,9 @@ class PDFReaderApp(QMainWindow):
             show_warning(self, "Lỗi", "Không tìm thấy tệp PDF.")
             return
 
-        printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         try:
-            printer.setResolution(150)
+            printer.setResolution(300)
         except Exception:
             pass
         try:
@@ -994,12 +996,74 @@ class PDFReaderApp(QMainWindow):
             pass
 
         preview = QPrintPreviewDialog(printer, self)
-        preview.setWindowTitle("Xem truoc khi in")
+        preview.setWindowTitle("Xem trước khi in")
         try:
             preview.resize(1100, 760)
+            
+            # Translate the actions
+            from packages.qt_compat.QtGui import QAction
+            actions = preview.findChildren(QAction)
+            translations = {
+                "Print": "In",
+                "Print...": "In...",
+                "Page setup...": "Thiết lập trang...",
+                "Page Setup...": "Thiết lập trang...",
+                "Zoom In": "Phóng to",
+                "Zoom Out": "Thu nhỏ",
+                "Show Overview of all pages": "Xem tổng quan tất cả các trang",
+                "Show single page": "Xem một trang",
+                "Show facing pages": "Xem hai trang",
+                "First page": "Trang đầu",
+                "Last page": "Trang cuối",
+                "Previous page": "Trang trước",
+                "Next page": "Trang sau",
+                "Fit Width": "Vừa chiều rộng",
+                "Fit Page": "Vừa trang",
+                "Portrait": "Hướng dọc",
+                "Landscape": "Hướng ngang",
+                "Close": "Đóng"
+            }
+            # Preserve Target Page when switching views
+            from packages.qt_compat.QtWidgets import QWidget
+            from packages.qt_compat.QtCore import QTimer
+            preview_widget = None
+            for child in preview.findChildren(QWidget):
+                if hasattr(child, "currentPage") and hasattr(child, "setCurrentPage"):
+                    preview_widget = child
+                    break
+            
+            hook_fn = None
+            if preview_widget:
+                # We save the current page before action triggers if possible, or just use a short timer
+                # Actually, capturing it on hover or right before is hard. 
+                # Let's just track it via a 100ms timer while the dialog is open!
+                preview_widget._last_pg = 1
+                def track_page():
+                    if preview_widget.isVisible():
+                        pg = preview_widget.currentPage()
+                        if pg > 0:
+                            preview_widget._last_pg = pg
+                        QTimer.singleShot(200, track_page)
+                QTimer.singleShot(200, track_page)
+                
+                def restore_page():
+                    # Wait for layout to finish, then restore
+                    QTimer.singleShot(100, lambda: preview_widget.setCurrentPage(getattr(preview_widget, "_last_pg", 1)))
+                hook_fn = restore_page
+
+            for act in actions:
+                plain_text = act.text().replace("&", "")
+                if plain_text in translations:
+                    act.setText(translations[plain_text])
+                    act.setToolTip(translations[plain_text])
+                if hook_fn and plain_text in [
+                    "Show Overview of all pages", "Show single page", "Show facing pages", 
+                    "Fit Width", "Fit Page", "Portrait", "Landscape"
+                ]:
+                    act.triggered.connect(hook_fn)
         except Exception:
             pass
-        preview.paintRequested.connect(lambda p: self._do_print_pages(p, pdf_path, show_progress=False))
+        preview.paintRequested.connect(lambda p: self._do_print_pages(p, pdf_path, show_progress=False, preview_dlg=preview))
         preview.exec()
 
     @staticmethod
@@ -1017,7 +1081,7 @@ class PDFReaderApp(QMainWindow):
         except Exception:
             return False
 
-    def _do_print_pages(self, printer: QPrinter, pdf_path: str, show_progress: bool = True):
+    def _do_print_pages(self, printer: QPrinter, pdf_path: str, show_progress: bool = True, preview_dlg=None):
         """Vẽ từng trang PDF lên printer — chạy trên main thread qua paintRequested.
 
         Tiến độ xử lý qua QProgressDialog (hiện sau 1s nếu vẫn đang chạy) cho
@@ -1088,18 +1152,15 @@ class PDFReaderApp(QMainWindow):
                     break
                 if progress is not None:
                     progress.setValue(i)
-                    progress.setLabelText(f"Dang in trang {page_num + 1} / {total}...")
+                    progress.setLabelText(f"Đang in trang {page_num + 1} / {total}...")
                     QApplication.processEvents()
                 try:
                     page_w_pt, page_h_pt = pdf.page_size(page_num + 1)
                 except Exception:
                     page_w_pt, page_h_pt = 595.0, 842.0
-                target_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)
+
                 if i > 0:
-                    if target_orientation != current_orientation:
-                        self._apply_printer_orientation(printer, target_orientation)
                     printer.newPage()
-                current_orientation = target_orientation
 
                 page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
                 w = int(page_rect.width())
@@ -1107,8 +1168,8 @@ class PDFReaderApp(QMainWindow):
                 page_pixels = max(1.0, page_w_pt * page_h_pt)
                 scale_by_pixels = (max_render_pixels / page_pixels) ** 0.5
                 target_scale = min(
-                    1.15 if is_large_job else 2.0,
-                    max(0.35, scale_by_pixels),
+                    2.0 if is_large_job else 4.0,
+                    max(1.0, scale_by_pixels),
                 )
 
                 rendered = pdf.render_page_rgb(page_num + 1, scale=target_scale)
@@ -1339,7 +1400,7 @@ class PDFReaderApp(QMainWindow):
         act_merge.triggered.connect(lambda: merge_pdfs_action(self))
         act_merge.setIcon(svg_icon("merge_pdf.svg", size=16, color="#4fc080"))
 
-        act_extract = menu_pages.addAction("Trích xuất trang...")
+        act_extract = menu_pages.addAction("Tách PDF...")
         act_extract.triggered.connect(lambda: split_pdf_action(self))
         act_extract.setIcon(svg_icon("extract.svg", size=16, color="#f07858"))
 
@@ -1497,7 +1558,7 @@ class PDFReaderApp(QMainWindow):
         if not state:
             return
 
-        title = meta.get("filename") or os.path.basename(state["display_path"])
+        title = os.path.basename(state.get("display_path", "")) or meta.get("filename") or "Document"
         state["search_query"] = ""
 
         index = self.tab_widget.indexOf(tab)
@@ -2133,7 +2194,7 @@ class PDFReaderApp(QMainWindow):
         _set("_act_rccw",            "action.rotate_ccw",        "Xoay trái")
         _set("_act_del",             "action.delete_page",       "Xóa trang")
         _set("_act_merge",           "action.merge_pdf",         "Ghép PDF")
-        _set("_act_extract",         "action.extract_page",      "Trích xuất")
+        _set("_act_extract",         "action.extract_page",      "Tách PDF")
         _set("_act_pgnum",           "action.page_number",       "Số trang")
         _set("_act_wm",              "action.watermark",         "Watermark")
         _set("_act_rmwm",            "action.remove_watermark",  "Xóa watermark")

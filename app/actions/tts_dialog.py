@@ -667,6 +667,20 @@ class TTSDialog(QDialog):
         self._set_playing(True)
         self._bridge.status.emit("Dang chuan bi doc...")
         
+        mode = self.mode_cb.currentData()
+        voice = self.voice_cb.currentData()
+        rate = self.rate_slider.value()
+        
+        if mode in (_PIPER_MODE, _OPENAI_MODE):
+            cache_key = (self.text_to_speak, mode, str(getattr(voice, "id", getattr(voice, "name", voice))), rate)
+            cached_path = getattr(self, "_cached_audio_path", None)
+            cached_key = getattr(self, "_cached_audio_key", None)
+            if cached_key == cache_key and cached_path and os.path.exists(cached_path):
+                self._bridge.status.emit("Dang phat lai tu bo nho tam...")
+                self._bridge.audioReady.emit(cached_path)
+                return
+            self._current_cache_key = cache_key
+        
         if mode == _PIPER_MODE:
             self._thread = threading.Thread(target=self._run_piper_tts, daemon=True)
         elif mode == _OPENAI_MODE:
@@ -715,6 +729,9 @@ class TTSDialog(QDialog):
         if not ok:
             self._bridge.finished.emit(False, "Loi tao giong Piper.")
             return
+
+        self._cached_audio_key = getattr(self, "_current_cache_key", None)
+        self._cached_audio_path = audio_path
 
         self._bridge.audioReady.emit(audio_path)
         self._bridge.status.emit(f"Dang phat Piper TTS: {voice.name}")
@@ -827,6 +844,10 @@ class TTSDialog(QDialog):
             if self._stop_requested.is_set():
                 self._bridge.finished.emit(True, "Da dung.")
                 return
+            
+            self._cached_audio_key = getattr(self, "_current_cache_key", None)
+            self._cached_audio_path = audio_path
+            
             self._bridge.audioReady.emit(audio_path)
             self._bridge.status.emit("Dang phat giong AI...")
         except Exception as exc:

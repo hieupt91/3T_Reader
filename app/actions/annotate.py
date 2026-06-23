@@ -1861,7 +1861,7 @@ def _rotate_page(window, degrees: int):
             import tempfile
             import shutil
             import os
-            from app.actions._pdf_save import make_staged_pdf_path, remove_path_quietly
+            from app.actions._pdf_save import make_staged_pdf_path, remove_path_quietly, replace_file_with_retry
             tmp = make_staged_pdf_path(path)
             try:
                 import pikepdf
@@ -1873,7 +1873,7 @@ def _rotate_page(window, degrees: int):
                         current_rot = 0
                     page["/Rotate"] = (current_rot + degrees) % 360
                     pdf.save(tmp)
-                shutil.move(tmp, path)
+                replace_file_with_retry(tmp, path, attempts=12)
             except Exception as e:
                 remove_path_quietly(tmp)
                 try:

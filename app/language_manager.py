@@ -70,7 +70,7 @@ BUILTIN_TRANSLATIONS = {
         "action.rotate_ccw": "Xoay trái",
         "action.delete_page": "Xóa trang",
         "action.merge_pdf": "Ghép PDF",
-        "action.extract_page": "Trích xuất",
+        "action.extract_page": "Tách PDF",
         "action.page_number": "Số trang",
         "group.file": "TỆP",
         "group.navigate": "ĐIỀU HƯỚNG",

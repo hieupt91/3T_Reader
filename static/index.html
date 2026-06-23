@@ -3,633 +3,1816 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" />
-    <title>3T Reader - Trình Đọc & Chỉnh Sửa PDF Tích Hợp AI Tối Thượng</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@700;800&display=swap" rel="stylesheet">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>3T Reader</title>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
-            --bg-base: #030712;
-            --surface: rgba(17, 24, 39, 0.7);
-            --surface-border: rgba(255, 255, 255, 0.08);
-            --text-primary: #f9fafb;
-            --text-secondary: #9ca3af;
-            --accent-blue: #3b82f6;
-            --accent-purple: #8b5cf6;
-            --accent-green: #10b981;
-            --gradient-primary: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-            --gradient-text: linear-gradient(to right, #60a5fa, #c084fc);
-            --glass-bg: rgba(17, 24, 39, 0.7);
-            --modal-bg: #111827;
-            --modal-input: #1f2937;
+            --bg: #07111f;
+            --surface: rgba(14, 25, 43, 0.78);
+            --surface-soft: rgba(255, 255, 255, 0.05);
+            --border: rgba(255, 255, 255, 0.1);
+            --text: #f5f8fc;
+            --muted: #92a5c5;
+            --primary: #2f8cff;
+            --primary-2: #54d2ff;
+            --success: #16b364;
+            --danger: #d92d20;
+            --warning: #f79009;
+            --radius-xl: 28px;
+            --radius-lg: 22px;
+            --radius-md: 16px;
+            --shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
         }
 
-        [data-theme="light"] {
-            --bg-base: #f8fafc;
-            --surface: rgba(255, 255, 255, 0.8);
-            --surface-border: rgba(0, 0, 0, 0.1);
-            --text-primary: #0f172a;
-            --text-secondary: #475569;
-            --glass-bg: rgba(255, 255, 255, 0.9);
-            --modal-bg: #ffffff;
-            --modal-input: #f1f5f9;
+        body[data-theme="light"] {
+            --bg: #eef5fb;
+            --surface: rgba(255, 255, 255, 0.88);
+            --surface-soft: rgba(19, 47, 88, 0.05);
+            --border: rgba(18, 43, 76, 0.1);
+            --text: #12253d;
+            --muted: #5f7391;
+            --primary: #1f7bf2;
+            --primary-2: #0ea5e9;
+            --shadow: 0 18px 60px rgba(36, 66, 110, 0.14);
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; scroll-behavior: smooth; }
-        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
         body {
-            background-color: var(--bg-base);
-            color: var(--text-primary);
-            line-height: 1.6;
-            overflow-x: hidden;
-            background-image: 
-                radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.1) 0%, transparent 40%),
-                radial-gradient(circle at 90% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 40%);
-            background-attachment: fixed;
-            transition: background-color 0.4s ease, color 0.4s ease;
+            font-family: "Manrope", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(84, 210, 255, 0.14), transparent 24%),
+                radial-gradient(circle at 85% 15%, rgba(47, 140, 255, 0.14), transparent 26%),
+                linear-gradient(180deg, var(--bg) 0%, color-mix(in srgb, var(--bg) 90%, #10203a 10%) 100%);
+            min-height: 100vh;
+            transition: background 0.25s ease, color 0.25s ease;
+        }
+        body[data-theme="light"] {
+            background:
+                radial-gradient(circle at top left, rgba(14, 165, 233, 0.1), transparent 24%),
+                radial-gradient(circle at 85% 15%, rgba(59, 130, 246, 0.1), transparent 26%),
+                linear-gradient(180deg, #f8fbff 0%, #eaf1f8 100%);
         }
 
-        h1, h2, h3, .logo { font-family: 'Outfit', sans-serif; }
+        a { color: inherit; text-decoration: none; }
+        button, input, select { font: inherit; }
+        .container { width: min(1180px, calc(100% - 40px)); margin: 0 auto; }
+        .glass { background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); backdrop-filter: blur(18px); }
+        .hero-font, h1, h2, h3, .brand { font-family: "Space Grotesk", sans-serif; letter-spacing: -0.03em; }
+        .muted { color: var(--muted); }
+        .hidden { display: none !important; }
 
-        .glass {
-            background: var(--glass-bg);
-            backdrop-filter: blur(24px);
-            -webkit-backdrop-filter: blur(24px);
-            border: 1px solid var(--surface-border);
-            border-radius: 20px;
-            transition: all 0.3s ease;
-        }
-
-        /* Navbar */
         nav {
-            position: fixed; top: 0; width: 100%; z-index: 100;
-            padding: 20px 0; border-bottom: 1px solid var(--surface-border);
-            transition: all 0.3s;
-            background: rgba(var(--bg-base), 0.6); backdrop-filter: blur(20px);
+            position: sticky; top: 0; z-index: 20;
+            backdrop-filter: blur(18px);
+            background: color-mix(in srgb, var(--bg) 72%, transparent 28%);
+            border-bottom: 1px solid var(--border);
         }
-        .nav-container { max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; padding: 0 24px; }
-        .logo { font-size: 26px; font-weight: 800; display: flex; align-items: center; gap: 12px; letter-spacing: -0.5px; text-decoration: none; color: var(--text-primary); }
-        .logo i { color: #f40f02; font-size: 30px; }
-        .nav-links { display: flex; gap: 32px; align-items: center; }
-        .nav-links a { color: var(--text-primary); text-decoration: none; font-weight: 500; font-size: 15px; transition: 0.3s; }
-        .nav-links a:hover { color: var(--accent-blue); }
-
-        .theme-toggle {
-            background: transparent; border: 1px solid var(--surface-border);
-            color: var(--text-primary); font-size: 18px; padding: 8px; 
-            border-radius: 50%; width: 40px; height: 40px; cursor: pointer;
-            display: flex; align-items: center; justify-content: center; transition: 0.3s;
+        .nav-inner {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 18px; padding: 16px 0;
         }
-        .theme-toggle:hover { background: var(--surface-border); }
-
-        /* Hero Section */
-        .hero { padding: 160px 24px 100px; text-align: center; max-width: 1000px; margin: 0 auto; position: relative; }
-        .hero h1 { font-size: 64px; line-height: 1.1; margin-bottom: 24px; letter-spacing: -2px; }
-        .hero h1 span { background: var(--gradient-text); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .hero p { font-size: 20px; color: var(--text-secondary); max-width: 800px; margin: 0 auto 48px; font-weight: 400; }
-
-        /* Download Section */
-        .downloads { max-width: 1200px; margin: 0 auto 80px; padding: 0 24px; }
-        .dl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
-        .dl-card { 
-            padding: 40px 32px; text-align: center; transition: transform 0.3s, box-shadow 0.3s;
-            display: flex; flex-direction: column; align-items: center; position: relative; overflow: hidden;
+        .brand {
+            display: flex; align-items: center; gap: 12px;
+            font-size: 28px; font-weight: 700;
         }
-        .dl-card:hover { transform: translateY(-8px); box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
-        .dl-icon { font-size: 56px; margin-bottom: 24px; }
-        .dl-card h3 { font-size: 24px; margin-bottom: 12px; }
-        .dl-card p { color: var(--text-secondary); font-size: 15px; margin-bottom: 32px; flex-grow: 1; }
-        .btn-download {
-            display: inline-flex; align-items: center; gap: 12px; padding: 16px 32px;
-            border-radius: 12px; font-weight: 600; font-size: 16px; text-decoration: none;
-            transition: all 0.3s; border: none; cursor: pointer; width: 100%; justify-content: center;
+        .brand-badge {
+            width: 46px; height: 46px; border-radius: 15px;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-2) 100%);
+            color: white;
         }
-        .btn-win { background: var(--gradient-primary); color: white; box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3); }
-        .btn-win:hover { box-shadow: 0 12px 32px rgba(59, 130, 246, 0.5); transform: scale(1.02); }
-        .btn-mac { background: rgba(139, 92, 246, 0.1); color: var(--accent-purple); border: 1px solid rgba(139, 92, 246, 0.3); }
-        .btn-mac:hover { background: rgba(139, 92, 246, 0.2); border-color: rgba(139, 92, 246, 0.5); transform: scale(1.02); color: white; }
-        .btn-port { background: rgba(16, 185, 129, 0.1); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.3); }
-        .btn-port:hover { background: rgba(16, 185, 129, 0.2); border-color: rgba(16, 185, 129, 0.5); transform: scale(1.02); color: white;}
-        .dl-badge {
-            position: absolute; top: 20px; right: 20px; background: rgba(59,130,246,0.2); 
-            color: #3b82f6; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+        .nav-links { display: flex; align-items: center; gap: 20px; }
+        .nav-links a { color: var(--muted); font-weight: 700; }
+        .nav-actions { display: flex; align-items: center; gap: 10px; }
+        .chip {
+            border: 1px solid var(--border);
+            background: var(--surface-soft);
+            color: var(--text);
+            border-radius: 999px;
+            padding: 10px 14px;
+            cursor: pointer;
+            font-weight: 700;
         }
+        .chip.active { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-2) 100%); color: white; border-color: transparent; }
 
-        /* Features */
-        .section-title { text-align: center; font-size: 48px; margin-bottom: 64px; letter-spacing: -1px; }
-        .features { padding: 100px 24px; max-width: 1200px; margin: 0 auto; }
-        .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 32px; }
-        .feature-card { padding: 40px; border-radius: 24px; transition: 0.3s; }
-        .feature-card:hover { transform: translateY(-5px); box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        .feature-icon { 
-            width: 64px; height: 64px; border-radius: 16px; background: rgba(59, 130, 246, 0.1);
-            display: flex; align-items: center; justify-content: center; font-size: 28px; color: var(--accent-blue); margin-bottom: 24px;
+        .hero {
+            padding: 58px 0 34px;
+            display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 22px;
         }
-        .feature-card h3 { font-size: 22px; margin-bottom: 16px; }
-        .feature-card p { color: var(--text-secondary); }
+        .hero-card, .hero-side {
+            border-radius: var(--radius-xl);
+            padding: 34px;
+        }
+        .hero-kicker {
+            display: inline-flex; gap: 8px; align-items: center;
+            border-radius: 999px; padding: 8px 12px;
+            background: rgba(255,255,255,0.08);
+            color: #d7eeff; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
+        }
+        body[data-theme="light"] .hero-kicker { background: rgba(18,43,76,0.06); color: #1f7bf2; }
+        .hero h1 { font-size: clamp(42px, 6vw, 72px); line-height: 0.94; margin: 18px 0 18px; }
+        .hero h1 span { color: var(--primary-2); }
+        .hero p { font-size: 17px; line-height: 1.75; color: var(--muted); max-width: 720px; }
+        .hero-cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+        .btn, .btn-alt {
+            border: none; border-radius: 999px; cursor: pointer; padding: 14px 18px; font-weight: 800;
+        }
+        .btn { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-2) 100%); color: white; }
+        .btn-alt { background: var(--surface-soft); color: var(--text); border: 1px solid var(--border); }
 
-        /* Pricing Section */
-        .pricing { padding: 80px 24px; max-width: 1100px; margin: 0 auto; }
-        .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px; }
-        .pricing-card { padding: 48px 40px; border-radius: 24px; display: flex; flex-direction: column; position: relative; }
-        .pricing-card h3 { font-size: 24px; margin-bottom: 16px; }
-        .price { font-size: 42px; font-weight: 800; font-family: 'Outfit'; margin-bottom: 8px; }
-        .price span { font-size: 16px; font-weight: 400; color: var(--text-secondary); font-family: 'Inter'; }
-        .plan-features { list-style: none; margin: 32px 0; flex-grow: 1; }
-        .plan-features li { margin-bottom: 16px; display: flex; align-items: flex-start; gap: 12px; color: var(--text-primary); }
-        .plan-features i.fa-check { color: var(--accent-green); margin-top: 5px; }
-        .plan-features i.fa-xmark { color: var(--text-secondary); margin-top: 5px; opacity: 0.5; }
-        .badge { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: var(--gradient-primary); color: white; padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 700; white-space: nowrap; }
-        .premium-card { border: 2px solid var(--accent-blue); transform: scale(1.05); }
+        .hero-side { display: grid; gap: 14px; align-content: start; }
+        .metric {
+            border-radius: var(--radius-lg);
+            padding: 18px 20px;
+            background: var(--surface-soft);
+            border: 1px solid var(--border);
+        }
+        .metric strong { display: block; font-size: 32px; }
+        .metric span { color: var(--muted); }
 
-        /* FAQ Section */
-        .faq { padding: 80px 24px; max-width: 800px; margin: 0 auto; }
-        .faq-item { margin-bottom: 24px; border-bottom: 1px solid var(--surface-border); padding-bottom: 24px; }
-        .faq-item h4 { font-size: 20px; margin-bottom: 12px; color: var(--text-primary); }
-        .faq-item p { color: var(--text-secondary); }
+        .downloads, .features, .pricing { padding: 28px 0; }
+        .section-head { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin-bottom: 18px; }
+        .section-head h2 { font-size: 36px; }
+        .section-head p { color: var(--muted); max-width: 680px; }
 
-        footer { text-align: center; padding: 60px 24px; border-top: 1px solid var(--surface-border); margin-top: 60px; }
-        
-        /* Modal & Payment Overlay */
-        .overlay { position: fixed; inset: 0; z-index: 200; display: none; align-items: center; justify-content: center; padding: 20px; }
+        .download-grid, .feature-grid, .pricing-grid { display: grid; gap: 18px; }
+        .download-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .feature-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .pricing-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .download-card, .feature-card, .pricing-card {
+            border-radius: var(--radius-lg);
+            padding: 24px;
+        }
+        .download-card h3, .feature-card h3, .pricing-card h3 { font-size: 24px; margin-bottom: 10px; }
+        .download-card p, .feature-card p { color: var(--muted); line-height: 1.7; }
+        .download-icon, .feature-icon {
+            width: 58px; height: 58px; border-radius: 18px;
+            display: inline-flex; align-items: center; justify-content: center;
+            margin-bottom: 16px; font-size: 26px;
+            background: rgba(255,255,255,0.08);
+        }
+        body[data-theme="light"] .download-icon, body[data-theme="light"] .feature-icon {
+            background: rgba(18,43,76,0.06);
+        }
+        .download-meta { margin-top: 16px; font-size: 13px; color: var(--muted); }
+        .download-card .btn, .pricing-card .btn, .pricing-card .btn-alt { margin-top: 18px; width: 100%; }
+
+        .price {
+            font-size: 44px; font-weight: 700; margin: 10px 0 6px;
+            font-family: "Space Grotesk", sans-serif;
+        }
+        .price small { font-size: 16px; color: var(--muted); font-family: "Manrope", sans-serif; }
+        .pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 7px 10px; border-radius: 999px;
+            font-size: 12px; font-weight: 800;
+            background: rgba(84,210,255,0.12); color: var(--primary-2);
+        }
+        .feature-list { list-style: none; display: grid; gap: 10px; margin-top: 18px; }
+        .feature-list li { display: flex; align-items: flex-start; gap: 10px; color: var(--muted); }
+        .feature-list i { margin-top: 4px; color: var(--success); }
+        .pricing-card.highlight { border: 1px solid rgba(84, 210, 255, 0.24); transform: translateY(-4px); }
+
+        footer {
+            padding: 36px 0 48px;
+            color: var(--muted);
+        }
+        .footer-bar { display: flex; justify-content: space-between; gap: 18px; align-items: center; }
+
+        .overlay {
+            position: fixed; inset: 0; z-index: 60;
+            display: none; align-items: center; justify-content: center; padding: 24px;
+        }
         .overlay.open { display: flex; }
-        .overlay-bg { position: absolute; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(10px); }
-        .modal { position: relative; z-index: 1; background: var(--modal-bg); border: 1px solid var(--surface-border); border-radius: 24px; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; padding: 36px; animation: slideUp 0.3s ease; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
-        @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        .modal-close { position: absolute; top: 20px; right: 24px; background: transparent; border: none; color: var(--text-secondary); font-size: 28px; cursor: pointer; line-height: 1; transition: 0.2s; }
-        .modal-close:hover { color: var(--text-primary); transform: scale(1.1); }
-        .modal h2 { font-size: 28px; font-weight: 800; margin-bottom: 8px; font-family: 'Outfit'; }
-        .modal-sub { font-size: 14px; color: var(--text-secondary); margin-bottom: 24px; }
-        .plan-summary { background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 16px; padding: 16px 20px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
-        .plan-summary .ps-name { font-weight: 600; font-size: 16px; color: var(--text-primary); }
-        .plan-summary .ps-price { font-weight: 800; font-size: 18px; color: var(--accent-blue); }
-        
-        .qr-section { text-align: center; margin-bottom: 24px; }
-        .qr-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
-        .qr-wrap { display: inline-block; background: #fff; padding: 12px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-        .qr-wrap img { width: 180px; height: 180px; display: block; border-radius: 8px; }
-        
-        .bank-info { background: var(--surface); border: 1px solid var(--surface-border); border-radius: 16px; padding: 20px; margin-bottom: 24px; }
-        .bank-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
-        .bank-row:not(:last-child) { border-bottom: 1px solid var(--surface-border); }
-        .bank-label { font-size: 13px; color: var(--text-secondary); }
-        .bank-val { font-size: 14px; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
-        .copy-btn { background: rgba(59, 130, 246, 0.15); border: none; color: var(--accent-blue); padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: 0.2s; }
-        .copy-btn:hover { background: var(--accent-blue); color: white; }
-        
-        .note-box { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 12px; padding: 16px; margin-bottom: 24px; font-size: 13px; color: #fcd34d; line-height: 1.6; }
-        [data-theme="light"] .note-box { color: #d97706; }
-        
-        .form-group { margin-bottom: 20px; }
-        .form-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
-        .form-group input, .form-group select { width: 100%; background: var(--modal-input); border: 1px solid var(--surface-border); color: var(--text-primary); padding: 12px 16px; border-radius: 12px; font-size: 14px; font-family: inherit; transition: 0.2s; outline: none; }
-        .form-group input:focus, .form-group select:focus { border-color: var(--accent-blue); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2); }
-        .btn-submit { width: 100%; background: var(--gradient-primary); color: #fff; border: none; padding: 16px; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer; transition: 0.25s; margin-top: 8px; }
-        .btn-submit:hover { opacity: 0.9; transform: translateY(-2px); box-shadow: 0 10px 25px rgba(59, 130, 246, 0.4); }
-        .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-        
-        .success-box { display: none; text-align: center; padding: 30px 0; }
-        .success-box .icon { font-size: 64px; margin-bottom: 20px; animation: scaleUp 0.5s ease backwards; }
-        @keyframes scaleUp { 0% { transform: scale(0); } 80% { transform: scale(1.1); } 100% { transform: scale(1); } }
-        .success-box h3 { font-size: 24px; font-weight: 800; margin-bottom: 12px; color: var(--accent-green); }
-        .success-box p { font-size: 15px; color: var(--text-secondary); line-height: 1.7; }
-        
-        @media (max-width: 768px) {
-            .dl-grid, .pricing-grid { grid-template-columns: 1fr; }
-            .hero h1 { font-size: 42px; }
+        .overlay-bg { position: absolute; inset: 0; background: rgba(3, 9, 18, 0.72); backdrop-filter: blur(10px); }
+        .modal {
+            position: relative; z-index: 1;
+            width: min(920px, 100%);
+            border-radius: var(--radius-xl);
+            padding: 28px;
+            display: grid; grid-template-columns: 0.94fr 1.06fr; gap: 20px;
+        }
+        .modal-close {
+            position: absolute; top: 18px; right: 18px;
+            width: 42px; height: 42px; border: none; border-radius: 999px;
+            background: var(--surface-soft); color: var(--text); cursor: pointer;
+        }
+        .pay-box, .form-box {
+            border-radius: var(--radius-lg);
+            padding: 22px;
+            background: var(--surface-soft);
+            border: 1px solid var(--border);
+        }
+        .plan-summary {
+            display: flex; justify-content: space-between; align-items: center; gap: 12px;
+            border-radius: var(--radius-md);
+            padding: 16px 18px; margin-bottom: 18px;
+            background: rgba(84,210,255,0.1); border: 1px solid rgba(84,210,255,0.18);
+        }
+        .qr-wrap {
+            background: white; border-radius: 18px; padding: 12px; width: fit-content; margin: 0 auto 18px;
+        }
+        .qr-wrap img { width: 190px; height: 190px; display: block; }
+        .bank-grid { display: grid; gap: 10px; }
+        .bank-row {
+            display: flex; justify-content: space-between; gap: 12px; align-items: center;
+            padding: 10px 0; border-bottom: 1px solid var(--border);
+        }
+        .bank-row:last-child { border-bottom: none; }
+        .bank-row small { color: var(--muted); }
+        .copy-btn {
+            border: none; cursor: pointer; border-radius: 999px;
+            padding: 6px 10px; font-size: 12px; font-weight: 800;
+            background: rgba(84,210,255,0.14); color: var(--primary);
+        }
+        .note-box, .promo-box {
+            margin-top: 16px; border-radius: var(--radius-md);
+            padding: 14px 16px; line-height: 1.65; color: var(--muted);
+            background: rgba(247, 144, 9, 0.08); border: 1px solid rgba(247, 144, 9, 0.16);
+        }
+        .form-box { display: grid; gap: 14px; }
+        .field { display: grid; gap: 8px; }
+        .field label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 800; }
+        .field input, .field select {
+            width: 100%; border-radius: 14px; border: 1px solid var(--border);
+            background: rgba(255,255,255,0.06); color: var(--text); padding: 13px 14px; outline: none;
+        }
+        body[data-theme="light"] .field input, body[data-theme="light"] .field select { background: rgba(255,255,255,0.95); }
+        .inline-row { display: grid; grid-template-columns: 1fr 140px; gap: 12px; }
+        .promo-status {
+            font-size: 13px; font-weight: 700;
+            color: var(--success);
+        }
+        .promo-status.error { color: var(--danger); }
+        .success-box {
+            text-align: center; padding: 42px 20px;
+        }
+        .success-box i { font-size: 68px; color: var(--success); margin-bottom: 16px; }
+
+        .ambient {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -1;
+            overflow: hidden;
+        }
+        .ambient::before,
+        .ambient::after {
+            content: "";
+            position: absolute;
+            border-radius: 999px;
+            filter: blur(18px);
+            opacity: 0.9;
+            animation: blobFloat 15s ease-in-out infinite;
+        }
+        .ambient::before {
+            width: 460px;
+            height: 460px;
+            top: 70px;
+            left: -140px;
+            background: radial-gradient(circle, rgba(84, 210, 255, 0.22) 0%, rgba(84, 210, 255, 0) 72%);
+        }
+        .ambient::after {
+            width: 520px;
+            height: 520px;
+            top: 160px;
+            right: -160px;
+            background: radial-gradient(circle, rgba(247, 144, 9, 0.16) 0%, rgba(247, 144, 9, 0) 70%);
+            animation-delay: -6s;
+        }
+        @keyframes blobFloat {
+            0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+            50% { transform: translate3d(18px, -20px, 0) scale(1.06); }
+        }
+        @keyframes floatY {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        @keyframes shimmer {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 100% 50%; }
+        }
+        .reveal {
+            opacity: 0;
+            transform: translateY(28px);
+            transition: opacity 0.7s ease, transform 0.7s ease;
+        }
+        .reveal.in-view {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        nav {
+            margin-top: 14px;
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            width: min(1220px, calc(100% - 32px));
+            margin-left: auto;
+            margin-right: auto;
+            top: 14px;
+            box-shadow: 0 16px 46px rgba(3, 8, 20, 0.16);
+        }
+        .nav-inner { padding: 14px 20px; }
+        .nav-links a {
+            padding: 10px 12px;
+            border-radius: 999px;
+            transition: 0.2s ease;
+        }
+        .nav-links a:hover {
+            color: var(--text);
+            background: var(--surface-soft);
+        }
+
+        .hero {
+            padding: 54px 0 28px;
+            grid-template-columns: 1.02fr 0.98fr;
+            gap: 24px;
+            align-items: stretch;
+        }
+        .hero-card {
+            position: relative;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at top right, rgba(84, 210, 255, 0.16), transparent 28%),
+                linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%);
+        }
+        .hero-card::after {
+            content: "";
+            position: absolute;
+            inset: auto -120px -130px auto;
+            width: 360px;
+            height: 360px;
+            border-radius: 999px;
+            background: radial-gradient(circle, rgba(47, 140, 255, 0.2) 0%, rgba(47, 140, 255, 0) 70%);
+            pointer-events: none;
+        }
+        .hero-copy {
+            position: relative;
+            z-index: 1;
+        }
+        .hero-copy > * {
+            animation: floatY 7s ease-in-out infinite;
+        }
+        .hero-copy > *:nth-child(2) { animation-delay: -1s; }
+        .hero-copy > *:nth-child(3) { animation-delay: -2s; }
+        .hero h1 {
+            font-size: clamp(46px, 6vw, 78px);
+            line-height: 0.92;
+            max-width: 760px;
+        }
+        .hero h1 span {
+            display: inline-block;
+            color: #8ce1ff;
+            text-shadow: 0 0 30px rgba(84, 210, 255, 0.2);
+        }
+        body[data-theme="light"] .hero h1 span {
+            color: #0c7fdd;
+            text-shadow: none;
+        }
+        .hero-cta {
+            align-items: center;
+            gap: 14px;
+        }
+        .hero-subline {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 22px;
+        }
+        .micro-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #d9e6f8;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        body[data-theme="light"] .micro-pill {
+            background: rgba(18, 43, 76, 0.05);
+            border-color: rgba(18, 43, 76, 0.08);
+            color: #274262;
+        }
+
+        .hero-side {
+            position: relative;
+            overflow: hidden;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 100%),
+                radial-gradient(circle at top left, rgba(247, 144, 9, 0.14), transparent 24%);
+            grid-template-rows: auto auto 1fr;
+        }
+        .showcase-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+        }
+        .showcase-top strong {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 24px;
+        }
+        .showcase-dots {
+            display: inline-flex;
+            gap: 6px;
+        }
+        .showcase-dots span {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.18);
+        }
+        .showcase-dots span:first-child { background: #fb7185; }
+        .showcase-dots span:nth-child(2) { background: #f59e0b; }
+        .showcase-dots span:nth-child(3) { background: #10b981; }
+        .app-preview {
+            position: relative;
+            min-height: 390px;
+            border-radius: 24px;
+            padding: 18px;
+            background: rgba(6, 15, 29, 0.72);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            overflow: hidden;
+        }
+        body[data-theme="light"] .app-preview {
+            background: rgba(255,255,255,0.76);
+            border-color: rgba(18, 43, 76, 0.08);
+        }
+        .app-preview::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(180deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 34px 34px;
+            opacity: 0.28;
+        }
+        .preview-window {
+            position: relative;
+            z-index: 1;
+            height: 100%;
+            border-radius: 20px;
+            background: linear-gradient(180deg, rgba(245,248,252,0.98) 0%, rgba(224,231,241,0.95) 100%);
+            color: #112033;
+            overflow: hidden;
+            box-shadow: 0 24px 44px rgba(0, 0, 0, 0.16);
+            animation: floatY 8s ease-in-out infinite;
+        }
+        .preview-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: linear-gradient(180deg, #eff5fb 0%, #dfe8f3 100%);
+            border-bottom: 1px solid rgba(17, 32, 51, 0.08);
+        }
+        .preview-layout {
+            display: grid;
+            grid-template-columns: 84px 1fr;
+            height: calc(100% - 53px);
+        }
+        .preview-rail {
+            background: #e9eff6;
+            border-right: 1px solid rgba(17, 32, 51, 0.08);
+            padding: 14px 10px;
+            display: grid;
+            gap: 12px;
+            align-content: start;
+        }
+        .rail-icon {
+            height: 44px;
+            border-radius: 14px;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1f7bf2;
+            box-shadow: 0 8px 18px rgba(37, 72, 120, 0.08);
+        }
+        .preview-main {
+            padding: 18px;
+            display: grid;
+            gap: 16px;
+            align-content: start;
+        }
+        .preview-toolbar {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+        .tool-chip {
+            border-radius: 14px;
+            padding: 12px 10px;
+            background: white;
+            color: #36506e;
+            font-size: 12px;
+            font-weight: 700;
+            text-align: center;
+            box-shadow: 0 8px 18px rgba(37, 72, 120, 0.06);
+            animation: floatY 6s ease-in-out infinite;
+        }
+        .tool-chip:nth-child(2) { animation-delay: -1.2s; }
+        .tool-chip:nth-child(3) { animation-delay: -2.1s; }
+        .tool-chip:nth-child(4) { animation-delay: -3s; }
+        .preview-paper {
+            border-radius: 18px;
+            background: white;
+            min-height: 220px;
+            padding: 18px;
+            box-shadow: inset 0 0 0 1px rgba(17, 32, 51, 0.06);
+        }
+        .preview-paper .line {
+            height: 10px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #dae6f5 0%, #edf3fa 100%);
+            margin-bottom: 10px;
+        }
+        .preview-paper .line.short { width: 42%; }
+        .preview-paper .line.mid { width: 68%; }
+        .preview-paper .line.long { width: 90%; }
+        .floating-note {
+            position: absolute;
+            right: 18px;
+            bottom: 22px;
+            z-index: 3;
+            width: 210px;
+            padding: 16px;
+            border-radius: 18px;
+            background: rgba(8, 18, 32, 0.82);
+            border: 1px solid rgba(255,255,255,0.08);
+            color: #e6f3ff;
+            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+            animation: floatY 6.5s ease-in-out infinite;
+        }
+        .floating-note strong {
+            display: block;
+            font-size: 14px;
+            margin-bottom: 6px;
+        }
+        .floating-note span {
+            font-size: 13px;
+            line-height: 1.6;
+            color: #bcd0ea;
+        }
+        .metrics-row {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+        .metric {
+            background: rgba(255,255,255,0.04);
+            transition: transform 0.18s ease, border-color 0.18s ease;
+        }
+        .metric:hover {
+            transform: translateY(-3px);
+            border-color: rgba(84, 210, 255, 0.24);
+        }
+        .spotlight-strip {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+        .spot-card {
+            padding: 18px 20px;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid var(--border);
+            box-shadow: 0 20px 42px rgba(0, 0, 0, 0.1);
+        }
+        .spot-card strong {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 18px;
+            font-family: "Space Grotesk", sans-serif;
+        }
+        .spot-card p {
+            color: var(--muted);
+            line-height: 1.7;
+            font-size: 14px;
+        }
+        .trust-bar {
+            display: grid;
+            grid-template-columns: 0.95fr 2.05fr;
+            gap: 18px;
+            align-items: center;
+            margin: 14px 0 22px;
+            padding: 16px 18px;
+            border-radius: 22px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid var(--border);
+        }
+        .trust-lead strong {
+            display: block;
+            font-size: 15px;
+            margin-bottom: 4px;
+            letter-spacing: 0.02em;
+        }
+        .trust-lead span {
+            color: var(--muted);
+            line-height: 1.6;
+            font-size: 14px;
+        }
+        .trust-items {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }
+        .trust-item {
+            min-height: 88px;
+            padding: 16px;
+            border-radius: 18px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
+            border: 1px solid var(--border);
+            display: grid;
+            gap: 8px;
+            align-content: start;
+        }
+        .trust-item strong {
+            font-size: 15px;
+        }
+        .trust-item span {
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--muted);
+        }
+        .editorial-band {
+            display: grid;
+            grid-template-columns: 1.04fr 0.96fr;
+            gap: 18px;
+            margin: 10px 0 8px;
+        }
+        .editorial-main,
+        .editorial-side {
+            padding: 28px;
+            border-radius: 26px;
+        }
+        .section-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(84,210,255,0.1);
+            color: #9de7ff;
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        body[data-theme="light"] .section-tag {
+            color: #0e88dc;
+            background: rgba(14,136,220,0.08);
+        }
+        .editorial-main h2,
+        .editorial-side h3 {
+            font-size: clamp(28px, 4vw, 42px);
+            line-height: 1.02;
+            margin-bottom: 12px;
+        }
+        .editorial-main p,
+        .editorial-side p {
+            color: var(--muted);
+            line-height: 1.82;
+        }
+        .editorial-points {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 20px;
+        }
+        .editorial-point {
+            padding: 16px;
+            border-radius: 18px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid var(--border);
+        }
+        .editorial-point strong {
+            display: block;
+            font-size: 15px;
+            margin-bottom: 6px;
+        }
+        .editorial-point span {
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.65;
+        }
+        .editorial-stack {
+            display: grid;
+            gap: 12px;
+            margin-top: 18px;
+        }
+        .editorial-step {
+            display: flex;
+            gap: 14px;
+            align-items: flex-start;
+            padding: 16px;
+            border-radius: 18px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid var(--border);
+        }
+        .editorial-step b {
+            min-width: 34px;
+            height: 34px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-2) 100%);
+            color: white;
+            font-size: 14px;
+        }
+        .editorial-step strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+        .editorial-step span {
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.65;
+        }
+        .download-card .topline,
+        .pricing-card .topline {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+        .soft-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 10px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid var(--border);
+            font-size: 12px;
+            font-weight: 800;
+            color: var(--muted);
+        }
+        .download-card .btn,
+        .download-card .btn-alt {
+            margin-top: 22px;
+        }
+        .visual-gallery {
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr;
+            gap: 18px;
+            margin: 24px 0 16px;
+        }
+        .gallery-main,
+        .gallery-stack {
+            display: grid;
+            gap: 18px;
+        }
+        .gallery-card {
+            position: relative;
+            overflow: hidden;
+            padding: 24px;
+            border-radius: 26px;
+            min-height: 220px;
+        }
+        .gallery-card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-size: 200% 200%;
+            animation: shimmer 9s linear infinite alternate;
+            opacity: 0.95;
+        }
+        .gallery-card > * {
+            position: relative;
+            z-index: 1;
+        }
+        .gallery-card.primary::before {
+            background-image:
+                radial-gradient(circle at 20% 20%, rgba(84,210,255,0.24), transparent 24%),
+                linear-gradient(135deg, rgba(9,18,34,0.9) 0%, rgba(19,34,61,0.88) 55%, rgba(9,18,34,0.96) 100%);
+        }
+        .gallery-card.secondary::before {
+            background-image:
+                radial-gradient(circle at 80% 20%, rgba(247,144,9,0.24), transparent 26%),
+                linear-gradient(135deg, rgba(16,27,45,0.94) 0%, rgba(18,44,62,0.84) 100%);
+        }
+        .gallery-card.tertiary::before {
+            background-image:
+                radial-gradient(circle at 25% 25%, rgba(16,185,129,0.22), transparent 26%),
+                linear-gradient(135deg, rgba(12,24,39,0.95) 0%, rgba(17,33,56,0.86) 100%);
+        }
+        .gallery-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .gallery-card h3 {
+            font-size: clamp(28px, 4vw, 44px);
+            margin: 18px 0 10px;
+            max-width: 420px;
+            line-height: 0.98;
+        }
+        .gallery-card p {
+            max-width: 420px;
+            color: rgba(232,240,251,0.78);
+            line-height: 1.75;
+        }
+        .gallery-mini {
+            position: absolute;
+            right: 18px;
+            bottom: 18px;
+            display: grid;
+            gap: 10px;
+            width: 180px;
+        }
+        .gallery-chip {
+            padding: 12px 14px;
+            border-radius: 16px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(12px);
+            font-size: 13px;
+            font-weight: 700;
+            animation: floatY 7s ease-in-out infinite;
+        }
+        .gallery-chip:nth-child(2) { animation-delay: -1.8s; }
+        .gallery-chip:nth-child(3) { animation-delay: -3s; }
+        .gallery-stat {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 18px;
+            gap: 12px;
+        }
+        .gallery-stat strong {
+            font-size: 30px;
+        }
+        .gallery-stat span {
+            color: rgba(232,240,251,0.72);
+            font-size: 13px;
+        }
+
+        .download-card,
+        .feature-card,
+        .pricing-card {
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+        }
+        .download-card:hover,
+        .feature-card:hover,
+        .pricing-card:hover {
+            transform: translateY(-6px);
+            border-color: rgba(84, 210, 255, 0.22);
+        }
+        .download-card::after,
+        .feature-card::after,
+        .pricing-card::after {
+            content: "";
+            position: absolute;
+            inset: auto -60px -80px auto;
+            width: 180px;
+            height: 180px;
+            border-radius: 999px;
+            background: radial-gradient(circle, rgba(84, 210, 255, 0.12) 0%, rgba(84, 210, 255, 0) 70%);
+            pointer-events: none;
+        }
+        .pricing-card {
+            padding-top: 28px;
+        }
+        .pricing-card.highlight {
+            border: 1px solid rgba(84, 210, 255, 0.32);
+            box-shadow: 0 26px 70px rgba(11, 29, 55, 0.28);
+            background:
+                linear-gradient(180deg, rgba(84,210,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
+        }
+        .price {
+            font-size: 48px;
+        }
+        .cta-band {
+            margin: 30px 0 36px;
+            padding: 28px 30px;
+            border-radius: 28px;
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 18px;
+            align-items: center;
+            background:
+                linear-gradient(135deg, rgba(47, 140, 255, 0.18) 0%, rgba(84, 210, 255, 0.08) 100%);
+            border: 1px solid rgba(84, 210, 255, 0.18);
+        }
+        .cta-band h2 {
+            font-size: clamp(28px, 4vw, 42px);
+            margin-bottom: 10px;
+        }
+        .cta-band p {
+            color: var(--muted);
+            line-height: 1.8;
+        }
+        .cta-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        @media (max-width: 980px) {
+            .hero, .modal { grid-template-columns: 1fr; }
+            .download-grid, .feature-grid, .pricing-grid { grid-template-columns: 1fr; }
+            .spotlight-strip, .metrics-row, .cta-band, .trust-bar, .editorial-band, .trust-items, .editorial-points, .visual-gallery { grid-template-columns: 1fr; }
+            .cta-actions { justify-content: flex-start; }
+        }
+        @media (max-width: 760px) {
             .nav-links { display: none; }
-            .premium-card { transform: scale(1); }
-            .modal { padding: 24px; }
+            .hero { padding-top: 28px; }
+            .section-head, .footer-bar { display: grid; }
+            .inline-row { grid-template-columns: 1fr; }
+            nav {
+                width: calc(100% - 20px);
+                top: 10px;
+            }
+            .container { width: min(1180px, calc(100% - 22px)); }
+            .hero-card, .hero-side, .download-card, .feature-card, .pricing-card, .cta-band {
+                padding: 22px;
+            }
+            .preview-layout { grid-template-columns: 64px 1fr; }
+            .preview-toolbar { grid-template-columns: repeat(2, 1fr); }
+            .floating-note {
+                position: static;
+                width: 100%;
+                margin-top: 14px;
+            }
+            .gallery-mini {
+                position: static;
+                width: 100%;
+                margin-top: 18px;
+            }
         }
     </style>
 </head>
 <body>
-
-    <nav id="navbar">
-        <div class="nav-container">
-            <a href="#" class="logo"><i class="fa-solid fa-file-pdf"></i> 3T Reader</a>
+    <div class="ambient"></div>
+    <nav>
+        <div class="container nav-inner">
+            <a href="#" class="brand">
+                <span class="brand-badge"><i class="fa-solid fa-file-pdf"></i></span>
+                <span>3T Reader</span>
+            </a>
             <div class="nav-links">
-                <a href="#features">Tính năng</a>
-                <a href="#pricing">Bảng giá</a>
-                <a href="#faq">FAQ</a>
-                <a href="/admin" style="background: rgba(128,128,128,0.1); padding: 8px 20px; border-radius: 20px; border: 1px solid var(--surface-border);">Quản trị hệ thống</a>
-                <button class="theme-toggle" id="themeToggle" title="Chuyển chế độ Sáng/Tối">
-                    <i class="fa-solid fa-moon"></i>
-                </button>
+                <a href="#downloads" data-i18n="nav_downloads"></a>
+                <a href="#features" data-i18n="nav_features"></a>
+                <a href="#pricing" data-i18n="nav_pricing"></a>
+                <a href="/admin">Admin</a>
+            </div>
+            <div class="nav-actions">
+                <button class="chip" id="lang-toggle">EN</button>
+                <button class="chip" id="theme-toggle"><i class="fa-solid fa-moon"></i></button>
             </div>
         </div>
     </nav>
 
-    <section class="hero">
-        <h1>Trình Đọc & Chỉnh Sửa PDF<br><span>Mạnh Mẽ Dành Cho Người Việt</span></h1>
-        <p>Hệ sinh thái xử lý tài liệu thông minh: Ký số USB Token hàng loạt, Nhận diện chữ Scan (OCR) chính xác 99%, Trợ lý AI hỏi đáp tài liệu, Dịch thuật 150 ngôn ngữ, và lõi MuPDF siêu tốc.</p>
-    </section>
+    <main class="container">
+        <section class="hero">
+            <div class="hero-card glass">
+                <div class="hero-copy">
+                    <div class="hero-kicker" data-i18n="hero_kicker"></div>
+                    <h1 id="hero-title"></h1>
+                    <p id="hero-subtitle"></p>
+                    <div class="hero-cta">
+                        <a href="#downloads" class="btn" data-i18n="hero_cta_download"></a>
+                        <button class="btn-alt" type="button" onclick="document.getElementById('pricing').scrollIntoView({behavior:'smooth'})" data-i18n="hero_cta_buy"></button>
+                    </div>
+                    <div class="hero-subline">
+                        <span class="micro-pill"><i class="fa-solid fa-check"></i><span data-i18n="hero_tag_1"></span></span>
+                        <span class="micro-pill"><i class="fa-solid fa-check"></i><span data-i18n="hero_tag_2"></span></span>
+                        <span class="micro-pill"><i class="fa-solid fa-check"></i><span data-i18n="hero_tag_3"></span></span>
+                    </div>
+                </div>
+            </div>
+            <div class="hero-side glass">
+                <div class="showcase-top">
+                    <div>
+                        <strong data-i18n="showcase_title"></strong>
+                        <div class="muted" style="margin-top:6px;" data-i18n="showcase_subtitle"></div>
+                    </div>
+                    <div class="showcase-dots"><span></span><span></span><span></span></div>
+                </div>
+                <div class="app-preview">
+                    <div class="preview-window">
+                        <div class="preview-bar">
+                            <strong style="font-size:14px;">3T Reader 1.0.21</strong>
+                            <span class="muted" style="font-size:12px;">Reader. OCR. AI. Sign.</span>
+                        </div>
+                        <div class="preview-layout">
+                            <div class="preview-rail">
+                                <div class="rail-icon"><i class="fa-solid fa-file-pdf"></i></div>
+                                <div class="rail-icon"><i class="fa-solid fa-language"></i></div>
+                                <div class="rail-icon"><i class="fa-solid fa-headphones"></i></div>
+                                <div class="rail-icon"><i class="fa-solid fa-stamp"></i></div>
+                            </div>
+                            <div class="preview-main">
+                                <div class="preview-toolbar">
+                                    <div class="tool-chip" data-i18n="preview_chip_1"></div>
+                                    <div class="tool-chip" data-i18n="preview_chip_2"></div>
+                                    <div class="tool-chip" data-i18n="preview_chip_3"></div>
+                                    <div class="tool-chip" data-i18n="preview_chip_4"></div>
+                                </div>
+                                <div class="preview-paper">
+                                    <div class="line short"></div>
+                                    <div class="line long"></div>
+                                    <div class="line mid"></div>
+                                    <div class="line long"></div>
+                                    <div class="line long"></div>
+                                    <div class="line short"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="floating-note">
+                        <strong data-i18n="floating_title"></strong>
+                        <span data-i18n="floating_text"></span>
+                    </div>
+                </div>
+                <div class="metrics-row">
+                    <div class="metric">
+                        <strong>8+</strong>
+                        <span data-i18n="metric_features"></span>
+                    </div>
+                    <div class="metric">
+                        <strong>AI + OCR</strong>
+                        <span data-i18n="metric_ai"></span>
+                    </div>
+                    <div class="metric">
+                        <strong>Win / Mac</strong>
+                        <span data-i18n="metric_platforms"></span>
+                    </div>
+                </div>
+            </div>
+        </section>
 
-    <section class="downloads">
-        <div class="dl-grid">
-            <!-- Windows Installer -->
-            <div class="dl-card glass">
-                <div class="dl-badge">Phổ biến nhất</div>
-                <div class="dl-icon" style="color: #00a4ef;"><i class="fa-brands fa-windows"></i></div>
-                <h3>Bản Cài Đặt Windows</h3>
-                <p>Tự động cài đặt đầy đủ thư viện AI và C++ cần thiết. Khuyên dùng cho máy tính cá nhân và văn phòng.</p>
-                <a href="/downloads/3TReader-1.0.18-win-r3.exe" class="btn-download btn-win">
-                    <i class="fa-solid fa-download"></i> Tải Cho Windows
-                </a>
-                <div style="margin-top: 16px; font-size: 13px; color: var(--text-secondary);">Hỗ trợ Windows 10, 11 (64-bit)</div>
+        <section class="visual-gallery reveal">
+            <article class="gallery-card primary glass">
+                <span class="gallery-label" data-i18n="gallery_label_1"></span>
+                <h3 data-i18n="gallery_title_1"></h3>
+                <p data-i18n="gallery_text_1"></p>
+                <div class="gallery-mini">
+                    <div class="gallery-chip">OCR + AI</div>
+                    <div class="gallery-chip">Translate</div>
+                    <div class="gallery-chip">Digital Sign</div>
+                </div>
+            </article>
+            <div class="gallery-stack">
+                <article class="gallery-card secondary glass">
+                    <span class="gallery-label" data-i18n="gallery_label_2"></span>
+                    <h3 data-i18n="gallery_title_2"></h3>
+                    <div class="gallery-stat">
+                        <strong>Win / Mac / Zip</strong>
+                        <span data-i18n="gallery_stat_2"></span>
+                    </div>
+                </article>
+                <article class="gallery-card tertiary glass">
+                    <span class="gallery-label" data-i18n="gallery_label_3"></span>
+                    <h3 data-i18n="gallery_title_3"></h3>
+                    <div class="gallery-stat">
+                        <strong>QR + Promo</strong>
+                        <span data-i18n="gallery_stat_3"></span>
+                    </div>
+                </article>
             </div>
+        </section>
 
-            <!-- Windows Portable -->
-            <div class="dl-card glass">
-                <div class="dl-icon" style="color: var(--accent-green);"><i class="fa-solid fa-bolt"></i></div>
-                <h3>Bản Portable (Chạy Ngay)</h3>
-                <p>Không cần cài đặt, không cần quyền Admin. Giải nén ra USB là có thể mang đi sử dụng trên bất kỳ máy tính nào.</p>
-                <a href="/downloads/3TReader-1.0.18-win-portable-r3.zip" class="btn-download btn-port">
-                    <i class="fa-solid fa-file-zipper"></i> Tải Bản Portable
-                </a>
-                <div style="margin-top: 16px; font-size: 13px; color: var(--text-secondary);">File ZIP - Chỉ cần giải nén và chạy</div>
+        <section class="downloads reveal" id="downloads">
+            <div class="section-head">
+                <div>
+                    <h2 data-i18n="downloads_title"></h2>
+                    <p data-i18n="downloads_subtitle"></p>
+                </div>
             </div>
+            <div class="download-grid">
+                <article class="download-card glass">
+                    <div class="topline">
+                        <span class="soft-badge" data-i18n="download_tag_win"></span>
+                        <span class="soft-badge">.exe</span>
+                    </div>
+                    <div class="download-icon" style="color:#3b82f6;"><i class="fa-brands fa-windows"></i></div>
+                    <h3 data-i18n="download_win_title"></h3>
+                    <p data-i18n="download_win_text"></p>
+                    <a class="btn" id="download-win" href="#" target="_blank" rel="noopener" data-i18n="download_win_btn"></a>
+                    <div class="download-meta" id="download-win-meta"></div>
+                </article>
+                <article class="download-card glass">
+                    <div class="topline">
+                        <span class="soft-badge" data-i18n="download_tag_fast"></span>
+                        <span class="soft-badge">.zip</span>
+                    </div>
+                    <div class="download-icon" style="color:#16b364;"><i class="fa-solid fa-bolt"></i></div>
+                    <h3 data-i18n="download_portable_title"></h3>
+                    <p data-i18n="download_portable_text"></p>
+                    <a class="btn-alt" id="download-portable" href="#" target="_blank" rel="noopener" data-i18n="download_portable_btn"></a>
+                    <div class="download-meta" data-i18n="download_portable_meta"></div>
+                </article>
+                <article class="download-card glass">
+                    <div class="topline">
+                        <span class="soft-badge" data-i18n="download_tag_mac"></span>
+                        <span class="soft-badge">.dmg</span>
+                    </div>
+                    <div class="download-icon" style="color:#111827;"><i class="fa-brands fa-apple"></i></div>
+                    <h3 data-i18n="download_mac_title"></h3>
+                    <p data-i18n="download_mac_text"></p>
+                    <a class="btn-alt" id="download-mac" href="#" target="_blank" rel="noopener" data-i18n="download_mac_btn"></a>
+                    <div class="download-meta" id="download-mac-meta"></div>
+                </article>
+            </div>
+        </section>
 
-            <!-- macOS -->
-            <div class="dl-card glass">
-                <div class="dl-icon" style="color: var(--text-primary);"><i class="fa-brands fa-apple"></i></div>
-                <h3>Phiên Bản macOS</h3>
-                <p>Được tối ưu hóa đặc biệt cho chip Apple Silicon (M1/M2/M3) và màn hình Retina. Hoạt động siêu mượt mà.</p>
-                <a href="/downloads/3TReader-1.0.7-mac.dmg" class="btn-download btn-mac">
-                    <i class="fa-brands fa-apple"></i> Tải Cho macOS
-                </a>
-                <div style="margin-top: 16px; font-size: 13px; color: var(--text-secondary);">Hỗ trợ macOS 12.0 trở lên</div>
+        <section class="features reveal" id="features">
+            <div class="section-head">
+                <div>
+                    <h2 data-i18n="features_title"></h2>
+                    <p data-i18n="features_subtitle"></p>
+                </div>
             </div>
-        </div>
-    </section>
+            <div class="feature-grid" id="feature-grid"></div>
+        </section>
 
-    <section id="features" class="features">
-        <h2 class="section-title">Hệ Sinh Thái 8 Tính Năng Cốt Lõi</h2>
-        <div class="feature-grid">
-            <div class="feature-card glass">
-                <div class="feature-icon" style="color: var(--accent-blue);"><i class="fa-solid fa-file-signature"></i></div>
-                <h3>Ký Số Hàng Loạt (Batch Sign)</h3>
-                <p>Ký hàng trăm file PDF cùng lúc bằng USB Token. Tự động đóng dấu giáp lai, chèn logo công ty. Hỗ trợ chuẩn xác thực eIDAS, PAdES với độ bảo mật cao nhất.</p>
+        <section class="pricing reveal" id="pricing">
+            <div class="section-head">
+                <div>
+                    <h2 data-i18n="pricing_title"></h2>
+                    <p data-i18n="pricing_subtitle"></p>
+                </div>
             </div>
-            <div class="feature-card glass">
-                <div class="feature-icon" style="color: #10b981;"><i class="fa-solid fa-expand"></i></div>
-                <h3>OCR Nhận Diện Chữ Scan 99%</h3>
-                <p>Sử dụng AI train riêng cho tiếng Việt để biến file PDF ảnh chụp, bản scan mờ nhòe thành văn bản có thể tìm kiếm, copy/paste dễ dàng.</p>
-            </div>
-            <div class="feature-card glass">
-                <div class="feature-icon" style="color: #f59e0b;"><i class="fa-solid fa-robot"></i></div>
-                <h3>Trợ Lý AI & Chat Tài Liệu</h3>
-                <p>Hỏi bất cứ thông tin gì có trong tài liệu hàng nghìn trang. AI sẽ tự động đọc, tóm tắt ý chính và trả lời câu hỏi cực nhanh chóng.</p>
-            </div>
-            <div class="feature-card glass">
-                <div class="feature-icon" style="color: #8b5cf6;"><i class="fa-solid fa-language"></i></div>
-                <h3>Dịch Thuật 150 Ngôn Ngữ</h3>
-                <p>Bôi đen bất kỳ đoạn văn bản nào để AI dịch ngay lập tức với ngữ cảnh chuyên ngành kỹ thuật, y khoa, luật... Không cần mở Google Dịch.</p>
-            </div>
-            <div class="feature-card glass">
-                <div class="feature-icon" style="color: #ec4899;"><i class="fa-solid fa-headphones"></i></div>
-                <h3>Đọc Sách Giọng Nói (TTS)</h3>
-                <p>Chuyển đổi văn bản thành giọng đọc Tiếng Việt tự nhiên. Thích hợp để "nghe tài liệu" khi mắt bạn đang bận hoặc cần nghỉ ngơi.</p>
-            </div>
-            <div class="feature-card glass">
-                <div class="feature-icon" style="color: #ef4444;"><i class="fa-solid fa-gauge-high"></i></div>
-                <h3>Hiệu Năng C++ Siêu Tốc</h3>
-                <p>Tạm biệt nỗi ám ảnh giật lag. Nhờ lõi PySide6 & engine MuPDF, việc mở bản vẽ kỹ thuật Autocad hay hồ sơ thầu 2GB chỉ mất 1 giây.</p>
-            </div>
-            <div class="feature-card glass">
-                <div class="feature-icon" style="color: #14b8a6;"><i class="fa-solid fa-highlighter"></i></div>
-                <h3>Công Cụ Ghi Chú & Chỉnh Sửa</h3>
-                <p>Đầy đủ công cụ Annotation: Bôi vàng (Highlight), Gạch chân, Chèn Text, Đóng dấu mộc (Stamp), Chèn hình ảnh trực tiếp lên file.</p>
-            </div>
-            <div class="feature-card glass">
-                <div class="feature-icon" style="color: #6366f1;"><i class="fa-solid fa-object-ungroup"></i></div>
-                <h3>Quản Lý Trang PDF</h3>
-                <p>Dễ dàng xoay trang, xóa trang, cắt nhỏ một file lớn thành nhiều file nhỏ (Split), hoặc gộp nhiều file PDF lại với nhau (Merge).</p>
-            </div>
-        </div>
-    </section>
+            <div class="pricing-grid" id="pricing-grid"></div>
+        </section>
 
-    <!-- PRICING -->
-    <section id="pricing" class="pricing">
-        <h2 class="section-title">Bảng Giá Bản Quyền</h2>
-        <div class="pricing-grid">
-            <!-- Basic -->
-            <div class="pricing-card glass">
-                <h3>Gói Cơ Bản</h3>
-                <div class="price">300.000đ</div>
-                <p style="color: var(--text-secondary); margin-bottom: 24px;">mỗi năm / 1 máy tính</p>
-                <ul class="plan-features">
-                    <li><i class="fa-solid fa-check"></i> Đọc & in PDF không giới hạn</li>
-                    <li><i class="fa-solid fa-check"></i> OCR tiếng Việt cơ bản</li>
-                    <li><i class="fa-solid fa-check"></i> Tìm kiếm trong tài liệu</li>
-                    <li><i class="fa-solid fa-check"></i> Xem ảnh & xuất file mới</li>
-                    <li><i class="fa-solid fa-xmark"></i> <span style="opacity: 0.5;">Chú thích & Highlight</span></li>
-                    <li><i class="fa-solid fa-xmark"></i> <span style="opacity: 0.5;">Ký số USB Token</span></li>
-                    <li><i class="fa-solid fa-xmark"></i> <span style="opacity: 0.5;">AI Tóm tắt & Chat</span></li>
-                </ul>
-                <button class="btn-download btn-mac" style="width: 100%; border: 1px solid var(--surface-border); background: transparent;" onclick="openModal('basic')">Mua Gói Cơ Bản</button>
+        <section class="cta-band glass reveal">
+            <div>
+                <h2 data-i18n="cta_title"></h2>
+                <p data-i18n="cta_text"></p>
             </div>
-
-            <!-- Personal -->
-            <div class="pricing-card glass premium-card">
-                <div class="badge">ĐỀ XUẤT CHO CÁ NHÂN</div>
-                <h3 style="color: var(--accent-blue);">Gói Cá Nhân</h3>
-                <div class="price">500.000đ</div>
-                <p style="color: var(--text-secondary); margin-bottom: 24px;">mỗi năm / 1 máy tính</p>
-                <ul class="plan-features">
-                    <li><i class="fa-solid fa-check"></i> <b>Tất cả tính năng Cơ Bản</b></li>
-                    <li><i class="fa-solid fa-check"></i> OCR tiếng Việt nâng cao</li>
-                    <li><i class="fa-solid fa-check"></i> Chú thích, Highlight, Ghi chú</li>
-                    <li><i class="fa-solid fa-check"></i> Vẽ tay & Đóng dấu (Stamp)</li>
-                    <li><i class="fa-solid fa-check"></i> Ký số USB Token (Cá nhân)</li>
-                    <li><i class="fa-solid fa-xmark"></i> <span style="opacity: 0.5;">Tính năng AI Nâng cao</span></li>
-                    <li><i class="fa-solid fa-xmark"></i> <span style="opacity: 0.5;">Ký số hàng loạt</span></li>
-                </ul>
-                <button class="btn-download btn-win" style="width: 100%;" onclick="openModal('personal')">Mua Gói Cá Nhân</button>
+            <div class="cta-actions">
+                <a href="#downloads" class="btn" data-i18n="cta_download"></a>
+                <button class="btn-alt" type="button" onclick="document.getElementById('pricing').scrollIntoView({behavior:'smooth'})" data-i18n="cta_pricing"></button>
             </div>
-
-            <!-- Enterprise -->
-            <div class="pricing-card glass" style="border-color: var(--accent-green);">
-                <h3 style="color: var(--accent-green);">Gói Doanh Nghiệp</h3>
-                <div class="price">800.000đ</div>
-                <p style="color: var(--text-secondary); margin-bottom: 24px;">mỗi năm / 1 máy tính</p>
-                <ul class="plan-features">
-                    <li><i class="fa-solid fa-check"></i> <b>Toàn bộ tính năng Cá Nhân</b></li>
-                    <li><i class="fa-solid fa-check"></i> OCR tốc độ cao</li>
-                    <li><i class="fa-solid fa-check"></i> AI Chat Tài liệu & Tóm tắt</li>
-                    <li><i class="fa-solid fa-check"></i> AI Dịch thuật 150 ngôn ngữ</li>
-                    <li><i class="fa-solid fa-check"></i> Ký số USB Token Hàng Loạt</li>
-                    <li><i class="fa-solid fa-check"></i> Xuất file Excel/Word tự động</li>
-                    <li><i class="fa-solid fa-check"></i> Hỗ trợ kỹ thuật ưu tiên 24/7</li>
-                </ul>
-                <button class="btn-download btn-port" style="width: 100%;" onclick="openModal('enterprise')">Mua Gói Doanh Nghiệp</button>
-            </div>
-        </div>
-        <p style="text-align:center;color:var(--text-secondary);font-size:14px;margin-top:32px">
-            💳 Thanh toán qua chuyển khoản ngân hàng · Hệ thống <strong>cấp phát Key tự động</strong> gửi về email ngay lập tức
-        </p>
-    </section>
-
-    <section id="faq" class="faq">
-        <h2 class="section-title" style="font-size: 36px; margin-bottom: 40px;">Câu Hỏi Thường Gặp</h2>
-        <div class="faq-item">
-            <h4>Tôi nhận key bản quyền khi nào?</h4>
-            <p>Hệ thống của chúng tôi được thiết kế tự động hoàn toàn. Ngay sau khi bạn chuyển khoản thành công với đúng nội dung, máy chủ sẽ tự động kích hoạt và gửi Mã Key (License Code) về email của bạn chỉ trong vài phút.</p>
-        </div>
-        <div class="faq-item">
-            <h4>1 key dùng được bao nhiêu máy?</h4>
-            <p>Mỗi key chỉ dùng cho <strong>1 máy tính</strong> trong 1 năm. Nếu bạn đổi máy tính hoặc cài lại Windows, vui lòng liên hệ bộ phận hỗ trợ để được reset thiết bị.</p>
-        </div>
-        <div class="faq-item">
-            <h4>Ký số USB Token có hỗ trợ các nhà cung cấp VNPT, Viettel, FPT... không?</h4>
-            <p>Có. Phần mềm tương thích với 100% các loại USB Token chữ ký số hiện hành tại Việt Nam (VNPT, Viettel, FPT, BKAV, MISA...). Bạn chỉ cần cắm USB vào là phần mềm tự nhận diện.</p>
-        </div>
-        <div class="faq-item">
-            <h4>Dữ liệu AI và OCR của tôi có được bảo mật?</h4>
-            <p>3T Reader cam kết tuân thủ nghiêm ngặt chuẩn bảo mật doanh nghiệp. Quá trình phân tích AI và nhận diện OCR được thực hiện qua các kênh mã hóa SSL và tuyệt đối KHÔNG lưu trữ tài liệu của bạn trên máy chủ.</p>
-        </div>
-    </section>
+        </section>
+    </main>
 
     <footer>
-        <div class="logo" style="justify-content: center; margin-bottom: 24px;">
-            <i class="fa-solid fa-file-pdf"></i> 3T Reader
-        </div>
-        <p style="color: var(--text-secondary); margin-bottom: 16px;">&copy; 2026 3T Computer. Độc quyền phát triển.</p>
-        <div style="display: flex; gap: 24px; justify-content: center; font-size: 14px;">
-            <a href="/privacy" style="color: var(--accent-blue); text-decoration: none;">Chính sách bảo mật</a>
-            <a href="/terms" style="color: var(--accent-blue); text-decoration: none;">Điều khoản sử dụng</a>
-            <a href="/support" style="color: var(--accent-blue); text-decoration: none;">Liên hệ hỗ trợ</a>
+        <div class="container footer-bar">
+            <div>
+                <div class="brand" style="font-size:22px;"><span class="brand-badge"><i class="fa-solid fa-file-pdf"></i></span><span>3T Reader</span></div>
+                <div style="margin-top:10px;" data-i18n="footer_copy"></div>
+            </div>
+            <div style="display:flex; gap:18px; flex-wrap:wrap;">
+                <a href="/privacy" data-i18n="footer_privacy"></a>
+                <a href="/terms" data-i18n="footer_terms"></a>
+                <a href="/support" data-i18n="footer_support"></a>
+            </div>
         </div>
     </footer>
 
-    <!-- PAYMENT MODAL -->
-    <div class="overlay" id="payModal">
+    <div class="overlay" id="pay-modal">
         <div class="overlay-bg" onclick="closeModal()"></div>
-        <div class="modal">
-            <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button>
-
-            <!-- Step 1: Payment Info & Form -->
-            <div id="step1">
-                <h2>Mua Bản Quyền 3T Reader</h2>
-                <p class="modal-sub">Chuyển khoản và điền thông tin bên dưới để nhận key tự động ngay lập tức.</p>
-
+        <div class="modal glass">
+            <button class="modal-close" type="button" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button>
+            <div id="pay-step1" class="pay-box">
                 <div class="plan-summary">
-                    <div class="ps-name" id="psName">Gói Cá Nhân</div>
-                    <div class="ps-price" id="psPrice">500.000đ / năm</div>
-                </div>
-
-                <div class="qr-section">
-                    <div class="qr-label">Quét mã QR để thanh toán</div>
-                    <div class="qr-wrap">
-                        <img id="qrImg" src="" alt="QR chuyển khoản" loading="lazy">
+                    <div>
+                        <div class="muted" data-i18n="modal_plan_label"></div>
+                        <strong id="ps-name"></strong>
+                    </div>
+                    <div style="text-align:right;">
+                        <div class="muted" data-i18n="modal_total_label"></div>
+                        <strong id="ps-price"></strong>
                     </div>
                 </div>
-
-                <div class="bank-info">
-                    <div class="bank-row">
-                        <span class="bank-label">Ngân hàng</span>
-                        <span class="bank-val">ACB (Á Châu) – CN Quảng Bình</span>
-                    </div>
-                    <div class="bank-row">
-                        <span class="bank-label">Số tài khoản</span>
-                        <span class="bank-val">555566886 <button class="copy-btn" onclick="copy('555566886')"><i class="fa-regular fa-copy"></i> Copy</button></span>
-                    </div>
-                    <div class="bank-row">
-                        <span class="bank-label">Chủ tài khoản</span>
-                        <span class="bank-val">CTY TNHH ĐTCN & XÂY LẮP 3T</span>
-                    </div>
-                    <div class="bank-row">
-                        <span class="bank-label">Số tiền</span>
-                        <span class="bank-val" id="bankAmount" style="color: var(--accent-green);">300.000đ</span>
-                    </div>
-                    <div class="bank-row">
-                        <span class="bank-label">Nội dung CK</span>
-                        <span class="bank-val" style="flex-wrap: wrap; gap: 6px;">
-                            <span id="transferNote" style="word-break: break-all;">3TREADER BASIC</span> 
-                            <button class="copy-btn" onclick="copyNote()"><i class="fa-regular fa-copy"></i> Copy</button>
-                        </span>
-                    </div>
+                <div class="qr-wrap"><img id="qr-img" alt="QR"></div>
+                <div class="bank-grid">
+                    <div class="bank-row"><small data-i18n="bank_name"></small><strong id="bank-name-value"></strong></div>
+                    <div class="bank-row"><small data-i18n="bank_account"></small><strong><span id="bank-account-value"></span> <button class="copy-btn" type="button" onclick="copyText(document.getElementById('bank-account-value').textContent)">Copy</button></strong></div>
+                    <div class="bank-row"><small data-i18n="bank_holder"></small><strong id="bank-holder-value"></strong></div>
+                    <div class="bank-row"><small data-i18n="bank_amount"></small><strong id="bank-amount-value"></strong></div>
+                    <div class="bank-row"><small data-i18n="bank_note"></small><strong><span id="transfer-note"></span> <button class="copy-btn" type="button" onclick="copyText(document.getElementById('transfer-note').textContent)">Copy</button></strong></div>
                 </div>
-
-                <div class="note-box">
-                    <i class="fa-solid fa-circle-exclamation"></i> Vui lòng ghi <strong>chính xác Nội dung CK</strong> (copy nút bên trên). Máy chủ sẽ quét ngân hàng và gửi Key tự động về Email của bạn trong 1-3 phút.
-                </div>
-
-                <form id="orderForm" onsubmit="submitOrder(event)">
-                    <div class="form-group">
-                        <label>Họ và tên *</label>
-                        <input type="text" id="custName" placeholder="Ví dụ: Nguyễn Văn A" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Email nhận Key *</label>
-                        <input type="email" id="custEmail" placeholder="email@example.com" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Gói đăng ký</label>
-                        <select id="planSelect" onchange="updatePlan(this.value)">
-                            <option value="basic">Gói Cơ Bản – 300.000đ/máy/năm</option>
-                            <option value="personal" selected>Gói Cá Nhân – 500.000đ/máy/năm</option>
-                            <option value="enterprise">Gói Doanh Nghiệp – 800.000đ/máy/năm</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Số lượng máy tính</label>
-                        <input type="number" id="quantity" value="1" min="1" max="100" oninput="updatePlan(document.getElementById('planSelect').value)">
-                    </div>
-                    <button type="submit" class="btn-submit" id="submitBtn">
-                        <i class="fa-solid fa-check"></i> Xác nhận đã thanh toán
-                    </button>
-                </form>
+                <div class="note-box" id="payment-note-box"></div>
             </div>
-
-            <!-- Step 2: Success Message -->
-            <div class="success-box" id="step2">
-                <div class="icon"><i class="fa-solid fa-circle-check" style="color: var(--accent-green);"></i></div>
-                <h3>Đơn Hàng Đang Được Xử Lý!</h3>
-                <p>Chúng tôi đang kiểm tra giao dịch của bạn.<br>Nếu thanh toán hợp lệ, Key bản quyền sẽ tự động được gửi đến <strong id="confirmedEmail" style="color: var(--text-primary);"></strong> trong vòng <strong>1-3 phút tới</strong>.</p>
-                <br>
-                <p style="font-size: 13px;"><em>Lưu ý: Vui lòng kiểm tra cả hộp thư Rác (Spam) nếu không thấy ở Hộp thư chính.</em></p>
-                <button class="btn-download btn-mac" style="margin-top: 24px; border: 1px solid var(--surface-border);" onclick="closeModal()">Đóng cửa sổ</button>
+            <div class="form-box">
+                <div id="pay-step1-form">
+                    <h2 data-i18n="modal_title"></h2>
+                    <p class="muted" style="line-height:1.7; margin-bottom:14px;" data-i18n="modal_subtitle"></p>
+                    <form id="order-form">
+                        <div class="field">
+                            <label data-i18n="field_name"></label>
+                            <input type="text" id="cust-name" required>
+                        </div>
+                        <div class="field">
+                            <label data-i18n="field_email"></label>
+                            <input type="email" id="cust-email" required>
+                        </div>
+                        <div class="field">
+                            <label data-i18n="field_plan"></label>
+                            <select id="plan-select"></select>
+                        </div>
+                        <div class="field">
+                            <label data-i18n="field_quantity"></label>
+                            <input type="number" id="quantity" min="1" max="100" value="1">
+                        </div>
+                        <div class="field">
+                            <label data-i18n="field_promo"></label>
+                            <div class="inline-row">
+                                <input type="text" id="promo-code" placeholder="SUMMER10">
+                                <button type="button" class="btn-alt" id="apply-promo" data-i18n="promo_apply"></button>
+                            </div>
+                        </div>
+                        <div class="promo-box">
+                            <div class="promo-status" id="promo-status"></div>
+                            <div class="muted" id="promo-detail"></div>
+                        </div>
+                        <button type="submit" class="btn" id="submit-btn" style="width:100%; margin-top:16px;" data-i18n="submit_paid"></button>
+                    </form>
+                </div>
+                <div id="pay-step2" class="success-box hidden">
+                    <i class="fa-solid fa-circle-check"></i>
+                    <h2 data-i18n="success_title"></h2>
+                    <p id="success-text"></p>
+                    <button type="button" class="btn" style="margin-top:18px;" onclick="closeModal()" data-i18n="close"></button>
+                </div>
             </div>
-
         </div>
     </div>
 
     <script>
-        // Navbar scroll effect
-        window.addEventListener('scroll', () => {
-            const nav = document.getElementById('navbar');
-            if (window.scrollY > 50) nav.classList.add('scrolled');
-            else nav.classList.remove('scrolled');
-        });
+        const I18N = {
+            vi: {
+                nav_downloads: "Tải về",
+                nav_features: "Tính năng",
+                nav_pricing: "Bảng giá",
+                hero_kicker: "PDF + AI + OCR + Ký số",
+                hero_title: "Trình đọc PDF mạnh mẽ cho <span>người Việt</span>",
+                hero_subtitle: "PDF, OCR, AI, ký số và đọc văn bản trong một ứng dụng gọn.",
+                hero_tag_1: "OCR + AI + Ký số",
+                hero_tag_2: "PDF + Word + XML thuế",
+                hero_tag_3: "Windows, Portable, macOS",
+                hero_cta_download: "Tải ứng dụng",
+                hero_cta_buy: "Xem gói bản quyền",
+                showcase_title: "3T Reader Workspace",
+                showcase_subtitle: "PDF viewer, OCR, AI và phát hành bản quyền trong cùng một hệ.",
+                preview_chip_1: "OCR",
+                preview_chip_2: "AI Chat",
+                preview_chip_3: "Dịch",
+                preview_chip_4: "Ký số",
+                floating_title: "Tối ưu cho luồng văn phòng",
+                floating_text: "Đọc PDF, bóc OCR, dịch thuật, AI, ký số và phân phối bản cài từ cùng một nền tảng.",
+                metric_features: "Nhóm tính năng cốt lõi cho đọc, OCR, AI và ký số",
+                metric_ai: "Chat tài liệu, tóm tắt, dịch và tự động hóa công việc PDF",
+                metric_platforms: "Đồng bộ luồng phát hành cho Windows, macOS và Portable",
+                spot_1_title: "Giao diện làm việc gọn",
+                spot_1_text: "Tập trung vào người dùng xử lý tài liệu hằng ngày: đọc, ký, dịch, OCR và cấp phép mà không cần mở nhiều phần mềm.",
+                spot_2_title: "Hệ phát hành đồng bộ",
+                spot_2_text: "Download, update, gói giọng đọc, ngôn ngữ offline và module tải về đều có thể quản lý tập trung từ máy chủ.",
+                spot_3_title: "Bán hàng và license khép kín",
+                spot_3_text: "Trang chủ, admin, báo giá thanh toán, mã khuyến mãi và cấp key đang được nối chung trong một luồng vận hành.",
+                trust_title: "Một nền vận hành cho sản phẩm, bán hàng và cấp phép",
+                trust_text: "Trang chủ này không còn là landing page tĩnh. Nó đang đọc trực tiếp dữ liệu phát hành và thanh toán từ hệ thống quản trị.",
+                trust_1_title: "Update đồng bộ",
+                trust_1_text: "Link tải, version và publish release lấy từ VPS.",
+                trust_2_title: "Thanh toán động",
+                trust_2_text: "Ngân hàng, nội dung chuyển khoản và giá gói đổi từ admin.",
+                trust_3_title: "Mã khuyến mãi",
+                trust_3_text: "Promo code có thể áp ngay tại trang mua bản quyền.",
+                trust_4_title: "Song ngữ sẵn sàng",
+                trust_4_text: "Landing page hỗ trợ Việt và Anh trong cùng một giao diện.",
+                gallery_label_1: "Giao diện trực quan",
+                gallery_title_1: "Ít chữ hơn. Nhiều cảm giác sản phẩm hơn.",
+                gallery_text_1: "Ưu tiên chuyển động, mockup và cảm giác dùng app thật.",
+                gallery_label_2: "Phát hành gọn",
+                gallery_title_2: "Một nơi cho tải về và cập nhật",
+                gallery_stat_2: "Chọn bản đúng ngay từ cái nhìn đầu tiên.",
+                gallery_label_3: "Mua nhanh",
+                gallery_title_3: "Thanh toán, mã giảm giá, nhận key",
+                gallery_stat_3: "Luồng mua bản quyền gọn hơn và trực quan hơn.",
+                downloads_title: "Tải đúng bản bạn cần",
+                downloads_subtitle: "Link tải đồng bộ trực tiếp từ hệ thống phát hành.",
+                download_tag_win: "Bản khuyên dùng",
+                download_tag_fast: "Chạy nhanh",
+                download_tag_mac: "Cho MacBook",
+                download_win_title: "Windows Installer",
+                download_win_text: "Bản cài đầy đủ cho máy dùng hằng ngày.",
+                download_win_btn: "Tải cho Windows",
+                download_portable_title: "Portable",
+                download_portable_text: "Giải nén và chạy ngay, không cần cài đặt.",
+                download_portable_btn: "Tải bản Portable",
+                download_portable_meta: "ZIP chạy ngay sau khi giải nén",
+                download_mac_title: "macOS",
+                download_mac_text: "Bản tối ưu cho MacBook và Apple Silicon.",
+                download_mac_btn: "Tải cho macOS",
+                features_title: "Tính năng chính",
+                features_subtitle: "Nhìn nhanh, dùng nhanh, mua nhanh.",
+                editorial_tag: "Bộ công cụ thực chiến",
+                editorial_title: "Không chỉ đọc PDF, mà là một trạm làm việc cho xử lý tài liệu",
+                editorial_text: "3T Reader được đẩy theo hướng giải quyết công việc thật trong doanh nghiệp Việt: tài liệu scan, PDF hợp đồng, XML thuế, ký số, dịch thuật, đọc văn bản và phân phối phiên bản từ cùng một hệ thống.",
+                editorial_p1_title: "OCR + tìm kiếm",
+                editorial_p1_text: "Biến tài liệu scan thành nội dung có thể tra cứu và xử lý tiếp.",
+                editorial_p2_title: "AI + dịch thuật",
+                editorial_p2_text: "Tóm tắt, hỏi đáp, dịch đoạn văn hoặc toàn tài liệu ngay trong luồng làm việc.",
+                editorial_p3_title: "TTS + giọng đọc",
+                editorial_p3_text: "Tải giọng từ máy chủ và đọc tiếng Việt, tiếng Anh trong app.",
+                editorial_p4_title: "Module mở rộng",
+                editorial_p4_text: "Luồng tải on-demand cho Word, Excel, XML thuế và các tài nguyên bổ sung.",
+                flow_tag: "Luồng mua và triển khai",
+                flow_title: "Một hành trình ngắn, ít ma sát hơn cho người mua",
+                flow_text: "Trang chủ mới ưu tiên cảm giác rõ ràng: tải bản đúng, hiểu giá nhanh, gửi thanh toán gọn và để hệ thống cấp key tự động hơn.",
+                flow_1_title: "Chọn đúng bản cài",
+                flow_1_text: "Windows, Portable và macOS đều có vùng tải riêng, tránh nhầm bản.",
+                flow_2_title: "Xem giá thật từ hệ thống",
+                flow_2_text: "Giá, ngân hàng, nội dung thanh toán và khuyến mãi đọc từ admin, không phải text cứng.",
+                flow_3_title: "Thanh toán rồi nhận key",
+                flow_3_text: "Đơn hàng vào admin để duyệt và cấp license đúng seat, đúng loại gói.",
+                pricing_title: "Bảng giá bản quyền",
+                pricing_subtitle: "Giá và thanh toán đồng bộ trực tiếp từ admin.",
+                cta_title: "Muốn triển khai nhanh cho cá nhân hoặc doanh nghiệp?",
+                cta_text: "Chọn đúng bản cài, xem giá trực tiếp từ hệ thống và gửi đơn thanh toán ngay trên landing page. Không cần chờ đội kỹ thuật cập nhật tay từng nội dung.",
+                cta_download: "Tải bản mới nhất",
+                cta_pricing: "Xem bảng giá",
+                footer_copy: "© 2026 3T Computer. Hệ thống phân phối và bản quyền 3T Reader.",
+                footer_privacy: "Chính sách bảo mật",
+                footer_terms: "Điều khoản sử dụng",
+                footer_support: "Liên hệ hỗ trợ",
+                modal_plan_label: "Gói đã chọn",
+                modal_total_label: "Tổng thanh toán",
+                modal_title: "Mua bản quyền 3T Reader",
+                modal_subtitle: "Điền thông tin nhận key, áp mã giảm giá nếu có, rồi chuyển khoản theo đúng nội dung để hệ thống cấp key tự động.",
+                field_name: "Họ và tên",
+                field_email: "Email nhận key",
+                field_plan: "Gói đăng ký",
+                field_quantity: "Số lượng máy",
+                field_promo: "Mã giảm giá",
+                promo_apply: "Áp dụng",
+                submit_paid: "Xác nhận đã thanh toán",
+                success_title: "Đơn hàng đang được xử lý",
+                close: "Đóng",
+                bank_name: "Ngân hàng",
+                bank_account: "Số tài khoản",
+                bank_holder: "Chủ tài khoản",
+                bank_amount: "Số tiền",
+                bank_note: "Nội dung CK",
+                promo_empty: "Chưa áp dụng mã giảm giá.",
+                promo_ok: "Đã áp dụng mã giảm giá",
+                promo_invalid: "Mã giảm giá không hợp lệ hoặc không áp dụng cho gói này.",
+                order_sent: "Nếu thanh toán hợp lệ, key bản quyền sẽ được gửi tới {email} trong vài phút.",
+                copied: "Đã copy",
+                year_machine: "mỗi năm / 1 máy",
+                download_version: "Phiên bản {version}",
+                no_mac: "Sẽ cập nhật sau",
+            },
+            en: {
+                nav_downloads: "Downloads",
+                nav_features: "Features",
+                nav_pricing: "Pricing",
+                hero_kicker: "PDF + AI + OCR + Digital Sign",
+                hero_title: "A powerful PDF workspace for <span>Vietnamese teams</span>",
+                hero_subtitle: "PDF, OCR, AI, signing, and text-to-speech in one compact app.",
+                hero_tag_1: "OCR + AI + Digital signing",
+                hero_tag_2: "PDF + Word + tax XML",
+                hero_tag_3: "Windows, Portable, macOS",
+                hero_cta_download: "Download App",
+                hero_cta_buy: "View Plans",
+                showcase_title: "3T Reader Workspace",
+                showcase_subtitle: "PDF viewing, OCR, AI, and license distribution in one operating system.",
+                preview_chip_1: "OCR",
+                preview_chip_2: "AI Chat",
+                preview_chip_3: "Translate",
+                preview_chip_4: "Sign",
+                floating_title: "Built for office workflows",
+                floating_text: "Read PDFs, extract OCR, translate, use AI, sign documents, and distribute builds from one platform.",
+                metric_features: "Core feature set for reading, OCR, AI, and signing",
+                metric_ai: "Document chat, summarization, translation, and PDF workflow automation",
+                metric_platforms: "Shared release flow for Windows, macOS, and Portable builds",
+                spot_1_title: "A cleaner work surface",
+                spot_1_text: "Designed for everyday document operators who need reading, signing, OCR, translation, and licensing without juggling multiple tools.",
+                spot_2_title: "A synchronized release system",
+                spot_2_text: "Downloads, updates, voice packs, offline language packages, and on-demand modules can all be managed from the server.",
+                spot_3_title: "Closed-loop sales and licensing",
+                spot_3_text: "The homepage, admin, payment quotes, promo codes, and key delivery now work as one operational flow.",
+                trust_title: "One operating layer for product, sales, and licensing",
+                trust_text: "This homepage is no longer a static landing page. It reads release and payment data directly from the management system.",
+                trust_1_title: "Synchronized updates",
+                trust_1_text: "Download links, versions, and published releases are sourced from the VPS.",
+                trust_2_title: "Dynamic payment details",
+                trust_2_text: "Bank info, transfer notes, and plan prices are managed from admin.",
+                trust_3_title: "Promo-ready checkout",
+                trust_3_text: "Promo codes can be applied directly on the license purchase flow.",
+                trust_4_title: "Built-in bilingual mode",
+                trust_4_text: "The landing page supports both Vietnamese and English in one interface.",
+                gallery_label_1: "Visual-first surface",
+                gallery_title_1: "Less text. More product feel.",
+                gallery_text_1: "Motion, floating panels, and a stronger app presence.",
+                gallery_label_2: "Clean release flow",
+                gallery_title_2: "One place for downloads and updates",
+                gallery_stat_2: "Pick the right build at a glance.",
+                gallery_label_3: "Faster purchase flow",
+                gallery_title_3: "Payment, promo, and license delivery",
+                gallery_stat_3: "The buying journey is shorter and easier to scan.",
+                downloads_title: "Pick the right build",
+                downloads_subtitle: "Download links are synced directly from the release system.",
+                download_tag_win: "Recommended",
+                download_tag_fast: "Quick launch",
+                download_tag_mac: "For MacBook",
+                download_win_title: "Windows Installer",
+                download_win_text: "Full installer for daily workstations.",
+                download_win_btn: "Download for Windows",
+                download_portable_title: "Portable",
+                download_portable_text: "Extract and run immediately. No install needed.",
+                download_portable_btn: "Download Portable",
+                download_portable_meta: "ZIP package, ready after extraction",
+                download_mac_title: "macOS",
+                download_mac_text: "Optimized for MacBook and Apple Silicon.",
+                download_mac_btn: "Download for macOS",
+                features_title: "Core features",
+                features_subtitle: "Fast to scan, fast to use, fast to buy.",
+                editorial_tag: "Operational toolkit",
+                editorial_title: "More than a PDF reader, it is a document operations workstation",
+                editorial_text: "3T Reader is being shaped around real document work in Vietnamese businesses: scanned files, contract PDFs, tax XML, digital signing, translation, text-to-speech, and shared release delivery from one system.",
+                editorial_p1_title: "OCR + searchability",
+                editorial_p1_text: "Turn scanned material into searchable content that can be processed further.",
+                editorial_p2_title: "AI + translation",
+                editorial_p2_text: "Summarize, ask questions, translate passages, or process full documents inside the workflow.",
+                editorial_p3_title: "TTS + voice assets",
+                editorial_p3_text: "Pull voice packages from the server and read Vietnamese or English inside the app.",
+                editorial_p4_title: "On-demand modules",
+                editorial_p4_text: "Support modular downloads for Word, Excel, tax XML, and future add-ons.",
+                flow_tag: "Purchase and rollout flow",
+                flow_title: "A shorter, lower-friction journey for buyers",
+                flow_text: "The refreshed homepage is optimized for clarity: pick the right build, understand pricing fast, submit payment cleanly, and let the system handle license delivery.",
+                flow_1_title: "Choose the right build",
+                flow_1_text: "Windows, Portable, and macOS each have their own clearly separated download path.",
+                flow_2_title: "See live system pricing",
+                flow_2_text: "Pricing, banking details, payment notes, and promotions come from admin, not hardcoded content.",
+                flow_3_title: "Pay and receive a key",
+                flow_3_text: "Orders flow into admin for approval and license issuance with the correct seat count and plan type.",
+                pricing_title: "License Pricing",
+                pricing_subtitle: "Pricing and payment details are synced from admin.",
+                cta_title: "Need a faster rollout for individuals or businesses?",
+                cta_text: "Pick the right build, review live pricing from the system, and submit payment details directly on the landing page without manual content edits.",
+                cta_download: "Get the latest build",
+                cta_pricing: "View pricing",
+                footer_copy: "© 2026 3T Computer. Distribution and licensing system for 3T Reader.",
+                footer_privacy: "Privacy Policy",
+                footer_terms: "Terms of Service",
+                footer_support: "Support",
+                modal_plan_label: "Selected plan",
+                modal_total_label: "Total amount",
+                modal_title: "Buy a 3T Reader license",
+                modal_subtitle: "Enter delivery details, apply a promo code if needed, then transfer the exact amount with the correct payment note for automatic license delivery.",
+                field_name: "Full name",
+                field_email: "License delivery email",
+                field_plan: "Selected plan",
+                field_quantity: "Number of seats",
+                field_promo: "Promo code",
+                promo_apply: "Apply",
+                submit_paid: "I've completed the payment",
+                success_title: "Your order is being processed",
+                close: "Close",
+                bank_name: "Bank",
+                bank_account: "Account number",
+                bank_holder: "Account holder",
+                bank_amount: "Amount",
+                bank_note: "Transfer note",
+                promo_empty: "No promo code applied yet.",
+                promo_ok: "Promo code applied",
+                promo_invalid: "This promo code is invalid or not allowed for the selected plan.",
+                order_sent: "If the payment is valid, the license key will be delivered to {email} within a few minutes.",
+                copied: "Copied",
+                year_machine: "per year / 1 machine",
+                download_version: "Version {version}",
+                no_mac: "Coming later",
+            }
+        };
 
-        // Theme Toggle Logic
-        const themeToggle = document.getElementById('themeToggle');
-        const icon = themeToggle.querySelector('i');
-        const root = document.documentElement;
-        
-        // Check local storage for theme
-        const savedTheme = localStorage.getItem('theme');
-        if (savedTheme === 'light') {
-            root.setAttribute('data-theme', 'light');
-            icon.classList.replace('fa-moon', 'fa-sun');
+        const FEATURE_SETS = {
+            vi: [
+                { icon: "fa-file-signature", title: "Ký số USB Token", text: "Ký nhanh, đóng dấu, ký hàng loạt." },
+                { icon: "fa-expand", title: "OCR tiếng Việt", text: "Scan thành chữ, tìm kiếm được ngay." },
+                { icon: "fa-robot", title: "AI tài liệu", text: "Tóm tắt, hỏi đáp, lấy ý chính." },
+                { icon: "fa-language", title: "Dịch thuật", text: "Dịch đoạn, dịch trang, dịch file." },
+                { icon: "fa-headphones", title: "Đọc văn bản", text: "Giọng Việt, Anh, tải từ VPS." },
+                { icon: "fa-layer-group", title: "Quản lý tài liệu", text: "Gộp, tách, xoay, xuất file." }
+            ],
+            en: [
+                { icon: "fa-file-signature", title: "USB Token Signing", text: "Fast signing, stamping, batch flow." },
+                { icon: "fa-expand", title: "Vietnamese OCR", text: "Turn scans into searchable text." },
+                { icon: "fa-robot", title: "Document AI", text: "Summaries, Q&A, quick insights." },
+                { icon: "fa-language", title: "Translation", text: "Translate passages, pages, files." },
+                { icon: "fa-headphones", title: "Text-to-Speech", text: "Vietnamese and English voices." },
+                { icon: "fa-layer-group", title: "Document Control", text: "Merge, split, rotate, export." }
+            ]
+        };
+
+        const PLAN_FEATURES = {
+            vi: {
+                basic: ["Đọc và in PDF", "OCR cơ bản", "Tìm kiếm trong tài liệu", "Xuất file mới"],
+                personal: ["Toàn bộ tính năng Cơ bản", "OCR nâng cao", "Ghi chú, highlight", "Ký số USB Token cá nhân"],
+                enterprise: ["Toàn bộ tính năng Cá nhân", "AI chat tài liệu", "Dịch thuật", "Ký số hàng loạt và hỗ trợ ưu tiên"]
+            },
+            en: {
+                basic: ["Read and print PDFs", "Basic OCR", "Search within documents", "Export edited files"],
+                personal: ["Everything in Basic", "Advanced OCR", "Notes and highlights", "Personal USB token signing"],
+                enterprise: ["Everything in Personal", "AI document chat", "Translation workflows", "Batch signing and priority support"]
+            }
+        };
+
+        const PLAN_NAMES = {
+            vi: {
+                basic: "Gói Cơ bản",
+                personal: "Gói Cá nhân",
+                enterprise: "Gói Doanh nghiệp"
+            },
+            en: {
+                basic: "Basic Plan",
+                personal: "Personal Plan",
+                enterprise: "Enterprise Plan"
+            }
+        };
+
+        const planStyle = {
+            basic: { button: "btn-alt", icon: "fa-seedling" },
+            personal: { button: "btn", icon: "fa-user" },
+            enterprise: { button: "btn-alt", icon: "fa-building" }
+        };
+
+        let currentLang = localStorage.getItem("reader_lang") || "vi";
+        let currentTheme = localStorage.getItem("reader_theme") || "dark";
+        let siteConfig = null;
+        let currentPlan = "personal";
+        let currentPromo = "";
+
+        function t(key) {
+            return I18N[currentLang][key] || key;
         }
 
-        themeToggle.addEventListener('click', () => {
-            if (root.getAttribute('data-theme') === 'light') {
-                root.removeAttribute('data-theme');
-                localStorage.setItem('theme', 'dark');
-                icon.classList.replace('fa-sun', 'fa-moon');
-            } else {
-                root.setAttribute('data-theme', 'light');
-                localStorage.setItem('theme', 'light');
-                icon.classList.replace('fa-moon', 'fa-sun');
+        function fmtMoney(value) {
+            return `${Number(value || 0).toLocaleString("vi-VN")}đ`;
+        }
+
+        function applyTheme() {
+            document.body.setAttribute("data-theme", currentTheme);
+            document.getElementById("theme-toggle").innerHTML = currentTheme === "light"
+                ? '<i class="fa-solid fa-sun"></i>'
+                : '<i class="fa-solid fa-moon"></i>';
+        }
+
+        function applyLanguage() {
+            document.documentElement.lang = currentLang;
+            document.getElementById("lang-toggle").textContent = currentLang === "vi" ? "EN" : "VI";
+            document.querySelectorAll("[data-i18n]").forEach((node) => {
+                node.innerHTML = t(node.dataset.i18n);
+            });
+            document.getElementById("hero-title").innerHTML = t("hero_title");
+            document.getElementById("hero-subtitle").textContent = t("hero_subtitle");
+            renderFeatures();
+            renderPricing();
+            renderPlanSelect();
+            if (siteConfig) {
+                updateDownloadCards();
+                updateQuote();
             }
-        });
+        }
 
-        // --- PAYMENT MODAL LOGIC ---
-        const PLANS = {
-            basic:      { name: 'Gói Cơ Bản',      price: 300000, display: '300.000đ / năm' },
-            personal:   { name: 'Gói Cá Nhân',     price: 500000, display: '500.000đ / năm' },
-            enterprise: { name: 'Gói Doanh Nghiệp',price: 800000, display: '800.000đ / năm' },
-        };
-        let currentPlan = 'personal';
-        let currentEmail = '';
+        function renderFeatures() {
+            document.getElementById("feature-grid").innerHTML = FEATURE_SETS[currentLang].map((item) => `
+                <article class="feature-card glass">
+                    <div class="feature-icon"><i class="fa-solid ${item.icon}"></i></div>
+                    <h3>${item.title}</h3>
+                    <p>${item.text}</p>
+                </article>
+            `).join("");
+        }
 
-        function openModal(plan) {
-            currentPlan = plan || 'personal';
-            document.getElementById('step1').style.display = 'block';
-            document.getElementById('step2').style.display = 'none';
-            document.getElementById('orderForm').reset();
-            document.getElementById('planSelect').value = currentPlan;
-            updatePlan(currentPlan);
-            document.getElementById('payModal').classList.add('open');
-            document.body.style.overflow = 'hidden';
+        function renderPricing() {
+            if (!siteConfig) return;
+            const featuredPlan = "personal";
+            document.getElementById("pricing-grid").innerHTML = siteConfig.plans.map((plan) => {
+                const featured = plan.code === featuredPlan;
+                const styles = planStyle[plan.code] || planStyle.personal;
+                const planName = (PLAN_NAMES[currentLang] || {})[plan.code] || plan.name || plan.code;
+                return `
+                    <article class="pricing-card glass ${featured ? "highlight" : ""}">
+                        ${featured ? `<span class="pill">${currentLang === "vi" ? "Đề xuất" : "Recommended"}</span>` : ""}
+                        <h3>${planName}</h3>
+                        <div class="price">${fmtMoney(plan.price)} <small>${t("year_machine")}</small></div>
+                        <ul class="feature-list">
+                            ${(PLAN_FEATURES[currentLang][plan.code] || []).map((line) => `<li><i class="fa-solid fa-check"></i><span>${line}</span></li>`).join("")}
+                        </ul>
+                        <button type="button" class="${styles.button}" onclick="openModal('${plan.code}')">${currentLang === "vi" ? "Mua gói này" : "Buy this plan"}</button>
+                    </article>
+                `;
+            }).join("");
+        }
+
+        function updateDownloadCards() {
+            document.getElementById("download-win").href = siteConfig.downloads.win.url || "#";
+            document.getElementById("download-portable").href = siteConfig.downloads.portable.url || "#";
+            document.getElementById("download-mac").href = siteConfig.downloads.mac.url || "#";
+            document.getElementById("download-win-meta").textContent = t("download_version").replace("{version}", siteConfig.downloads.win.version || "-");
+            document.getElementById("download-mac-meta").textContent = siteConfig.downloads.mac.version
+                ? t("download_version").replace("{version}", siteConfig.downloads.mac.version)
+                : t("no_mac");
+        }
+
+        function renderPlanSelect() {
+            if (!siteConfig) return;
+            const select = document.getElementById("plan-select");
+            select.innerHTML = siteConfig.plans.map((plan) => `
+                <option value="${plan.code}">${((PLAN_NAMES[currentLang] || {})[plan.code] || plan.name || plan.code)} - ${fmtMoney(plan.price)}</option>
+            `).join("");
+            select.value = currentPlan;
+        }
+
+        async function loadSiteConfig() {
+            const res = await fetch("/api/public/site-config");
+            siteConfig = await res.json();
+            updateDownloadCards();
+            applyLanguage();
+        }
+
+        function openModal(planCode) {
+            currentPlan = planCode || currentPlan;
+            currentPromo = "";
+            document.getElementById("promo-code").value = "";
+            document.getElementById("promo-status").textContent = t("promo_empty");
+            document.getElementById("promo-status").classList.remove("error");
+            document.getElementById("promo-detail").textContent = "";
+            document.getElementById("plan-select").value = currentPlan;
+            document.getElementById("quantity").value = 1;
+            document.getElementById("pay-step1").classList.remove("hidden");
+            document.getElementById("pay-step1-form").classList.remove("hidden");
+            document.getElementById("pay-step2").classList.add("hidden");
+            document.getElementById("pay-modal").classList.add("open");
+            document.body.style.overflow = "hidden";
+            updateQuote();
         }
 
         function closeModal() {
-            document.getElementById('payModal').classList.remove('open');
-            document.body.style.overflow = '';
+            document.getElementById("pay-modal").classList.remove("open");
+            document.body.style.overflow = "";
         }
 
-        function updatePlan(plan) {
-            currentPlan = plan;
-            const p = PLANS[plan];
-            const qty = Math.max(1, parseInt(document.getElementById('quantity')?.value) || 1);
-            const total = p.price * qty;
-            const displayPrice = qty > 1
-                ? `${total.toLocaleString('vi-VN')}đ (${qty} máy × ${p.price.toLocaleString('vi-VN')}đ)`
-                : p.display;
-            
-            document.getElementById('psName').textContent = p.name;
-            document.getElementById('psPrice').textContent = displayPrice;
-            document.getElementById('bankAmount').textContent = total.toLocaleString('vi-VN') + 'đ';
-            
-            const email = document.getElementById('custEmail').value.trim();
-            const noteText = `3TREADER ${plan.toUpperCase()}${qty > 1 ? ' ' + qty + 'MAY' : ''}${email ? ' ' + email : ''}`;
-            document.getElementById('transferNote').textContent = noteText;
-            
-            const qrNote = encodeURIComponent(noteText);
-            document.getElementById('qrImg').src =
-                `https://img.vietqr.io/image/ACB-555566886-compact2.png?amount=${total}&addInfo=${qrNote}&accountName=CTY%20TNHH%20DTCN%20%26%20XAY%20LAP%203T`;
-        }
+        async function updateQuote() {
+            if (!siteConfig) return;
+            currentPlan = document.getElementById("plan-select").value || currentPlan;
+            const quantity = Math.max(1, Number(document.getElementById("quantity").value || 1));
+            const email = document.getElementById("cust-email").value.trim();
+            const customerName = document.getElementById("cust-name").value.trim();
+            const promo = currentPromo || document.getElementById("promo-code").value.trim();
+            const params = new URLSearchParams({
+                plan: currentPlan,
+                quantity: String(quantity),
+                promo_code: promo,
+                email,
+                customer_name: customerName,
+            });
 
-        document.getElementById('custEmail').addEventListener('input', () => {
-            updatePlan(currentPlan);
-        });
-
-        function copy(text) {
-            navigator.clipboard.writeText(text).then(() => showCopied(event.currentTarget));
-        }
-        function copyNote() {
-            copy(document.getElementById('transferNote').textContent);
-        }
-        function showCopied(btn) {
-            const origHTML = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-check"></i> Đã copy!';
-            btn.style.color = 'var(--accent-green)';
-            setTimeout(() => { btn.innerHTML = origHTML; btn.style.color = ''; }, 1500);
-        }
-
-        async function submitOrder(e) {
-            e.preventDefault();
-            const name = document.getElementById('custName').value.trim();
-            const email = document.getElementById('custEmail').value.trim();
-            const plan = document.getElementById('planSelect').value;
-            const quantity = Math.max(1, parseInt(document.getElementById('quantity').value) || 1);
-            const btn = document.getElementById('submitBtn');
-            
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang gửi...';
-            
             try {
-                const res = await fetch('/api/v1/order/submit', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ customer_name: name, customer_email: email, plan, quantity }),
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    currentEmail = email;
-                    document.getElementById('step1').style.display = 'none';
-                    document.getElementById('step2').style.display = 'block';
-                    document.getElementById('confirmedEmail').textContent = email;
+                const res = await fetch(`/api/public/order-quote?${params.toString()}`);
+                const quote = await res.json();
+                if (!res.ok) throw new Error(quote.detail || t("promo_invalid"));
+
+                const payment = quote.payment || {};
+                const selectedPlan = siteConfig.plans.find((item) => item.code === currentPlan);
+                const displayName = ((PLAN_NAMES[currentLang] || {})[currentPlan] || selectedPlan?.name || quote.plan_name);
+                document.getElementById("ps-name").textContent = displayName;
+                document.getElementById("ps-price").textContent = fmtMoney(quote.amount_total);
+                document.getElementById("bank-name-value").textContent = payment.bank_name || "";
+                document.getElementById("bank-account-value").textContent = payment.account_number || "";
+                document.getElementById("bank-holder-value").textContent = payment.account_name || "";
+                document.getElementById("bank-amount-value").textContent = fmtMoney(quote.amount_total);
+                document.getElementById("transfer-note").textContent = quote.transfer_note || "";
+                document.getElementById("payment-note-box").textContent = payment.payment_note || "";
+
+                const promoStatus = document.getElementById("promo-status");
+                const promoDetail = document.getElementById("promo-detail");
+                if (quote.promo_code) {
+                    promoStatus.textContent = `${t("promo_ok")}: ${quote.promo_code}`;
+                    promoStatus.classList.remove("error");
+                    promoDetail.textContent = `${quote.promo_label || quote.promo_code} • -${fmtMoney(quote.discount_amount)}`;
                 } else {
-                    alert(data.detail || 'Có lỗi xảy ra, vui lòng thử lại.');
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fa-solid fa-check"></i> Xác nhận đã thanh toán';
+                    promoStatus.textContent = t("promo_empty");
+                    promoStatus.classList.remove("error");
+                    promoDetail.textContent = "";
                 }
-            } catch {
-                alert('Không thể kết nối server. Vui lòng thử lại sau.');
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fa-solid fa-check"></i> Xác nhận đã thanh toán';
+
+                const bankCode = encodeURIComponent(payment.bank_code || "ACB");
+                const account = encodeURIComponent(payment.account_number || "");
+                const note = encodeURIComponent(quote.transfer_note || "");
+                const accountName = encodeURIComponent(payment.account_name || "");
+                document.getElementById("qr-img").src = `https://img.vietqr.io/image/${bankCode}-${account}-compact2.png?amount=${quote.amount_total}&addInfo=${note}&accountName=${accountName}`;
+            } catch (error) {
+                if (promo) {
+                    const promoStatus = document.getElementById("promo-status");
+                    promoStatus.textContent = error.message || t("promo_invalid");
+                    promoStatus.classList.add("error");
+                }
             }
         }
 
-        // Escape to close modal
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+        async function applyPromo() {
+            currentPromo = document.getElementById("promo-code").value.trim().toUpperCase();
+            await updateQuote();
+        }
+
+        async function submitOrder(event) {
+            event.preventDefault();
+            const payload = {
+                customer_name: document.getElementById("cust-name").value.trim(),
+                customer_email: document.getElementById("cust-email").value.trim(),
+                plan: document.getElementById("plan-select").value,
+                quantity: Math.max(1, Number(document.getElementById("quantity").value || 1)),
+                promo_code: (document.getElementById("promo-code").value || "").trim().toUpperCase(),
+            };
+            const btn = document.getElementById("submit-btn");
+            btn.disabled = true;
+            try {
+                const res = await fetch("/api/v1/order/submit", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Submit failed");
+                document.getElementById("pay-step1").classList.add("hidden");
+                document.getElementById("pay-step1-form").classList.add("hidden");
+                document.getElementById("pay-step2").classList.remove("hidden");
+                document.getElementById("success-text").textContent = t("order_sent").replace("{email}", payload.customer_email);
+            } catch (error) {
+                alert(error.message || "Submit failed");
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function copyText(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                alert(t("copied"));
+            } catch {}
+        }
+
+        function initReveal() {
+            const items = document.querySelectorAll(".reveal");
+            if (!("IntersectionObserver" in window)) {
+                items.forEach((item) => item.classList.add("in-view"));
+                return;
+            }
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add("in-view");
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.14 });
+            items.forEach((item) => observer.observe(item));
+        }
+
+        document.getElementById("theme-toggle").addEventListener("click", () => {
+            currentTheme = currentTheme === "dark" ? "light" : "dark";
+            localStorage.setItem("reader_theme", currentTheme);
+            applyTheme();
+        });
+        document.getElementById("lang-toggle").addEventListener("click", () => {
+            currentLang = currentLang === "vi" ? "en" : "vi";
+            localStorage.setItem("reader_lang", currentLang);
+            applyLanguage();
+        });
+        document.getElementById("plan-select").addEventListener("change", updateQuote);
+        document.getElementById("quantity").addEventListener("input", updateQuote);
+        document.getElementById("cust-email").addEventListener("input", updateQuote);
+        document.getElementById("cust-name").addEventListener("input", updateQuote);
+        document.getElementById("apply-promo").addEventListener("click", applyPromo);
+        document.getElementById("order-form").addEventListener("submit", submitOrder);
+        document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeModal(); });
+
+        applyTheme();
+        initReveal();
+        loadSiteConfig();
     </script>
 </body>
 </html>

@@ -345,7 +345,18 @@ class WelcomeWidget(QWidget):
             self._on_open()
 
     def _open_whats_new(self):
-        doc_path = os.path.join(_ROOT, "docs", "2026-05-30_BASELINE_STATUS_HANDOFF.md")
-        if not os.path.exists(doc_path):
-            doc_path = os.path.join(_ROOT, "docs", "PHASE1_WIN_STATUS.md")
-        QDesktopServices.openUrl(QUrl.fromLocalFile(doc_path))
+        from packages.qt_compat.QtWidgets import QMessageBox
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Có gì mới?")
+        msg.setText(
+            "<h2>Cập nhật tính năng mới</h2><br>"
+            "<ul>"
+            "<li>Khắc phục lỗi mất ghi chú khi cuộn trang.</li>"
+            "<li>Sửa lỗi Thumbnail bị che số trang.</li>"
+            "<li>Lưu lịch sử Chat AI khi ẩn cửa sổ.</li>"
+            "<li>Chức năng lưu tạm giọng nói AI.</li>"
+            "<li>Sửa lỗi ký số trên nhiều ổ đĩa khác nhau.</li>"
+            "<li>Tính năng chuyển trang in thành ngang.</li>"
+            "</ul><br>Cảm ơn bạn đã sử dụng phần mềm!"
+        )
+        msg.exec()

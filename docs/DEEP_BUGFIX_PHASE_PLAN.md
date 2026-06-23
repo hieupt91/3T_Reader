@@ -579,3 +579,41 @@ Kiem tra:
 Ket qua:
 
 - 5 passed.
+
+### Phase 4 - PDF Save, Password, Compress, Page Number
+
+Trang thai xac nhan:
+
+- Phase nay da co dau hieu hoan tat ve mat code va regression test.
+- Logic hien tai phu hop voi huong sua da de ra trong ke hoach: staged file cung thu muc dich, tach `source_path` / `display_path` / `temp_path`, va page-number workflow co marker de xoa lap lai an toan.
+- Chua thay log test tay duoc ghi ro trong file nay; neu can chot phase theo dung quy trinh goc thi user nen test lai cac luong password/compress/page number tren app.
+
+Sua da co trong code:
+
+- `app/actions/_pdf_save.py`:
+  - Co `make_staged_pdf_path(...)`, `release_viewer_file_lock(...)`, `replace_file_with_retry(...)`, `replace_document_with_staged(...)`.
+  - Ghi staged PDF trong cung thu muc voi file dich va co retry khi gap file lock.
+- `app/actions/document_ops.py`:
+  - Dung `_document_read_and_target_paths(window)` cho cac luong password/compress/page number.
+  - `set_pdf_password(...)`, `remove_pdf_password(...)`, `compress_pdf(...)` da phan biet `read_path` va `target_path`.
+  - `add_page_numbers(...)` va `remove_page_numbers(...)` dung marker `_PAGENUM_MARKER_KEY` va xoa lop page number cu truoc khi chen lai.
+- `app/actions/file.py` va `app/window.py`:
+  - State document da tach ro `source_path`, `display_path`, `temp_path`.
+  - Luong mo PDF co mat khau da giu `display_path` la ten file goc va track file giai ma tam rieng.
+
+Kiem tra:
+
+```powershell
+.\.venv313\Scripts\python.exe -m py_compile app\actions\_pdf_save.py app\actions\document_ops.py app\actions\file.py app\window.py
+.\.venv313\Scripts\python.exe -m pytest tests\test_pdf_save_helpers.py
+```
+
+Ket qua:
+
+- `py_compile` pass.
+- `tests/test_pdf_save_helpers.py`: 12 passed.
+
+Ghi chu:
+
+- Co the xem Phase 4 la "done in code/test".
+- Neu can dong phase theo dung checklist goc, chi con buoc user test tay tren app va commit neu user xac nhan.

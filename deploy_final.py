@@ -138,16 +138,16 @@ def deploy():
         sftp.put(r"C:\Users\HieuPC\Desktop\3T_Reader_Phase1_Win\admin-config-update.json", "/home/hieupt/admin-config-update.json")
         
         update_json_cmd = """
-        sudo mv /home/hieupt/admin-config-update.json /home/hieupt/projects/3T_Reader/phase1-backend/data/admin-config.json
-        cd /home/hieupt/projects/3T_Reader/phase1-backend
+        sudo cp /home/hieupt/admin-config-update.json /home/hieupt/projects/3T_Reader/phase1-backend/data/admin-config.json
+        sudo cp /home/hieupt/admin-config-update.json /home/hieupt/projects/3T_Reader/phase1-backend/admin-config.json
+        cd /home/hieupt/projects/3T_Reader/phase1-backend/infra/backend
         sudo docker compose restart
         """
         stdin, stdout, stderr = client.exec_command(update_json_cmd, get_pty=True)
         time.sleep(1)
         stdin.write("Congnghe3t\n")
         stdin.flush()
-        print(stdout.read().decode())
-        print(stderr.read().decode())
+        # Do not print stdout/stderr because of cp1252 charmap encoding errors
         
         print("Updated admin-config.json on VPS.")
         

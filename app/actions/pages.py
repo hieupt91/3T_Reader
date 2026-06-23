@@ -366,12 +366,12 @@ def rotate_pages_action(window):
         pass
 
     def _burn_rotation_in_background():
-        import shutil
         import tempfile
         tmp = make_staged_pdf_path(path)
         try:
+            from app.actions._pdf_save import replace_file_with_retry
             get_pdf_engine().rotate_pages(path, tmp, rotations)
-            shutil.move(tmp, path)
+            replace_file_with_retry(tmp, path, attempts=12)
         except Exception as e:
             remove_path_quietly(tmp)
             try:

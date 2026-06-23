@@ -491,7 +491,12 @@ def run_inline_image(window, image_path: str) -> dict | None:
         if image.isNull():
             show_warning(window, "Không đọc được ảnh", "Không thể mở file ảnh đã chọn. Vui lòng chọn file khác.")
             return None
-        image_info = {"width": int(image.width()), "height": int(image.height())}
+        image_info = {
+            "width": int(image.width()),
+            "height": int(image.height()),
+            "mime": mime,
+            "has_alpha": bool(image.hasAlphaChannel()),
+        }
         data_url = f"data:image/{mime};base64,{base64.b64encode(raw).decode()}"
     except Exception:
         show_warning(window, "Không đọc được ảnh", "Không thể mở file ảnh đã chọn. Vui lòng chọn file khác.")

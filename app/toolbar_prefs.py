@@ -31,7 +31,10 @@ def load_prefs() -> dict[str, bool]:
 def save_prefs(prefs: dict[str, bool]) -> None:
     s = QSettings()
     for gid, visible in prefs.items():
-        s.setValue(f"{_SETTINGS_KEY}/{gid}", visible)
+        if gid == "auto_save":
+            s.setValue("3TReader/auto_save", visible)
+        else:
+            s.setValue(f"{_SETTINGS_KEY}/{gid}", visible)
     s.sync()
 
 
@@ -100,6 +103,24 @@ class ToolbarCustomizeDialog(QDialog):
         vbox.addStretch()
         scroll.setWidget(inner)
         root.addWidget(scroll)
+
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.Shape.HLine)
+        sep1.setStyleSheet("color: #555;")
+        root.addWidget(sep1)
+
+        header2 = QLabel("Cài đặt hệ thống:")
+        header2.setStyleSheet("font-weight: bold; margin-bottom: 4px;")
+        root.addWidget(header2)
+
+        s = QSettings()
+        auto_save_val = str(s.value("3TReader/auto_save", "true")).lower() == "true"
+        self._prefs["auto_save"] = auto_save_val
+        cb_autosave = QCheckBox("💾  Tự động lưu thay đổi / ghi chú")
+        cb_autosave.setChecked(auto_save_val)
+        cb_autosave.toggled.connect(lambda checked: self._on_toggle("auto_save", checked))
+        self._checks["auto_save"] = cb_autosave
+        root.addWidget(cb_autosave)
 
         # Separator
         sep = QFrame()

@@ -367,15 +367,8 @@ class AIChatDialog(QDialog):
         )
 
     def closeEvent(self, event):
-        if dialog_task_running(self) or self._busy:
-            self._lbl_status.setStyleSheet("color:#DC2626;font-size:11px")
-            self._lbl_status.setText("Đang chờ AI trả lời. Hãy đóng lại sau khi tác vụ hoàn tất.")
-            event.ignore()
-            return
-        parent = self.parent()
-        if parent is not None and getattr(parent, "_ai_chat_dialog", None) is self:
-            parent._ai_chat_dialog = None
-        super().closeEvent(event)
+        event.ignore()
+        self.hide()
 
     @staticmethod
     def _escape(text: str) -> str:
