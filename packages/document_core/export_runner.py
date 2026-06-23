@@ -7,7 +7,7 @@ import sys
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="export_runner")
-    parser.add_argument("task", choices=("docx", "xlsx"))
+    parser.add_argument("task", choices=("docx", "docx_layout", "docx_structured", "xlsx"))
     parser.add_argument("pdf_path")
     parser.add_argument("output_path")
     args = parser.parse_args(argv)
@@ -15,6 +15,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         from packages.document_core.converter import (
             convert_pdf_to_docx,
+            convert_pdf_to_docx_layout,
+            convert_pdf_to_docx_structured,
             convert_pdf_to_xlsx,
         )
 
@@ -23,6 +25,10 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.task == "docx":
             convert_pdf_to_docx(args.pdf_path, args.output_path, progress_cb=_progress)
+        elif args.task == "docx_layout":
+            convert_pdf_to_docx_layout(args.pdf_path, args.output_path, progress_cb=_progress)
+        elif args.task == "docx_structured":
+            convert_pdf_to_docx_structured(args.pdf_path, args.output_path, progress_cb=_progress)
         else:
             convert_pdf_to_xlsx(args.pdf_path, args.output_path, progress_cb=_progress)
         return 0

@@ -74,29 +74,64 @@ class PyMuPdfEngine:
         import fitz
         import os as _os
 
+        def _rgb_tuple(value, default=(0.0, 0.0, 0.0)):
+            try:
+                r, g, b = value[:3]
+                values = []
+                for item in (r, g, b):
+                    item = float(item)
+                    values.append(item / 255.0 if item > 1.0 else item)
+                return tuple(max(0.0, min(1.0, item)) for item in values)
+            except Exception:
+                return default
+
+        def _rect_from_pdf_box(page, box):
+            pdf_left, pdf_bottom, pdf_right, pdf_top = [float(v) for v in box]
+            unrot_h = page.cropbox.height
+            pt1_unrot = fitz.Point(pdf_left, unrot_h - pdf_top)
+            pt2_unrot = fitz.Point(pdf_right, unrot_h - pdf_bottom)
+            pt1_rot = pt1_unrot * page.rotation_matrix
+            pt2_rot = pt2_unrot * page.rotation_matrix
+            return fitz.Rect(pt1_rot, pt2_rot)
+
         doc = fitz.open(base_path)
         try:
+            redaction_pages = set()
+            for op in ops:
+                page_no = int(op.get("page_number", 1))
+                if page_no < 1 or page_no > doc.page_count:
+                    continue
+                op_type = op.get("type")
+                redact_box = op.get("redact_box") if op_type != "redact" else op.get("box")
+                if not redact_box:
+                    continue
+                page = doc[page_no - 1]
+                rect = _rect_from_pdf_box(page, redact_box)
+                padding = float(op.get("redact_padding", 0.0) or 0.0)
+                if padding:
+                    rect = rect + (-padding, -padding, padding, padding)
+                page.add_redact_annot(rect, fill=_rgb_tuple(op.get("fill_color", (1, 1, 1)), default=(1, 1, 1)))
+                redaction_pages.add(page_no)
+
+            for page_no in sorted(redaction_pages):
+                page = doc[page_no - 1]
+                try:
+                    page.apply_redactions(images=2, graphics=2)
+                except TypeError:
+                    page.apply_redactions(images=2)
+
             for op in ops:
                 page_no = int(op.get("page_number", 1))
                 if page_no < 1 or page_no > doc.page_count:
                     continue
 
                 page = doc[page_no - 1]
-                pdf_left, pdf_bottom, pdf_right, pdf_top = op.get("box", (0, 0, 0, 0))
-                
-                # Convert from PDF User Space (origin bottom-left) to PyMuPDF Unrotated Space (origin top-left)
-                unrot_h = page.cropbox.height
-                pt1_unrot = fitz.Point(pdf_left, unrot_h - pdf_top)
-                pt2_unrot = fitz.Point(pdf_right, unrot_h - pdf_bottom)
-                
-                # Apply page rotation to get PyMuPDF Rotated Space (which is what insert_textbox expects)
-                pt1_rot = pt1_unrot * page.rotation_matrix
-                pt2_rot = pt2_unrot * page.rotation_matrix
-                
-                rect = fitz.Rect(pt1_rot, pt2_rot)
+                rect = _rect_from_pdf_box(page, op.get("box", (0, 0, 0, 0)))
 
                 try:
                     op_type = op.get("type")
+                    if op_type == "redact":
+                        continue
 
                     if op_type == "text":
                         text = op.get("text", "").strip()
@@ -104,34 +139,87 @@ class PyMuPdfEngine:
                             continue
                         from packages.platform.fonts import get_vietnamese_font_path
                         is_bold = bool(op.get("bold"))
-                        font_path = get_vietnamese_font_path(bold=is_bold)
-                        color = op.get("font_color", (0, 0, 0))
+                        font_family = op.get("font_family", "").lower()
+                        # Pass family hint to our font finder
+                        font_path = get_vietnamese_font_path(bold=is_bold, family=font_family)
+                        color = _rgb_tuple(op.get("font_color", (0.0, 0.0, 0.0)))
+
                         fs = max(6, op.get("font_size", 12))
                         rotation = int(op.get("rotation", 0))
 
-                        # insert_textbox nhận fontfile= (không nhận font= object trong 1.27.x)
-                        font_kwargs = {"fontfile": font_path} if font_path else {"fontname": "helv"}
+                        font_kwargs = {"fontname": "helv"}
+                        if font_path:
+                            import hashlib
+                            font_hash = "f" + hashlib.md5(font_path.encode()).hexdigest()[:8]
+                            try:
+                                page.insert_font(fontname=font_hash, fontfile=font_path)
+                                font_kwargs = {"fontname": font_hash}
+                            except Exception as e:
+                                print(f"Error inserting font {font_path}: {e}")
+                                pass
 
+                        bg_color = op.get("background_color")
+                        text_str = op.get("text", "")
+                        if bg_color and isinstance(bg_color, str) and bg_color.startswith("#") and len(bg_color) == 7:
+                            r = int(bg_color[1:3], 16) / 255.0
+                            g = int(bg_color[3:5], 16) / 255.0
+                            b = int(bg_color[5:7], 16) / 255.0
+
+                            # Estimate width of new text to cover old text completely
+                            estimated_width = len(text_str) * (fs * 0.55)
+                            bg_rect = fitz.Rect(rect.x0, rect.y0, max(rect.x1, rect.x0 + estimated_width), rect.y1)
+                            page.draw_rect(bg_rect, color=None, fill=(r, g, b))
+
+                        baseline = op.get("baseline")
+                        if baseline and rotation == 0:
+                            bx, by = [float(v) for v in baseline[:2]]
+                            baseline_pt = fitz.Point(bx, page.cropbox.height - by) * page.rotation_matrix
+                            page.insert_text(
+                                baseline_pt,
+                                text_str.splitlines()[0] if text_str.splitlines() else text_str,
+                                fontsize=fs,
+                                **font_kwargs,
+                                color=color,
+                            )
+                            continue
+
+                        # Expand width to 2000 to prevent clipping horizontally if text is long
+                        text_rect = fitz.Rect(rect.x0, rect.y0, rect.x0 + 2000, rect.y1)
                         if rotation != 0:
                             cx = (rect.x0 + rect.x1) / 2
                             cy = (rect.y0 + rect.y1) / 2
                             mat = fitz.Matrix(1, 0, 0, 1, 0, 0).prerotate(rotation)
-                            page.insert_textbox(
-                                rect, text,
+                            rc = page.insert_textbox(
+                                text_rect, text_str,
                                 fontsize=fs,
                                 **font_kwargs,
                                 color=color,
                                 align=0,
                                 morph=(fitz.Point(cx, cy), mat),
                             )
+                            if rc < 0:
+                                page.insert_text(
+                                    fitz.Point(rect.x0, rect.y1), text_str,
+                                    fontsize=fs,
+                                    **font_kwargs,
+                                    color=color,
+                                    morph=(fitz.Point(cx, cy), mat),
+                                )
                         else:
-                            page.insert_textbox(
-                                rect, text,
+                            rc = page.insert_textbox(
+                                text_rect, text_str,
                                 fontsize=fs,
                                 **font_kwargs,
                                 color=color,
                                 align=0,
                             )
+                            if rc < 0:
+                                page.insert_text(
+                                    fitz.Point(rect.x0, rect.y1), text_str,
+                                    fontsize=fs,
+                                    **font_kwargs,
+                                    color=color,
+                                )
                         if op.get("underline"):
                             ul_y = rect.y0 + fs * 1.15
                             if ul_y <= rect.y1:
@@ -155,7 +243,10 @@ class PyMuPdfEngine:
                         stroke = op.get("stroke_color", fill)
                         page.draw_rect(rect, color=stroke, fill=fill, width=0)
 
-                except Exception:
+                except Exception as e:
+                    import traceback
+                    print(f"Error rebuilding op {op_type}: {e}")
+                    traceback.print_exc()
                     continue  # skip bad op, không crash toàn bộ rebuild
 
             try:

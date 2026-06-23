@@ -1891,3 +1891,241 @@ def edit_text_object(window):
 
     _render_edit_state(window, state, "Đã cập nhật văn bản",
                        focus_page=int(target_op.get("page_number", 1)))
+
+
+@require_document(show_message=True)
+def edit_existing_text(window):
+    """Edit existing text in the PDF by redacting it and inserting new text."""
+    from packages.qt_compat.QtWidgets import QInputDialog
+    import json
+    import re
+
+    class ExistingTextBridge(QObject):
+        clicked = pyqtSignal(int, float, float, float, float, str, str)
+
+        @pyqtSlot(int, float, float, float, float, str, str)
+        def reportExistingTextClick(self, pageNum, left, bottom, right, top, text, styles_json):
+            self.clicked.emit(pageNum, left, bottom, right, top, text, styles_json)
+
+    bridge = ExistingTextBridge(window.viewer)
+    window._existing_text_bridge = bridge
+
+    def _parse_font_size(styles: dict) -> float:
+        try:
+            font_size = float(styles.get("fontSizePt", 0) or 0)
+            if font_size > 0:
+                return max(6.0, min(96.0, font_size))
+        except Exception:
+            pass
+        try:
+            fs_px = float(str(styles.get("fontSize", "16px")).replace("px", ""))
+            return max(6.0, min(96.0, fs_px * 0.75))
+        except Exception:
+            return 14.0
+
+    def _parse_color(styles: dict) -> tuple[float, float, float]:
+        try:
+            m = re.search(
+                r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)",
+                str(styles.get("color", "")),
+            )
+            if m:
+                return (
+                    int(m.group(1)) / 255.0,
+                    int(m.group(2)) / 255.0,
+                    int(m.group(3)) / 255.0,
+                )
+        except Exception:
+            pass
+        return (0.0, 0.0, 0.0)
+
+    def _parse_bold(styles: dict) -> bool:
+        try:
+            fw = str(styles.get("fontWeight", ""))
+            return fw in {"bold", "bolder"} or (fw.isdigit() and int(fw) >= 600)
+        except Exception:
+            return False
+
+    def _expanded_text_box(left: float, bottom: float, right: float, top: float, text: str, font_size: float, base_path: str, page_num: int):
+        estimated_width = max(right - left, len(text) * font_size * 0.62)
+        new_right = left + estimated_width
+        min_height = max(top - bottom, font_size * 1.35)
+        new_top = bottom + min_height
+        try:
+            doc = get_pdf_engine().open(base_path)
+            try:
+                page_width, page_height = doc.page_size(page_num)
+            finally:
+                doc.close()
+            new_right = min(max(right, new_right), float(page_width))
+            new_top = min(max(top, new_top), float(page_height))
+        except Exception:
+            new_right = max(right, new_right)
+            new_top = max(top, new_top)
+        return (left, bottom, new_right, new_top)
+
+    def _find_pdf_span(base_path: str, page_num: int, pick_box: tuple[float, float, float, float]) -> dict | None:
+        try:
+            import fitz
+        except Exception:
+            return None
+
+        def _inter_area(a, b) -> float:
+            x0 = max(a[0], b[0])
+            y0 = max(a[1], b[1])
+            x1 = min(a[2], b[2])
+            y1 = min(a[3], b[3])
+            return max(0.0, x1 - x0) * max(0.0, y1 - y0)
+
+        def _center_distance(a, b) -> float:
+            ax = (a[0] + a[2]) / 2.0
+            ay = (a[1] + a[3]) / 2.0
+            bx = (b[0] + b[2]) / 2.0
+            by = (b[1] + b[3]) / 2.0
+            return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
+
+        doc = fitz.open(base_path)
+        try:
+            if page_num < 1 or page_num > doc.page_count:
+                return None
+            page = doc[page_num - 1]
+            page_h = float(page.rect.height)
+            best = None
+            best_score = None
+            for block in page.get_text("dict").get("blocks", []):
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        text = str(span.get("text", ""))
+                        if not text.strip():
+                            continue
+                        x0, y0, x1, y1 = [float(v) for v in span.get("bbox", (0, 0, 0, 0))]
+                        span_box = (x0, page_h - y1, x1, page_h - y0)
+                        overlap = _inter_area(pick_box, span_box)
+                        distance = _center_distance(pick_box, span_box)
+                        score = (-overlap, distance)
+                        if best_score is None or score < best_score:
+                            origin_x, origin_y = span.get("origin", (x0, y1))
+                            color_int = int(span.get("color", 0) or 0)
+                            font_name = str(span.get("font", ""))
+                            best = {
+                                "box": span_box,
+                                "baseline": (float(origin_x), page_h - float(origin_y)),
+                                "font_size": float(span.get("size", 12) or 12),
+                                "font_family": font_name,
+                                "font_color": (
+                                    ((color_int >> 16) & 0xFF) / 255.0,
+                                    ((color_int >> 8) & 0xFF) / 255.0,
+                                    (color_int & 0xFF) / 255.0,
+                                ),
+                                "bold": "bold" in font_name.lower(),
+                            }
+                            best_score = score
+            return best
+        finally:
+            doc.close()
+
+    def on_click(pageNum, left, bottom, right, top, old_text, styles_json):
+        window.viewer._web_view.page().runJavaScript("window.__3tExistingTextMode = false;")
+        window.status.showMessage("", 0)
+
+        from app.webchannel import unregister_webchannel_object
+        unregister_webchannel_object(window.viewer._web_view, "editExistingTextBridge")
+        window._existing_text_bridge = None
+
+        styles = {}
+        try:
+            styles = json.loads(styles_json)
+        except Exception:
+            pass
+
+        font_size = _parse_font_size(styles)
+        color = _parse_color(styles)
+        is_bold = _parse_bold(styles)
+        font_family = str(styles.get("fontFamily", "sans-serif"))
+
+        new_text, ok = QInputDialog.getText(
+            window,
+            "Sửa text",
+            f"Text gốc: {old_text}\nNhập text thay thế (để trống để xóa):",
+            text=old_text
+        )
+
+        if not ok:
+            return
+
+        state = _ensure_edit_state(window)
+        if not state:
+            return
+
+        base_snapshot = state.get("base_snapshot")
+        if not base_snapshot or not os.path.exists(base_snapshot):
+            return
+
+        x0, x1 = float(left), float(right)
+        y0, y1 = float(bottom), float(top)
+        left, right = min(x0, x1), max(x0, x1)
+        bottom, top = min(y0, y1), max(y0, y1)
+        if right - left < 0.5 or top - bottom < 0.5:
+            return
+
+        redact_box = (left, bottom, right, top)
+        span_info = _find_pdf_span(base_snapshot, int(pageNum), redact_box)
+        if span_info:
+            redact_box = span_info["box"]
+            left, bottom, right, top = redact_box
+            font_size = span_info["font_size"]
+            color = span_info["font_color"]
+            is_bold = span_info["bold"]
+            font_family = span_info["font_family"] or font_family
+
+        text_value = str(new_text).strip()
+
+        if text_value:
+            text_box = _expanded_text_box(left, bottom, right, top, text_value, font_size, base_snapshot, int(pageNum))
+            op = {
+                "id": state["next_id"],
+                "type": "text",
+                "page_number": pageNum,
+                "box": text_box,
+                "redact_box": redact_box,
+                "redact_padding": 2.0,
+                "text": text_value,
+                "font_size": font_size,
+                "font_color": color,
+                "font_family": font_family,
+                "bold": is_bold,
+                "underline": False,
+                "rotation": 0,
+                "is_existing_edit": True,
+            }
+            if span_info:
+                op["baseline"] = span_info["baseline"]
+                op["single_line"] = True
+        else:
+            op = {
+                "id": state["next_id"],
+                "type": "redact",
+                "page_number": pageNum,
+                "box": redact_box,
+                "fill_color": (1.0, 1.0, 1.0),
+                "redact_padding": 2.0,
+            }
+
+        state["next_id"] += 1
+        state["ops"].append(op)
+
+        display_path = window.get_display_path() if hasattr(window, "get_display_path") else state.get("original_path")
+        working_file = _render_edit_state(window, state, "Đã sửa text" if text_value else "Đã xóa text", focus_page=int(pageNum))
+        if not working_file:
+            return
+
+        reload_document(window, working_file, display_path=display_path, temp_path=working_file, page=pageNum)
+        QTimer.singleShot(350, lambda: window.viewer.update_ops("[]") if hasattr(window.viewer, "update_ops") else None)
+
+    bridge.clicked.connect(on_click)
+
+    from app.webchannel import register_webchannel_object
+    register_webchannel_object(window.viewer._web_view, window, "editExistingTextBridge", bridge)
+
+    window.viewer._web_view.page().runJavaScript("window.__3tExistingTextMode = true;")
+    window.status.showMessage("Click vào đoạn text có sẵn trên trang để sửa... (Esc để hủy)", 0)

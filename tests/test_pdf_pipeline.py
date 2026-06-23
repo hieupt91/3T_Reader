@@ -249,6 +249,134 @@ class TestRebuildPdfWithOps:
         with open(out, "rb") as f:
             assert f.read(5) == b"%PDF-"
 
+    def test_redact_box_visually_covers_existing_text(self, tmp_path):
+        _skip_if_missing("pypdfium2", "pikepdf", "reportlab", "PIL")
+        import pypdfium2 as pdfium
+        from reportlab.pdfgen import canvas
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+
+        base = str(tmp_path / "base_text.pdf")
+        c = canvas.Canvas(base, pagesize=(300, 200))
+        c.setFont("Helvetica", 14)
+        c.drawString(50, 150, "XXXXXXXXXX")
+        c.save()
+
+        out = str(tmp_path / "redacted_text.pdf")
+        ops = [{
+            "type": "text",
+            "text": "OK",
+            "box": (50, 145, 180, 165),
+            "redact_box": (48, 145, 150, 168),
+            "redact_padding": 2,
+            "page_number": 1,
+            "font_size": 14,
+        }]
+        PdfiumEngine().rebuild_pdf_with_ops(base, out, ops)
+
+        pdf = pdfium.PdfDocument(out)
+        try:
+            image = pdf[0].render(scale=2).to_pil().convert("RGB")
+        finally:
+            pdf.close()
+
+        # Sample where the original right-side X glyphs were. The replacement
+        # text is on the left, so this region should be clean white.
+        crop = image.crop((110 * 2, (200 - 160) * 2, 145 * 2, (200 - 150) * 2))
+        data = crop.tobytes()
+        total = len(data) // 3
+        white = sum(
+            1
+            for offset in range(0, len(data), 3)
+            if data[offset] > 245 and data[offset + 1] > 245 and data[offset + 2] > 245
+        )
+        assert white / total > 0.98
+
+    def test_text_still_draws_when_box_is_shorter_than_font(self, tmp_path):
+        _skip_if_missing("pypdfium2", "pikepdf", "reportlab", "PIL")
+        import pypdfium2 as pdfium
+        from reportlab.pdfgen import canvas
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+
+        base = str(tmp_path / "short_box_base.pdf")
+        c = canvas.Canvas(base, pagesize=(300, 200))
+        c.setFont("Helvetica", 14)
+        c.drawString(50, 150, "OLD TEXT")
+        c.save()
+
+        out = str(tmp_path / "short_box_out.pdf")
+        ops = [{
+            "type": "text",
+            "text": "NEW",
+            "box": (50, 150, 150, 158),
+            "redact_box": (50, 150, 120, 158),
+            "redact_padding": 2,
+            "page_number": 1,
+            "font_size": 14,
+        }]
+        PdfiumEngine().rebuild_pdf_with_ops(base, out, ops)
+
+        pdf = pdfium.PdfDocument(out)
+        try:
+            image = pdf[0].render(scale=2).to_pil().convert("RGB")
+        finally:
+            pdf.close()
+
+        crop = image.crop((50 * 2, (200 - 160) * 2, 100 * 2, (200 - 145) * 2))
+        data = crop.tobytes()
+        total = len(data) // 3
+        dark = sum(
+            1
+            for offset in range(0, len(data), 3)
+            if data[offset] < 80 and data[offset + 1] < 80 and data[offset + 2] < 80
+        )
+        assert dark / total > 0.01
+
+    def test_existing_text_edit_uses_original_baseline(self, tmp_path):
+        _skip_if_missing("pypdfium2", "pikepdf", "reportlab", "PIL")
+        import pypdfium2 as pdfium
+        from reportlab.pdfgen import canvas
+        from packages.pdf_engine.pdfium_engine import PdfiumEngine
+
+        base = str(tmp_path / "baseline_base.pdf")
+        c = canvas.Canvas(base, pagesize=(300, 200))
+        c.setFont("Times-Roman", 14)
+        c.drawString(50, 150, "OLD TEXT")
+        c.save()
+
+        out = str(tmp_path / "baseline_out.pdf")
+        ops = [{
+            "type": "text",
+            "text": "NEW TEXT",
+            "box": (50, 145, 180, 165),
+            "redact_box": (48, 145, 135, 168),
+            "redact_padding": 2,
+            "baseline": (50, 150),
+            "page_number": 1,
+            "font_size": 14,
+            "font_family": "Times-Roman",
+        }]
+        PdfiumEngine().rebuild_pdf_with_ops(base, out, ops)
+
+        pdf = pdfium.PdfDocument(out)
+        try:
+            image = pdf[0].render(scale=2).to_pil().convert("RGB")
+        finally:
+            pdf.close()
+
+        expected_line_crop = image.crop((50 * 2, (200 - 166) * 2, 145 * 2, (200 - 145) * 2))
+        wrong_lower_crop = image.crop((50 * 2, (200 - 140) * 2, 145 * 2, (200 - 126) * 2))
+
+        def dark_count(img):
+            data = img.tobytes()
+            return sum(
+                1
+                for offset in range(0, len(data), 3)
+                if data[offset] < 80 and data[offset + 1] < 80 and data[offset + 2] < 80
+            )
+
+        assert dark_count(expected_line_crop) > 20
+        assert dark_count(expected_line_crop) > dark_count(wrong_lower_crop) * 5
+
 
 # ---------------------------------------------------------------------------
 # Verify PyMuPDF / fitz NOT imported by non-AGPL path

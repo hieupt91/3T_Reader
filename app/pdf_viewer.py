@@ -495,11 +495,13 @@ class PDFViewerWidget(QtWidgets.QWidget):
                         txt.textContent = op.text || '';
                         var c = op.font_color || [0,0,0];
                         var r = Math.round(c[0]*255), g = Math.round(c[1]*255), b = Math.round(c[2]*255);
+                        var fontFam = op.font_family || 'sans-serif';
+                        var colorCss = op.is_existing_edit ? 'color:transparent;' : 'color:rgb('+r+','+g+','+b+');';
                         txt.style.cssText = 'width:100%;height:100%;display:flex;align-items:flex-start;justify-content:flex-start;'
-                            + 'color:rgb('+r+','+g+','+b+');'
+                            + colorCss
                             + 'font-weight:'+(op.bold?'bold':'normal')+';'
                             + 'text-decoration:'+(op.underline?'underline':'none')+';'
-                            + 'font-family:sans-serif;white-space:pre-wrap;overflow:hidden;';
+                            + 'font-family:'+fontFam+';white-space:pre-wrap;overflow:hidden;';
                         var fs = (op.font_size || 14) * (vp.scale || 1.0) * 1.333;
                         txt.style.fontSize = fs + 'px';
                         txt.style.lineHeight = '1.15';

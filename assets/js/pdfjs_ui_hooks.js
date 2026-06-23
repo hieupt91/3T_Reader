@@ -300,6 +300,74 @@
             }
             return bestArea > 0 ? best : null;
         }
+        function intersectionArea(a, b) {
+            var left = Math.max(a.left, b.left);
+            var top = Math.max(a.top, b.top);
+            var right = Math.min(a.right, b.right);
+            var bottom = Math.min(a.bottom, b.bottom);
+            return Math.max(0, right - left) * Math.max(0, bottom - top);
+        }
+        function bestTextSpanForRect(rect, pageEl) {
+            if (!pageEl || !pageEl.querySelectorAll) return null;
+            var spans = pageEl.querySelectorAll('.textLayer span');
+            var best = null;
+            var bestArea = 0;
+            for (var i = 0; i < spans.length; i++) {
+                var spanRect = spans[i].getBoundingClientRect();
+                if (!spanRect || spanRect.width < 1 || spanRect.height < 1) continue;
+                var area = intersectionArea(rect, spanRect);
+                if (area > bestArea) {
+                    bestArea = area;
+                    best = spanRect;
+                }
+            }
+            return bestArea > 0 ? best : null;
+        }
+        function clampSelectionRectToText(rect, pageEl) {
+            var pageRect = pageEl.getBoundingClientRect();
+            var spanRect = bestTextSpanForRect(rect, pageEl);
+            var clamped = {
+                left: Math.max(pageRect.left, rect.left),
+                top: Math.max(pageRect.top, rect.top),
+                right: Math.min(pageRect.right, rect.right),
+                bottom: Math.min(pageRect.bottom, rect.bottom)
+            };
+            if (spanRect) {
+                var spanHeight = Math.max(1, spanRect.bottom - spanRect.top);
+                var overlapTop = Math.max(clamped.top, spanRect.top);
+                var overlapBottom = Math.min(clamped.bottom, spanRect.bottom);
+                if (overlapBottom - overlapTop >= Math.min(2, spanHeight * 0.25)) {
+                    clamped.top = overlapTop;
+                    clamped.bottom = overlapBottom;
+                } else {
+                    clamped.top = spanRect.top;
+                    clamped.bottom = spanRect.bottom;
+                }
+            }
+            if (clamped.right - clamped.left < 1 || clamped.bottom - clamped.top < 1) {
+                return null;
+            }
+            return clamped;
+        }
+        function pushPdfRect(out, pageNumber, pageView, pageEl, rect) {
+            var pr = pageEl.getBoundingClientRect();
+            var p0 = pageView.viewport.convertToPdfPoint(rect.left - pr.left, rect.top - pr.top);
+            var p1 = pageView.viewport.convertToPdfPoint(rect.right - pr.left, rect.bottom - pr.top);
+            var pdfRect = [
+                Math.min(p0[0], p1[0]), Math.min(p0[1], p1[1]),
+                Math.max(p0[0], p1[0]), Math.max(p0[1], p1[1])
+            ];
+            for (var i = 0; i < out.length; i++) {
+                var old = out[i];
+                if (old.page_number !== pageNumber) continue;
+                var r = old.rect || [];
+                if (Math.abs(r[0] - pdfRect[0]) < 0.2 && Math.abs(r[1] - pdfRect[1]) < 0.2 &&
+                    Math.abs(r[2] - pdfRect[2]) < 0.2 && Math.abs(r[3] - pdfRect[3]) < 0.2) {
+                    return;
+                }
+            }
+            out.push({ page_number: pageNumber, rect: pdfRect });
+        }
 
         var out = [];
         for (var r = 0; r < sel.rangeCount; r++) {
@@ -314,19 +382,12 @@
                 var pageNumber = parseInt(pageEl.getAttribute('data-page-number') || '0', 10);
                 var pageView = pageNumber ? pageViewFor(pageNumber) : null;
                 if (!pageView || !pageView.viewport) continue;
-                var pr = pageEl.getBoundingClientRect();
-                var p0 = pageView.viewport.convertToPdfPoint(cr.left - pr.left, cr.top - pr.top);
-                var p1 = pageView.viewport.convertToPdfPoint(cr.right - pr.left, cr.bottom - pr.top);
-                out.push({
-                    page_number: pageNumber,
-                    rect: [
-                        Math.min(p0[0], p1[0]), Math.min(p0[1], p1[1]),
-                        Math.max(p0[0], p1[0]), Math.max(p0[1], p1[1])
-                    ]
-                });
+                var refined = clampSelectionRectToText(cr, pageEl);
+                if (!refined) continue;
+                pushPdfRect(out, pageNumber, pageView, pageEl, refined);
             }
         }
-        return { text: text, rects: out };
+        return { text: text, rects: out, source: 'pdfjs_textlayer_selection' };
     }
 
     function updateSelectionCache() {
@@ -482,5 +543,58 @@
         app.eventBus.on('documentinit', clear3TOverlays);
         app.eventBus.on('pagesinit', clear3TOverlays);
     }
+    // --- Hook for editing existing text ---
+    document.addEventListener('click', function(e) {
+        if (!window.__3tExistingTextMode) return;
+        console.log("3tExistingTextMode is true. Click registered.", e.target);
+        var textSpan = e.target.closest('.textLayer span');
+        if (!textSpan) {
+            console.log("Not a textLayer span.");
+            return;
+        }
+        var pageEl = textSpan.closest('.page[data-page-number]');
+        if (!pageEl) return;
+        var pageNum = parseInt(pageEl.dataset.pageNumber, 10);
+        var app = window.PDFViewerApplication;
+        var pageView = app && app.pdfViewer && app.pdfViewer.getPageView
+            ? app.pdfViewer.getPageView(pageNum - 1)
+            : (app && app.pdfViewer && app.pdfViewer._pages && app.pdfViewer._pages[pageNum - 1]);
+        if (!pageView || !pageView.viewport) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+
+        var rect = textSpan.getBoundingClientRect();
+        var pageRect = pageEl.getBoundingClientRect();
+        var x0 = rect.left - pageRect.left;
+        var y0 = rect.top - pageRect.top;
+        var x1 = rect.right - pageRect.left;
+        var y1 = rect.bottom - pageRect.top;
+        var p1 = pageView.viewport.convertToPdfPoint(x0, y0);
+        var p2 = pageView.viewport.convertToPdfPoint(x1, y1);
+        var left = Math.min(p1[0], p2[0]);
+        var right = Math.max(p1[0], p2[0]);
+        var bottom = Math.min(p1[1], p2[1]);
+        var top = Math.max(p1[1], p2[1]);
+
+        var style = window.getComputedStyle(textSpan);
+        var fsPx = parseFloat(style.fontSize) || 16;
+        var fsPt = fsPx / (pageView.viewport.scale || 1.3333333333);
+
+        var styleJson = JSON.stringify({
+            fontSizePt: fsPt,
+            fontFamily: style.fontFamily,
+            color: style.color,
+            fontWeight: style.fontWeight
+        });
+
+        console.log("Calling bridge with:", pageNum, left, bottom, right, top, textSpan.textContent, styleJson);
+        window.__3tWithBridge('editExistingTextBridge', function(bridge) {
+            console.log("Got bridge:", bridge);
+            if (bridge) bridge.reportExistingTextClick(pageNum, left, bottom, right, top, textSpan.textContent, styleJson);
+        });
+    }, true);
+
     installHooks();
 })();

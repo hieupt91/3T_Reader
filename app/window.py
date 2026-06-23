@@ -40,6 +40,7 @@ from app.actions.edit import (
     save_edits_quiet,
     select_inserted_object,
     undo_last_edit,
+    edit_existing_text,
 )
 from app.actions.navigate import prev_page, next_page, jump_to_page
 from app.actions.zoom import zoom_in, zoom_out, apply_zoom, zoom_fit
@@ -661,6 +662,7 @@ class PDFReaderApp(QMainWindow):
         self.act_insert_image = make("Chèn ảnh",  "insert_image.svg", f"Chèn ảnh vào PDF ({shortcut_label('Ctrl+I')})",        "Ctrl+I",          lambda: insert_image_to_pdf(self))
         self.act_draw         = make("Vẽ tự do",  "pen.svg",          f"Vẽ tự do lên PDF ({shortcut_label('Ctrl+D')})",         "Ctrl+D",          lambda: draw_on_pdf(self))
         self.act_redact       = make("Xóa trắng", "redact.svg",       "Che/tẩy vùng nội dung",   None,          lambda: redact_area(self))
+        self.act_edit_existing_text = make("Sửa text", "edit_object.svg", "Sửa text có sẵn trong PDF", None, lambda: edit_existing_text(self))
         self.act_delete_object= make("Xóa đối tượng",   "trash.svg",        "Xóa text/ảnh đã chèn",    None,          lambda: delete_inserted_object(self))
         self.act_select_inserted = make("Chọn & Xoay","edit_object.svg", "Chọn text/ảnh đã chèn → hiện nút ↻ Xoay, ✎ Sửa, × Xóa, ✥ Di chuyển", None,  lambda: select_inserted_object(self))
         self.act_undo         = make("Hoàn tác",  "undo.svg",         f"Hoàn tác ({shortcut_label('Ctrl+Z')})", "Ctrl+Z", lambda: undo_last_edit(self))
@@ -813,6 +815,7 @@ class PDFReaderApp(QMainWindow):
         self.g_edit.add(make_action_btn(self.act_insert_image, "Chèn ảnh"))
         self.g_edit.add(make_action_btn(self.act_draw,         "Vẽ tự do"))
         self.g_edit.add(make_action_btn(self.act_redact,       "Xóa trắng"))
+        self.g_edit.add(make_action_btn(self.act_edit_existing_text, "Sửa text gốc"))
         self.g_edit.add(make_action_btn(self.act_select_inserted, "Chọn & Xoay"))
         self.g_edit.add(make_action_btn(self.act_delete_object,"Xóa đối tượng"))
         p1.add_group(self.g_edit)
@@ -1806,6 +1809,7 @@ class PDFReaderApp(QMainWindow):
         menu_tools.addAction(self.act_select_inserted)
         menu_tools.addAction(self.act_delete_object)
         menu_tools.addAction(self.act_redact)
+        menu_tools.addAction(self.act_edit_existing_text)
         menu_tools.addSeparator()
 
         # Lưu chỉnh sửa
@@ -1987,7 +1991,7 @@ class PDFReaderApp(QMainWindow):
         for action in (
             self.act_open, self.act_new_pdf, self.act_recent,
             self.act_insert_text, self.act_insert_image, self.act_select_inserted,
-            self.act_draw, self.act_redact, self.act_delete_object,
+            self.act_draw, self.act_redact, self.act_edit_existing_text, self.act_delete_object,
             self.act_save, self.act_save_as, self.act_print, self.act_prev, self.act_next,
             self.act_zoom_in, self.act_zoom_out, self.act_fit, self.act_fullscreen,
             self.act_check_token, self.act_sign, self.act_verify_signature,
@@ -2660,6 +2664,7 @@ class PDFReaderApp(QMainWindow):
         _set("act_insert_image",         "action.insert_image",   "Chèn ảnh")
         _set("act_draw",                 "action.draw",           "Vẽ tự do")
         _set("act_redact",               "action.redact",         "Xóa trắng")
+        _set("act_edit_existing_text",   "action.edit_existing",  "Sửa text gốc")
         _set("act_delete_object",        "action.delete_object",  "Xóa đối tượng")
         _set("act_select_inserted",      "action.select_object",  "Chọn & Xoay")
         _set("act_undo",                 "action.undo",           "Hoàn tác")
@@ -3344,13 +3349,24 @@ class PDFReaderApp(QMainWindow):
                 and event.modifiers() == (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)):
             self.toggle_fullscreen()
             return
-        if event.key() == Qt.Key.Key_Escape and self.search_panel.isVisible():
-            self.hide_search_panel()
-            return
-        if event.key() == Qt.Key.Key_Escape and self.is_fullscreen:
-            self.showNormal()
-            self.is_fullscreen = False
-            return
+        if event.key() == Qt.Key.Key_Escape:
+            if getattr(self, "viewer", None) and hasattr(self.viewer, "_web_view"):
+                self.viewer._web_view.page().runJavaScript("window.__3tExistingTextMode = false;")
+                if hasattr(self, "_existing_text_bridge"):
+                    from app.webchannel import unregister_webchannel_object
+                    unregister_webchannel_object(self.viewer._web_view, "editExistingTextBridge")
+                    self._existing_text_bridge = None
+            
+            if self.status.currentMessage().endswith("(Esc để hủy)"):
+                self.status.showMessage("", 0)
+                
+            if self.search_panel.isVisible():
+                self.hide_search_panel()
+                return
+            if self.is_fullscreen:
+                self.showNormal()
+                self.is_fullscreen = False
+                return
         super().keyPressEvent(event)
 
     # ------------------------------------------------------------------ #

@@ -235,6 +235,7 @@ def _build_overlay_pdf(width: float, height: float, ops: list[dict]) -> bytes:
     drew_anything = False
 
     for op in ops:
+        op_type = op.get("type")
         left, bottom, right, top = [float(v) for v in op.get("box", (0, 0, 0, 0))]
         box_width = max(1.0, right - left)
         box_height = max(1.0, top - bottom)
@@ -243,35 +244,61 @@ def _build_overlay_pdf(width: float, height: float, ops: list[dict]) -> bytes:
         # saved output visually aligned with the on-screen preview.
         rotation = -float(op.get("rotation", 0) or 0)
 
-        if op.get("type") == "text":
+        redact_box = op.get("redact_box") if op_type != "redact" else op.get("box")
+        if redact_box:
+            _draw_redaction_box(
+                c,
+                redact_box,
+                padding=float(op.get("redact_padding", 0.0) or 0.0),
+                fill=_rgb_tuple(op.get("fill_color", (1, 1, 1))),
+            )
+            drew_anything = True
+            if op_type == "redact":
+                continue
+
+        if op_type == "text":
             text = op.get("text", "")
             if not text:
                 continue
             font_size = float(op.get("font_size", 12))
-            font_name = _resolve_reportlab_font(bool(op.get("bold")))
+            font_name = _resolve_reportlab_font(bool(op.get("bold")), str(op.get("font_family", "")))
             color = _rgb_tuple(op.get("font_color", (0, 0, 0)))
-            _with_optional_rotation(
-                c,
-                left,
-                bottom,
-                box_width,
-                box_height,
-                rotation,
-                lambda: _draw_text_box(
+            baseline = op.get("baseline")
+            if baseline and not rotation:
+                bx, by = [float(v) for v in baseline[:2]]
+                _draw_single_line_text(
                     c,
                     text,
-                    left if not rotation else -box_width / 2,
-                    bottom if not rotation else -box_height / 2,
-                    box_width,
-                    box_height,
+                    bx,
+                    by,
                     font_size,
                     font_name=font_name,
                     color=color,
                     underline=bool(op.get("underline")),
-                ),
-            )
+                )
+            else:
+                _with_optional_rotation(
+                    c,
+                    left,
+                    bottom,
+                    box_width,
+                    box_height,
+                    rotation,
+                    lambda: _draw_text_box(
+                        c,
+                        text,
+                        left if not rotation else -box_width / 2,
+                        bottom if not rotation else -box_height / 2,
+                        box_width,
+                        box_height,
+                        font_size,
+                        font_name=font_name,
+                        color=color,
+                        underline=bool(op.get("underline")),
+                    ),
+                )
             drew_anything = True
-        elif op.get("type") == "image":
+        elif op_type == "image":
             image_path = op.get("image_path")
             if not image_path or not os.path.exists(image_path):
                 continue
@@ -295,7 +322,7 @@ def _build_overlay_pdf(width: float, height: float, ops: list[dict]) -> bytes:
                 ),
             )
             drew_anything = True
-        elif op.get("type") == "rect":
+        elif op_type == "rect":
             fill = _rgb_tuple(op.get("fill_color", (1, 1, 1)))
             stroke = _rgb_tuple(op.get("stroke_color", fill))
             c.setFillColorRGB(*fill)
@@ -308,6 +335,18 @@ def _build_overlay_pdf(width: float, height: float, ops: list[dict]) -> bytes:
 
     c.save()
     return buffer.getvalue()
+
+
+def _draw_redaction_box(c, box, *, padding: float = 0.0,
+                        fill: tuple[float, float, float] = (1, 1, 1)) -> None:
+    left, bottom, right, top = [float(v) for v in box]
+    left -= padding
+    bottom -= padding
+    right += padding
+    top += padding
+    c.setFillColorRGB(*fill)
+    c.setStrokeColorRGB(*fill)
+    c.rect(left, bottom, max(1.0, right - left), max(1.0, top - bottom), stroke=0, fill=1)
 
 
 def _build_watermark_overlay(width: float, height: float, text: str,
@@ -338,17 +377,19 @@ def _rgb_tuple(value) -> tuple[float, float, float]:
     return tuple(max(0.0, min(1.0, float(v))) for v in (r, g, b))
 
 
-def _resolve_reportlab_font(bold: bool = False) -> str:
+def _resolve_reportlab_font(bold: bool = False, family: str = "") -> str:
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
     fallback = "Helvetica-Bold" if bold else "Helvetica"
     try:
+        import hashlib
         from packages.platform.fonts import get_vietnamese_font_path
-        font_path = get_vietnamese_font_path(bold=bold)
+        font_path = get_vietnamese_font_path(bold=bold, family=family)
         if not font_path:
             return fallback
-        font_name = "ThreeTUnicodeBold" if bold else "ThreeTUnicode"
+        suffix = hashlib.md5(font_path.encode("utf-8")).hexdigest()[:8]
+        font_name = f"ThreeTUnicode{'Bold' if bold else ''}_{suffix}"
         if font_name not in pdfmetrics.getRegisteredFontNames():
             pdfmetrics.registerFont(TTFont(font_name, font_path))
         return font_name
@@ -380,7 +421,7 @@ def _draw_text_box(c, text: str, left: float, bottom: float, width: float, heigh
     of the previous character-count heuristic.
     """
     leading = max(font_size * 1.2, font_size + 2)
-    y = bottom + height - font_size
+    y = max(bottom, bottom + height - font_size)
     min_y = bottom
     c.setFillColorRGB(*color)
     c.setStrokeColorRGB(*color)
@@ -418,3 +459,17 @@ def _draw_text_box(c, text: str, left: float, bottom: float, width: float, heigh
             y -= leading
         if raw_line == "":
             y -= leading
+
+
+def _draw_single_line_text(c, text: str, x: float, baseline_y: float,
+                           font_size: float, *, font_name: str = "Helvetica",
+                           color: tuple[float, float, float] = (0, 0, 0),
+                           underline: bool = False) -> None:
+    c.setFillColorRGB(*color)
+    c.setStrokeColorRGB(*color)
+    c.setFont(font_name, font_size)
+    line = str(text).splitlines()[0] if str(text).splitlines() else str(text)
+    c.drawString(x, baseline_y, line)
+    if underline:
+        text_width = c.stringWidth(line, font_name, font_size)
+        c.line(x, baseline_y - max(1.0, font_size * 0.12), x + text_width, baseline_y - max(1.0, font_size * 0.12))

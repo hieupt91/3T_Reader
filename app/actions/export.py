@@ -71,10 +71,16 @@ class _ExportWorker(QObject):
         try:
             from packages.document_core.converter import (
                 convert_pdf_to_docx,
+                convert_pdf_to_docx_layout,
+                convert_pdf_to_docx_structured,
                 convert_pdf_to_xlsx,
             )
             if self._task == "docx":
                 convert_pdf_to_docx(self._pdf_path, self._output_path, progress_cb=self._progress)
+            elif self._task == "docx_layout":
+                convert_pdf_to_docx_layout(self._pdf_path, self._output_path, progress_cb=self._progress)
+            elif self._task == "docx_structured":
+                convert_pdf_to_docx_structured(self._pdf_path, self._output_path, progress_cb=self._progress)
             else:
                 convert_pdf_to_xlsx(self._pdf_path, self._output_path, progress_cb=self._progress)
 
@@ -262,10 +268,66 @@ def _run_conversion(window, task: str, pdf_path: str, output_path: str):
 @require_document(show_message=True)
 def export_pdf_to_word(window):
     """Chuyển đổi PDF hiện tại sang Word (.docx)."""
+    from packages.qt_compat.QtWidgets import QDialog, QVBoxLayout, QRadioButton, QPushButton, QHBoxLayout, QLabel, QButtonGroup
+    
     pdf_path = window.current_path
     if not pdf_path or not os.path.exists(pdf_path):
         show_warning(window, "Không tìm thấy tệp", "Tệp PDF không tồn tại.")
         return
+
+    dlg = QDialog(window)
+    dlg.setWindowTitle("Tuỳ chọn xuất Word")
+    dlg.resize(400, 250)
+    layout = QVBoxLayout(dlg)
+    
+    lbl = QLabel("Chọn chế độ chuyển đổi:")
+    lbl.setStyleSheet("font-weight: bold; font-size: 14px;")
+    layout.addWidget(lbl)
+    
+    btn_fast = QRadioButton("Chuyển đổi nhanh (Giữ Layout tĩnh - pdf2docx)")
+    btn_fast.setChecked(True)
+    btn_layout_mode = QRadioButton("Giữ nguyên Layout (Lưu dưới dạng ảnh - an toàn nhất)")
+    btn_structured = QRadioButton("Trích xuất cấu trúc Text (Phù hợp chỉnh sửa nhiều - pdfplumber)")
+    
+    group = QButtonGroup(dlg)
+    group.addButton(btn_fast)
+    group.addButton(btn_layout_mode)
+    group.addButton(btn_structured)
+    
+    layout.addWidget(btn_fast)
+    layout.addWidget(btn_layout_mode)
+    layout.addWidget(btn_structured)
+    
+    lbl_desc = QLabel(
+        "Lưu ý:\n"
+        "- Chuyển đổi nhanh: Phù hợp file ít phức tạp.\n"
+        "- Giữ nguyên Layout: Mỗi trang là một ảnh trong Word, 100% không lỗi font.\n"
+        "- Cấu trúc Text: Dễ copy và chỉnh sửa text/bảng nhất, không giữ layout."
+    )
+    lbl_desc.setStyleSheet("color: #666; font-size: 11px;")
+    lbl_desc.setWordWrap(True)
+    layout.addWidget(lbl_desc)
+    
+    button_box_layout = QHBoxLayout()
+    btn_ok = QPushButton("Xuất file")
+    btn_cancel = QPushButton("Hủy")
+    button_box_layout.addStretch()
+    button_box_layout.addWidget(btn_cancel)
+    button_box_layout.addWidget(btn_ok)
+    
+    layout.addLayout(button_box_layout)
+    
+    btn_ok.clicked.connect(dlg.accept)
+    btn_cancel.clicked.connect(dlg.reject)
+    
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return
+        
+    mode = "docx"
+    if btn_layout_mode.isChecked():
+        mode = "docx_layout"
+    elif btn_structured.isChecked():
+        mode = "docx_structured"
 
     default_name = os.path.splitext(os.path.basename(pdf_path))[0] + ".docx"
     out_path, _ = QFileDialog.getSaveFileName(
@@ -276,7 +338,7 @@ def export_pdf_to_word(window):
     if not out_path.lower().endswith(".docx"):
         out_path += ".docx"
 
-    _run_conversion(window, "docx", pdf_path, out_path)
+    _run_conversion(window, mode, pdf_path, out_path)
 
 
 @require_document(show_message=True)

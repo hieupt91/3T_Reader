@@ -51,10 +51,15 @@ _LINUX_SEARCH_DIRS = [
 ]
 
 
-def _windows_font_path(bold: bool = False) -> str | None:
+def _windows_font_path(bold: bool = False, family: str = "") -> str | None:
     import os
+    family = (family or "").lower()
     fonts_dir = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "Fonts"
     candidates = _WINDOWS_BOLD_CANDIDATES if bold else _WINDOWS_CANDIDATES
+
+    if "times" in family or "serif" in family:
+        candidates = ["timesbd.ttf", "times.ttf"] if bold else ["times.ttf"]
+
     for name in candidates:
         path = fonts_dir / name
         if path.exists():
@@ -76,12 +81,17 @@ def get_system_font_path(name: str = "", *, bold: bool = False) -> str | None:
                 stem = path.stem.lower()
                 if wanted in stem:
                     return str(path)
-        return _windows_font_path(bold)
-    return get_vietnamese_font_path(bold=bold)
+        return _windows_font_path(bold, family=name)
+    return get_vietnamese_font_path(bold=bold, family=name)
 
 
-def _macos_font_path() -> str | None:
-    for name in _MACOS_CANDIDATES:
+def _macos_font_path(family: str = "") -> str | None:
+    family = (family or "").lower()
+    candidates = _MACOS_CANDIDATES
+    if "times" in family or "serif" in family:
+        candidates = ["Times New Roman.ttf", "Georgia.ttf"] + candidates
+
+    for name in candidates:
         for d in _MACOS_SEARCH_DIRS:
             path = d / name
             if path.exists():
@@ -89,8 +99,13 @@ def _macos_font_path() -> str | None:
     return None
 
 
-def _linux_font_path() -> str | None:
-    for name in _LINUX_CANDIDATES:
+def _linux_font_path(family: str = "") -> str | None:
+    family = (family or "").lower()
+    candidates = _LINUX_CANDIDATES
+    if "times" in family or "serif" in family:
+        candidates = ["LiberationSerif-Regular.ttf", "FreeSerif.ttf"] + candidates
+
+    for name in candidates:
         for d in _LINUX_SEARCH_DIRS:
             if not d.exists():
                 continue
@@ -99,10 +114,10 @@ def _linux_font_path() -> str | None:
     return None
 
 
-def get_vietnamese_font_path(bold: bool = False) -> str | None:
+def get_vietnamese_font_path(bold: bool = False, family: str = "") -> str | None:
     """Return path to a Vietnamese-compatible font installed on this OS, or None."""
     if sys.platform == "win32":
-        return _windows_font_path(bold)
+        return _windows_font_path(bold, family)
     if sys.platform == "darwin":
-        return _macos_font_path()
-    return _linux_font_path()
+        return _macos_font_path(family)
+    return _linux_font_path(family)
