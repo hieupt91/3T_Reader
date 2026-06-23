@@ -3,7 +3,7 @@ import sys
 import gc
 import json
 
-from packages.qt_compat.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog
+from packages.qt_compat.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog, QPageSetupDialog
 from packages.qt_compat.QtWidgets import (
     QMainWindow,
     QToolBar,
@@ -1016,33 +1016,81 @@ class PDFReaderApp(QMainWindow):
         preview_viewer = PDFViewerWidget(parent=dialog)
         preview_viewer.load_pdf(pdf_path, zoom="page-width", page=current_page)
 
-        btn_prev = QPushButton("‹")
-        btn_next = QPushButton("›")
-        page_spin = QSpinBox()
-        page_spin.setRange(1, 1)
-        page_spin.setValue(current_page)
-        page_total = QLabel("/ ?")
+        btn_overview = QPushButton("▦")
+        btn_overview.setToolTip("Xem tổng quan tất cả các trang")
+        btn_single = QPushButton("□")
+        btn_single.setToolTip("Xem một trang")
+        btn_facing = QPushButton("□□")
+        btn_facing.setToolTip("Xem hai trang")
+        btn_fit_width = QPushButton("↔")
+        btn_fit_width.setToolTip("Vừa chiều rộng")
+        btn_fit_page = QPushButton("⛶")
+        btn_fit_page.setToolTip("Vừa trang")
         btn_zoom_out = QPushButton("-")
+        btn_zoom_out.setToolTip("Thu nhỏ")
         zoom_spin = QSpinBox()
         zoom_spin.setRange(25, 400)
         zoom_spin.setValue(100)
         zoom_spin.setSuffix("%")
         btn_zoom_in = QPushButton("+")
-        btn_fit_width = QPushButton("Vừa rộng")
+        btn_zoom_in.setToolTip("Phóng to")
+        btn_prev = QPushButton("←")
+        btn_prev.setToolTip("Trang trước")
+        btn_next = QPushButton("→")
+        btn_next.setToolTip("Trang sau")
+        page_spin = QSpinBox()
+        page_spin.setRange(1, 1)
+        page_spin.setValue(current_page)
+        page_total = QLabel("/ ?")
+        btn_page_setup = QPushButton("⚙")
+        btn_page_setup.setToolTip("Thiết lập trang")
+        btn_portrait = QPushButton("Dọc")
+        btn_portrait.setToolTip("Hướng dọc")
+        btn_landscape = QPushButton("Ngang")
+        btn_landscape.setToolTip("Hướng ngang")
         btn_print = QPushButton("In...")
+        btn_print.setToolTip("In tài liệu")
         btn_close = QPushButton("Đóng")
+        btn_close.setToolTip("Đóng xem trước")
+        for button in (
+            btn_overview,
+            btn_single,
+            btn_facing,
+            btn_fit_width,
+            btn_fit_page,
+            btn_zoom_out,
+            btn_zoom_in,
+            btn_prev,
+            btn_next,
+            btn_page_setup,
+            btn_portrait,
+            btn_landscape,
+            btn_print,
+            btn_close,
+        ):
+            button.setMinimumHeight(28)
+            button.setMinimumWidth(34)
 
         toolbar = QHBoxLayout()
         toolbar.setSpacing(6)
+        toolbar.addWidget(btn_overview)
+        toolbar.addWidget(btn_single)
+        toolbar.addWidget(btn_facing)
+        toolbar.addSpacing(10)
+        toolbar.addWidget(btn_fit_width)
+        toolbar.addWidget(btn_fit_page)
+        toolbar.addWidget(btn_zoom_out)
+        toolbar.addWidget(zoom_spin)
+        toolbar.addWidget(btn_zoom_in)
+        toolbar.addSpacing(10)
         toolbar.addWidget(btn_prev)
         toolbar.addWidget(page_spin)
         toolbar.addWidget(page_total)
         toolbar.addWidget(btn_next)
-        toolbar.addSpacing(12)
-        toolbar.addWidget(btn_zoom_out)
-        toolbar.addWidget(zoom_spin)
-        toolbar.addWidget(btn_zoom_in)
-        toolbar.addWidget(btn_fit_width)
+        toolbar.addSpacing(10)
+        toolbar.addWidget(btn_page_setup)
+        toolbar.addWidget(btn_portrait)
+        toolbar.addWidget(btn_landscape)
         toolbar.addStretch(1)
         toolbar.addWidget(btn_print)
         toolbar.addWidget(btn_close)
@@ -1093,6 +1141,45 @@ class PDFReaderApp(QMainWindow):
                 """
             )
 
+        def _fit_page():
+            _run_pdfjs(
+                """
+                (function() {
+                    var app = window.PDFViewerApplication;
+                    if (!app || !app.pdfViewer) return;
+                    app.pdfViewer.currentScaleValue = "page-fit";
+                })()
+                """
+            )
+
+        def _set_preview_mode(mode: str):
+            scripts = {
+                "overview": """
+                    app.pdfViewer.spreadMode = 0;
+                    app.pdfViewer.scrollMode = 2;
+                    app.pdfViewer.currentScaleValue = "page-fit";
+                """,
+                "single": """
+                    app.pdfViewer.spreadMode = 0;
+                    app.pdfViewer.scrollMode = 3;
+                    app.pdfViewer.currentScaleValue = "page-fit";
+                """,
+                "facing": """
+                    app.pdfViewer.scrollMode = 0;
+                    app.pdfViewer.spreadMode = 1;
+                    app.pdfViewer.currentScaleValue = "page-fit";
+                """,
+            }
+            _run_pdfjs(
+                f"""
+                (function() {{
+                    var app = window.PDFViewerApplication;
+                    if (!app || !app.pdfViewer) return;
+                    {scripts.get(mode, scripts["single"])}
+                }})()
+                """
+            )
+
         def _update_page(page: int, total: int):
             total = max(1, int(total or page or 1))
             page = max(1, min(total, int(page or 1)))
@@ -1113,18 +1200,36 @@ class PDFReaderApp(QMainWindow):
             finally:
                 zoom_spin.blockSignals(False)
 
+        printer_holder = {"printer": self._configured_pdf_printer(pdf_path, current_page=current_page)}
+
+        def _page_setup():
+            QPageSetupDialog(printer_holder["printer"], dialog).exec()
+
+        def _set_orientation(orientation):
+            try:
+                printer_holder["printer"].setPageOrientation(orientation)
+            except Exception:
+                pass
+
         preview_viewer.page_changed.connect(_update_page)
         preview_viewer.zoom_changed.connect(_update_zoom)
+        btn_overview.clicked.connect(lambda: _set_preview_mode("overview"))
+        btn_single.clicked.connect(lambda: _set_preview_mode("single"))
+        btn_facing.clicked.connect(lambda: _set_preview_mode("facing"))
+        btn_fit_width.clicked.connect(_fit_width)
+        btn_fit_page.clicked.connect(_fit_page)
         page_spin.valueChanged.connect(_set_page)
         zoom_spin.editingFinished.connect(lambda: _set_zoom(zoom_spin.value()))
         btn_prev.clicked.connect(lambda: _set_page(page_spin.value() - 1))
         btn_next.clicked.connect(lambda: _set_page(page_spin.value() + 1))
         btn_zoom_out.clicked.connect(lambda: _set_zoom(max(25, int(zoom_spin.value() / 1.1))))
         btn_zoom_in.clicked.connect(lambda: _set_zoom(min(400, int(zoom_spin.value() * 1.1))))
-        btn_fit_width.clicked.connect(_fit_width)
+        btn_page_setup.clicked.connect(_page_setup)
+        btn_portrait.clicked.connect(lambda: _set_orientation(QPageLayout.Orientation.Portrait))
+        btn_landscape.clicked.connect(lambda: _set_orientation(QPageLayout.Orientation.Landscape))
 
         def _run_print():
-            printer = self._configured_pdf_printer(pdf_path, current_page=page_spin.value())
+            printer = printer_holder["printer"]
             print_dialog = QPrintDialog(printer, dialog)
             if print_dialog.exec() == QDialog.DialogCode.Accepted:
                 self._do_print_pages(printer, pdf_path, show_progress=True)
