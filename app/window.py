@@ -963,7 +963,7 @@ class PDFReaderApp(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def print_current_pdf(self):
-        """Mo xem truoc khi in bang QPrintPreviewDialog."""
+        """Open a PDF.js preview before printing."""
         state = self._active_state()
         if not state:
             show_warning(self, "Chưa mở tệp", "Vui lòng mở tệp PDF trước khi in.")
@@ -974,6 +974,20 @@ class PDFReaderApp(QMainWindow):
             show_warning(self, "Lỗi", "Không tìm thấy tệp PDF.")
             return
 
+        self._open_pdfjs_print_preview(pdf_path)
+
+    def _current_viewer_page(self) -> int:
+        viewer = getattr(self, "viewer", None)
+        try:
+            if viewer and hasattr(viewer, "get_current_page"):
+                return max(1, int(viewer.get_current_page() or 1))
+            if viewer and hasattr(viewer, "_current_page"):
+                return max(1, int(getattr(viewer, "_current_page", 1) or 1))
+        except Exception:
+            pass
+        return 1
+
+    def _configured_pdf_printer(self, pdf_path: str, *, current_page: int | None = None) -> QPrinter:
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         try:
             printer.setResolution(600)
@@ -982,18 +996,53 @@ class PDFReaderApp(QMainWindow):
         try:
             pdf = get_pdf_engine().open(pdf_path)
             try:
-                current_page = 1
-                viewer = getattr(self, "viewer", None)
-                if viewer and hasattr(viewer, "get_current_page"):
-                    current_page = max(1, int(viewer.get_current_page() or 1))
-                elif viewer and hasattr(viewer, "_current_page"):
-                    current_page = max(1, int(getattr(viewer, "_current_page", 1) or 1))
-                page_w_pt, page_h_pt = pdf.page_size(current_page)
+                page_w_pt, page_h_pt = pdf.page_size(current_page or self._current_viewer_page())
                 printer.setPageOrientation(self._page_orientation_for_pdf_size(page_w_pt, page_h_pt))
             finally:
                 pdf.close()
         except Exception:
             pass
+        return printer
+
+    def _open_pdfjs_print_preview(self, pdf_path: str):
+        from packages.qt_compat.QtWidgets import QPushButton
+
+        current_page = self._current_viewer_page()
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Xem trước khi in")
+        dialog.resize(1120, 780)
+        dialog.setMinimumSize(900, 620)
+
+        preview_viewer = PDFViewerWidget(parent=dialog)
+        preview_viewer.load_pdf(pdf_path, zoom="page-width", page=current_page)
+
+        btn_print = QPushButton("In...")
+        btn_close = QPushButton("Đóng")
+
+        controls = QHBoxLayout()
+        controls.addStretch(1)
+        controls.addWidget(btn_print)
+        controls.addWidget(btn_close)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+        layout.addWidget(preview_viewer, 1)
+        layout.addLayout(controls)
+
+        def _run_print():
+            printer = self._configured_pdf_printer(pdf_path, current_page=current_page)
+            print_dialog = QPrintDialog(printer, dialog)
+            if print_dialog.exec() == QDialog.DialogCode.Accepted:
+                self._do_print_pages(printer, pdf_path, show_progress=True)
+
+        btn_print.clicked.connect(_run_print)
+        btn_close.clicked.connect(dialog.accept)
+        dialog.exec()
+
+    def _open_qt_print_preview(self, pdf_path: str):
+        current_page = self._current_viewer_page()
+        printer = self._configured_pdf_printer(pdf_path, current_page=current_page)
 
         preview = QPrintPreviewDialog(printer, self)
         preview.setWindowTitle("Xem trước khi in")

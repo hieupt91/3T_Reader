@@ -181,6 +181,14 @@ def test_print_preview_preserves_target_page_without_polling_timer():
     assert "setCurrentPage(pg)" in source
 
 
+def test_print_entry_uses_pdfjs_preview_for_screen_clarity():
+    source = _read("app/window.py")
+    assert "self._open_pdfjs_print_preview(pdf_path)" in source
+    assert "preview_viewer = PDFViewerWidget(parent=dialog)" in source
+    assert 'preview_viewer.load_pdf(pdf_path, zoom="page-width", page=current_page)' in source
+    assert "def _open_qt_print_preview(" in source
+
+
 def test_print_loop_updates_orientation_per_page():
     source = _read("app/window.py")
     assert "desired_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)" in source
