@@ -189,18 +189,22 @@ def test_print_entry_uses_pdfjs_preview_for_screen_clarity():
     assert "page_spin = QSpinBox()" in source
     assert "zoom_spin = QSpinBox()" in source
     assert "def _preview_icon_button(" in source
+    assert "button = QToolButton(dialog)" in source
     assert 'svg_icon(icon_name, size=18, color=color)' in source
+    assert "button.setFixedSize(34, 30)" in source
+    assert "preview_button_style" in source
     assert 'btn_prev = _preview_icon_button("chevron_left.svg"' in source
     assert 'btn_next = _preview_icon_button("chevron_right.svg"' in source
-    assert 'btn_overview = _preview_icon_button("documents.svg"' in source
-    assert 'btn_single = _preview_icon_button("fit_page.svg"' in source
-    assert 'btn_facing = _preview_icon_button("sidebar_panel.svg"' in source
-    assert 'btn_fit_width = _preview_icon_button("fullscreen.svg"' in source
+    assert 'btn_overview = _preview_icon_button("preview_overview.svg"' in source
+    assert 'btn_single = _preview_icon_button("preview_single_page.svg"' in source
+    assert 'btn_facing = _preview_icon_button("preview_facing_pages.svg"' in source
+    assert 'btn_fit_width = _preview_icon_button("fit_width.svg"' in source
     assert 'btn_fit_page = _preview_icon_button("fit_page.svg"' in source
     assert 'btn_page_setup = _preview_icon_button("settings.svg"' in source
-    assert 'btn_print.setIcon(svg_icon("print.svg"' in source
-    assert "btn_portrait = QPushButton" in source
-    assert "btn_landscape = QPushButton" in source
+    assert 'btn_portrait = _preview_icon_button("page_portrait.svg"' in source
+    assert 'btn_landscape = _preview_icon_button("page_landscape.svg"' in source
+    assert 'btn_print = _preview_icon_button("print.svg"' in source
+    assert 'btn_close = _preview_icon_button("close_preview.svg"' in source
     assert "QPageSetupDialog(printer_holder" in source
     assert "app.pdfViewer.scrollMode = 2" in source
     assert "app.pdfViewer.scrollMode = 3" in source

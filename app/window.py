@@ -1005,8 +1005,6 @@ class PDFReaderApp(QMainWindow):
         return printer
 
     def _open_pdfjs_print_preview(self, pdf_path: str):
-        from packages.qt_compat.QtWidgets import QPushButton
-
         current_page = self._current_viewer_page()
         dialog = QDialog(self)
         dialog.setWindowTitle("Xem trước khi in")
@@ -1016,17 +1014,27 @@ class PDFReaderApp(QMainWindow):
         preview_viewer = PDFViewerWidget(parent=dialog)
         preview_viewer.load_pdf(pdf_path, zoom="page-width", page=current_page)
 
-        def _preview_icon_button(icon_name: str, tooltip: str, *, color: str = "#5b7cfa") -> QPushButton:
-            button = QPushButton("")
+        preview_button_style = (
+            "QToolButton{border:1px solid transparent;border-radius:6px;padding:4px;"
+            "background:transparent;}"
+            "QToolButton:hover{background:#eef3ff;border-color:#c8d6ff;}"
+            "QToolButton:pressed{background:#dce7ff;border-color:#9fb8ff;}"
+        )
+
+        def _preview_icon_button(icon_name: str, tooltip: str, *, color: str = "#5b7cfa") -> QToolButton:
+            button = QToolButton(dialog)
+            button.setAutoRaise(True)
             button.setIcon(svg_icon(icon_name, size=18, color=color))
             button.setIconSize(QSize(18, 18))
             button.setToolTip(tooltip)
+            button.setFixedSize(34, 30)
+            button.setStyleSheet(preview_button_style)
             return button
 
-        btn_overview = _preview_icon_button("documents.svg", "Xem tổng quan tất cả các trang", color="#8b8fb8")
-        btn_single = _preview_icon_button("fit_page.svg", "Xem một trang", color="#8b8fb8")
-        btn_facing = _preview_icon_button("sidebar_panel.svg", "Xem hai trang", color="#8b8fb8")
-        btn_fit_width = _preview_icon_button("fullscreen.svg", "Vừa chiều rộng", color="#3b82f6")
+        btn_overview = _preview_icon_button("preview_overview.svg", "Xem tổng quan tất cả các trang", color="#6f7599")
+        btn_single = _preview_icon_button("preview_single_page.svg", "Xem một trang", color="#6f7599")
+        btn_facing = _preview_icon_button("preview_facing_pages.svg", "Xem hai trang", color="#6f7599")
+        btn_fit_width = _preview_icon_button("fit_width.svg", "Vừa chiều rộng", color="#3b82f6")
         btn_fit_page = _preview_icon_button("fit_page.svg", "Vừa trang", color="#3b82f6")
         btn_zoom_out = _preview_icon_button("zoom_out.svg", "Thu nhỏ", color="#159570")
         zoom_spin = QSpinBox()
@@ -1041,18 +1049,10 @@ class PDFReaderApp(QMainWindow):
         page_spin.setValue(current_page)
         page_total = QLabel("/ ?")
         btn_page_setup = _preview_icon_button("settings.svg", "Thiết lập trang", color="#8b8fb8")
-        btn_portrait = QPushButton("Dọc")
-        btn_portrait.setToolTip("Hướng dọc")
-        btn_landscape = QPushButton("Ngang")
-        btn_landscape.setToolTip("Hướng ngang")
-        btn_print = QPushButton("In...")
-        btn_print.setIcon(svg_icon("print.svg", size=18, color="#0f8f5f"))
-        btn_print.setIconSize(QSize(18, 18))
-        btn_print.setToolTip("In tài liệu")
-        btn_close = QPushButton("Đóng")
-        btn_close.setIcon(svg_icon("delete.svg", size=16, color="#d24b4b"))
-        btn_close.setIconSize(QSize(16, 16))
-        btn_close.setToolTip("Đóng xem trước")
+        btn_portrait = _preview_icon_button("page_portrait.svg", "Hướng dọc", color="#8b8fb8")
+        btn_landscape = _preview_icon_button("page_landscape.svg", "Hướng ngang", color="#8b8fb8")
+        btn_print = _preview_icon_button("print.svg", "In tài liệu", color="#0f8f5f")
+        btn_close = _preview_icon_button("close_preview.svg", "Đóng xem trước", color="#d24b4b")
         for button in (
             btn_overview,
             btn_single,
