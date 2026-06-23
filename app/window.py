@@ -1098,6 +1098,16 @@ class PDFReaderApp(QMainWindow):
         except Exception:
             return False
 
+    @staticmethod
+    def _print_preview_render_scale(page_w_pt: float, page_h_pt: float, printer_resolution: int, *, large_job: bool) -> float:
+        """Bias preview rendering toward clarity; print preview can tolerate extra pixels."""
+        page_pixels = max(1.0, float(page_w_pt or 0) * float(page_h_pt or 0))
+        dpi_scale = max(1.0, float(printer_resolution or 300) / 72.0)
+        job_cap = 3.5 if large_job else 5.5
+        pixel_cap = 14_000_000 if large_job else 28_000_000
+        scale_by_pixels = (pixel_cap / page_pixels) ** 0.5
+        return min(job_cap, max(dpi_scale, scale_by_pixels, 1.0))
+
     def _do_print_pages(self, printer: QPrinter, pdf_path: str, show_progress: bool = True, preview_dlg=None):
         """Vẽ từng trang PDF lên printer — chạy trên main thread qua paintRequested.
 
@@ -1135,7 +1145,6 @@ class PDFReaderApp(QMainWindow):
             except OSError:
                 pass
             is_large_job = file_size >= 128 * 1024 * 1024 or total > 200
-            max_render_pixels = 5_000_000 if is_large_job else 12_000_000
 
             progress = None
             if show_progress:
@@ -1187,11 +1196,11 @@ class PDFReaderApp(QMainWindow):
                 page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
                 w = int(page_rect.width())
                 h = int(page_rect.height())
-                page_pixels = max(1.0, page_w_pt * page_h_pt)
-                scale_by_pixels = (max_render_pixels / page_pixels) ** 0.5
-                target_scale = min(
-                    2.0 if is_large_job else 4.0,
-                    max(1.0, scale_by_pixels),
+                target_scale = self._print_preview_render_scale(
+                    page_w_pt,
+                    page_h_pt,
+                    printer.resolution(),
+                    large_job=is_large_job,
                 )
 
                 rendered = pdf.render_page_rgb(page_num + 1, scale=target_scale)

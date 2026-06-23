@@ -647,6 +647,11 @@ Ket qua:
 - `py_compile` pass.
 - 2 test print contract moi: pass.
 
+Cap nhat them:
+
+- Preview render nay uu tien do net hon thay vi tiet kiem pixel qua muc.
+- Moi trang in preview se tinh `target_scale` theo DPI may in va gioi han pixel cao hon de tranh hien thi bi mem khi zoom.
+
 ### Phase 6 - Chat AI, TTS, Whats New, UI Labels
 
 Trang thai xac nhan:

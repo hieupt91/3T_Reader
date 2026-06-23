@@ -188,6 +188,14 @@ def test_print_loop_updates_orientation_per_page():
     assert "printer.newPage()" in source
 
 
+def test_print_preview_prefers_higher_render_scale_for_clarity():
+    source = _read("app/window.py")
+    assert "def _print_preview_render_scale(" in source
+    assert "dpi_scale = max(1.0, float(printer_resolution or 300) / 72.0)" in source
+    assert "job_cap = 3.5 if large_job else 5.5" in source
+    assert "pixel_cap = 14_000_000 if large_job else 28_000_000" in source
+
+
 def test_ai_chat_session_persists_history_to_disk():
     source = _read("packages/ai/chat_pdf.py")
     assert "get_cache_dir()" in source
