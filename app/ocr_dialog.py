@@ -190,6 +190,9 @@ class OCRDialog(QDialog):
         self._thread = threading.Thread(target=self._worker.run, daemon=True)
         self._thread.start()
 
+    def is_running(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
     def _on_progress(self, done: int, latest_text_block: str):
         self._progress.setValue(done)
         self._lbl_info.setText(f"Đang xử lý trang {done}/{len(self._pages)}…")
@@ -206,6 +209,11 @@ class OCRDialog(QDialog):
     def _on_finished(self, full_text: str, total: int):
         print(f"[OCR] finished pages={total} chars={len(full_text or '')}", flush=True)
         self._final_text = full_text
+        try:
+            from packages.ai.chat_pdf import save_ocr_text_cache
+            save_ocr_text_cache(self._pdf_path, full_text)
+        except Exception:
+            pass
         words = len(full_text.split()) if full_text else 0
         self._lbl_info.setObjectName("info")
         self._lbl_info.setText(

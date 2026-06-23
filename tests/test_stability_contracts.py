@@ -236,11 +236,21 @@ def test_print_preview_prefers_higher_render_scale_for_clarity():
 
 def test_ai_chat_session_persists_history_to_disk():
     source = _read("packages/ai/chat_pdf.py")
+    dialog_source = _read("app/ai_chat_dialog.py")
+    ocr_source = _read("app/ocr_dialog.py")
     assert "get_cache_dir()" in source
     assert "_resolve_history_path" in source
     assert "_load_history" in source
     assert "_save_history" in source
     assert "self._history_path.unlink(missing_ok=True)" in source
+    assert "history_identity_path" in source
+    assert "_context_for_question" in source
+    assert "_record_user_question(question)" in source
+    assert "save_ocr_text_cache" in source
+    assert "load_ocr_text_cache" in source
+    assert "PDFChatSession(self._pdf_path, history_identity_path=self._history_identity_path)" in dialog_source
+    assert "self._rebuild_chat()" in dialog_source
+    assert "save_ocr_text_cache(self._pdf_path, full_text)" in ocr_source
 
 
 def test_tts_dialog_uses_disk_cache_and_save_audio_action():

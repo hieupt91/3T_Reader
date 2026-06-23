@@ -236,9 +236,12 @@ def _raise_active_ocr_dialog(window) -> bool:
     if existing is None:
         return False
     try:
-        if hasattr(existing, "isVisible") and not existing.isVisible():
+        running = bool(getattr(existing, "is_running", lambda: False)())
+        if hasattr(existing, "isVisible") and not existing.isVisible() and not running:
             window._active_ocr_dialog = None
             return False
+        if hasattr(existing, "show"):
+            existing.show()
         existing.raise_()
         existing.activateWindow()
         window.status.showMessage("OCR dang chay, vui long cho hoac dong cua so OCR hien tai.", 4000)

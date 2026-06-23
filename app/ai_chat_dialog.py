@@ -125,7 +125,7 @@ QFrame#divider { background: #E2E8F0; }
 class AIChatDialog(QDialog):
     """Dialog chat với PDF — non-modal, giữ nguyên khi đọc."""
 
-    def __init__(self, parent, pdf_path: str):
+    def __init__(self, parent, pdf_path: str, history_identity_path: str | None = None):
         super().__init__(parent)
         self.setWindowTitle("Chat với PDF — AI Assistant")
         self.setModal(False)
@@ -135,7 +135,9 @@ class AIChatDialog(QDialog):
         self.setStyleSheet(self._theme["dialog_style"])
 
         self._pdf_path = pdf_path
-        self._session  = None
+        self._history_identity_path = history_identity_path or pdf_path
+        from packages.ai.chat_pdf import PDFChatSession
+        self._session = PDFChatSession(self._pdf_path, history_identity_path=self._history_identity_path)
         self._busy     = False
         self._request_seq = 0
         self._active_request_id = 0
@@ -143,10 +145,7 @@ class AIChatDialog(QDialog):
         self._task_worker = None
 
         self._build_ui()
-        self._append_system_msg(
-            f"Đã tải tài liệu: <i>{pdf_path}</i><br>"
-            "Hãy đặt câu hỏi về nội dung tài liệu."
-        )
+        self._rebuild_chat()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -248,7 +247,7 @@ class AIChatDialog(QDialog):
 
         if self._session is None:
             from packages.ai.chat_pdf import PDFChatSession
-            self._session = PDFChatSession(self._pdf_path)
+            self._session = PDFChatSession(self._pdf_path, history_identity_path=self._history_identity_path)
 
         self._input.clear()
         self._append_html(self._theme["user"].format(text=self._escape(question)))
@@ -348,12 +347,15 @@ class AIChatDialog(QDialog):
             "Lịch sử đã được xóa. Hãy đặt câu hỏi mới."
         )
 
-    def set_pdf(self, pdf_path: str):
+    def set_pdf(self, pdf_path: str, history_identity_path: str | None = None):
         """Cập nhật khi PDF thay đổi — tạo session mới."""
-        if pdf_path == self._pdf_path:
+        identity_path = history_identity_path or pdf_path
+        if pdf_path == self._pdf_path and identity_path == self._history_identity_path:
             return
         self._pdf_path = pdf_path
-        self._session  = None
+        self._history_identity_path = identity_path
+        from packages.ai.chat_pdf import PDFChatSession
+        self._session = PDFChatSession(self._pdf_path, history_identity_path=self._history_identity_path)
         self._active_request_id = self._request_seq + 1
         self._request_seq = self._active_request_id
         self._busy = False
@@ -361,10 +363,7 @@ class AIChatDialog(QDialog):
         self._chat_area.clear()
         self._lbl_status.setStyleSheet("")
         self._lbl_status.setText("Sẵn sàng.")
-        self._append_system_msg(
-            f"Tài liệu đã thay đổi: <i>{pdf_path}</i><br>"
-            "Session mới được tạo. Hãy đặt câu hỏi."
-        )
+        self._rebuild_chat()
 
     def closeEvent(self, event):
         event.ignore()

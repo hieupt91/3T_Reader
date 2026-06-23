@@ -43,17 +43,18 @@ def open_chat_dialog(window):
         return
 
     pdf_path = _current_pdf_path(window)
+    history_identity_path = _current_history_identity_path(window)
 
     existing = getattr(window, "_ai_chat_dialog", None)
     if existing is not None:
-        existing.set_pdf(pdf_path)
+        existing.set_pdf(pdf_path, history_identity_path=history_identity_path)
         existing.show()
         existing.raise_()
         existing.activateWindow()
         return
 
     from app.ai_chat_dialog import AIChatDialog
-    dlg = AIChatDialog(window, pdf_path)
+    dlg = AIChatDialog(window, pdf_path, history_identity_path=history_identity_path)
     window._ai_chat_dialog = dlg
     dlg.show()
 
@@ -522,6 +523,11 @@ def _current_pdf_path(window) -> str:
     state = window._state_or_global() if hasattr(window, "_state_or_global") else {}
     path = state.get("source_path") or state.get("display_path")
     return path or getattr(window, "current_path", "") or ""
+
+
+def _current_history_identity_path(window) -> str:
+    state = window._state_or_global() if hasattr(window, "_state_or_global") else {}
+    return state.get("display_path") or state.get("source_path") or getattr(window, "current_path", "") or ""
 
 
 def _current_page(window) -> int:
