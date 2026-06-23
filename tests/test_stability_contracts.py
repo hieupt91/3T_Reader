@@ -188,6 +188,25 @@ def test_print_loop_updates_orientation_per_page():
     assert "printer.newPage()" in source
 
 
+def test_ai_chat_session_persists_history_to_disk():
+    source = _read("packages/ai/chat_pdf.py")
+    assert "get_cache_dir()" in source
+    assert "_resolve_history_path" in source
+    assert "_load_history" in source
+    assert "_save_history" in source
+    assert "self._history_path.unlink(missing_ok=True)" in source
+
+
+def test_tts_dialog_uses_disk_cache_and_save_audio_action():
+    source = _read("app/actions/tts_dialog.py")
+    assert "_tts_cache_dir" in source
+    assert "_tts_cache_key" in source
+    assert "_tts_cache_path" in source
+    assert "self.btn_save_audio" in source
+    assert "QFileDialog.getSaveFileName" in source
+    assert "shutil.move(audio_path, cached_path)" in source
+
+
 def test_pdf_viewer_injects_pdfjs_override_css_at_document_ready():
     viewer_source = _read("app/pdf_viewer.py")
     window_source = _read("app/window.py")

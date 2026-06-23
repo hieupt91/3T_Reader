@@ -1,10 +1,14 @@
 """Chat với PDF — hỏi đáp nội dung tài liệu."""
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
 
 from .provider import ask_ai
+from packages.platform.paths import get_cache_dir
 
 
 @dataclass
@@ -48,6 +52,47 @@ class PDFChatSession:
         self.max_history_messages = max(2, int(max_history_messages))
         self.history: list[ChatMessage] = []
         self._pdf_text: Optional[str] = None
+        self._history_path = self._resolve_history_path(pdf_path)
+        self._load_history()
+
+    @staticmethod
+    def _resolve_history_path(pdf_path: str) -> Path:
+        pdf = Path(pdf_path)
+        try:
+            stat = pdf.stat()
+            key_src = f"{pdf.resolve()}|{stat.st_mtime_ns}|{stat.st_size}"
+        except Exception:
+            key_src = str(pdf)
+        digest = hashlib.sha256(key_src.encode("utf-8", errors="ignore")).hexdigest()
+        cache_root = Path(get_cache_dir()) / "ai_chat"
+        cache_root.mkdir(parents=True, exist_ok=True)
+        return cache_root / f"{digest}.json"
+
+    def _load_history(self) -> None:
+        try:
+            data = json.loads(self._history_path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        history: list[ChatMessage] = []
+        for item in data.get("history", []):
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role", "")).strip()
+            content = str(item.get("content", "")).strip()
+            if role in {"user", "assistant"} and content:
+                history.append(ChatMessage(role=role, content=content))
+        self.history = history[-self.max_history_messages :]
+
+    def _save_history(self) -> None:
+        try:
+            payload = {
+                "pdf_path": self.pdf_path,
+                "history": [{"role": msg.role, "content": msg.content} for msg in self.history[-self.max_history_messages :]],
+            }
+            self._history_path.parent.mkdir(parents=True, exist_ok=True)
+            self._history_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
     def _load_text(self) -> str:
         if self._pdf_text is not None:
@@ -125,9 +170,14 @@ class PDFChatSession:
         answer = resp.text.strip()
         self.history.append(ChatMessage(role="user", content=question))
         self.history.append(ChatMessage(role="assistant", content=answer))
+        self._save_history()
 
         return ChatResult(answer=answer)
 
     def reset(self):
         self.history.clear()
         self._pdf_text = None
+        try:
+            self._history_path.unlink(missing_ok=True)
+        except Exception:
+            pass

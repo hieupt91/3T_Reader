@@ -1,3 +1,4 @@
+import hashlib
 import json
 import locale
 import os
@@ -6,6 +7,7 @@ import sys
 import tempfile
 import threading
 import time
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
@@ -20,6 +22,7 @@ import requests
 from packages.qt_compat.QtCore import QObject, Qt, QUrl, pyqtSignal
 from packages.qt_compat.QtGui import QDesktopServices
 from packages.qt_compat.QtWidgets import (
+    QFileDialog,
     QComboBox,
     QDialog,
     QHBoxLayout,
@@ -29,6 +32,7 @@ from packages.qt_compat.QtWidgets import (
     QVBoxLayout,
     QSpinBox,
 )
+from packages.platform.paths import get_cache_dir
 
 
 _OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech"
@@ -318,6 +322,22 @@ def _stop_wav_playback() -> None:
         winsound.PlaySound(None, winsound.SND_PURGE)
 
 
+def _tts_cache_dir() -> Path:
+    path = Path(get_cache_dir()) / "tts_audio"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _tts_cache_key(text: str, mode: str, voice, rate: int, language_code: str = "") -> str:
+    voice_id = str(getattr(voice, "id", getattr(voice, "name", voice)) or "")
+    payload = "|".join([text or "", mode or "", voice_id, str(rate or 0), language_code or ""])
+    return hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _tts_cache_path(cache_key: str) -> Path:
+    return _tts_cache_dir() / f"{cache_key}.wav"
+
+
 class TTSDialog(QDialog):
     def __init__(self, parent=None, page_text="", selected_text="", pages_text=None, current_page=1):
         super().__init__(parent)
@@ -337,6 +357,7 @@ class TTSDialog(QDialog):
         self._speaker_run = None
         self._thread = None
         self._stop_requested = threading.Event()
+        self._current_audio_path = ""
         self._offline_voice_missing = False
         self._bridge = _TTSBridge(self)
         self._bridge.status.connect(self._set_status)
@@ -447,10 +468,14 @@ class TTSDialog(QDialog):
         self.btn_piper_mgr = QPushButton(self._t("tts.voice_store", "Cửa hàng Giọng AI..."))
         self.btn_piper_mgr.clicked.connect(self._open_piper_manager)
         self.btn_piper_mgr.setVisible(False)
+        self.btn_save_audio = QPushButton(self._t("tts.save_audio", "Lưu audio..."))
+        self.btn_save_audio.clicked.connect(self._save_audio_as)
+        self.btn_save_audio.setEnabled(False)
         
         helper_layout.addWidget(self.btn_piper_mgr)
         helper_layout.addWidget(self.btn_install_voice)
         helper_layout.addWidget(self.btn_refresh_voices)
+        helper_layout.addWidget(self.btn_save_audio)
         helper_layout.addStretch()
         layout.addLayout(helper_layout)
 
@@ -473,6 +498,8 @@ class TTSDialog(QDialog):
             self._media_player.setPlaybackRate(ratio)
 
     def _on_audio_ready(self, audio_path: str):
+        self._current_audio_path = audio_path
+        self.btn_save_audio.setEnabled(bool(audio_path and os.path.exists(audio_path)))
         if self._media_player is not None:
             self._media_player.setSource(QUrl.fromLocalFile(audio_path))
             self._on_rate_changed(self.rate_slider.value())
@@ -672,12 +699,14 @@ class TTSDialog(QDialog):
         rate = self.rate_slider.value()
         
         if mode in (_PIPER_MODE, _OPENAI_MODE):
-            cache_key = (self.text_to_speak, mode, str(getattr(voice, "id", getattr(voice, "name", voice))), rate)
-            cached_path = getattr(self, "_cached_audio_path", None)
-            cached_key = getattr(self, "_cached_audio_key", None)
-            if cached_key == cache_key and cached_path and os.path.exists(cached_path):
+            language_code = self._selected_language()
+            cache_key = _tts_cache_key(self.text_to_speak, mode, voice, rate, language_code)
+            cached_path = _tts_cache_path(cache_key)
+            if cached_path.exists():
                 self._bridge.status.emit("Dang phat lai tu bo nho tam...")
-                self._bridge.audioReady.emit(cached_path)
+                self._cached_audio_key = cache_key
+                self._cached_audio_path = str(cached_path)
+                self._bridge.audioReady.emit(str(cached_path))
                 return
             self._current_cache_key = cache_key
         
@@ -730,7 +759,16 @@ class TTSDialog(QDialog):
             self._bridge.finished.emit(False, "Loi tao giong Piper.")
             return
 
-        self._cached_audio_key = getattr(self, "_current_cache_key", None)
+        cache_key = getattr(self, "_current_cache_key", None)
+        if cache_key:
+            cached_path = _tts_cache_path(cache_key)
+            try:
+                cached_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(audio_path, cached_path)
+                audio_path = str(cached_path)
+            except Exception:
+                pass
+            self._cached_audio_key = cache_key
         self._cached_audio_path = audio_path
 
         self._bridge.audioReady.emit(audio_path)
@@ -845,7 +883,16 @@ class TTSDialog(QDialog):
                 self._bridge.finished.emit(True, "Da dung.")
                 return
             
-            self._cached_audio_key = getattr(self, "_current_cache_key", None)
+            cache_key = getattr(self, "_current_cache_key", None)
+            if cache_key:
+                cached_path = _tts_cache_path(cache_key)
+                try:
+                    cached_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(audio_path, cached_path)
+                    audio_path = str(cached_path)
+                except Exception:
+                    pass
+                self._cached_audio_key = cache_key
             self._cached_audio_path = audio_path
             
             self._bridge.audioReady.emit(audio_path)
@@ -874,6 +921,10 @@ class TTSDialog(QDialog):
             _stop_wav_playback()
         except Exception:
             pass
+        try:
+            self.btn_save_audio.setEnabled(False)
+        except Exception:
+            pass
         self._set_playing(False)
         self._set_status("Da dung.")
 
@@ -888,6 +939,32 @@ class TTSDialog(QDialog):
     def closeEvent(self, event):
         self._stop()
         super().closeEvent(event)
+
+    def _save_audio_as(self):
+        audio_path = getattr(self, "_current_audio_path", "")
+        if not audio_path or not os.path.exists(audio_path):
+            from app.dialogs import show_warning
+
+            show_warning(self, "Chua co audio", "Hay phat TTS truoc de tao file am thanh.")
+            return
+
+        out_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Luu audio thanh...",
+            "tts_output.wav",
+            "WAV Files (*.wav)",
+        )
+        if not out_path:
+            return
+        if not out_path.lower().endswith(".wav"):
+            out_path += ".wav"
+        try:
+            shutil.copy2(audio_path, out_path)
+            self._set_status(f"Da luu audio: {out_path}")
+        except Exception as exc:
+            from app.dialogs import show_warning
+
+            show_warning(self, "Loi luu audio", str(exc))
 
 
 def open_tts_dialog(window):

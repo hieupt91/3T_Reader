@@ -646,3 +646,35 @@ Ket qua:
 
 - `py_compile` pass.
 - 2 test print contract moi: pass.
+
+### Phase 6 - Chat AI, TTS, Whats New, UI Labels
+
+Trang thai xac nhan:
+
+- Da bat dau xu ly cac phan cot loi cua phase nay: chat session duoc luu ben vung theo PDF, va TTS co cache audio tren disk thay vi chi cache trong RAM.
+- Chua dong het tat ca UI label/mojibake trong toan bo app; phan nay van con la cleanup tiep theo.
+
+Sua da co trong code:
+
+- `packages/ai/chat_pdf.py`:
+  - `PDFChatSession` tu dong load history tu cache file theo PDF fingerprint.
+  - Moi lan tra loi xong se luu history ra cache ben vung.
+  - `reset()` xoa ca history trong RAM va cache file tren disk.
+- `app/actions/tts_dialog.py`:
+  - Them cache dir cho audio TTS va khoa cache theo text/mode/voice/rate/lang.
+  - Piper/OpenAI TTS se tai dung audio da co tren disk neu cache hit.
+  - Them nut `Luu audio...` de xuat WAV ra file user chon.
+- `tests/test_stability_contracts.py`:
+  - Them contract test cho chat persistence va TTS disk cache/save audio.
+
+Kiem tra:
+
+```powershell
+.\.venv313\Scripts\python.exe -m py_compile packages\ai\chat_pdf.py app\actions\tts_dialog.py app\ai_chat_dialog.py
+.\.venv313\Scripts\python.exe -m pytest tests\test_stability_contracts.py -k "ai_chat_session_persists_history_to_disk or tts_dialog_uses_disk_cache_and_save_audio_action"
+```
+
+Ket qua:
+
+- `py_compile` pass.
+- 2 test Phase 6 moi: pass.
