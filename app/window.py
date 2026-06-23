@@ -1023,7 +1023,7 @@ class PDFReaderApp(QMainWindow):
                 "Landscape": "Hướng ngang",
                 "Close": "Đóng"
             }
-            # Preserve Target Page when switching views
+            # Preserve target page when switching preview modes.
             from packages.qt_compat.QtWidgets import QWidget
             from packages.qt_compat.QtCore import QTimer
             preview_widget = None
@@ -1034,22 +1034,39 @@ class PDFReaderApp(QMainWindow):
             
             hook_fn = None
             if preview_widget:
-                # We save the current page before action triggers if possible, or just use a short timer
-                # Actually, capturing it on hover or right before is hard. 
-                # Let's just track it via a 100ms timer while the dialog is open!
-                preview_widget._last_pg = 1
-                def track_page():
-                    if preview_widget.isVisible():
-                        pg = preview_widget.currentPage()
-                        if pg > 0:
-                            preview_widget._last_pg = pg
-                        QTimer.singleShot(200, track_page)
-                QTimer.singleShot(200, track_page)
-                
+                try:
+                    preview_widget._last_pg = max(1, int(current_page or 1))
+                except Exception:
+                    preview_widget._last_pg = 1
+
+                def _remember_page(pg: int):
+                    try:
+                        preview_widget._last_pg = max(1, int(pg or 1))
+                    except Exception:
+                        pass
+
+                if hasattr(preview_widget, "currentPageChanged"):
+                    try:
+                        preview_widget.currentPageChanged.connect(_remember_page)
+                    except Exception:
+                        pass
+
                 def restore_page():
-                    # Wait for layout to finish, then restore
-                    QTimer.singleShot(100, lambda: preview_widget.setCurrentPage(getattr(preview_widget, "_last_pg", 1)))
-                hook_fn = restore_page
+                    if not preview_widget.isVisible():
+                        return
+
+                    try:
+                        pg = max(1, int(getattr(preview_widget, "_last_pg", current_page) or current_page or 1))
+                    except Exception:
+                        pg = max(1, int(current_page or 1))
+
+                    try:
+                        if hasattr(preview_widget, "currentPage") and preview_widget.currentPage() != pg:
+                            preview_widget.setCurrentPage(pg)
+                    except Exception:
+                        pass
+
+                hook_fn = lambda: QTimer.singleShot(0, restore_page)
 
             for act in actions:
                 plain_text = act.text().replace("&", "")
@@ -1158,6 +1175,11 @@ class PDFReaderApp(QMainWindow):
                     page_w_pt, page_h_pt = pdf.page_size(page_num + 1)
                 except Exception:
                     page_w_pt, page_h_pt = 595.0, 842.0
+
+                desired_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)
+                if desired_orientation != current_orientation:
+                    self._apply_printer_orientation(printer, desired_orientation)
+                    current_orientation = desired_orientation
 
                 if i > 0:
                     printer.newPage()

@@ -173,6 +173,21 @@ def test_signature_widget_click_opens_signature_info_bridge():
     assert "def _on_signature_clicked" in window_source
 
 
+def test_print_preview_preserves_target_page_without_polling_timer():
+    source = _read("app/window.py")
+    assert "currentPageChanged.connect(_remember_page)" in source
+    assert "track_page" not in source
+    assert "QTimer.singleShot(200, track_page)" not in source
+    assert "setCurrentPage(pg)" in source
+
+
+def test_print_loop_updates_orientation_per_page():
+    source = _read("app/window.py")
+    assert "desired_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)" in source
+    assert "_apply_printer_orientation(printer, desired_orientation)" in source
+    assert "printer.newPage()" in source
+
+
 def test_pdf_viewer_injects_pdfjs_override_css_at_document_ready():
     viewer_source = _read("app/pdf_viewer.py")
     window_source = _read("app/window.py")

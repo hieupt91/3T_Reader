@@ -617,3 +617,32 @@ Ghi chu:
 
 - Co the xem Phase 4 la "done in code/test".
 - Neu can dong phase theo dung checklist goc, chi con buoc user test tay tren app va commit neu user xac nhan.
+
+### Phase 5 - Print Preview Va In An
+
+Trang thai xac nhan:
+
+- Da bat dau sua theo huong trong plan: bo polling timer giu trang preview, dung signal cua preview widget de nho trang, va cho phep doi orientation theo tung trang khi in.
+- Da them source-contract test cho cac diem chinh cua phase nay.
+- Full `tests/test_stability_contracts.py` van co 3 fail pre-existing tu baseline, khong phai regression moi cua Phase 5.
+
+Sua da co trong code:
+
+- `app/window.py`:
+  - `print_current_pdf()` nay uu tien `currentPageChanged` thay vi polling timer `track_page`.
+  - `restore_page()` duoc trigger qua `QTimer.singleShot(0, ...)` sau khi doi mode preview.
+  - `_do_print_pages()` cap nhat orientation theo tung page thay vi chi dung orientation cua page dau tien.
+- `tests/test_stability_contracts.py`:
+  - Them contract test cho preview page restore va per-page orientation update.
+
+Kiem tra:
+
+```powershell
+.\.venv313\Scripts\python.exe -m py_compile app\window.py
+.\.venv313\Scripts\python.exe -m pytest tests\test_stability_contracts.py -k "print_preview or print_loop"
+```
+
+Ket qua:
+
+- `py_compile` pass.
+- 2 test print contract moi: pass.
