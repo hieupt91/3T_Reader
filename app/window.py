@@ -976,7 +976,7 @@ class PDFReaderApp(QMainWindow):
 
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         try:
-            printer.setResolution(300)
+            printer.setResolution(600)
         except Exception:
             pass
         try:
@@ -1099,12 +1099,22 @@ class PDFReaderApp(QMainWindow):
             return False
 
     @staticmethod
-    def _print_preview_render_scale(page_w_pt: float, page_h_pt: float, printer_resolution: int, *, large_job: bool) -> float:
-        """Bias preview rendering toward clarity; print preview can tolerate extra pixels."""
+    def _print_preview_render_scale(
+        page_w_pt: float,
+        page_h_pt: float,
+        printer_resolution: int,
+        *,
+        large_job: bool,
+        preview_mode: bool,
+    ) -> float:
+        """Bias preview rendering toward clarity; preview can tolerate extra pixels."""
         page_pixels = max(1.0, float(page_w_pt or 0) * float(page_h_pt or 0))
         dpi_scale = max(1.0, float(printer_resolution or 300) / 72.0)
-        job_cap = 3.5 if large_job else 5.5
+        job_cap = 4.5 if large_job else 5.5
         pixel_cap = 14_000_000 if large_job else 28_000_000
+        if preview_mode:
+            job_cap = 6.5 if large_job else 8.5
+            pixel_cap = 18_000_000 if large_job else 40_000_000
         scale_by_pixels = (pixel_cap / page_pixels) ** 0.5
         return min(job_cap, max(dpi_scale, scale_by_pixels, 1.0))
 
@@ -1170,6 +1180,12 @@ class PDFReaderApp(QMainWindow):
                     progress.cancel()
                 show_warning(self, "Lỗi in", "Không thể khởi động máy in.")
                 return
+            try:
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+            except Exception:
+                pass
 
             cancelled = False
             for i, page_num in enumerate(page_list):
@@ -1201,6 +1217,7 @@ class PDFReaderApp(QMainWindow):
                     page_h_pt,
                     printer.resolution(),
                     large_job=is_large_job,
+                    preview_mode=preview_dlg is not None,
                 )
 
                 rendered = pdf.render_page_rgb(page_num + 1, scale=target_scale)
