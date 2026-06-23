@@ -1029,19 +1029,19 @@ class PDFReaderApp(QMainWindow):
         _btn_ss = (
             "QToolButton{"
             "  border:1px solid transparent; border-radius:6px;"
-            f"  background:{_TOOLBAR_BG}; padding:4px 2px 2px 2px;"
+            "  background:" + _TOOLBAR_BG + "; padding:4px 2px 2px 2px;"
             "  font-size:10px; color:#b0b8e0;"
             "}"
-            f"QToolButton:hover{{background:{_BTN_HOVER};border-color:{_BTN_BORDER};}}"
-            f"QToolButton:pressed{{background:{_BTN_PRESSED};border-color:{_BTN_BORDER};}}"
+            "QToolButton:hover{background:" + _BTN_HOVER + ";border-color:" + _BTN_BORDER + ";}"
+            "QToolButton:pressed{background:" + _BTN_PRESSED + ";border-color:" + _BTN_BORDER + ";}"
             "QToolButton:checked{"
-            f"  background:#1e1e60; border:1px solid #5b7cfa; color:#9ab8ff;"
+            "  background:#1e1e60; border:1px solid #5b7cfa; color:#9ab8ff;"
             "}"
         )
         _spin_ss = (
-            f"QSpinBox{{background:{_SPIN_BG};color:{_SPIN_FG};"
-            f"  border:1px solid {_SPIN_BDR};border-radius:5px;"
-            "  padding:2px 4px;font-size:12px;}}"
+            "QSpinBox{background:" + _SPIN_BG + ";color:" + _SPIN_FG + ";"
+            "  border:1px solid " + _SPIN_BDR + ";border-radius:5px;"
+            "  padding:2px 4px;font-size:12px;}"
             "QSpinBox::up-button,QSpinBox::down-button{width:0;}"
         )
 
@@ -1074,7 +1074,7 @@ class PDFReaderApp(QMainWindow):
             sep.setFrameShadow(QFrame.Shadow.Plain)
             sep.setFixedWidth(1)
             sep.setFixedHeight(36)
-            sep.setStyleSheet(f"QFrame{{background:{_TOOLBAR_BDR};}}")
+            sep.setStyleSheet("QFrame{background:" + _TOOLBAR_BDR + ";background-color:" + _TOOLBAR_BDR + ";}")
             return sep
 
         # ── Nhóm 1: Chế độ xem ──────────────────────────────────────────────
@@ -1178,10 +1178,10 @@ class PDFReaderApp(QMainWindow):
         toolbar_frame = QFrame(dialog)
         toolbar_frame.setObjectName("printToolbar")
         toolbar_frame.setStyleSheet(
-            f"QFrame#printToolbar{{"
-            f"  background:{_TOOLBAR_BG};"
-            f"  border-bottom:1px solid {_TOOLBAR_BDR};"
-            "}}"
+            "QFrame#printToolbar{"
+            "  background:" + _TOOLBAR_BG + ";"
+            "  border-bottom:1px solid " + _TOOLBAR_BDR + ";"
+            "}"
         )
         toolbar_frame.setFixedHeight(58)
 
