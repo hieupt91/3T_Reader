@@ -18,6 +18,8 @@ from packages.qt_compat.QtWidgets import (
     QMessageBox,
     QDialog,
     QColorDialog,
+    QFrame,
+    QPushButton,
 )
 from packages.qt_compat.QtGui import QAction, QKeySequence, QCloseEvent, QImage, QPainter, QColor, QPageLayout
 from packages.qt_compat.QtCore import Qt, QSize, QPoint, QTimer, QThread, QRect, QObject, pyqtSignal, pyqtSlot
@@ -1014,92 +1016,240 @@ class PDFReaderApp(QMainWindow):
         preview_viewer = PDFViewerWidget(parent=dialog)
         preview_viewer.load_pdf(pdf_path, zoom="page-width", page=current_page)
 
-        preview_button_style = (
-            "QToolButton{border:1px solid transparent;border-radius:6px;padding:4px;"
-            "background:transparent;}"
-            "QToolButton:hover{background:#eef3ff;border-color:#c8d6ff;}"
-            "QToolButton:pressed{background:#dce7ff;border-color:#9fb8ff;}"
+        # ── Style chung cho toolbar preview ─────────────────────────────────
+        _TOOLBAR_BG  = "#16163a"
+        _TOOLBAR_BDR = "#2e2e5a"
+        _BTN_HOVER   = "#252552"
+        _BTN_PRESSED = "#1e1e4a"
+        _BTN_BORDER  = "#3a3a70"
+        _SPIN_BG     = "#1C1C36"
+        _SPIN_FG     = "#E0E8FF"
+        _SPIN_BDR    = "#3A3A60"
+
+        _btn_ss = (
+            "QToolButton{"
+            "  border:1px solid transparent; border-radius:6px;"
+            f"  background:{_TOOLBAR_BG}; padding:4px 2px 2px 2px;"
+            "  font-size:10px; color:#b0b8e0;"
+            "}"
+            f"QToolButton:hover{{background:{_BTN_HOVER};border-color:{_BTN_BORDER};}}"
+            f"QToolButton:pressed{{background:{_BTN_PRESSED};border-color:{_BTN_BORDER};}}"
+            "QToolButton:checked{"
+            f"  background:#1e1e60; border:1px solid #5b7cfa; color:#9ab8ff;"
+            "}"
+        )
+        _spin_ss = (
+            f"QSpinBox{{background:{_SPIN_BG};color:{_SPIN_FG};"
+            f"  border:1px solid {_SPIN_BDR};border-radius:5px;"
+            "  padding:2px 4px;font-size:12px;}}"
+            "QSpinBox::up-button,QSpinBox::down-button{width:0;}"
         )
 
-        def _preview_icon_button(icon_name: str, tooltip: str, *, color: str = "#5b7cfa") -> QToolButton:
-            button = QToolButton(dialog)
-            button.setAutoRaise(True)
-            button.setIcon(svg_icon(icon_name, size=18, color=color))
-            button.setIconSize(QSize(18, 18))
-            button.setToolTip(tooltip)
-            button.setFixedSize(34, 30)
-            button.setStyleSheet(preview_button_style)
-            return button
+        def _make_btn(
+            icon_name: str,
+            label: str,
+            tooltip: str,
+            *,
+            icon_color: str = "#8b91c8",
+            icon_sz: int = 22,
+            w: int = 52,
+            h: int = 48,
+            checkable: bool = False,
+        ) -> QToolButton:
+            btn = QToolButton(dialog)
+            btn.setAutoRaise(True)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            btn.setIcon(svg_icon(icon_name, size=icon_sz, color=icon_color))
+            btn.setIconSize(QSize(icon_sz, icon_sz))
+            btn.setText(label)
+            btn.setToolTip(tooltip)
+            btn.setFixedSize(w, h)
+            btn.setCheckable(checkable)
+            btn.setStyleSheet(_btn_ss)
+            return btn
 
-        btn_overview = _preview_icon_button("preview_overview.svg", "Xem tổng quan tất cả các trang", color="#6f7599")
-        btn_single = _preview_icon_button("preview_single_page.svg", "Xem một trang", color="#6f7599")
-        btn_facing = _preview_icon_button("preview_facing_pages.svg", "Xem hai trang", color="#6f7599")
-        btn_fit_width = _preview_icon_button("fit_width.svg", "Vừa chiều rộng", color="#3b82f6")
-        btn_fit_page = _preview_icon_button("fit_page.svg", "Vừa trang", color="#3b82f6")
-        btn_zoom_out = _preview_icon_button("zoom_out.svg", "Thu nhỏ", color="#159570")
+        def _make_sep() -> QFrame:
+            sep = QFrame(dialog)
+            sep.setFrameShape(QFrame.Shape.VLine)
+            sep.setFrameShadow(QFrame.Shadow.Plain)
+            sep.setFixedWidth(1)
+            sep.setFixedHeight(36)
+            sep.setStyleSheet(f"QFrame{{background:{_TOOLBAR_BDR};}}")
+            return sep
+
+        # ── Nhóm 1: Chế độ xem ──────────────────────────────────────────────
+        btn_overview = _make_btn(
+            "preview_overview.svg", "Tổng quan",
+            "Xem thu nhỏ tất cả các trang",
+            icon_color="#7880b8", checkable=True, w=58,
+        )
+        btn_single = _make_btn(
+            "preview_single_page.svg", "Một trang",
+            "Cuộn từng trang riêng lẻ",
+            icon_color="#7880b8", checkable=True, w=56,
+        )
+        btn_facing = _make_btn(
+            "preview_facing_pages.svg", "Hai trang",
+            "Xem hai trang song song",
+            icon_color="#7880b8", checkable=True, w=56,
+        )
+        btn_single.setChecked(True)
+
+        # ── Nhóm 2: Vừa trang & Zoom ────────────────────────────────────────
+        btn_fit_width = _make_btn(
+            "fit_width.svg", "Vừa rộng",
+            "Vừa chiều rộng cửa sổ",
+            icon_color="#4f8ff7", w=54,
+        )
+        btn_fit_page = _make_btn(
+            "fit_page.svg", "Vừa trang",
+            "Vừa toàn trang trong cửa sổ",
+            icon_color="#4f8ff7", w=54,
+        )
+        btn_zoom_out = _make_btn(
+            "zoom_out.svg", "Thu nhỏ",
+            "Giảm zoom",
+            icon_color="#30b088", w=40,
+        )
+        btn_zoom_in = _make_btn(
+            "zoom_in.svg", "Phóng to",
+            "Tăng zoom",
+            icon_color="#30b088", w=40,
+        )
         zoom_spin = QSpinBox()
         zoom_spin.setRange(25, 400)
         zoom_spin.setValue(100)
         zoom_spin.setSuffix("%")
-        btn_zoom_in = _preview_icon_button("zoom_in.svg", "Phóng to", color="#159570")
-        btn_prev = _preview_icon_button("chevron_left.svg", "Trang trước", color="#5865d8")
-        btn_next = _preview_icon_button("chevron_right.svg", "Trang sau", color="#5865d8")
+        zoom_spin.setFixedSize(66, 26)
+        zoom_spin.setToolTip("Mức zoom (25%–400%)")
+        zoom_spin.setStyleSheet(_spin_ss)
+
+        # ── Nhóm 3: Điều hướng trang ────────────────────────────────────────
+        btn_prev = _make_btn(
+            "chevron_left.svg", "Trước",
+            "Trang trước",
+            icon_color="#6676e8", w=42,
+        )
+        btn_next = _make_btn(
+            "chevron_right.svg", "Sau",
+            "Trang sau",
+            icon_color="#6676e8", w=42,
+        )
         page_spin = QSpinBox()
         page_spin.setRange(1, 1)
         page_spin.setValue(current_page)
+        page_spin.setFixedSize(54, 26)
+        page_spin.setToolTip("Số trang hiện tại")
+        page_spin.setStyleSheet(_spin_ss)
         page_total = QLabel("/ ?")
-        btn_page_setup = _preview_icon_button("settings.svg", "Thiết lập trang", color="#8b8fb8")
-        btn_portrait = _preview_icon_button("page_portrait.svg", "Hướng dọc", color="#8b8fb8")
-        btn_landscape = _preview_icon_button("page_landscape.svg", "Hướng ngang", color="#8b8fb8")
-        btn_print = _preview_icon_button("print.svg", "In tài liệu", color="#0f8f5f")
-        btn_close = _preview_icon_button("close_preview.svg", "Đóng xem trước", color="#d24b4b")
-        for button in (
-            btn_overview,
-            btn_single,
-            btn_facing,
-            btn_fit_width,
-            btn_fit_page,
-            btn_zoom_out,
-            btn_zoom_in,
-            btn_prev,
-            btn_next,
-            btn_page_setup,
-            btn_portrait,
-            btn_landscape,
-            btn_print,
-            btn_close,
-        ):
-            button.setMinimumHeight(28)
-            button.setMinimumWidth(34)
+        page_total.setStyleSheet("color:#6878a8; font-size:12px; padding:0 2px;")
 
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(6)
-        toolbar.addWidget(btn_overview)
-        toolbar.addWidget(btn_single)
-        toolbar.addWidget(btn_facing)
-        toolbar.addSpacing(10)
-        toolbar.addWidget(btn_fit_width)
-        toolbar.addWidget(btn_fit_page)
-        toolbar.addWidget(btn_zoom_out)
-        toolbar.addWidget(zoom_spin)
-        toolbar.addWidget(btn_zoom_in)
-        toolbar.addSpacing(10)
-        toolbar.addWidget(btn_prev)
-        toolbar.addWidget(page_spin)
-        toolbar.addWidget(page_total)
-        toolbar.addWidget(btn_next)
-        toolbar.addSpacing(10)
-        toolbar.addWidget(btn_page_setup)
-        toolbar.addWidget(btn_portrait)
-        toolbar.addWidget(btn_landscape)
-        toolbar.addStretch(1)
-        toolbar.addWidget(btn_print)
-        toolbar.addWidget(btn_close)
+        # ── Nhóm 4: Thiết lập trang & Hướng ────────────────────────────────
+        btn_page_setup = _make_btn(
+            "settings.svg", "Trang...",
+            "Thiết lập khổ giấy và lề",
+            icon_color="#9098c8", w=52,
+        )
+        btn_portrait = _make_btn(
+            "page_portrait.svg", "Dọc",
+            "Hướng dọc – Portrait",
+            icon_color="#9098c8", w=42, checkable=True,
+        )
+        btn_landscape = _make_btn(
+            "page_landscape.svg", "Ngang",
+            "Hướng ngang – Landscape",
+            icon_color="#9098c8", w=48, checkable=True,
+        )
+        btn_portrait.setChecked(True)
+
+        # ── Nhóm 5: In & Đóng ───────────────────────────────────────────────
+        btn_print = _make_btn(
+            "print.svg", "In...",
+            "Mở hộp thoại in (Ctrl+P)",
+            icon_color="#1ab87a", w=52,
+        )
+        btn_close = _make_btn(
+            "close_preview.svg", "Đóng",
+            "Đóng xem trước",
+            icon_color="#d24b4b", w=48,
+        )
+
+        # ── Xây toolbar frame ────────────────────────────────────────────────
+        toolbar_frame = QFrame(dialog)
+        toolbar_frame.setObjectName("printToolbar")
+        toolbar_frame.setStyleSheet(
+            f"QFrame#printToolbar{{"
+            f"  background:{_TOOLBAR_BG};"
+            f"  border-bottom:1px solid {_TOOLBAR_BDR};"
+            "}}"
+        )
+        toolbar_frame.setFixedHeight(58)
+
+        # SpinBox được bọc kèm label nhỏ bên dưới cho đồng bộ với icon buttons
+        def _labeled_widget(inner: QWidget, label_text: str) -> QWidget:
+            w = QWidget(dialog)
+            v = QVBoxLayout(w)
+            v.setContentsMargins(0, 2, 0, 0)
+            v.setSpacing(1)
+            v.addWidget(inner, 0, Qt.AlignmentFlag.AlignHCenter)
+            lbl = QLabel(label_text, w)
+            lbl.setStyleSheet("color:#5868a0; font-size:9px;")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            v.addWidget(lbl)
+            return w
+
+        # Trang hiện tại / tổng: spin + "/ ?" cạnh nhau, bọc label "Trang"
+        _page_nav = QWidget(dialog)
+        _pnl = QHBoxLayout(_page_nav)
+        _pnl.setContentsMargins(0, 0, 0, 0)
+        _pnl.setSpacing(2)
+        _pnl.addWidget(page_spin)
+        _pnl.addWidget(page_total)
+
+        _zoom_w  = _labeled_widget(zoom_spin, "Zoom")
+        _page_w  = _labeled_widget(_page_nav, "Trang")
+
+        tbl = QHBoxLayout(toolbar_frame)
+        tbl.setContentsMargins(8, 4, 8, 4)
+        tbl.setSpacing(2)
+
+        tbl.addWidget(btn_overview)
+        tbl.addWidget(btn_single)
+        tbl.addWidget(btn_facing)
+        tbl.addSpacing(4)
+        tbl.addWidget(_make_sep())
+        tbl.addSpacing(4)
+
+        tbl.addWidget(btn_fit_width)
+        tbl.addWidget(btn_fit_page)
+        tbl.addSpacing(4)
+        tbl.addWidget(btn_zoom_out)
+        tbl.addWidget(_zoom_w)
+        tbl.addWidget(btn_zoom_in)
+        tbl.addSpacing(4)
+        tbl.addWidget(_make_sep())
+        tbl.addSpacing(4)
+
+        tbl.addWidget(btn_prev)
+        tbl.addWidget(_page_w)
+        tbl.addWidget(btn_next)
+        tbl.addSpacing(4)
+        tbl.addWidget(_make_sep())
+        tbl.addSpacing(4)
+
+        tbl.addWidget(btn_page_setup)
+        tbl.addWidget(btn_portrait)
+        tbl.addWidget(btn_landscape)
+        tbl.addStretch(1)
+
+        tbl.addWidget(btn_print)
+        tbl.addSpacing(4)
+        tbl.addWidget(btn_close)
 
         layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
-        layout.addLayout(toolbar)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(toolbar_frame)
         layout.addWidget(preview_viewer, 1)
 
         def _run_pdfjs(js: str):
