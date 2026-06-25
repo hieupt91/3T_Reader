@@ -1371,8 +1371,8 @@ class PDFReaderApp(QMainWindow):
                 """,
                 "single": """
                     app.pdfViewer.spreadMode = 0;
-                    app.pdfViewer.scrollMode = 3;
-                    app.pdfViewer.currentScaleValue = "page-fit";
+                    app.pdfViewer.scrollMode = 0;
+                    app.pdfViewer.currentScaleValue = "page-width";
                 """,
                 "facing": """
                     app.pdfViewer.scrollMode = 0;

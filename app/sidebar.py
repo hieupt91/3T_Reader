@@ -7,6 +7,7 @@ from packages.qt_compat.QtGui import QPixmap, QImage, QIcon
 from packages.qt_compat.QtCore import Qt, QSize, QObject, QTimer, pyqtSignal
 
 from packages.pdf_engine import get_pdf_engine
+import os
 
 
 class ThumbnailLoader(QObject):
@@ -102,6 +103,7 @@ class ThumbnailSidebar(QDockWidget):
         self._on_click = None
         self._context_actions = {}
         self._pdf_path = None
+        self._doc_signature = None
         self._page_count = 0
         self._loaded_pages = set()
         self._requested_pages = []
@@ -168,7 +170,12 @@ class ThumbnailSidebar(QDockWidget):
                 callback(page_number)
 
     def load_thumbnails(self, pdf_path: str, on_click, context_actions: dict | None = None):
-        if self._pdf_path == pdf_path and self.list.count() > 0:
+        new_signature = self._read_doc_signature(pdf_path)
+        if (
+            self._pdf_path == pdf_path
+            and self.list.count() > 0
+            and self._doc_signature == new_signature
+        ):
             self._on_click = on_click
             self._context_actions = context_actions or {}
             self._schedule_visible_load()
@@ -180,6 +187,7 @@ class ThumbnailSidebar(QDockWidget):
         self._on_click = on_click
         self._context_actions = context_actions or {}
         self._pdf_path = pdf_path
+        self._doc_signature = new_signature
         self._loaded_pages.clear()
         self._requested_pages = []
         self._pending_pages = []
@@ -220,6 +228,13 @@ class ThumbnailSidebar(QDockWidget):
             return get_pdf_engine().page_count(pdf_path)
         except Exception:
             return 0
+
+    def _read_doc_signature(self, pdf_path: str):
+        try:
+            stat = os.stat(pdf_path)
+            return (os.path.abspath(pdf_path), int(stat.st_mtime_ns), int(stat.st_size))
+        except OSError:
+            return (os.path.abspath(pdf_path), 0, 0)
 
     def _schedule_visible_load(self):
         if self._page_count <= 0:

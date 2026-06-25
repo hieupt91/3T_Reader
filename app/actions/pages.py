@@ -613,7 +613,9 @@ def insert_blank_page(window, target_page_num: int):
             width = float(box[2] - box[0])
             height = float(box[3] - box[1])
             
-            pdf.add_blank_page(page_size=(width, height), page_index=index_to_insert)
+            blank_doc = pikepdf.Pdf.new()
+            blank_doc.add_blank_page(page_size=(width, height))
+            pdf.pages.insert(index_to_insert, blank_doc.pages[0])
             
             _save_pikepdf_reload(window, pdf, keep_page=True)
             
