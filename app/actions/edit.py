@@ -1510,12 +1510,13 @@ class _TextEditDialog(QDialog):
         fmt_row.setSpacing(8)
 
         fmt_row.addWidget(QLabel("Font:"))
-        self._font_combo = QFontComboBox()
+        from packages.qt_compat.QtWidgets import QComboBox
+        self._font_combo = QComboBox()
+        self._font_combo.addItems(["Arial", "Times New Roman", "Calibri", "Tahoma", "Segoe UI", "Cambria", "Consolas", "Verdana", "Courier New", "Comic Sans MS"])
         self._font_combo.setFixedWidth(120)
         if font_family:
-            from packages.qt_compat.QtGui import QFont
-            self._font_combo.setCurrentFont(QFont(font_family))
-        self._font_combo.currentFontChanged.connect(lambda _f: self.previewChanged.emit())
+            self._font_combo.setCurrentText(font_family)
+        self._font_combo.currentTextChanged.connect(lambda _f: self.previewChanged.emit())
         fmt_row.addWidget(self._font_combo)
 
         fmt_row.addWidget(QLabel("Cỡ chữ:"))
@@ -1638,8 +1639,8 @@ class _TextEditDialog(QDialog):
 
     def get_font_family(self) -> str:
         if hasattr(self, "_font_combo"):
-            return self._font_combo.currentFont().family()
-        return "sans-serif"
+            return self._font_combo.currentText()
+        return "Arial"
 
     def _position_near_parent(self, parent):
         x, y = _place_dialog_near_parent(parent, self.width(), self.height())

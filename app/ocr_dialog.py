@@ -8,7 +8,7 @@ from packages.qt_compat.QtCore import Qt, QTimer, pyqtSignal, QObject
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QPushButton, QProgressBar, QFrame, QFileDialog,
-    QApplication, QSizePolicy,
+    QApplication, QSizePolicy, QComboBox
 )
 
 _STYLE = """
@@ -22,8 +22,8 @@ QTextEdit {
     color: #D0D8F8;
     border: 1px solid #2A2A4A;
     border-radius: 8px;
-    font-family: "SF Mono", "Consolas", monospace;
-    font-size: 12px;
+    font-family: Arial, Tahoma, sans-serif;
+    font-size: 13px;
     padding: 10px;
     line-height: 1.5;
 }
@@ -126,6 +126,14 @@ class OCRDialog(QDialog):
         title.setObjectName("title")
         hdr.addWidget(title)
         hdr.addStretch()
+
+        self._font_combo = QComboBox()
+        self._font_combo.addItems(["Arial", "Times New Roman", "Calibri", "Tahoma", "Segoe UI", "Cambria", "Consolas", "Verdana", "Courier New", "Comic Sans MS"])
+        self._font_combo.setFixedWidth(120)
+        self._font_combo.setStyleSheet("QComboBox { background: #1E1E38; color: #B0B8E0; border: 1px solid #3A3A60; border-radius: 4px; padding: 2px 8px; }")
+        self._font_combo.currentTextChanged.connect(self._change_font)
+        hdr.addWidget(self._font_combo)
+
         root.addLayout(hdr)
 
         info_text = "Đang nhận dạng văn bản tiếng Việt…"
@@ -178,6 +186,11 @@ class OCRDialog(QDialog):
         btn_row.addWidget(self._btn_save)
         btn_row.addWidget(self._btn_copy)
         root.addLayout(btn_row)
+
+    def _change_font(self, font_name: str):
+        if hasattr(self, "_text_edit"):
+            from packages.qt_compat.QtGui import QFont
+            self._text_edit.setFont(QFont(font_name, 11))
 
     def _start(self):
         print(f"[OCR] start pages={len(self._pages)} high_quality={self._hq}", flush=True)

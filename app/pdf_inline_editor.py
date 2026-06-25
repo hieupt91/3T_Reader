@@ -18,7 +18,7 @@ from packages.qt_compat.QtCore import QObject, QEventLoop, Qt, pyqtSignal, pyqtS
 from packages.qt_compat.QtGui import QColor, QImage
 from packages.qt_compat.QtWidgets import (
     QColorDialog, QFrame, QHBoxLayout, QLabel,
-    QPushButton, QSlider, QSpinBox, QToolButton, QVBoxLayout,
+    QPushButton, QSlider, QSpinBox, QToolButton, QVBoxLayout, QFontComboBox
 )
 
 from app.dialogs import show_warning
@@ -87,7 +87,7 @@ class InlineImageBridge(QObject):
 class InlineEditPanel(QFrame):
     committed = pyqtSignal()
     cancelled = pyqtSignal()
-    font_changed = pyqtSignal(int, str, bool, bool)   # size, hex color, bold, underline
+    font_changed = pyqtSignal(int, str, bool, bool, bool, str)   # size, hex color, bold, underline, italic, font_family
     rotation_changed = pyqtSignal(int)
 
     def __init__(self, parent=None, *, mode: str = "text"):
@@ -132,12 +132,20 @@ class InlineEditPanel(QFrame):
 
         if self._mode == "text":
             row = QHBoxLayout(); row.setSpacing(8)
+            row.addWidget(QLabel("Font:"))
+            from packages.qt_compat.QtWidgets import QComboBox
+            self._font_combo = QComboBox()
+            self._font_combo.addItems(["Arial", "Times New Roman", "Calibri", "Tahoma", "Segoe UI", "Cambria", "Consolas", "Verdana", "Courier New", "Comic Sans MS"])
+            self._font_combo.setFixedWidth(120)
+            self._font_combo.currentTextChanged.connect(lambda _: self._emit_font())
+            row.addWidget(self._font_combo)
+
             row.addWidget(QLabel("Cỡ chữ:"))
             self._size_spin = QSpinBox()
             self._size_spin.setRange(6, 96)
             self._size_spin.setValue(14)
             self._size_spin.setFixedWidth(64)
-            self._size_spin.valueChanged.connect(self._emit_font)
+            self._size_spin.valueChanged.connect(lambda _: self._emit_font())
             row.addWidget(self._size_spin)
             self._color_btn = QPushButton()
             self._color_btn.setFixedSize(72, 26)
@@ -166,6 +174,16 @@ class InlineEditPanel(QFrame):
             self._bold_btn.setStyleSheet(_fmt_ss)
             self._bold_btn.toggled.connect(lambda _: self._emit_font())
             row.addWidget(self._bold_btn)
+
+            self._italic_btn = QToolButton()
+            self._italic_btn.setText("I")
+            self._italic_btn.setCheckable(True)
+            self._italic_btn.setFixedSize(30, 26)
+            self._italic_btn.setStyleSheet(
+                _fmt_ss.replace("font-weight:700", "font-weight:400; font-style:italic")
+            )
+            self._italic_btn.toggled.connect(lambda _: self._emit_font())
+            row.addWidget(self._italic_btn)
 
             self._under_btn = QToolButton()
             self._under_btn.setText("U")
@@ -273,9 +291,11 @@ class InlineEditPanel(QFrame):
 
     def _emit_font(self):
         if hasattr(self, "_size_spin"):
-            bold  = self._bold_btn.isChecked()  if hasattr(self, "_bold_btn")  else False
-            under = self._under_btn.isChecked() if hasattr(self, "_under_btn") else False
-            self.font_changed.emit(self._size_spin.value(), self._color.name(), bold, under)
+            bold   = self._bold_btn.isChecked()  if hasattr(self, "_bold_btn")  else False
+            italic = self._italic_btn.isChecked() if hasattr(self, "_italic_btn") else False
+            under  = self._under_btn.isChecked() if hasattr(self, "_under_btn") else False
+            ff     = self._font_combo.currentText() if hasattr(self, "_font_combo") else "Arial"
+            self.font_changed.emit(self._size_spin.value(), self._color.name(), bold, under, italic, ff)
 
     def get_font_size(self) -> int:
         return self._size_spin.value() if hasattr(self, "_size_spin") else 14
@@ -283,11 +303,18 @@ class InlineEditPanel(QFrame):
     def get_bold(self) -> bool:
         return self._bold_btn.isChecked() if hasattr(self, "_bold_btn") else False
 
+    def get_italic(self) -> bool:
+        return self._italic_btn.isChecked() if hasattr(self, "_italic_btn") else False
+
+    def get_font_family(self) -> str:
+        return self._font_combo.currentFont().family() if hasattr(self, "_font_combo") else "sans-serif"
+
     def get_underline(self) -> bool:
         return self._under_btn.isChecked() if hasattr(self, "_under_btn") else False
 
     def set_font_state(self, font_size: int, color_hex: str,
-                       bold: bool = False, underline: bool = False):
+                       bold: bool = False, underline: bool = False,
+                       italic: bool = False, font_family: str = ""):
         """Pre-set font controls when editing existing text."""
         if hasattr(self, "_size_spin"):
             self._size_spin.setValue(font_size)
@@ -299,6 +326,11 @@ class InlineEditPanel(QFrame):
             self._bold_btn.setChecked(bold)
         if hasattr(self, "_under_btn"):
             self._under_btn.setChecked(underline)
+        if hasattr(self, "_italic_btn"):
+            self._italic_btn.setChecked(italic)
+        if hasattr(self, "_font_combo") and font_family:
+            from packages.qt_compat.QtGui import QFont
+            self._font_combo.setCurrentFont(QFont(font_family))
 
     def get_color_tuple(self) -> tuple:
         c = self._color
@@ -371,6 +403,8 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
             prefill.get("color_hex", "#000000"),
             prefill.get("bold", False),
             prefill.get("underline", False),
+            prefill.get("italic", False),
+            prefill.get("font_family", "sans-serif"),
         )
         if "rotation" in prefill:
             panel.set_rotation(prefill.get("rotation", 0))
@@ -379,12 +413,13 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
     loop   = QEventLoop(window)
 
     # Panel font controls → update JS textarea styling live
-    def _on_font(size, hex_color, bold, underline):
+    def _on_font(size, hex_color, bold, underline, italic, font_family):
         b = "true" if bold else "false"
         u = "true" if underline else "false"
+        i = "true" if italic else "false"
         web_view.page().runJavaScript(
             f"typeof window.__3TTextUpdateFont === 'function' && "
-            f"window.__3TTextUpdateFont({size}, '{hex_color}', {b}, {u});"
+            f"window.__3TTextUpdateFont({size}, '{hex_color}', {b}, {u}, {i}, '{font_family}');"
         )
     panel.font_changed.connect(_on_font)
 
@@ -401,6 +436,8 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
         result["color_tuple"] = panel.get_color_tuple()
         result["bold"]        = panel.get_bold()
         result["underline"]   = panel.get_underline()
+        result["italic"]      = panel.get_italic()
+        result["font_family"] = panel.get_font_family()
         result["rotation"]    = panel.get_rotation()
         panel.hide()
         web_view.page().runJavaScript(
@@ -430,6 +467,8 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
                 "color_tuple":  result.get("color_tuple", panel.get_color_tuple()),
                 "bold":         result.get("bold", panel.get_bold()),
                 "underline":    result.get("underline", panel.get_underline()),
+                "italic":       result.get("italic", panel.get_italic()),
+                "font_family":  result.get("font_family", panel.get_font_family()),
                 "rotation":     result.get("rotation", panel.get_rotation()),
             })
         if loop.isRunning(): loop.quit()

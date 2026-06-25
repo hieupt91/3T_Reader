@@ -51,14 +51,58 @@ _LINUX_SEARCH_DIRS = [
 ]
 
 
-def _windows_font_path(bold: bool = False, family: str = "") -> str | None:
+def _windows_font_path(bold: bool = False, italic: bool = False, family: str = "") -> str | None:
     import os
     family = (family or "").lower()
     fonts_dir = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "Fonts"
-    candidates = _WINDOWS_BOLD_CANDIDATES if bold else _WINDOWS_CANDIDATES
+    
+    font_map = {
+        "arial": ("arial.ttf", "arialbd.ttf", "ariali.ttf", "arialbi.ttf"),
+        "times new roman": ("times.ttf", "timesbd.ttf", "timesi.ttf", "timesbi.ttf"),
+        "calibri": ("calibri.ttf", "calibrib.ttf", "calibrii.ttf", "calibriz.ttf"),
+        "tahoma": ("tahoma.ttf", "tahomabd.ttf", "tahoma.ttf", "tahomabd.ttf"),
+        "segoe ui": ("segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf", "segoeuiz.ttf"),
+        "cambria": ("cambria.ttc", "cambriab.ttf", "cambriai.ttf", "cambriaz.ttf"),
+        "consolas": ("consola.ttf", "consolab.ttf", "consolai.ttf", "consolaz.ttf"),
+        "comic sans ms": ("comic.ttf", "comicbd.ttf", "comici.ttf", "comicz.ttf"),
+        "courier new": ("cour.ttf", "courbd.ttf", "couri.ttf", "courbi.ttf"),
+        "verdana": ("verdana.ttf", "verdanab.ttf", "verdanai.ttf", "verdanaz.ttf"),
+    }
+
+    candidates = []
+    if italic and bold:
+        candidates = ["arialbi.ttf", "timesbi.ttf", "calibriz.ttf", "segoeuiz.ttf"]
+    elif italic:
+        candidates = ["ariali.ttf", "timesi.ttf", "calibrii.ttf", "segoeuii.ttf"]
+    elif bold:
+        candidates = ["arialbd.ttf", "timesbd.ttf", "calibrib.ttf", "segoeuib.ttf", "tahomabd.ttf"]
+    else:
+        candidates = ["arial.ttf", "times.ttf", "calibri.ttf", "segoeui.ttf", "tahoma.ttf"]
 
     if "times" in family or "serif" in family:
-        candidates = ["timesbd.ttf", "times.ttf"] if bold else ["times.ttf"]
+        if italic and bold:
+            candidates = ["timesbi.ttf", "timesbd.ttf", "timesi.ttf", "times.ttf"] + candidates
+        elif italic:
+            candidates = ["timesi.ttf", "times.ttf"] + candidates
+        elif bold:
+            candidates = ["timesbd.ttf", "times.ttf"] + candidates
+        else:
+            candidates = ["times.ttf"] + candidates
+
+    for key, (r, b, i, bi) in font_map.items():
+        if key in family:
+            if italic and bold:
+                candidates.insert(0, bi)
+                candidates.insert(1, b)
+            elif italic:
+                candidates.insert(0, i)
+                candidates.insert(1, r)
+            elif bold:
+                candidates.insert(0, b)
+                candidates.insert(1, r)
+            else:
+                candidates.insert(0, r)
+            break
 
     for name in candidates:
         path = fonts_dir / name
@@ -114,10 +158,10 @@ def _linux_font_path(family: str = "") -> str | None:
     return None
 
 
-def get_vietnamese_font_path(bold: bool = False, family: str = "") -> str | None:
+def get_vietnamese_font_path(bold: bool = False, italic: bool = False, family: str = "") -> str | None:
     """Return path to a Vietnamese-compatible font installed on this OS, or None."""
     if sys.platform == "win32":
-        return _windows_font_path(bold, family)
+        return _windows_font_path(bold, italic, family)
     if sys.platform == "darwin":
         return _macos_font_path(family)
     return _linux_font_path(family)
