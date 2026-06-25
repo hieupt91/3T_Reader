@@ -11,21 +11,22 @@ Kính gửi: **Cục Bản quyền tác giả**
 **Loại hình tác phẩm:** Chương trình máy tính
 
 **2. Tác giả:**
-- Họ và tên: [Điền họ tên người viết code chính, VD: Phạm Trọng Hiếu]
-- Ngày sinh: [DD/MM/YYYY]       Quốc tịch: Việt Nam
-- CCCD/CMND số: [Điền số CCCD]  Ngày cấp: [Ngày] Nơi cấp: [Cục CSQLHC về TTXH]
-- Địa chỉ: [Điền địa chỉ thường trú của tác giả]
+- Họ và tên: PHẠM TRUNG HIẾU
+- Ngày sinh: 21/08/1991       Quốc tịch: Việt Nam
+- CCCD/CMND số: 044091002401  Ngày cấp: 18/01/2022 Nơi cấp: Cục Cảnh sát QLHC về TTXH
+- Địa chỉ: Tổ Dân Phố 2, phường Quảng Phong, thị xã Ba Đồn, tỉnh Quảng Bình
+- Địa chỉ liên hệ: Tổ dân phố 2, phường Ba Đồn, tỉnh Quảng Trị
 - Bút danh (nếu có): Không
 
 **3. Chủ sở hữu quyền tác giả:**
-- Tên tổ chức/cá nhân: Công ty [Ghi rõ tên đầy đủ của 3T Computer theo ĐKKD]
-- Số ĐKKD/CCCD: [Số ĐKKD]       Ngày cấp: [Ngày] Nơi cấp: [Sở KHĐT...]
-- Địa chỉ: [Địa chỉ trụ sở công ty]
-- Số điện thoại: [Số điện thoại] Email: [Email công ty]
+- Tên cá nhân: PHẠM TRUNG HIẾU
+- Số CCCD: 044091002401       Ngày cấp: 18/01/2022 Nơi cấp: Cục Cảnh sát QLHC về TTXH
+- Địa chỉ: Tổ Dân Phố 2, phường Quảng Phong, thị xã Ba Đồn, tỉnh Quảng Bình
+- Số điện thoại: 0967136099 Email: hieupt.qb@gmail.com
 
 **4. Căn cứ phát sinh quyền sở hữu:**
 [x] Tác giả đồng thời là chủ sở hữu
-[x] Giao nhiệm vụ (Trường hợp công ty giao việc cho nhân viên viết)
+[ ] Giao nhiệm vụ
 [ ] Hợp đồng
 [ ] Thừa kế
 [ ] Chuyển giao quyền

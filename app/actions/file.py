@@ -111,7 +111,7 @@ def open_file(window, path=None):
         if not prepared:
             return
 
-        source_path, display_path, temp_path = prepared
+        source_path, _display_path, temp_path = prepared
         if temp_path:
             tracked = getattr(window, "_session_temp_paths", None)
             if tracked is None:
@@ -122,7 +122,7 @@ def open_file(window, path=None):
         if hasattr(window, "open_document"):
             opened = window.open_document(
                 source_path,
-                display_path=display_path,
+                display_path=path,
                 temp_path=temp_path,
             )
             if not opened:

@@ -1,0 +1,45 @@
+diff a/app/actions/edit.py b/app/actions/edit.py	(rejected hunks)
+@@ -2119,13 +2108,37 @@
+         if not working_file:
+             return
+ 
+-        reload_document(window, working_file, display_path=display_path, temp_path=working_file, page=pageNum)
++        reload_document(window, working_file, display_path=display_path, temp_path=working_file, page=pageNum, soft_reload=True)
+         QTimer.singleShot(350, lambda: window.viewer.update_ops("[]") if hasattr(window.viewer, "update_ops") else None)
+ 
+-    bridge.clicked.connect(on_click)
++    def edit_from_selection():
++        from app.actions.annotate import _get_selection_payload_sync, _selection_page_rects
++
++        payload = _get_selection_payload_sync(window, timeout_ms=500)
++        if isinstance(payload, dict):
++            try:
++                import time
++                timestamp = float(payload.get("timestamp") or 0)
++                if timestamp and (time.time() * 1000.0 - timestamp) > 10000:
++                    show_warning(window, "Ch?n l?i van b?n", "Vùng bôi den dã cu. Hãy bôi den l?i dúng ph?n ch? c?n s?a r?i b?m S?a text g?c.")
++                    return
++            except Exception:
++                pass
++        selected_text, rects_by_page = _selection_page_rects(payload, merge_lines=True)
++        if not selected_text.strip() or not rects_by_page:
++            show_warning(window, "Chua ch?n van b?n", "Hãy bôi den dúng ph?n ch? c?n s?a tru?c, r?i b?m S?a text g?c.")
++            return
++
++        page_num = sorted(rects_by_page.keys())[0]
++        page_rects = rects_by_page.get(page_num) or []
++        if not page_rects:
++            show_warning(window, "Chua ch?n van b?n", "Hãy bôi den dúng ph?n ch? c?n s?a tru?c, r?i b?m S?a text g?c.")
++            return
+ 
+-    from app.webchannel import register_webchannel_object
+-    register_webchannel_object(window.viewer._web_view, window, "editExistingTextBridge", bridge)
++        left = min(float(rect[0]) for rect in page_rects)
++        bottom = min(float(rect[1]) for rect in page_rects)
++        right = max(float(rect[2]) for rect in page_rects)
++        top = max(float(rect[3]) for rect in page_rects)
++        on_click(page_num, left, bottom, right, top, selected_text or "", "{}", use_span_box=False)
+ 
+-    window.viewer._web_view.page().runJavaScript("window.__3tExistingTextMode = true;")
+-    window.status.showMessage("Click vào do?n text có s?n trên trang d? s?a... (Esc d? h?y)", 0)
++    edit_from_selection()

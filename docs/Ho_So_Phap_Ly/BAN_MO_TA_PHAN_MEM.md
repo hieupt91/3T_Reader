@@ -3,8 +3,8 @@
 
 ## 1. THÔNG TIN CHUNG
 - **Tên phần mềm:** 3T Reader
-- **Phiên bản:** 1.0.7
-- **Tác giả / Chủ sở hữu:** Công nghệ 3T (3T Computer)
+- **Phiên bản:** 1.1.0
+- **Tác giả / Chủ sở hữu:** Cá nhân Phạm Trung Hiếu
 - **Nền tảng hỗ trợ:** Windows & macOS (Đa nền tảng)
 - **Ngôn ngữ lập trình:** Python (PyQt5/PySide6)
 - **Mục đích:** Đọc, chỉnh sửa, Ký số điện tử bảo mật (USB Token/PKCS#11) và tích hợp Trợ lý AI OCR cho tài liệu PDF.
@@ -44,4 +44,4 @@ Phần mềm được thiết kế theo kiến trúc Modular, tách biệt giao 
 4. **Trợ lý AI:** Bấm vào nút AI bên góc phải, quét khối văn bản cần OCR hoặc Tóm tắt, Trợ lý sẽ hiển thị kết quả ngay trên màn hình.
 
 ---
-*Cam kết: Mã nguồn phần mềm này hoàn toàn do đội ngũ Công nghệ 3T (3T Computer) tự phát triển và sở hữu hợp pháp.*
+*Cam kết: Mã nguồn phần mềm này hoàn toàn do cá nhân Phạm Trung Hiếu tự phát triển và sở hữu hợp pháp.*

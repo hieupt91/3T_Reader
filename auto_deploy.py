@@ -7,13 +7,13 @@ def log(msg):
     print(f"[*] {msg}")
 
 def update_version():
-    log("Updating write_index.py to version 1.0.21")
+    log("Updating write_index.py to version 1.0.22")
     index_path = r"C:\Users\HieuPC\Desktop\3T_Reader_Phase1_Win\write_index.py"
     with io.open(index_path, 'rb') as f:
         content = f.read()
-    content = content.replace(b"1.0.20", b"1.0.21")
-    content = content.replace(b"1.0.18", b"1.0.21")
-    content = content.replace(b"1.0.17", b"1.0.21")
+    content = content.replace(b"1.0.20", b"1.0.22")
+    content = content.replace(b"1.0.18", b"1.0.22")
+    content = content.replace(b"1.0.17", b"1.0.22")
     with io.open(index_path, 'wb') as f:
         f.write(content)
 

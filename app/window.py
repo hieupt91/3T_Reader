@@ -356,7 +356,7 @@ class PDFReaderApp(QMainWindow):
             on_open=lambda: open_file(self),
             on_new=lambda: create_new_pdf(self),
             on_recent=lambda: show_recent_menu(self),
-            on_recent_file=lambda path: self.open_document(path),
+            on_recent_file=lambda path: open_file(self, path),
         )
         idx = self.tab_widget.addTab(self._welcome_tab, "Trang chủ")
         self.tab_widget.tabBar().setTabButton(idx, self.tab_widget.tabBar().ButtonPosition.RightSide, None)
@@ -463,12 +463,33 @@ class PDFReaderApp(QMainWindow):
 
         self._connect_viewer_signals(viewer)
 
-        try:
-            viewer.load_pdf(source_path, zoom="100", pagemode="thumbs")
-        except Exception as e:
-            self._close_tab(index)
-            show_warning(self, "Không thể mở tệp", str(e))
-            return False
+        load_attempt = {"count": 0}
+
+        def _load_viewer_once():
+            if self.tab_widget.indexOf(tab) < 0:
+                return
+            load_attempt["count"] += 1
+            try:
+                viewer.load_pdf(source_path, zoom="100", pagemode="thumbs")
+            except Exception as e:
+                close_index = self.tab_widget.indexOf(tab)
+                if close_index >= 0:
+                    self._close_tab(close_index)
+                show_warning(self, "Không thể mở tệp", str(e))
+                return
+            if load_attempt["count"] == 1:
+                QTimer.singleShot(1200, _retry_if_viewer_blank)
+
+        def _retry_if_viewer_blank():
+            if self.tab_widget.indexOf(tab) < 0:
+                return
+            if getattr(viewer, "_path", "") != source_path:
+                return
+            if getattr(viewer, "_page_count", 0) > 0:
+                return
+            _load_viewer_once()
+
+        QTimer.singleShot(0, _load_viewer_once)
 
         self.status.showMessage(f"Đã mở: {title}", 3000)
         try:
@@ -485,7 +506,7 @@ class PDFReaderApp(QMainWindow):
         from app.actions.file import open_file
 
         for path in paths:
-            if isinstance(path, str) and path.lower().endswith(".pdf") and os.path.isfile(path):
+            if isinstance(path, str) and os.path.isfile(path):
                 open_file(self, path)
         if self.isMinimized():
             self.showNormal()
@@ -3350,13 +3371,6 @@ class PDFReaderApp(QMainWindow):
             self.toggle_fullscreen()
             return
         if event.key() == Qt.Key.Key_Escape:
-            if getattr(self, "viewer", None) and hasattr(self.viewer, "_web_view"):
-                self.viewer._web_view.page().runJavaScript("window.__3tExistingTextMode = false;")
-                if hasattr(self, "_existing_text_bridge"):
-                    from app.webchannel import unregister_webchannel_object
-                    unregister_webchannel_object(self.viewer._web_view, "editExistingTextBridge")
-                    self._existing_text_bridge = None
-            
             if self.status.currentMessage().endswith("(Esc để hủy)"):
                 self.status.showMessage("", 0)
                 
@@ -3396,14 +3410,14 @@ class PDFReaderApp(QMainWindow):
         if not files:
             return
 
-        from app.actions.document_converter import process_file_and_open
+        from app.actions.file import open_file
         
         opened_any = False
         for path in files:
             if os.path.isfile(path):
-                pdf_path = process_file_and_open(self, path)
-                if pdf_path and os.path.isfile(pdf_path):
-                    self.open_document(pdf_path)
+                before = self.tab_widget.count()
+                open_file(self, path)
+                if self.tab_widget.count() > before:
                     opened_any = True
                     
         if opened_any:

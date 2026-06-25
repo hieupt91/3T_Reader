@@ -18,6 +18,7 @@
         '  margin: 16px auto !important;',
         '  border-radius: 4px !important;',
         '}',
+        '#viewerContainer.__3t-ctrl-panning, #viewerContainer.__3t-ctrl-panning * { cursor: grabbing !important; user-select: none !important; }',
         // Signature widget annotations are rendered as static appearance
         // streams (annotationMode=ENABLE) so they stay visible without
         // needing to hide interactive form inputs.
@@ -506,6 +507,42 @@
         var container = document.getElementById('viewerContainer');
         if (container) {
             var scrollTimer = null;
+            var ctrlPan = null;
+            function stopCtrlPan() {
+                if (!ctrlPan) return;
+                ctrlPan = null;
+                container.classList.remove('__3t-ctrl-panning');
+                document.body.style.cursor = '';
+            }
+            container.addEventListener('mousedown', function (event) {
+                if (!event.ctrlKey || event.button !== 0) return;
+                var target = event.target && event.target.nodeType === 1 ? event.target : event.target.parentElement;
+                if (target && target.closest && target.closest('input, textarea, select, button, [contenteditable="true"]')) return;
+                ctrlPan = {
+                    x: event.clientX,
+                    y: event.clientY,
+                    scrollLeft: container.scrollLeft,
+                    scrollTop: container.scrollTop
+                };
+                container.classList.add('__3t-ctrl-panning');
+                document.body.style.cursor = 'grabbing';
+                event.preventDefault();
+                event.stopPropagation();
+            }, true);
+            document.addEventListener('mousemove', function (event) {
+                if (!ctrlPan) return;
+                container.scrollLeft = ctrlPan.scrollLeft - (event.clientX - ctrlPan.x);
+                container.scrollTop = ctrlPan.scrollTop - (event.clientY - ctrlPan.y);
+                event.preventDefault();
+                event.stopPropagation();
+            }, true);
+            document.addEventListener('mouseup', function () {
+                stopCtrlPan();
+            }, true);
+            window.addEventListener('blur', stopCtrlPan, true);
+            window.addEventListener('keyup', function (event) {
+                if (event.key === 'Control') stopCtrlPan();
+            }, true);
             container.addEventListener('pointermove', function (event) {
                 window.__3tLastPointer = {
                     x: event.clientX,
@@ -543,58 +580,7 @@
         app.eventBus.on('documentinit', clear3TOverlays);
         app.eventBus.on('pagesinit', clear3TOverlays);
     }
-    // --- Hook for editing existing text ---
-    document.addEventListener('click', function(e) {
-        if (!window.__3tExistingTextMode) return;
-        console.log("3tExistingTextMode is true. Click registered.", e.target);
-        var textSpan = e.target.closest('.textLayer span');
-        if (!textSpan) {
-            console.log("Not a textLayer span.");
-            return;
-        }
-        var pageEl = textSpan.closest('.page[data-page-number]');
-        if (!pageEl) return;
-        var pageNum = parseInt(pageEl.dataset.pageNumber, 10);
-        var app = window.PDFViewerApplication;
-        var pageView = app && app.pdfViewer && app.pdfViewer.getPageView
-            ? app.pdfViewer.getPageView(pageNum - 1)
-            : (app && app.pdfViewer && app.pdfViewer._pages && app.pdfViewer._pages[pageNum - 1]);
-        if (!pageView || !pageView.viewport) return;
-
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-
-        var rect = textSpan.getBoundingClientRect();
-        var pageRect = pageEl.getBoundingClientRect();
-        var x0 = rect.left - pageRect.left;
-        var y0 = rect.top - pageRect.top;
-        var x1 = rect.right - pageRect.left;
-        var y1 = rect.bottom - pageRect.top;
-        var p1 = pageView.viewport.convertToPdfPoint(x0, y0);
-        var p2 = pageView.viewport.convertToPdfPoint(x1, y1);
-        var left = Math.min(p1[0], p2[0]);
-        var right = Math.max(p1[0], p2[0]);
-        var bottom = Math.min(p1[1], p2[1]);
-        var top = Math.max(p1[1], p2[1]);
-
-        var style = window.getComputedStyle(textSpan);
-        var fsPx = parseFloat(style.fontSize) || 16;
-        var fsPt = fsPx / (pageView.viewport.scale || 1.3333333333);
-
-        var styleJson = JSON.stringify({
-            fontSizePt: fsPt,
-            fontFamily: style.fontFamily,
-            color: style.color,
-            fontWeight: style.fontWeight
-        });
-
-        console.log("Calling bridge with:", pageNum, left, bottom, right, top, textSpan.textContent, styleJson);
-        window.__3tWithBridge('editExistingTextBridge', function(bridge) {
-            console.log("Got bridge:", bridge);
-            if (bridge) bridge.reportExistingTextClick(pageNum, left, bottom, right, top, textSpan.textContent, styleJson);
-        });
-    }, true);
+    
 
     installHooks();
 })();

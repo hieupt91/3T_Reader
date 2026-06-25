@@ -14,15 +14,16 @@ Kính gửi: **Cục Sở hữu trí tuệ**
 - Phần chữ: "3T Reader" (Yêu cầu bảo hộ tổng thể logo và phần chữ này)
 
 **2. NGƯỜI NỘP ĐƠN (CHỦ ĐƠN)**
-- Tên Công ty / Cá nhân: Công ty [Tên công ty 3T Computer theo Giấy phép ĐKKD]
-- Địa chỉ: [Địa chỉ trụ sở ghi trên Giấy phép]
-- Điện thoại: [Điện thoại]      Email: [Email]
-- Mã số doanh nghiệp/CCCD: [Mã số]  Cấp ngày: [Ngày] Nơi cấp: [Nơi cấp]
+- Tên Cá nhân: PHẠM TRUNG HIẾU
+- Địa chỉ thường trú: Tổ Dân Phố 2, phường Quảng Phong, thị xã Ba Đồn, tỉnh Quảng Bình
+- Địa chỉ liên hệ: Tổ dân phố 2, phường Ba Đồn, tỉnh Quảng Trị
+- Điện thoại: 0967136099      Email: hieupt.qb@gmail.com
+- Số CCCD: 044091002401  Cấp ngày: 18/01/2022 Nơi cấp: Cục Cảnh sát QLHC về TTXH
 
 **3. ĐẠI DIỆN CỦA CHỦ ĐƠN (Nếu uỷ quyền cho công ty Luật)**
-- [ ] Là Người đại diện theo pháp luật của chủ đơn (Giám đốc đi nộp)
+- [ ] Là Người đại diện theo pháp luật của chủ đơn
 - [ ] Là Tổ chức dịch vụ đại diện sở hữu công nghiệp được uỷ quyền
-*(Bỏ trống mục này nếu tự đi nộp, hoặc điền thông tin Đại diện theo pháp luật nếu là Giám đốc)*
+*(Bỏ trống mục này vì chủ đơn là cá nhân tự nộp)*
 
 **4. DANH MỤC SẢN PHẨM / DỊCH VỤ MANG NHÃN HIỆU**
 *(Phân loại theo Bảng phân loại Ni-xơ phiên bản 12)*

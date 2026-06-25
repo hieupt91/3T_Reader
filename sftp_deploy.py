@@ -88,12 +88,12 @@ except Exception:
     cfg = {"update": {}}
 
 cfg.setdefault("update", {})
-cfg["update"]["win_version"] = "1.0.21"
-cfg["update"]["win_url"] = "https://reader.3tcomputer.com/downloads/3TReader-1.0.21-win.exe"
-cfg["update"]["win_sha256"] = sha256_file("/var/www/vps_reader/downloads/3TReader-1.0.21-win.exe")
-cfg["update"]["portable_url"] = "https://reader.3tcomputer.com/downloads/3TReader-1.0.21-win-portable.zip"
-cfg["update"]["portable_sha256"] = sha256_file("/var/www/vps_reader/downloads/3TReader-1.0.21-win-portable.zip")
-cfg["update"]["release_notes"] = "Phiên bản 1.0.21: Tối ưu khởi động và nạp PDF cực nhanh. Nâng cấp Lazy Load."
+cfg["update"]["win_version"] = "1.0.22"
+cfg["update"]["win_url"] = "https://reader.3tcomputer.com/downloads/3TReader-1.0.22-win.exe"
+cfg["update"]["win_sha256"] = sha256_file("/var/www/vps_reader/downloads/3TReader-1.0.22-win.exe")
+cfg["update"]["portable_url"] = "https://reader.3tcomputer.com/downloads/3TReader-1.0.22-win-portable.zip"
+cfg["update"]["portable_sha256"] = sha256_file("/var/www/vps_reader/downloads/3TReader-1.0.22-win-portable.zip")
+cfg["update"]["release_notes"] = "Phiên bản 1.0.22: Tối ưu khởi động và nạp PDF cực nhanh. Nâng cấp Lazy Load."
 
 with open(conf_path, "w", encoding="utf-8") as f:
     json.dump(cfg, f, ensure_ascii=False, indent=2)

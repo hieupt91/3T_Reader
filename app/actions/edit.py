@@ -592,6 +592,16 @@ def _set_edit_state(window, value):
     window._pdf_edit_state = value
 
 
+def _is_pdf_file(path: str | None) -> bool:
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(4) == b"%PDF"
+    except OSError:
+        return False
+
+
 def _reset_edit_state(window):
     state = _get_edit_state(window)
     if not state:
@@ -641,6 +651,12 @@ def _ensure_edit_state(window):
         return None
 
     state = _get_edit_state(window)
+    state_obj = window._state_or_global() if hasattr(window, "_state_or_global") else None
+    if state:
+        base_snapshot = state.get("base_snapshot")
+        if base_snapshot and not _is_pdf_file(base_snapshot):
+            _reset_edit_state(window)
+            state = None
 
     # Nếu đang edit state và file gốc khớp → tái sử dụng
     if state and state.get("original_path") == current:
@@ -683,14 +699,26 @@ def _ensure_edit_state(window):
         current_abs = os.path.abspath(current)
         temp_root_abs = os.path.abspath(temp_root)
         if (
-            display_path
-            and os.path.exists(display_path)
-            and current_abs.startswith(temp_root_abs + os.sep)
+            current_abs.startswith(temp_root_abs + os.sep)
             and os.path.basename(current_abs).lower().startswith(("op_", "work_", "base_"))
         ):
-            snapshot_source = display_path
+            source_path = state_obj.get("source_path") if isinstance(state_obj, dict) else None
+            if _is_pdf_file(source_path):
+                snapshot_source = source_path
+            elif _is_pdf_file(display_path):
+                snapshot_source = display_path
     except Exception:
         snapshot_source = current
+
+    if not _is_pdf_file(snapshot_source):
+        source_path = state_obj.get("source_path") if isinstance(state_obj, dict) else None
+        if _is_pdf_file(source_path):
+            snapshot_source = source_path
+        elif _is_pdf_file(display_path):
+            snapshot_source = display_path
+        else:
+            show_warning(window, "KhÃ´ng thá»ƒ chá»‰nh sá»­a", "KhÃ´ng tÃ¬m tháº¥y báº£n PDF há»£p lá»‡ Ä‘á»ƒ báº¯t Ä‘áº§u phiÃªn chá»‰nh sá»­a.")
+            return None
 
     try:
         from app.actions.annotate import _flush_annotations_before_heavy_op
@@ -807,10 +835,12 @@ def _render_edit_state(
         show_warning(window, "Không thể chỉnh sửa", "Thiếu bản gốc để dựng lại tài liệu.")
         return None
 
-    working_file = state.get("working_file")
-    if not working_file:
+    previous_working_file = state.get("working_file")
+    if not previous_working_file:
         show_warning(window, "Không thể chỉnh sửa", "Thiếu file làm việc.")
         return None
+    working_dir = os.path.dirname(os.path.abspath(previous_working_file)) or tempfile.gettempdir()
+    working_file = os.path.join(working_dir, f"work_{uuid.uuid4().hex[:8]}.pdf")
 
     current_page = focus_page
     if current_page is None:
@@ -824,6 +854,8 @@ def _render_edit_state(
     except Exception as e:
         show_warning(window, "Không lưu được tệp", str(e))
         return None
+
+    state["working_file"] = working_file
 
     import json
     ops_json = json.dumps(state.get("ops", []))
@@ -1584,7 +1616,13 @@ def save_edits(window, *, reload_viewer: bool = True) -> bool:
 
     # Rebuild lần cuối vào working file
     try:
-        get_pdf_engine().rebuild_pdf_with_ops(base, working, state.get("ops", []))
+        final_working = os.path.join(
+            os.path.dirname(os.path.abspath(working)) or tempfile.gettempdir(),
+            f"work_{uuid.uuid4().hex[:8]}.pdf",
+        )
+        get_pdf_engine().rebuild_pdf_with_ops(base, final_working, state.get("ops", []))
+        state["working_file"] = final_working
+        working = final_working
     except Exception as e:
         show_warning(window, "Lỗi khi dựng file", str(e))
         return False
@@ -1642,7 +1680,13 @@ def save_edits_as(window):
     if state:
         base = state.get("base_snapshot", "")
         try:
-            get_pdf_engine().rebuild_pdf_with_ops(base, src, state.get("ops", []))
+            rebuilt_src = os.path.join(
+                os.path.dirname(os.path.abspath(src)) or tempfile.gettempdir(),
+                f"work_{uuid.uuid4().hex[:8]}.pdf",
+            )
+            get_pdf_engine().rebuild_pdf_with_ops(base, rebuilt_src, state.get("ops", []))
+            state["working_file"] = rebuilt_src
+            src = rebuilt_src
         except Exception as e:
             show_warning(window, "Lỗi khi dựng file", str(e))
             return
@@ -1900,16 +1944,6 @@ def edit_existing_text(window):
     import json
     import re
 
-    class ExistingTextBridge(QObject):
-        clicked = pyqtSignal(int, float, float, float, float, str, str)
-
-        @pyqtSlot(int, float, float, float, float, str, str)
-        def reportExistingTextClick(self, pageNum, left, bottom, right, top, text, styles_json):
-            self.clicked.emit(pageNum, left, bottom, right, top, text, styles_json)
-
-    bridge = ExistingTextBridge(window.viewer)
-    window._existing_text_bridge = bridge
-
     def _parse_font_size(styles: dict) -> float:
         try:
             font_size = float(styles.get("fontSizePt", 0) or 0)
@@ -2024,13 +2058,8 @@ def edit_existing_text(window):
         finally:
             doc.close()
 
-    def on_click(pageNum, left, bottom, right, top, old_text, styles_json):
-        window.viewer._web_view.page().runJavaScript("window.__3tExistingTextMode = false;")
+    def on_click(pageNum, left, bottom, right, top, old_text, styles_json, use_span_box=True):
         window.status.showMessage("", 0)
-
-        from app.webchannel import unregister_webchannel_object
-        unregister_webchannel_object(window.viewer._web_view, "editExistingTextBridge")
-        window._existing_text_bridge = None
 
         styles = {}
         try:
@@ -2070,9 +2099,21 @@ def edit_existing_text(window):
 
         redact_box = (left, bottom, right, top)
         span_info = _find_pdf_span(base_snapshot, int(pageNum), redact_box)
+        redact_padding = 2.0 if use_span_box else 0.0
         if span_info:
-            redact_box = span_info["box"]
-            left, bottom, right, top = redact_box
+            if use_span_box:
+                redact_box = span_info["box"]
+                left, bottom, right, top = redact_box
+            else:
+                span_left, span_bottom, span_right, span_top = span_info["box"]
+                tight_bottom = max(bottom, span_bottom)
+                tight_top = min(top, span_top)
+                if tight_top - tight_bottom >= 0.5:
+                    bottom, top = tight_bottom, tight_top
+                    height = max(1.0, top - bottom)
+                    top = max(bottom + 0.5, top - min(2.0, height * 0.18))
+                    redact_box = (left, bottom, right, top)
+                redact_padding = 0.0
             font_size = span_info["font_size"]
             color = span_info["font_color"]
             is_bold = span_info["bold"]
@@ -2088,7 +2129,7 @@ def edit_existing_text(window):
                 "page_number": pageNum,
                 "box": text_box,
                 "redact_box": redact_box,
-                "redact_padding": 2.0,
+                "redact_padding": redact_padding,
                 "text": text_value,
                 "font_size": font_size,
                 "font_color": color,
@@ -2099,7 +2140,10 @@ def edit_existing_text(window):
                 "is_existing_edit": True,
             }
             if span_info:
-                op["baseline"] = span_info["baseline"]
+                if use_span_box:
+                    op["baseline"] = span_info["baseline"]
+                else:
+                    op["baseline"] = (left, float(span_info["baseline"][1]))
                 op["single_line"] = True
         else:
             op = {
@@ -2108,7 +2152,7 @@ def edit_existing_text(window):
                 "page_number": pageNum,
                 "box": redact_box,
                 "fill_color": (1.0, 1.0, 1.0),
-                "redact_padding": 2.0,
+                "redact_padding": redact_padding,
             }
 
         state["next_id"] += 1
@@ -2122,10 +2166,25 @@ def edit_existing_text(window):
         reload_document(window, working_file, display_path=display_path, temp_path=working_file, page=pageNum)
         QTimer.singleShot(350, lambda: window.viewer.update_ops("[]") if hasattr(window.viewer, "update_ops") else None)
 
-    bridge.clicked.connect(on_click)
+    def edit_from_selection():
+        from app.actions.annotate import _get_selection_payload_sync, _selection_page_rects
 
-    from app.webchannel import register_webchannel_object
-    register_webchannel_object(window.viewer._web_view, window, "editExistingTextBridge", bridge)
+        payload = _get_selection_payload_sync(window, timeout_ms=500)
+        selected_text, rects_by_page = _selection_page_rects(payload, merge_lines=False)
+        if not rects_by_page:
+            show_warning(window, "Chưa chọn văn bản", "Hãy bôi đen đúng phần chữ cần sửa trước, rồi bấm Sửa text gốc.")
+            return
 
-    window.viewer._web_view.page().runJavaScript("window.__3tExistingTextMode = true;")
-    window.status.showMessage("Click vào đoạn text có sẵn trên trang để sửa... (Esc để hủy)", 0)
+        page_num = sorted(rects_by_page.keys())[0]
+        page_rects = rects_by_page.get(page_num) or []
+        if not page_rects:
+            show_warning(window, "Chưa chọn văn bản", "Hãy bôi đen đúng phần chữ cần sửa trước, rồi bấm Sửa text gốc.")
+            return
+
+        left = min(float(rect[0]) for rect in page_rects)
+        bottom = min(float(rect[1]) for rect in page_rects)
+        right = max(float(rect[2]) for rect in page_rects)
+        top = max(float(rect[3]) for rect in page_rects)
+        on_click(page_num, left, bottom, right, top, selected_text or "", "{}", use_span_box=False)
+
+    edit_from_selection()
