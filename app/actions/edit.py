@@ -73,6 +73,7 @@ _CLEAR_SELECTION_OVERLAY_JS = """(function() {
 _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRight, pdfTop, currentRotation, hasEdit, opPayloadStr) {
     var _cleanedUp = false;
     var _dragging  = false;
+    var _resizing  = false;
     var _actionBridge = null;
 
     function withActionBridge(callback) {
@@ -96,6 +97,7 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
             try {
                 if (obj.type === 'rotate') bridge.reportRotation(Number(obj.angle || 0));
                 else if (obj.type === 'drag_move') bridge.reportDragMove(obj.box[0], obj.box[1], obj.box[2], obj.box[3]);
+                else if (obj.type === 'resize') bridge.reportResize(obj.box[0], obj.box[1], obj.box[2], obj.box[3], obj.scale || 1);
                 else if (obj.type === 'delete') bridge.reportDelete();
                 else if (obj.type === 'edit') bridge.reportEdit();
                 else if (obj.type === 'move') bridge.reportMove();
@@ -108,7 +110,7 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
     }
 
     function onDocClick(e) {
-        if (_dragging) return;
+        if (_dragging || _resizing) return;
         var grp = document.getElementById('__3tObjGroup');
         if (grp && grp.contains(e.target)) return;
         cleanupAll();
@@ -226,6 +228,7 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
                 + 'color:rgba('+r+','+g+','+b+',0.78);'
                 + 'font-weight:'+(opPayload.bold?'bold':'normal')+';'
                 + 'text-decoration:'+(opPayload.underline?'underline':'none')+';'
+                + 'font-style:'+(opPayload.italic?'italic':'normal')+';'
                 + 'font-family:'+fontFam+';white-space:pre-wrap;overflow:hidden;';
             var fs = (opPayload.font_size || 14) * (vp.scale || 1.0) * 1.333;
             txt.style.fontSize = fs + 'px';
@@ -236,6 +239,18 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
     }
     
     grp.appendChild(box);
+
+    function syncGeometry(newWidth, newHeight) {
+        bw = Math.max(1, newWidth);
+        bh = Math.max(1, newHeight);
+        grp.style.width = (bw + 2 * pad) + 'px';
+        grp.style.height = (bh + 2 * pad) + 'px';
+        grp.style.transformOrigin = (pad + bw / 2) + 'px ' + (pad + bh / 2) + 'px';
+        box.style.width = bw + 'px';
+        box.style.height = bh + 'px';
+        angleLbl.style.left = (pad + bw / 2) + 'px';
+        angleLbl.style.top = (pad + bh / 2) + 'px';
+    }
 
     // Angle label during drag
     var angleLbl = document.createElement('div');
@@ -257,6 +272,7 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
         if (corner === 'tr') pos = 'right:0;top:0;';
         if (corner === 'bl') pos = 'left:0;bottom:0;';
         if (corner === 'br') pos = 'right:0;bottom:0;';
+        if (corner === 'mr') pos = 'right:0;top:50%%;transform:translateY(-50%%);';
         h.style.cssText = 'position:absolute;border-radius:50%%;z-index:62;'
             + 'user-select:none;pointer-events:auto;'
             + 'display:flex;align-items:center;justify-content:center;'
@@ -284,6 +300,9 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
             reportAction({type:'edit'});
         });
     }
+
+    var resizeH = mkH('__3tResizeHandle', '&#8645;', 'KÃ©o Ä‘á»ƒ thu phÃ³ng', 'mr', '#8B5CF6', 'nwse-resize', 14);
+    grp.appendChild(resizeH);
 
     // Rotation drag
     rotH.addEventListener('mousedown', function(e) {
@@ -326,6 +345,74 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
     delH.addEventListener('click', function(e) {
         e.stopPropagation(); cleanupAll();
         reportAction({type:'delete'});
+    });
+
+    resizeH.addEventListener('mousedown', function(e) {
+        e.preventDefault(); e.stopPropagation();
+        _resizing = true;
+        resizeH.style.cursor = 'nwse-resize';
+
+        var startX = e.clientX;
+        var startY = e.clientY;
+        var startW = bw;
+        var startH = bh;
+        var startLeft = parseFloat(grp.style.left) || 0;
+        var startTop = parseFloat(grp.style.top) || 0;
+        var startRotation = currentRotation || 0;
+        var cap = document.createElement('div');
+        cap.style.cssText = 'position:fixed;inset:0;z-index:99999;cursor:nwse-resize;';
+        document.body.appendChild(cap);
+
+        function onMove(e2) {
+            var dx = e2.clientX - startX;
+            var dy = e2.clientY - startY;
+            var rad = -startRotation * Math.PI / 180.0;
+            var localDx = dx * Math.cos(rad) - dy * Math.sin(rad);
+            var localDy = dx * Math.sin(rad) + dy * Math.cos(rad);
+            var newW = Math.max(20, startW + localDx);
+            var newH = Math.max(20, startH + localDy);
+            syncGeometry(newW, newH);
+            
+            if (opPayload && opPayload.type === 'text') {
+                var scaleX = newW / startW;
+                var scaleY = newH / startH;
+                var scale = Math.max(0.25, Math.min(6.0, Math.min(scaleX, scaleY)));
+                var txt = box.querySelector('div');
+                if (txt) {
+                    var baseFs = (opPayload.font_size || 14) * (vp.scale || 1.0) * 1.333;
+                    txt.style.fontSize = (baseFs * scale) + 'px';
+                }
+            }
+        }
+        function onUp() {
+            cap.removeEventListener('mousemove', onMove);
+            cap.removeEventListener('mouseup', onUp);
+            if (cap.parentNode) cap.parentNode.removeChild(cap);
+            setTimeout(function() { _resizing = false; }, 100);
+            resizeH.style.cursor = 'nwse-resize';
+
+            var nLeft = parseFloat(grp.style.left) + pad;
+            var nTop = parseFloat(grp.style.top) + pad;
+            var newBw = parseFloat(box.style.width) || bw;
+            var newBh = parseFloat(box.style.height) || bh;
+            var p1 = vp.convertToPdfPoint(nLeft, nTop);
+            var p2 = vp.convertToPdfPoint(nLeft + newBw, nTop + newBh);
+            var newL = Math.min(p1[0], p2[0]);
+            var newB = Math.min(p1[1], p2[1]);
+            var newR = Math.max(p1[0], p2[0]);
+            var newT = Math.max(p1[1], p2[1]);
+            var scaleX = newBw / startW;
+            var scaleY = newBh / startH;
+            var scale = Math.max(0.25, Math.min(6.0, Math.min(scaleX, scaleY)));
+            cleanupAll();
+            try {
+                reportAction({type:'resize', box: [newL, newB, newR, newT], scale: scale});
+            } catch(err) {
+                console.error("RESIZE_ERROR: " + err);
+            }
+        }
+        cap.addEventListener('mousemove', onMove);
+        cap.addEventListener('mouseup', onUp);
     });
 
     // Move drag
@@ -486,6 +573,7 @@ class ObjectActionBridge(QObject):
     editConfirmed   = pyqtSignal()
     moveRequested   = pyqtSignal()
     dragMoveConfirmed = pyqtSignal(float, float, float, float)
+    resizeConfirmed = pyqtSignal(float, float, float, float, float)
     dismissed       = pyqtSignal()
     retryRequested  = pyqtSignal()
 
@@ -509,6 +597,10 @@ class ObjectActionBridge(QObject):
     def reportDragMove(self, l, b, r, t):
         print(f"DEBUG: reportDragMove python slot invoked with: {l, b, r, t}")
         self.dragMoveConfirmed.emit(l, b, r, t)
+
+    @pyqtSlot(float, float, float, float, float)
+    def reportResize(self, l, b, r, t, scale):
+        self.resizeConfirmed.emit(l, b, r, t, scale)
 
     @pyqtSlot()
     def reportDismiss(self):
@@ -1052,15 +1144,24 @@ def _find_op_at_pick(state, pick):
     if not candidates:
         return None
 
-    # Prefer last inserted op with maximum overlap area.
+    # Prefer the newest op when overlap ties. Repeated existing-text edits can
+    # stack multiple ops over nearly the same area, and selecting the oldest
+    # one makes the UI box drift away from the text that is actually visible.
     def overlap_area(op):
         l, b, r, t = op.get("box", (0, 0, 0, 0))
         ow = max(0.0, min(pr, r) - max(pl, l))
         oh = max(0.0, min(pt, t) - max(pb, b))
         return ow * oh
 
-    best = max(candidates, key=overlap_area)
-    if overlap_area(best) > 0:
+    best_index = None
+    best_overlap = -1.0
+    for idx, op in enumerate(candidates):
+        current_overlap = overlap_area(op)
+        if current_overlap > best_overlap or (current_overlap == best_overlap and idx > (best_index or -1)):
+            best_overlap = current_overlap
+            best_index = idx
+    best = candidates[best_index] if best_index is not None else None
+    if best is not None and best_overlap > 0:
         return best
 
     # Fallback: nearest center.
@@ -1073,7 +1174,44 @@ def _find_op_at_pick(state, pick):
         oy = (b + t) / 2.0
         return (ox - cx) ** 2 + (oy - cy) ** 2
 
-    return min(candidates, key=dist2)
+    best_index = None
+    best_dist = None
+    for idx, op in enumerate(candidates):
+        current_dist = dist2(op)
+        if best_dist is None or current_dist < best_dist or (current_dist == best_dist and idx > (best_index or -1)):
+            best_dist = current_dist
+            best_index = idx
+    return candidates[best_index] if best_index is not None else None
+
+
+def _sync_text_anchor_after_transform(op: dict, old_box, new_box, *, drop_baseline: bool = False) -> None:
+    """Keep text anchors coherent after UI transforms.
+
+    Existing-text edits may store a `baseline` so the initial replacement lands
+    exactly over the original glyphs. Once the user starts moving/resizing/
+    rotating that object, the baseline anchor must be updated or dropped,
+    otherwise the on-screen selection box and the saved PDF diverge.
+    """
+    if op.get("type") != "text":
+        return
+    if drop_baseline:
+        op.pop("baseline", None)
+        op.pop("single_line", None)
+        return
+
+    baseline = op.get("baseline")
+    if not baseline:
+        return
+    try:
+        old_left, old_bottom, _old_right, _old_top = [float(v) for v in old_box]
+        new_left, new_bottom, _new_right, _new_top = [float(v) for v in new_box]
+        bx, by = [float(v) for v in baseline[:2]]
+    except Exception:
+        op.pop("baseline", None)
+        op.pop("single_line", None)
+        return
+
+    op["baseline"] = (bx + (new_left - old_left), by + (new_bottom - old_bottom))
 
 
 def _run_object_action_session(window, state, target_op, web_view=None, retry_count: int = 0):
@@ -1107,6 +1245,7 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
 
     action_bridge.rotateConfirmed.connect(lambda angle: _finish("rotate", angle=angle))
     action_bridge.dragMoveConfirmed.connect(lambda l, b, r, t: _finish("drag_move", box=(l, b, r, t)))
+    action_bridge.resizeConfirmed.connect(lambda l, b, r, t, scale: _finish("resize", box=(l, b, r, t), scale=scale))
     action_bridge.deleteConfirmed.connect(lambda: _finish("delete"))
     action_bridge.editConfirmed.connect(lambda: _finish("edit"))
     action_bridge.moveRequested.connect(lambda: _finish("move"))
@@ -1149,6 +1288,7 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
         old_box = target_op["box"]
         angle = int(action_result.get("angle", 0)) % 360
         target_op["rotation"] = angle
+        _sync_text_anchor_after_transform(target_op, old_box, old_box, drop_baseline=True)
         _render_edit_state(window, state, f"Đã xoay {angle}°", focus_page=page_num, auto_select_op=target_op, erase_boxes=[{"page_number": target_op.get("page_number", page_num), "box": old_box}])
         return
 
@@ -1157,7 +1297,20 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
         l, b, r, t = action_result["box"]
         print(f"DEBUG: Python _finish received drag_move! New box: {l, b, r, t}")
         target_op["box"] = (l, b, r, t)
+        _sync_text_anchor_after_transform(target_op, old_box, target_op["box"])
         _render_edit_state(window, state, "Đã di chuyển đối tượng", focus_page=page_num, auto_select_op=target_op, erase_boxes=[{"page_number": target_op.get("page_number", page_num), "box": old_box}])
+        return
+
+    if action == "resize":
+        old_box = target_op["box"]
+        l, b, r, t = action_result["box"]
+        scale = float(action_result.get("scale", 1.0) or 1.0)
+        target_op["box"] = (l, b, r, t)
+        if op_type == "text":
+            current_size = float(target_op.get("font_size", 14) or 14)
+            target_op["font_size"] = max(4.0, min(120.0, current_size * scale))
+            _sync_text_anchor_after_transform(target_op, old_box, target_op["box"], drop_baseline=True)
+        _render_edit_state(window, state, "ÄÃ£ thay Ä‘á»•i kÃ­ch thÆ°á»›c Ä‘á»‘i tÆ°á»£ng", focus_page=page_num, auto_select_op=target_op, erase_boxes=[{"page_number": target_op.get("page_number", page_num), "box": old_box}])
         return
 
     if action == "delete":
@@ -1184,6 +1337,8 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
             color_tuple=color_tuple,
             bold=target_op.get("bold", False),
             underline=target_op.get("underline", False),
+            italic=target_op.get("italic", False),
+            font_family=target_op.get("font_family", "sans-serif"),
         )
         def _refresh_preview():
             preview_op = dict(target_op)
@@ -1192,6 +1347,8 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
             preview_op["font_color"] = dlg_edit.get_color_tuple()
             preview_op["bold"] = dlg_edit.get_bold()
             preview_op["underline"] = dlg_edit.get_underline()
+            preview_op["italic"] = dlg_edit.get_italic()
+            preview_op["font_family"] = dlg_edit.get_font_family()
             _show_text_edit_live_preview(window, preview_op)
 
         dlg_edit.previewChanged.connect(_refresh_preview)
@@ -1305,9 +1462,11 @@ class _TextEditDialog(QDialog):
     previewChanged = pyqtSignal()
 
     def __init__(self, parent=None, *, text="", font_size=14,
-                 color_tuple=(0.0, 0.0, 0.0), bold=False, underline=False):
+                 color_tuple=(0.0, 0.0, 0.0), bold=False, underline=False,
+                 italic=False, font_family=""):
         from packages.qt_compat.QtCore import Qt
         from packages.qt_compat.QtGui import QColor
+        from packages.qt_compat.QtWidgets import QFontComboBox
 
         super().__init__(parent)
         self.setWindowTitle("Sửa văn bản")
@@ -1350,6 +1509,15 @@ class _TextEditDialog(QDialog):
         fmt_row = QHBoxLayout()
         fmt_row.setSpacing(8)
 
+        fmt_row.addWidget(QLabel("Font:"))
+        self._font_combo = QFontComboBox()
+        self._font_combo.setFixedWidth(120)
+        if font_family:
+            from packages.qt_compat.QtGui import QFont
+            self._font_combo.setCurrentFont(QFont(font_family))
+        self._font_combo.currentFontChanged.connect(lambda _f: self.previewChanged.emit())
+        fmt_row.addWidget(self._font_combo)
+
         fmt_row.addWidget(QLabel("Cỡ chữ:"))
         self._size_spin = QSpinBox()
         self._size_spin.setRange(6, 96)
@@ -1385,6 +1553,14 @@ class _TextEditDialog(QDialog):
         self._under_btn.setStyleSheet(_fmt_ss.replace("font-weight:700", "font-weight:400"))
         self._under_btn.toggled.connect(lambda _checked: self.previewChanged.emit())
         fmt_row.addWidget(self._under_btn)
+
+        self._italic_btn = QToolButton()
+        self._italic_btn.setText("I")
+        self._italic_btn.setCheckable(True)
+        self._italic_btn.setChecked(italic)
+        self._italic_btn.setStyleSheet(_fmt_ss.replace("font-weight:700", "font-weight:400; font-style:italic"))
+        self._italic_btn.toggled.connect(lambda _checked: self.previewChanged.emit())
+        fmt_row.addWidget(self._italic_btn)
 
         fmt_row.addStretch()
         root.addLayout(fmt_row)
@@ -1454,6 +1630,16 @@ class _TextEditDialog(QDialog):
 
     def get_underline(self) -> bool:
         return self._under_btn.isChecked()
+
+    def get_italic(self) -> bool:
+        if hasattr(self, "_italic_btn"):
+            return self._italic_btn.isChecked()
+        return False
+
+    def get_font_family(self) -> str:
+        if hasattr(self, "_font_combo"):
+            return self._font_combo.currentFont().family()
+        return "sans-serif"
 
     def _position_near_parent(self, parent):
         x, y = _place_dialog_near_parent(parent, self.width(), self.height())
@@ -1595,6 +1781,8 @@ def insert_text_to_pdf(window):
         "font_color": result.get("color_tuple", (0.0, 0.0, 0.0)),
         "bold":       result.get("bold", False),
         "underline":  result.get("underline", False),
+        "italic":     result.get("italic", False),
+        "font_family": result.get("font_family", "sans-serif"),
         "rotation":   result.get("rotation", 0),
     }
     state["next_id"] += 1
