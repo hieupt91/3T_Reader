@@ -179,12 +179,19 @@ class AITranslateDialog(QDialog):
         if hasattr(self, "_progress"):
             self._progress.setRange(0, 100)
             self._progress.setVisible(False)
-        if getattr(self, "_thread", None) and self._thread.isRunning():
-            self._thread.quit()
-            self._thread.wait(500)
-        if getattr(self, "_detect_thread", None) and self._detect_thread.isRunning():
-            self._detect_thread.quit()
-            self._detect_thread.wait(500)
+        try:
+            if getattr(self, "_thread", None) and self._thread.isRunning():
+                self._thread.quit()
+                self._thread.wait(500)
+        except RuntimeError:
+            pass
+
+        try:
+            if getattr(self, "_detect_thread", None) and self._detect_thread.isRunning():
+                self._detect_thread.quit()
+                self._detect_thread.wait(500)
+        except RuntimeError:
+            pass
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -602,9 +609,19 @@ class AITranslateDialog(QDialog):
 
     def _run_task(self, task_fn, result_widget: QTextEdit, supports_progress: bool = False):
         """Chạy task trong thread riêng, cập nhật result_widget khi xong."""
-        if ((self._thread and self._thread.isRunning()) or (self._detect_thread and self._detect_thread.isRunning())):
-            self._set_status("Đang có tác vụ dịch khác chạy, vui lòng chờ.", "#E05050")
-            return
+        try:
+            if self._thread and self._thread.isRunning():
+                self._set_status("Đang có tác vụ dịch khác chạy, vui lòng chờ.", "#E05050")
+                return
+        except RuntimeError:
+            self._thread = None
+
+        try:
+            if self._detect_thread and self._detect_thread.isRunning():
+                self._set_status("Đang có tác vụ nhận diện chạy, vui lòng chờ.", "#E05050")
+                return
+        except RuntimeError:
+            self._detect_thread = None
 
         self._current_target_widget = result_widget
         self._thread = QThread()
@@ -687,7 +704,7 @@ class AITranslateDialog(QDialog):
         if not self._result_text:
             return
         from app.actions.tts_dialog import TTSDialog
-        dlg = TTSDialog(self, page_text=self._result_text, selected_text=self._result_text)
+        dlg = TTSDialog(self, page_text=self._result_text, selected_text=self._result_text, target_lang=self._get_tgt())
         dlg.exec()
 
     def _on_save(self):
@@ -719,7 +736,16 @@ class AITranslateDialog(QDialog):
 
     def closeEvent(self, event):
         self._cleanup()
-        if ((self._thread and self._thread.isRunning()) or (self._detect_thread and self._detect_thread.isRunning())):
+        is_running = False
+        try:
+            if getattr(self, "_thread", None) and self._thread.isRunning():
+                is_running = True
+            if getattr(self, "_detect_thread", None) and self._detect_thread.isRunning():
+                is_running = True
+        except RuntimeError:
+            pass
+
+        if is_running:
             self._set_status("Đang chờ hoàn tất. Đóng lại sau khi xong.", "#E05050")
             event.ignore()
             return

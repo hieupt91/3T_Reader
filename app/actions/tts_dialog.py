@@ -42,10 +42,10 @@ _OFFLINE_MODE = "offline"
 _OPENAI_MODE = "openai"
 _PIPER_MODE = "piper"
 _LANGUAGE_CHOICES = [
-    ("auto", "Tu nhan dien"),
-    ("vi", "Tieng Viet"),
+    ("auto", "Tự nhận diện"),
+    ("vi", "Tiếng Việt"),
     ("en", "English"),
-    ("fr", "Francais"),
+    ("fr", "Français"),
     ("zh", "中文"),
     ("ko", "한국어"),
     ("th", "ไทย"),
@@ -304,7 +304,7 @@ def _start_async_wav(path: str) -> None:
 
         winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
     else:
-        raise RuntimeError("AI TTS playback hien chua ho tro tren he dieu hanh nay.")
+        raise RuntimeError("AI TTS playback hiện chưa hỗ trợ trên hệ điều hành này.")
 
 
 def _stop_wav_playback() -> None:
@@ -339,8 +339,9 @@ def _tts_cache_path(cache_key: str) -> Path:
 
 
 class TTSDialog(QDialog):
-    def __init__(self, parent=None, page_text="", selected_text="", pages_text=None, current_page=1):
+    def __init__(self, parent=None, page_text="", selected_text="", pages_text=None, current_page=1, target_lang="auto"):
         super().__init__(parent)
+        self.target_lang = target_lang
         self.setWindowTitle(self._t("tts.title", "Đọc sách bằng AI (TTS)"))
         self.pages_text = pages_text or []
         self.current_page = current_page
@@ -432,6 +433,13 @@ class TTSDialog(QDialog):
         self.language_cb = QComboBox()
         for code, label in _LANGUAGE_CHOICES:
             self.language_cb.addItem(label, code)
+        
+        # Set default language if provided
+        if hasattr(self, 'target_lang') and self.target_lang != "auto":
+            idx = self.language_cb.findData(self.target_lang)
+            if idx >= 0:
+                self.language_cb.setCurrentIndex(idx)
+
         self.language_cb.currentIndexChanged.connect(self._refresh_voice_options)
         language_layout.addWidget(self.language_cb)
         layout.addLayout(language_layout)
@@ -512,7 +520,7 @@ class TTSDialog(QDialog):
             from PySide6.QtMultimedia import QMediaPlayer
             if status == QMediaPlayer.MediaStatus.EndOfMedia:
                 if getattr(self, "_is_playing", False):
-                    self._bridge.finished.emit(True, "Doc xong.")
+                    self._bridge.finished.emit(True, "Đọc xong.")
         except ImportError:
             pass
 
@@ -526,11 +534,11 @@ class TTSDialog(QDialog):
         if data == "selection":
             self.text_to_speak = self.selected_text
             if not self.text_to_speak:
-                self._set_status("Khong co van ban nao dang duoc boi den.")
+                self._set_status("Không có văn bản nào đang được bôi đen.")
         elif data == "document":
             self.text_to_speak = self.full_text
             if not self.text_to_speak:
-                self._set_status("Khong the lay van ban toan bo tai lieu.")
+                self._set_status("Không thể lấy văn bản toàn bộ tài liệu.")
         elif data == "custom":
             self._update_custom_pages_text()
         else:
@@ -582,9 +590,9 @@ class TTSDialog(QDialog):
                 self.voice_cb.addItem(label, voice_id)
             self.voice_cb.setCurrentIndex(max(0, self.voice_cb.findData("marin")))
             if os.environ.get("OPENAI_API_KEY"):
-                self._set_status("Dung OPENAI_API_KEY da luu de doc giong AI.")
+                self._set_status("Dùng OPENAI_API_KEY đã lưu để đọc giọng AI.")
             else:
-                self._set_status("Chua co OPENAI_API_KEY. Vao AI > Cai dat AI de nhap key.")
+                self._set_status("Chưa có OPENAI_API_KEY. Vào AI > Cài đặt AI để nhập key.")
         elif mode == _PIPER_MODE:
             from app.actions.piper_tts_manager import fetch_available_piper_voices, has_local_piper_engine
             piper_voices = [v for v in fetch_available_piper_voices() if v.is_downloaded]
@@ -599,11 +607,11 @@ class TTSDialog(QDialog):
             self.btn_piper_mgr.setVisible(True)
             self._offline_voice_missing = len(matching) == 0 and target_lang != "auto"
             if not has_local_piper_engine():
-                self._set_status("Chua co Piper engine trong piper_bin. Can bo sung piper.exe truoc khi doc.")
+                self._set_status("Chưa có Piper engine trong piper_bin. Cần bổ sung piper.exe trước khi đọc.")
             elif len(piper_voices) > 0:
-                self._set_status(f"Piper TTS da san sang cho {_language_label(target_lang)}.")
+                self._set_status(f"Piper TTS đã sẵn sàng cho {_language_label(target_lang)}.")
             else:
-                self._set_status(f"Chua co giong Piper local cho {_language_label(target_lang)}. Dat model vao piper_bin/models hoac bam 'Cửa hàng Giọng AI' de tai them.")
+                self._set_status(f"Chưa có giọng Piper local cho {_language_label(target_lang)}. Đặt model vào piper_bin/models hoặc bấm 'Cửa hàng Giọng AI' để tải thêm.")
         else:
             target_lang = self._selected_language()
             matching = [voice for voice in self.voices if _voice_matches_language(voice, target_lang)]
@@ -611,16 +619,16 @@ class TTSDialog(QDialog):
                 self.voice_cb.addItem(_voice_label(voice), voice)
             if matching:
                 self._set_status(
-                    f"Offline dung giong Windows cho {_language_label(target_lang)}. "
-                    "Neu doc sai tieng, hay doi sang giong dung ngon ngu."
+                    f"Offline dùng giọng Windows cho {_language_label(target_lang)}. "
+                    "Nếu đọc sai tiếng, hãy đổi sang giọng đúng ngôn ngữ."
                 )
             else:
                 self._offline_voice_missing = True
                 self.btn_install_voice.setVisible(True)
                 self.btn_install_voice.setEnabled(True)
                 self._set_status(
-                    f"Windows chua co giong offline cho {_language_label(target_lang)}. "
-                    "Bam 'Tai/Cai giong' de mo cai dat, cai xong quay lai bam 'Lam moi giong'."
+                    f"Windows chưa có giọng offline cho {_language_label(target_lang)}. "
+                    "Bấm 'Tải/Cài giọng' để mở cài đặt, cài xong quay lại bấm 'Làm mới giọng'."
                 )
 
         self.voice_cb.blockSignals(False)
@@ -639,17 +647,17 @@ class TTSDialog(QDialog):
         opened = QDesktopServices.openUrl(QUrl(_LANGUAGE_SETTINGS_URL)) or opened
         if opened:
             self._set_status(
-                f"Da mo cai dat Windows cho {_language_label(lang)}. "
-                "Hay them Speech/Language pack, sau do quay lai bam 'Lam moi giong'."
+                f"Đã mở cài đặt Windows cho {_language_label(lang)}. "
+                "Hãy thêm Speech/Language pack, sau đó quay lại bấm 'Làm mới giọng'."
             )
         else:
             from app.dialogs import show_info
 
             show_info(
                 self,
-                "Cai giong offline",
-                "Khong mo duoc trang cai dat tu dong. "
-                "Hay vao Windows Settings > Speech hoac Language & region de cai them voice.",
+                "Cài giọng offline",
+                "Không mở được trang cài đặt tự động. "
+                "Hãy vào Windows Settings > Speech hoặc Language & region để cài thêm voice.",
             )
 
     def _set_playing(self, playing: bool):
@@ -670,7 +678,7 @@ class TTSDialog(QDialog):
         if not self.text_to_speak.strip():
             from app.dialogs import show_warning
 
-            show_warning(self, "Loi", "Khong tim thay van ban tren trang hien tai.")
+            show_warning(self, "Loi", "Không tìm thấy văn bản trên trang hiện tại.")
             return
 
         mode = self.mode_cb.currentData()
@@ -679,20 +687,20 @@ class TTSDialog(QDialog):
 
             show_warning(
                 self,
-                "Thieu giong offline",
-                "Windows chua co giong offline cho ngon ngu nay. "
-                "Bam 'Tai/Cai giong', cai xong roi quay lai bam 'Lam moi giong'.",
+                "Thiếu giọng offline",
+                "Windows chưa có giọng offline cho ngôn ngữ này. "
+                "Bấm 'Tải/Cài giọng', cài xong rồi quay lại bấm 'Làm mới giọng'.",
             )
             return
         if mode == _OPENAI_MODE and not os.environ.get("OPENAI_API_KEY"):
             from app.dialogs import show_warning
 
-            show_warning(self, "Thieu AI Key", "Chua co OPENAI_API_KEY. Vao AI > Cai dat AI de nhap key.")
+            show_warning(self, "Thiếu AI Key", "Chưa có OPENAI_API_KEY. Vào AI > Cài đặt AI để nhập key.")
             return
 
         self._stop_requested.clear()
         self._set_playing(True)
-        self._bridge.status.emit("Dang chuan bi doc...")
+        self._bridge.status.emit("Đang chuẩn bị đọc...")
         
         mode = self.mode_cb.currentData()
         voice = self.voice_cb.currentData()
@@ -703,7 +711,7 @@ class TTSDialog(QDialog):
             cache_key = _tts_cache_key(self.text_to_speak, mode, voice, rate, language_code)
             cached_path = _tts_cache_path(cache_key)
             if cached_path.exists():
-                self._bridge.status.emit("Dang phat lai tu bo nho tam...")
+                self._bridge.status.emit("Đang phát lại từ bộ nhớ tạm...")
                 self._cached_audio_key = cache_key
                 self._cached_audio_path = str(cached_path)
                 self._bridge.audioReady.emit(str(cached_path))
@@ -727,11 +735,11 @@ class TTSDialog(QDialog):
             synthesize_audio_piper,
         )
         if not has_local_piper_engine():
-            self._bridge.finished.emit(False, "Chua co Piper engine trong piper_bin.")
+            self._bridge.finished.emit(False, "Chưa có Piper engine trong piper_bin.")
             return
         voice_or_auto = self.voice_cb.currentData()
         if not voice_or_auto:
-            self._bridge.finished.emit(False, "Chua chon giong Piper.")
+            self._bridge.finished.emit(False, "Chưa chọn giọng Piper.")
             return
             
         voice = voice_or_auto
@@ -753,10 +761,10 @@ class TTSDialog(QDialog):
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             audio_path = f.name
             
-        self._bridge.status.emit(f"Dang tong hop giong Piper ({voice.name})...")
+        self._bridge.status.emit(f"Đang tổng hợp giọng Piper ({voice.name})...")
         ok = synthesize_audio_piper(self.text_to_speak, voice.local_onnx_path, audio_path, 100)
         if not ok:
-            self._bridge.finished.emit(False, "Loi tao giong Piper.")
+            self._bridge.finished.emit(False, "Lỗi tạo giọng Piper.")
             return
 
         cache_key = getattr(self, "_current_cache_key", None)
@@ -772,22 +780,22 @@ class TTSDialog(QDialog):
         self._cached_audio_path = audio_path
 
         self._bridge.audioReady.emit(audio_path)
-        self._bridge.status.emit(f"Dang phat Piper TTS: {voice.name}")
+        self._bridge.status.emit(f"Đang phát Piper TTS: {voice.name}")
 
     def _run_offline_tts(self):
         voice = self.voice_cb.currentData()
         rate = self.rate_slider.value()
         try:
-            self._bridge.status.emit("Dang doc offline...")
+            self._bridge.status.emit("Đang đọc offline...")
             if isinstance(voice, _OfflineVoice) and voice.backend == "sapi":
                 self._run_windows_sapi_tts(voice, rate)
             elif isinstance(voice, _OfflineVoice) and voice.backend == "say":
                 self._run_macos_say_tts(voice, rate)
             else:
                 self._run_pyttsx3_tts(voice.id if isinstance(voice, _OfflineVoice) else voice, rate)
-            self._bridge.finished.emit(True, "Da dung." if self._stop_requested.is_set() else "Doc offline xong.")
+            self._bridge.finished.emit(True, "Đã dừng." if self._stop_requested.is_set() else "Đọc offline xong.")
         except Exception as exc:
-            self._bridge.finished.emit(False, f"Loi doc offline: {exc}")
+            self._bridge.finished.emit(False, f"Lỗi đọc offline: {exc}")
         finally:
             self._engine_run = None
             self._speaker_run = None
@@ -880,7 +888,7 @@ class TTSDialog(QDialog):
             self._bridge.status.emit("Dang tao giong AI tu key da luu...")
             audio_path = self._synthesize_openai_wav()
             if self._stop_requested.is_set():
-                self._bridge.finished.emit(True, "Da dung.")
+                self._bridge.finished.emit(True, "Đã dừng.")
                 return
             
             cache_key = getattr(self, "_current_cache_key", None)
@@ -926,7 +934,7 @@ class TTSDialog(QDialog):
         except Exception:
             pass
         self._set_playing(False)
-        self._set_status("Da dung.")
+        self._set_status("Đã dừng.")
 
     def _on_finished(self, ok: bool, message: str):
         self._set_playing(False)
@@ -945,7 +953,7 @@ class TTSDialog(QDialog):
         if not audio_path or not os.path.exists(audio_path):
             from app.dialogs import show_warning
 
-            show_warning(self, "Chua co audio", "Hay phat TTS truoc de tao file am thanh.")
+            show_warning(self, "Chưa có audio", "Hãy phát TTS trước để tạo file âm thanh.")
             return
 
         out_path, _ = QFileDialog.getSaveFileName(
