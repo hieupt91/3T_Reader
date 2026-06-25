@@ -31,7 +31,6 @@ from app.actions.document import search_text, search_next, search_previous, show
 from app.actions.edit import (
     create_new_pdf,
     delete_inserted_object,
-    draw_on_pdf,
     insert_image_to_pdf,
     insert_text_to_pdf,
     redact_area,
@@ -42,6 +41,7 @@ from app.actions.edit import (
     undo_last_edit,
     edit_existing_text,
 )
+from app.actions.free_draw import draw_on_pdf
 from app.actions.navigate import prev_page, next_page, jump_to_page
 from app.actions.zoom import zoom_in, zoom_out, apply_zoom, zoom_fit
 from app.actions.brightness import brightness_up, brightness_down, apply_brightness_to_webview
