@@ -481,6 +481,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
                     
                     var ov = document.createElement('div');
                     ov.className = '__3t-op-overlay';
+                    if (op.id !== undefined && op.id !== null) ov.setAttribute('data-op-id', String(op.id));
                     var pad = 0;
                     ov.style.cssText = 'position:absolute;left:'+(bx-pad)+'px;top:'+(by-pad)+'px;width:'+(bw+2*pad)+'px;height:'+(bh+2*pad)+'px;z-index:40;pointer-events:none;transform-origin:'+(pad+bw/2)+'px '+(pad+bh/2)+'px;';
                     if (op.rotation) ov.style.transform = 'rotate('+op.rotation+'deg)';

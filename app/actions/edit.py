@@ -123,6 +123,11 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
     function cleanupAll() {
         if (_cleanedUp) return;
         _cleanedUp = true;
+        if (opPayload && opPayload.id !== undefined && opPayload.id !== null) {
+            document.querySelectorAll('.__3t-op-overlay[data-op-id="' + String(opPayload.id) + '"]').forEach(function(el) {
+                el.style.visibility = '';
+            });
+        }
         var g = document.getElementById('__3tObjGroup');
         if (g) {
             var handles = g.querySelectorAll('div[id^="__3t"]');
@@ -198,6 +203,11 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
     if (typeof opPayloadStr === 'string' && opPayloadStr.length > 0) {
         try { opPayload = JSON.parse(opPayloadStr); } catch(e) {}
     }
+    if (opPayload && opPayload.id !== undefined && opPayload.id !== null) {
+        document.querySelectorAll('.__3t-op-overlay[data-op-id="' + String(opPayload.id) + '"]').forEach(function(el) {
+            el.style.visibility = 'hidden';
+        });
+    }
     
     if (opPayload) {
         if (opPayload.type === 'image' && opPayload.image_path) {
@@ -206,37 +216,22 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
             img.style.cssText = 'width:100%%;height:100%%;object-fit:contain;opacity:0.6;';
             box.appendChild(img);
         } else if (opPayload.type === 'text') {
-            var pdfCanvas = pageEl.querySelector('canvas');
-            if (pdfCanvas && currentRotation === 0) {
-                var cloneCv = document.createElement('canvas');
-                cloneCv.width = bw;
-                cloneCv.height = bh;
-                var ctx = cloneCv.getContext('2d');
-                var ratioX = pdfCanvas.width / pdfCanvas.clientWidth;
-                var ratioY = pdfCanvas.height / pdfCanvas.clientHeight;
-                ctx.drawImage(pdfCanvas, 
-                    bx * ratioX, by * ratioY, bw * ratioX, bh * ratioY, 
-                    0, 0, bw, bh
-                );
-                cloneCv.style.cssText = 'width:100%%;height:100%%;opacity:0.85;pointer-events:none;mix-blend-mode:darken;';
-                box.appendChild(cloneCv);
-            } else {
-                var txt = document.createElement('div');
-                txt.textContent = opPayload.text || '';
-                var r = opPayload.font_color ? Math.round(opPayload.font_color[0]*255) : 0;
-                var g = opPayload.font_color ? Math.round(opPayload.font_color[1]*255) : 0;
-                var b = opPayload.font_color ? Math.round(opPayload.font_color[2]*255) : 0;
-                txt.style.cssText = 'width:100%%;height:100%%;display:flex;align-items:flex-start;justify-content:flex-start;'
-                    + 'color:rgba('+r+','+g+','+b+',0.7);'
-                    + 'font-weight:'+(opPayload.bold?'bold':'normal')+';'
-                    + 'text-decoration:'+(opPayload.underline?'underline':'none')+';'
-                    + 'font-family:sans-serif;white-space:pre-wrap;overflow:hidden;';
-                var fs = (opPayload.font_size || 14) * (vp.scale || 1.0);
-                txt.style.fontSize = fs + 'px';
-                txt.style.lineHeight = '1.15';
-                txt.style.padding = '0';
-                box.appendChild(txt);
-            }
+            var txt = document.createElement('div');
+            txt.textContent = opPayload.text || '';
+            var r = opPayload.font_color ? Math.round(opPayload.font_color[0]*255) : 0;
+            var g = opPayload.font_color ? Math.round(opPayload.font_color[1]*255) : 0;
+            var b = opPayload.font_color ? Math.round(opPayload.font_color[2]*255) : 0;
+            var fontFam = opPayload.font_family || 'sans-serif';
+            txt.style.cssText = 'width:100%%;height:100%%;display:flex;align-items:flex-start;justify-content:flex-start;'
+                + 'color:rgba('+r+','+g+','+b+',0.78);'
+                + 'font-weight:'+(opPayload.bold?'bold':'normal')+';'
+                + 'text-decoration:'+(opPayload.underline?'underline':'none')+';'
+                + 'font-family:'+fontFam+';white-space:pre-wrap;overflow:hidden;';
+            var fs = (opPayload.font_size || 14) * (vp.scale || 1.0) * 1.333;
+            txt.style.fontSize = fs + 'px';
+            txt.style.lineHeight = '1.15';
+            txt.style.padding = '0';
+            box.appendChild(txt);
         }
     }
     
@@ -389,6 +384,65 @@ _CLEAR_OBJECT_HANDLES_JS = """(function() {
     var el = document.getElementById('__3tObjGroup');
     if (el && el.parentNode) el.parentNode.removeChild(el);
     if (typeof window.__3tObjCleanup === 'function') window.__3tObjCleanup();
+})();"""
+
+_SHOW_TEXT_EDIT_LIVE_PREVIEW_JS = r"""(function(opPayloadStr) {
+    var existing = document.getElementById('__3tTextEditLivePreview');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+    var op = null;
+    try { op = JSON.parse(opPayloadStr); } catch(e) { return; }
+    if (!op || !op.box || op.type !== 'text') return;
+
+    if (op.id !== undefined && op.id !== null) {
+        document.querySelectorAll('.__3t-op-overlay[data-op-id="' + String(op.id) + '"]').forEach(function(el) {
+            el.style.visibility = 'hidden';
+        });
+    }
+
+    var app = window.PDFViewerApplication;
+    if (!app || !app.pdfViewer) return;
+    var pageView = app.pdfViewer.getPageView
+        ? app.pdfViewer.getPageView((op.page_number || 1) - 1)
+        : (app.pdfViewer._pages && app.pdfViewer._pages[(op.page_number || 1) - 1]);
+    if (!pageView || !pageView.viewport || !pageView.div) return;
+
+    var vp = pageView.viewport;
+    var coords = vp.convertToViewportRectangle([op.box[0], op.box[1], op.box[2], op.box[3]]);
+    var bx = Math.min(coords[0], coords[2]);
+    var by = Math.min(coords[1], coords[3]);
+    var bw = Math.abs(coords[2] - coords[0]);
+    var bh = Math.abs(coords[3] - coords[1]);
+
+    var ov = document.createElement('div');
+    ov.id = '__3tTextEditLivePreview';
+    ov.style.cssText = 'position:absolute;left:'+bx+'px;top:'+by+'px;width:'+bw+'px;height:'+bh+'px;'
+        + 'z-index:55;pointer-events:none;transform-origin:'+(bw/2)+'px '+(bh/2)+'px;';
+    if (op.rotation) ov.style.transform = 'rotate('+op.rotation+'deg)';
+
+    var txt = document.createElement('div');
+    txt.textContent = op.text || '';
+    var c = op.font_color || [0,0,0];
+    var r = Math.round(c[0]*255), g = Math.round(c[1]*255), b = Math.round(c[2]*255);
+    var fontFam = op.font_family || 'sans-serif';
+    txt.style.cssText = 'width:100%;height:100%;display:flex;align-items:flex-start;justify-content:flex-start;'
+        + 'color:rgb('+r+','+g+','+b+');'
+        + 'font-weight:'+(op.bold?'bold':'normal')+';'
+        + 'text-decoration:'+(op.underline?'underline':'none')+';'
+        + 'font-family:'+fontFam+';white-space:pre-wrap;overflow:hidden;padding:0;';
+    var fs = (op.font_size || 14) * (vp.scale || 1.0) * 1.333;
+    txt.style.fontSize = fs + 'px';
+    txt.style.lineHeight = '1.15';
+    ov.appendChild(txt);
+    pageView.div.appendChild(ov);
+})(`%s`);"""
+
+_CLEAR_TEXT_EDIT_LIVE_PREVIEW_JS = """(function() {
+    var el = document.getElementById('__3tTextEditLivePreview');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    document.querySelectorAll('.__3t-op-overlay').forEach(function(overlay) {
+        overlay.style.visibility = '';
+    });
 })();"""
 
 _SHOW_CANCEL_BTN_JS = r"""(function() {
@@ -820,6 +874,29 @@ def _navigate_viewer(window, page_no: int):
         pass
 
 
+def _show_text_edit_live_preview(window, op: dict):
+    try:
+        import json
+        from app.actions.sign import _get_web_view
+        web_view = _get_web_view(window)
+        if web_view is None:
+            return
+        payload = json.dumps(op).replace("\\", "\\\\").replace("`", "\\`")
+        web_view.page().runJavaScript(_SHOW_TEXT_EDIT_LIVE_PREVIEW_JS.replace("%s", payload, 1))
+    except Exception:
+        pass
+
+
+def _clear_text_edit_live_preview(window):
+    try:
+        from app.actions.sign import _get_web_view
+        web_view = _get_web_view(window)
+        if web_view is not None:
+            web_view.page().runJavaScript(_CLEAR_TEXT_EDIT_LIVE_PREVIEW_JS)
+    except Exception:
+        pass
+
+
 def _render_edit_state(
     window,
     state,
@@ -1108,7 +1185,22 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
             bold=target_op.get("bold", False),
             underline=target_op.get("underline", False),
         )
-        if dlg_edit.exec() != QDialog.DialogCode.Accepted:
+        def _refresh_preview():
+            preview_op = dict(target_op)
+            preview_op["text"] = dlg_edit._text_edit.toPlainText()
+            preview_op["font_size"] = dlg_edit.get_font_size()
+            preview_op["font_color"] = dlg_edit.get_color_tuple()
+            preview_op["bold"] = dlg_edit.get_bold()
+            preview_op["underline"] = dlg_edit.get_underline()
+            _show_text_edit_live_preview(window, preview_op)
+
+        dlg_edit.previewChanged.connect(_refresh_preview)
+        _refresh_preview()
+        try:
+            accepted = dlg_edit.exec() == QDialog.DialogCode.Accepted
+        finally:
+            _clear_text_edit_live_preview(window)
+        if not accepted:
             return
         new_text = dlg_edit.get_text()
         if not new_text:
@@ -1210,6 +1302,8 @@ class _ObjectPlacementDialog(QDialog):
 class _TextEditDialog(QDialog):
     """Dark-themed dialog for editing text/formatting — no webchannel needed."""
 
+    previewChanged = pyqtSignal()
+
     def __init__(self, parent=None, *, text="", font_size=14,
                  color_tuple=(0.0, 0.0, 0.0), bold=False, underline=False):
         from packages.qt_compat.QtCore import Qt
@@ -1261,6 +1355,7 @@ class _TextEditDialog(QDialog):
         self._size_spin.setRange(6, 96)
         self._size_spin.setValue(font_size)
         self._size_spin.setFixedWidth(64)
+        self._size_spin.valueChanged.connect(lambda _value: self.previewChanged.emit())
         fmt_row.addWidget(self._size_spin)
 
         self._color_btn = QPushButton()
@@ -1280,6 +1375,7 @@ class _TextEditDialog(QDialog):
         self._bold_btn.setCheckable(True)
         self._bold_btn.setChecked(bold)
         self._bold_btn.setStyleSheet(_fmt_ss)
+        self._bold_btn.toggled.connect(lambda _checked: self.previewChanged.emit())
         fmt_row.addWidget(self._bold_btn)
 
         self._under_btn = QToolButton()
@@ -1287,6 +1383,7 @@ class _TextEditDialog(QDialog):
         self._under_btn.setCheckable(True)
         self._under_btn.setChecked(underline)
         self._under_btn.setStyleSheet(_fmt_ss.replace("font-weight:700", "font-weight:400"))
+        self._under_btn.toggled.connect(lambda _checked: self.previewChanged.emit())
         fmt_row.addWidget(self._under_btn)
 
         fmt_row.addStretch()
@@ -1320,6 +1417,8 @@ class _TextEditDialog(QDialog):
         self.adjustSize()
         self._position_near_parent(parent)
 
+        self._text_edit.textChanged.connect(self.previewChanged.emit)
+
         from packages.qt_compat.QtCore import QTimer
         QTimer.singleShot(0, lambda: self._text_edit.setFocus())
 
@@ -1328,6 +1427,7 @@ class _TextEditDialog(QDialog):
         if c.isValid():
             self._color = c
             self._refresh_color_btn()
+            self.previewChanged.emit()
 
     def _refresh_color_btn(self):
         c = self._color
@@ -1921,7 +2021,22 @@ def edit_text_object(window):
         bold=target_op.get("bold", False),
         underline=target_op.get("underline", False),
     )
-    if dlg_edit.exec() != QDialog.DialogCode.Accepted:
+    def _refresh_preview():
+        preview_op = dict(target_op)
+        preview_op["text"] = dlg_edit._text_edit.toPlainText()
+        preview_op["font_size"] = dlg_edit.get_font_size()
+        preview_op["font_color"] = dlg_edit.get_color_tuple()
+        preview_op["bold"] = dlg_edit.get_bold()
+        preview_op["underline"] = dlg_edit.get_underline()
+        _show_text_edit_live_preview(window, preview_op)
+
+    dlg_edit.previewChanged.connect(_refresh_preview)
+    _refresh_preview()
+    try:
+        accepted = dlg_edit.exec() == QDialog.DialogCode.Accepted
+    finally:
+        _clear_text_edit_live_preview(window)
+    if not accepted:
         return
     new_text = dlg_edit.get_text()
     if not new_text:
