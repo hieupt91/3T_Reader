@@ -14,6 +14,20 @@ from app.dialogs import show_info, show_warning
 from app.actions.file import open_file
 
 
+def _is_temp_converted_document(window, path: str) -> bool:
+    state = window._active_state() if hasattr(window, "_active_state") else None
+    if not state:
+        return False
+    temp_path = state.get("temp_path")
+    display_path = state.get("display_path") or ""
+    try:
+        if temp_path and os.path.abspath(temp_path) == os.path.abspath(path):
+            return os.path.splitext(display_path)[1].lower() != ".pdf"
+    except Exception:
+        return False
+    return False
+
+
 def _current_pdf_path(window) -> str | None:
     state = window._active_state() if hasattr(window, "_active_state") else None
     if state:
@@ -230,18 +244,26 @@ def delete_pages_action(window):
     if confirm != QMessageBox.StandardButton.Yes:
         return
 
+    temp_converted = _is_temp_converted_document(window, path)
     tmp = make_staged_pdf_path(path)
     new_page = min(start, total - len(pages_to_del))
     try:
         get_pdf_engine().delete_pages(path, tmp, pages_to_del)
-        replace_document_with_staged(window, tmp, target_path=path, page=max(1, new_page))
+        if temp_converted:
+            from app.actions._pdf_save import reload_document
+
+            state = window._active_state() if hasattr(window, "_active_state") else None
+            display_path = state.get("display_path") if state else path
+            reload_document(window, tmp, page=max(1, new_page), display_path=display_path, temp_path=tmp, soft_reload=False)
+        else:
+            replace_document_with_staged(window, tmp, target_path=path, page=max(1, new_page), soft_reload=False)
     except Exception as e:
         remove_path_quietly(tmp)
         show_warning(window, "Lỗi xóa trang", str(e))
         return
 
     if hasattr(window, "_active_state") and window._active_state():
-        window._active_state()["source_path"] = path
+        window._active_state()["source_path"] = tmp if temp_converted else path
     window.status.showMessage(f"Đã xóa trang {start}–{end}", 4000)
 
 

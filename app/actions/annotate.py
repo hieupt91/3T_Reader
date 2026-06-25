@@ -47,6 +47,20 @@ def _get_current_page(window) -> int:
         return 1
 
 
+def _is_temp_converted_document(window, path: str) -> bool:
+    state = window._active_state() if hasattr(window, "_active_state") else None
+    if not state:
+        return False
+    temp_path = state.get("temp_path")
+    display_path = state.get("display_path") or ""
+    try:
+        if temp_path and os.path.abspath(temp_path) == os.path.abspath(path):
+            return os.path.splitext(display_path)[1].lower() != ".pdf"
+    except Exception:
+        return False
+    return False
+
+
 def _save_pikepdf_reload(window, pdf: pikepdf.Pdf, *, keep_page: bool = True):
     """Save pikepdf doc atomically to the active document and reload viewer."""
     import pikepdf
@@ -60,7 +74,24 @@ def _save_pikepdf_reload(window, pdf: pikepdf.Pdf, *, keep_page: bool = True):
         pdf.close()
     except Exception:
         pass
-    replace_document_with_staged(window, staged_path, target_path=target_path, keep_page=keep_page)
+    if _is_temp_converted_document(window, target_path):
+        from app.actions._pdf_save import reload_document
+
+        current_page = _get_current_page(window) if keep_page else 1
+        state = window._active_state() if hasattr(window, "_active_state") else None
+        display_path = state.get("display_path") if state else target_path
+        reload_document(
+            window,
+            staged_path,
+            page=max(1, current_page),
+            display_path=display_path,
+            temp_path=staged_path,
+            soft_reload=False,
+        )
+        if state is not None:
+            state["source_path"] = staged_path
+    else:
+        replace_document_with_staged(window, staged_path, target_path=target_path, keep_page=keep_page, soft_reload=False)
 
 
 class _AnnotationOpQueue(QObject):

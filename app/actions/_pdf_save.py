@@ -158,7 +158,13 @@ def replace_document_with_staged(
     target_page = page if page is not None else (current_viewer_page(window) if keep_page else 1)
     
     use_soft_reload = False
-    if hasattr(window, "viewer") and hasattr(window.viewer, "reload_soft") and window.viewer._path == resolved_target and target_page == current_viewer_page(window):
+    if (
+        soft_reload
+        and hasattr(window, "viewer")
+        and hasattr(window.viewer, "reload_soft")
+        and window.viewer._path == resolved_target
+        and target_page == current_viewer_page(window)
+    ):
         use_soft_reload = True
 
     try:
