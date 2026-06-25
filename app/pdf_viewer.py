@@ -299,10 +299,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
         abs_path = server.register_pdf(path)
         import urllib.parse
         encoded_path = urllib.parse.quote(abs_path)
-        try:
-            cache_key = str(os.stat(abs_path).st_mtime_ns)
-        except OSError:
-            cache_key = "0"
+        cache_key = server.cache_bust_token(abs_path)
         pdf_url = f"http://127.0.0.1:{server._port}/pdf?p={encoded_path}&v={cache_key}"
         
         js = f"""
@@ -311,6 +308,9 @@ class PDFViewerWidget(QtWidgets.QWidget):
                 var app = window.PDFViewerApplication;
                 var currentScroll = app.pdfViewer.container.scrollTop;
                 var currentLeft = app.pdfViewer.container.scrollLeft;
+                window.__3tSignatureTargets = null;
+                window.__3tSignatureTargetsPromise = null;
+                document.querySelectorAll('.__3t-signature-hitbox').forEach(function(el) {{ el.remove(); }});
                 
                 var ops = {ops_json};
                 var eraseBoxes = {erase_json};
@@ -421,6 +421,11 @@ class PDFViewerWidget(QtWidgets.QWidget):
                     var container = app.pdfViewer.container;
                     container.scrollTop = currentScroll;
                     container.scrollLeft = currentLeft;
+                    try {{
+                        if ({int(self._current_page)} > 0) {{
+                            app.pdfViewer.currentPageNumber = {int(self._current_page)};
+                        }}
+                    }} catch (_) {{}}
                     
                     function removeFreeze() {{
                         if (freezeDiv.parentNode) {{

@@ -474,12 +474,188 @@ def _format_pdf_sig_date(value) -> str:
     return text
 
 
+def _signature_rect_from_pdf_obj(obj) -> list[float] | None:
+    try:
+        rect = [float(v) for v in obj.get("/Rect") or []]
+        if len(rect) != 4:
+            return None
+        left, bottom, right, top = (
+            min(rect[0], rect[2]),
+            min(rect[1], rect[3]),
+            max(rect[0], rect[2]),
+            max(rect[1], rect[3]),
+        )
+        if right - left < 1 or top - bottom < 1:
+            return None
+        return [left, bottom, right, top]
+    except Exception:
+        return None
+
+
+def _pdf_obj_ref_key(obj) -> tuple[int, int] | None:
+    try:
+        objgen = getattr(obj, "objgen", None)
+        if objgen and len(objgen) == 2:
+            return int(objgen[0]), int(objgen[1])
+    except Exception:
+        return None
+    return None
+
+
+def _find_signature_field_instance(pdf, field_name: str) -> dict[str, object] | None:
+    target_name = str(field_name or "").strip()
+    if not target_name:
+        return None
+
+    page_ref_to_number: dict[tuple[int, int], int] = {}
+    annot_ref_to_page: dict[tuple[int, int], int] = {}
+    annot_candidates: list[dict[str, object]] = []
+
+    for page_number, page in enumerate(pdf.pages, start=1):
+        page_key = _pdf_obj_ref_key(page.obj)
+        if page_key is not None:
+            page_ref_to_number[page_key] = page_number
+        annots = page.obj.get("/Annots") or []
+        for annot in annots:
+            annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
+            annot_key = _pdf_obj_ref_key(annot_obj)
+            if annot_key is not None:
+                annot_ref_to_page[annot_key] = page_number
+            parent = annot_obj.get("/Parent")
+            parent_obj = parent.get_object() if hasattr(parent, "get_object") else parent
+            annot_name = str(annot_obj.get("/T") or "").strip()
+            parent_name = str(parent_obj.get("/T") or "").strip() if parent_obj is not None else ""
+            if target_name not in {annot_name, parent_name}:
+                continue
+            rect = _signature_rect_from_pdf_obj(annot_obj)
+            if rect is None:
+                continue
+            sig = annot_obj.get("/V") or (parent_obj.get("/V") if parent_obj is not None else None)
+            annot_candidates.append({"page_number": page_number, "rect": rect, "sig": sig})
+
+    if annot_candidates:
+        for item in annot_candidates:
+            if item.get("sig") is not None:
+                return item
+        return annot_candidates[0]
+
+    def _page_for_obj(obj) -> int:
+        try:
+            page_obj = obj.get("/P")
+            page_obj = page_obj.get_object() if hasattr(page_obj, "get_object") else page_obj
+            page_key = _pdf_obj_ref_key(page_obj)
+            if page_key in page_ref_to_number:
+                return int(page_ref_to_number[page_key])
+        except Exception:
+            pass
+        obj_key = _pdf_obj_ref_key(obj)
+        if obj_key in annot_ref_to_page:
+            return int(annot_ref_to_page[obj_key])
+        return 0
+
+    def _walk_fields(fields, inherited_name: str = "", inherited_sig: bool = False):
+        for field in fields or []:
+            try:
+                field_obj = field.get_object() if hasattr(field, "get_object") else field
+            except Exception:
+                continue
+            current_name = str(field_obj.get("/T") or "").strip() or inherited_name
+            current_sig = (
+                inherited_sig
+                or str(field_obj.get("/FT") or "") == "/Sig"
+                or field_obj.get("/V") is not None
+            )
+            if current_name == target_name and current_sig:
+                rect = _signature_rect_from_pdf_obj(field_obj)
+                page_number = _page_for_obj(field_obj)
+                if rect is not None and page_number:
+                    return {"page_number": page_number, "rect": rect, "sig": field_obj.get("/V")}
+            kids = field_obj.get("/Kids") or []
+            if kids:
+                found = _walk_fields(kids, current_name, current_sig)
+                if found is not None:
+                    return found
+        return None
+
+    acroform = pdf.Root.get("/AcroForm")
+    if acroform is None:
+        return None
+    return _walk_fields(acroform.get("/Fields") or [])
+
+
 def _extract_signature_field_report(path: str, field_name: str) -> dict[str, object] | None:
     try:
         from asn1crypto import cms
         import pikepdf
 
         with pikepdf.Pdf.open(path) as pdf:
+            field_instance = _find_signature_field_instance(pdf, field_name)
+            if field_instance is None:
+                return None
+            page_number = int(field_instance.get("page_number") or 0)
+            rect = list(field_instance.get("rect") or [])
+            sig = field_instance.get("sig")
+            if len(rect) != 4:
+                return None
+            left, bottom, right, top = [float(v) for v in rect]
+            if sig is None:
+                return {
+                    "clicked_page": page_number,
+                    "clicked_field": field_name,
+                    "selected_field_name": field_name,
+                    "field_rect": [left, bottom, right, top],
+                    "field_signed": False,
+                    "display_signer": "ChÆ°a kÃ½",
+                    "reason": "",
+                    "location": "",
+                    "contact_info": "",
+                    "signature_type": "",
+                    "signing_time": "",
+                    "validation_summary_lines": ["Ã” kÃ½ nÃ y chÆ°a Ä‘Æ°á»£c kÃ½ sá»‘."],
+                    "overall_status": "Ã” kÃ½ nÃ y chÆ°a Ä‘Æ°á»£c kÃ½ sá»‘.",
+                    "message": "Ã” kÃ½ nÃ y chÆ°a Ä‘Æ°á»£c kÃ½ sá»‘.",
+                    "ok": False,
+                    "integrity_ok": False,
+                    "intact": False,
+                    "valid": False,
+                    "trusted": False,
+                    "revoked": False,
+                }
+            cert_details = None
+            contents = sig.get("/Contents")
+            if contents is not None:
+                try:
+                    cms_bytes = bytes(contents).rstrip(b"\x00")
+                    if cms_bytes:
+                        content_info = cms.ContentInfo.load(cms_bytes)
+                        signed_data = content_info["content"]
+                        certs = signed_data["certificates"]
+                        if certs:
+                            first_cert = certs[0].chosen
+                            if hasattr(first_cert, "dump"):
+                                cert_details = extract_certificate_details_from_der(first_cert.dump())
+                except Exception:
+                    cert_details = None
+            return {
+                "clicked_page": page_number,
+                "clicked_field": field_name,
+                "selected_field_name": field_name,
+                "field_rect": [left, bottom, right, top],
+                "field_signed": True,
+                "display_signer": str(sig.get("/Name") or "").strip() or "KhÃ´ng rÃµ",
+                "signer_reported_name": str(sig.get("/Name") or "").strip(),
+                "reason": str(sig.get("/Reason") or "").strip(),
+                "location": str(sig.get("/Location") or "").strip(),
+                "contact_info": str(sig.get("/ContactInfo") or "").strip(),
+                "signature_type": str(sig.get("/SubFilter") or "").strip(),
+                "signing_time": _format_pdf_sig_date(sig.get("/M")),
+                "subject_name": str(cert_details.get("subject_name") or "") if cert_details else "",
+                "issuer_name": str(cert_details.get("issuer_provider") or "") if cert_details else "",
+                "serial_hex": str(cert_details.get("serial_hex") or "") if cert_details else "",
+                "valid_from": str(cert_details.get("valid_from") or "") if cert_details else "",
+                "valid_to": str(cert_details.get("valid_to") or "") if cert_details else "",
+                "certificate_status": str(cert_details.get("certificate_status") or "") if cert_details else "",
+            }
             for page_number, page in enumerate(pdf.pages, start=1):
                 annots = page.obj.get("/Annots") or []
                 for annot in annots:
@@ -711,19 +887,18 @@ async def sign_pdf_with_session(
                 
             pyhanko_box = None
             if box and not field_name:
-                pyhanko_box = tuple(box)
-            transparent_png_path = os.path.join(tempfile.gettempdir(), "3t_transparent.png")
-            if not os.path.exists(transparent_png_path):
-                import base64
-                with open(transparent_png_path, "wb") as f:
-                    f.write(base64.b64decode(b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="))
-            from pyhanko.pdf_utils.images import PdfImage
-            from pyhanko.stamp import StaticStampStyle
-            transparent_style = StaticStampStyle(background=PdfImage(transparent_png_path), border_width=0)
+                try:
+                    import fitz
+                    with fitz.open(burn_input_path) as tmp_doc:
+                        page_height = tmp_doc[page_number - 1].rect.height
+                    pyhanko_box = (box[0], page_height - box[3], box[2], page_height - box[1])
+                except Exception:
+                    pass
+            from pyhanko.stamp import NoOpStampStyle
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer_obj,
-                stamp_style=transparent_style,
+                stamp_style=NoOpStampStyle(),
                 timestamper=timestamper,
                 new_field_spec=None if field_name else fields.SigFieldSpec(
                     sig_field_name=target_field_name,
@@ -865,19 +1040,18 @@ async def sign_pdf_with_pkcs12(
             )
             pyhanko_box = None
             if box and not field_name:
-                pyhanko_box = tuple(box)
-            transparent_png_path = os.path.join(tempfile.gettempdir(), "3t_transparent.png")
-            if not os.path.exists(transparent_png_path):
-                import base64
-                with open(transparent_png_path, "wb") as f:
-                    f.write(base64.b64decode(b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="))
-            from pyhanko.pdf_utils.images import PdfImage
-            from pyhanko.stamp import StaticStampStyle
-            transparent_style = StaticStampStyle(background=PdfImage(transparent_png_path), border_width=0)
+                try:
+                    import fitz
+                    with fitz.open(burn_input_path) as tmp_doc:
+                        page_height = tmp_doc[page_number - 1].rect.height
+                    pyhanko_box = (box[0], page_height - box[3], box[2], page_height - box[1])
+                except Exception:
+                    pass
+            from pyhanko.stamp import NoOpStampStyle
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer,
-                stamp_style=transparent_style,
+                stamp_style=NoOpStampStyle(),
                 new_field_spec=None if field_name else fields.SigFieldSpec(
                     sig_field_name=target_field_name,
                     box=pyhanko_box,

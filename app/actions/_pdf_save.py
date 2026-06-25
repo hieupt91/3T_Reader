@@ -5,6 +5,8 @@ import shutil
 import tempfile
 import time
 
+from app.local_server import LocalPDFJSServer
+
 
 _UNSET = object()
 
@@ -185,7 +187,6 @@ def replace_document_with_staged(
         and hasattr(window, "viewer")
         and hasattr(window.viewer, "reload_soft")
         and window.viewer._path == resolved_target
-        and target_page == current_viewer_page(window)
     ):
         use_soft_reload = True
 
@@ -195,12 +196,20 @@ def replace_document_with_staged(
         
         try:
             replace_file_with_retry(staged_path, resolved_target)
+            try:
+                LocalPDFJSServer.get().invalidate_pdf_cache(resolved_target)
+            except Exception:
+                pass
         except PermissionError:
             # If soft reload was attempted but file is locked, fallback to hard reload
             if use_soft_reload:
                 use_soft_reload = False
                 release_viewer_file_lock(window)
                 replace_file_with_retry(staged_path, resolved_target, attempts=15)
+                try:
+                    LocalPDFJSServer.get().invalidate_pdf_cache(resolved_target)
+                except Exception:
+                    pass
             else:
                 raise
     except Exception:

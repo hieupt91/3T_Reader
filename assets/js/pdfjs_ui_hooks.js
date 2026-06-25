@@ -151,21 +151,39 @@
     function installSignatureInfoClickHandler() {
         if (window.__3tSignatureInfoClickInstalled) return;
         window.__3tSignatureInfoClickInstalled = true;
-        var loadTargetsPromise = null;
+        if (!window.__3tSignatureTargetsPromise) {
+            window.__3tSignatureTargetsPromise = null;
+        }
+
+        function dispatchSignatureInfoToBridge(pageNumber, fieldName) {
+            var tries = 0;
+            function attempt() {
+                tries += 1;
+                window.__3tWithBridge('signatureInfoBridge', function (bridge) {
+                    if (bridge && typeof bridge.showSignatureInfo === 'function') {
+                        bridge.showSignatureInfo(pageNumber, fieldName);
+                    } else if (tries < 6) {
+                        setTimeout(attempt, 80);
+                    }
+                });
+            }
+            attempt();
+        }
 
         function signatureTargets() {
             if (window.__3tSignatureTargets) {
                 return Promise.resolve(window.__3tSignatureTargets);
             }
-            if (loadTargetsPromise) {
-                return loadTargetsPromise;
+            if (window.__3tSignatureTargetsPromise) {
+                return window.__3tSignatureTargetsPromise;
             }
-            loadTargetsPromise = new Promise(function (resolve) {
+            window.__3tSignatureTargetsPromise = new Promise(function (resolve) {
                 try {
                     var params = new URLSearchParams(window.location.search || '');
                     var sigmeta = params.get('sigmeta');
                     if (!sigmeta) {
                         window.__3tSignatureTargets = [];
+                        window.__3tSignatureTargetsPromise = null;
                         resolve([]);
                         return;
                     }
@@ -173,18 +191,21 @@
                         .then(function (resp) { return resp.ok ? resp.json() : { targets: [] }; })
                         .then(function (payload) {
                             window.__3tSignatureTargets = Array.isArray(payload && payload.targets) ? payload.targets : [];
+                            window.__3tSignatureTargetsPromise = null;
                             resolve(window.__3tSignatureTargets);
                         })
                         .catch(function () {
                             window.__3tSignatureTargets = [];
+                            window.__3tSignatureTargetsPromise = null;
                             resolve([]);
                         });
                 } catch (_) {
                     window.__3tSignatureTargets = [];
+                    window.__3tSignatureTargetsPromise = null;
                     resolve([]);
                 }
             });
-            return loadTargetsPromise;
+            return window.__3tSignatureTargetsPromise;
         }
 
         function findSignatureTargetFromPoint(event) {
@@ -230,20 +251,67 @@
             }
         }
 
+        function renderSignatureHitboxes() {
+            var app = window.PDFViewerApplication;
+            var viewer = app && app.pdfViewer;
+            if (!viewer) return;
+            document.querySelectorAll('.__3t-signature-hitbox').forEach(function (el) { el.remove(); });
+            signatureTargets().then(function (targets) {
+                if (!Array.isArray(targets) || !targets.length) return;
+                targets.forEach(function (item) {
+                    try {
+                        var pageNumber = parseInt(item.page || '0', 10) || 0;
+                        if (!pageNumber) return;
+                        var box = item.rect || [];
+                        if (box.length !== 4) return;
+                        var pageEl = document.querySelector('.page[data-page-number="' + pageNumber + '"]');
+                        if (!pageEl) return;
+                        var pageView = viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
+                        if (!pageView || !pageView.viewport) return;
+                        var coords = pageView.viewport.convertToViewportRectangle(box);
+                        var left = Math.min(coords[0], coords[2]);
+                        var top = Math.min(coords[1], coords[3]);
+                        var width = Math.abs(coords[2] - coords[0]);
+                        var height = Math.abs(coords[3] - coords[1]);
+                        if (width < 1 || height < 1) return;
+                        var host = pageEl.querySelector('.annotationLayer') || pageEl;
+                        var hit = document.createElement('div');
+                        hit.className = '__3t-signature-hitbox';
+                        hit.setAttribute('data-page-number', String(pageNumber));
+                        hit.setAttribute('data-field-name', String(item.field_name || ''));
+                        hit.style.cssText =
+                            'position:absolute;left:' + left + 'px;top:' + top + 'px;width:' + width + 'px;height:' + height + 'px;' +
+                            'background:rgba(0,0,0,0.001);cursor:pointer;z-index:999;pointer-events:auto;';
+                        hit.addEventListener('click', function (event) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+                            dispatchSignatureInfoToBridge(pageNumber, String(item.field_name || ''));
+                        }, true);
+                        host.appendChild(hit);
+                    } catch (_) {}
+                });
+            });
+        }
+
         document.addEventListener('click', function (event) {
-            if (window.__readerPdfSignaturePickInstalled || window.__readerPdfSignaturePickCleanup) return;
+            if (window.__readerPdfSignaturePickInstalled) return;
             var target = event.target;
+            var hitboxEl = target && target.closest ? target.closest('.__3t-signature-hitbox') : null;
             var sigEl = target && target.closest ? target.closest('.signatureWidgetAnnotation') : null;
 
             function dispatchSignatureInfo(pageNumber, fieldName) {
                 event.preventDefault();
                 event.stopPropagation();
                 if (event.stopImmediatePropagation) event.stopImmediatePropagation();
-                window.__3tWithBridge('signatureInfoBridge', function (bridge) {
-                    if (bridge && typeof bridge.showSignatureInfo === 'function') {
-                        bridge.showSignatureInfo(pageNumber, fieldName);
-                    }
-                });
+                dispatchSignatureInfoToBridge(pageNumber, fieldName);
+            }
+
+            if (hitboxEl) {
+                var hitPageNumber = parseInt(hitboxEl.getAttribute('data-page-number') || '0', 10) || 0;
+                var hitFieldName = String(hitboxEl.getAttribute('data-field-name') || '');
+                dispatchSignatureInfo(hitPageNumber, hitFieldName);
+                return;
             }
 
             if (sigEl) {
@@ -259,6 +327,16 @@
                 dispatchSignatureInfo(hit.pageNumber, hit.fieldName);
             });
         }, true);
+
+        var app = window.PDFViewerApplication;
+        if (app && app.eventBus && !window.__3tSignatureHitboxesInstalled) {
+            window.__3tSignatureHitboxesInstalled = true;
+            app.eventBus.on('pagesinit', function () { setTimeout(renderSignatureHitboxes, 80); });
+            app.eventBus.on('pagerendered', function () { setTimeout(renderSignatureHitboxes, 30); });
+            app.eventBus.on('scalechanged', function () { setTimeout(renderSignatureHitboxes, 60); });
+            app.eventBus.on('updateviewarea', function () { setTimeout(renderSignatureHitboxes, 30); });
+            setTimeout(renderSignatureHitboxes, 120);
+        }
     }
 
     function collectSelectionPayload() {
@@ -563,7 +641,10 @@
         }
         function clear3TOverlays() {
             window.__3tLastSelectionPayload = null;
+            window.__3tSignatureTargets = null;
+            window.__3tSignatureTargetsPromise = null;
             document.querySelectorAll('.reader-pdf-sigfield-marker').forEach(function(el) { el.remove(); });
+            document.querySelectorAll('.__3t-signature-hitbox').forEach(function(el) { el.remove(); });
             var state = window.__readerPdfSignaturePreviewState;
             if (state && state.overlay && state.overlay.parentNode) {
                 state.overlay.parentNode.removeChild(state.overlay);

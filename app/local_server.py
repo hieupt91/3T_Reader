@@ -367,6 +367,7 @@ class LocalPDFJSServer:
         self._root: Path | None = _pdfjs_root()
         self._allowed_pdf_paths: set[str] = set()
         self._allowed_pdf_paths_lock = threading.RLock()
+        self._path_versions: dict[str, int] = {}
 
     def start(self):
         if self._server:
@@ -395,10 +396,7 @@ class LocalPDFJSServer:
             return None
         abs_path = self.register_pdf(pdf_path)
         encoded_path = urllib.parse.quote(abs_path)
-        try:
-            cache_key = str(os.stat(abs_path).st_mtime_ns)
-        except OSError:
-            cache_key = "0"
+        cache_key = self.cache_bust_token(abs_path)
         pdf_url = f"http://127.0.0.1:{self._port}/pdf?p={encoded_path}&v={cache_key}"
         encoded_pdf_url = urllib.parse.quote(pdf_url, safe="")
         sigmeta_url = f"http://127.0.0.1:{self._port}/sigmeta?p={encoded_path}&v={cache_key}"
@@ -411,7 +409,7 @@ class LocalPDFJSServer:
             "&disableRange=false"
             "&rangeChunkSize=1048576"
             "&annotationMode=2"
-            "&renderInteractiveForms=true"
+            "&renderInteractiveForms=false"
         )
         url = f"http://127.0.0.1:{self._port}/web/viewer.html?{viewer_opts}#page={page}"
         if zoom:
@@ -430,6 +428,37 @@ class LocalPDFJSServer:
         with self._allowed_pdf_paths_lock:
             self._allowed_pdf_paths.add(key)
         return abs_path
+
+    def cache_bust_token(self, pdf_path: str) -> str:
+        abs_path = os.path.realpath(os.path.abspath(pdf_path))
+        key = _PDFJSHandler._normalise_allowed_path_key(abs_path)
+        version = int(self._path_versions.get(key, 0))
+        try:
+            stat = os.stat(abs_path)
+            return f"{stat.st_mtime_ns}-{stat.st_size}-{version}"
+        except OSError:
+            return f"0-0-{version}"
+
+    def invalidate_pdf_cache(self, pdf_path: str) -> None:
+        abs_path = os.path.realpath(os.path.abspath(pdf_path))
+        path_key = _PDFJSHandler._normalise_allowed_path_key(abs_path)
+        self._path_versions[path_key] = int(self._path_versions.get(path_key, 0)) + 1
+        with _PDFJSHandler._cache_lock:
+            for cache_name in (
+                "display_cache",
+                "signature_probe_cache",
+                "signature_click_target_cache",
+            ):
+                cache = getattr(_PDFJSHandler, cache_name, None)
+                if not cache:
+                    continue
+                stale_keys = [
+                    key
+                    for key in list(cache.keys())
+                    if key and _PDFJSHandler._normalise_allowed_path_key(key[0]) == path_key
+                ]
+                for key in stale_keys:
+                    cache.pop(key, None)
 
     def unregister_pdf(self, pdf_path: str) -> None:
         key = _PDFJSHandler._normalise_allowed_path_key(pdf_path)
@@ -619,23 +648,20 @@ def _normalise_pdfjs_appearance_boxes(pdf_path: str, original_data: bytes) -> by
                             parent_obj = parent.get_object() if hasattr(parent, "get_object") else parent
                             if parent_obj is not None:
                                 is_signed = parent_obj.get("/V") is not None
-                        
+
+                        painted = False
                         if is_signed:
-                            annot_obj["/Subtype"] = pikepdf.Name("/Stamp")
-                            if "/FT" in annot_obj:
-                                del annot_obj["/FT"]
-                            if "/V" in annot_obj:
-                                del annot_obj["/V"]
-                            if "/T" in annot_obj:
-                                del annot_obj["/T"]
-                            # When it is converted to /Stamp, PDF.js natively renders the appearance stream.
-                            # So we do not need to synthesize an overlay unless we want to hide it.
-                            # We just let PDF.js render it natively.
-                            continue
-                            
-                        if (overlay := _signature_overlay_from_annot(annot_obj)) is not None:
-                            signature_overlays.setdefault(page_index, []).append(overlay)
-                        
+                            painted = _paint_signature_widget_appearance(
+                                pdf,
+                                page,
+                                annot_obj,
+                                f"SigAP_{page_index}_{annot_idx}",
+                            )
+
+                        if not painted and not is_signed:
+                            if (overlay := _signature_overlay_from_annot(annot_obj)) is not None:
+                                signature_overlays.setdefault(page_index, []).append(overlay)
+
                         removed_signature_widgets += 1
                         changed = True
                         continue
@@ -749,6 +775,34 @@ def _signature_field_name(annot) -> str | None:
     return None
 
 
+def _signature_rect(obj) -> list[float] | None:
+    try:
+        rect = [float(v) for v in obj.get("/Rect") or []]
+        if len(rect) != 4:
+            return None
+        left, bottom, right, top = (
+            min(rect[0], rect[2]),
+            min(rect[1], rect[3]),
+            max(rect[0], rect[2]),
+            max(rect[1], rect[3]),
+        )
+        if right - left < 1 or top - bottom < 1:
+            return None
+        return [left, bottom, right, top]
+    except Exception:
+        return None
+
+
+def _pdf_obj_ref_key(obj) -> tuple[int, int] | None:
+    try:
+        objgen = getattr(obj, "objgen", None)
+        if objgen and len(objgen) == 2:
+            return int(objgen[0]), int(objgen[1])
+    except Exception:
+        return None
+    return None
+
+
 def _signature_appearance_stream(annot):
     try:
         ap = annot.get("/AP")
@@ -782,7 +836,93 @@ def _signature_appearance_bbox_is_normal(annot) -> bool:
         x1, y1, x2, y2 = [float(v) for v in bbox]
         return x1 < x2 and y1 < y2
     except Exception:
-        # Removed _paint_signature_widget_appearance and _signature_appearance_stream
+        return False
+
+
+def _paint_signature_widget_appearance(pdf, page, annot, resource_name: str) -> bool:
+    """Flatten a signed widget appearance into the display-only PDF copy."""
+    try:
+        import pikepdf
+
+        stream = _signature_appearance_stream(annot)
+        if stream is None:
+            return False
+        rect = [float(v) for v in annot.get("/Rect")]
+        if len(rect) != 4:
+            return False
+        left, bottom, right, top = (
+            min(rect[0], rect[2]),
+            min(rect[1], rect[3]),
+            max(rect[0], rect[2]),
+            max(rect[1], rect[3]),
+        )
+        width = right - left
+        height = top - bottom
+        if width <= 0 or height <= 0:
+            return False
+
+        bbox = stream.get("/BBox")
+        if bbox and len(bbox) == 4:
+            bx0, by0, bx1, by1 = [float(v) for v in bbox]
+            bx0, bx1 = sorted((bx0, bx1))
+            by0, by1 = sorted((by0, by1))
+            bbox_w = (bx1 - bx0) or width
+            bbox_h = (by1 - by0) or height
+        else:
+            bx0, by0, bbox_w, bbox_h = 0.0, 0.0, width, height
+
+        sx = width / bbox_w
+        sy = height / bbox_h
+        tx = left - bx0 * sx
+        ty = bottom - by0 * sy
+
+        resources = page.obj.get("/Resources")
+        if resources is None:
+            resources = pikepdf.Dictionary()
+            page.obj["/Resources"] = resources
+        xobjects = resources.get("/XObject")
+        if xobjects is None:
+            xobjects = pikepdf.Dictionary()
+            resources["/XObject"] = xobjects
+        name = pikepdf.Name("/" + "".join(ch if ch.isalnum() else "_" for ch in resource_name))
+        if hasattr(stream, "read_raw_bytes"):
+            stream_bytes = bytes(stream.read_raw_bytes())
+            stream_copy = pikepdf.Stream(pdf, stream_bytes)
+            preserve_keys = {
+                "/Type", "/Subtype", "/FormType", "/Matrix", "/Resources",
+                "/Group", "/OC", "/StructParent", "/Metadata",
+                "/Filter", "/DecodeParms",
+            }
+        else:
+            stream_bytes = bytes(stream.read_bytes())
+            stream_copy = pikepdf.Stream(pdf, stream_bytes)
+            preserve_keys = {
+                "/Type", "/Subtype", "/FormType", "/Matrix", "/Resources",
+                "/Group", "/OC", "/StructParent", "/Metadata",
+            }
+        for key, value in stream.items():
+            if str(key) in {"/Length", "/BBox"}:
+                continue
+            if str(key) not in preserve_keys:
+                continue
+            stream_copy[key] = value
+        stream_copy["/BBox"] = pikepdf.Array([0.0, 0.0, bbox_w, bbox_h])
+        xobjects[name] = stream_copy
+
+        content = (
+            f"q\n{sx:.8f} 0 0 {sy:.8f} {tx:.8f} {ty:.8f} cm\n"
+            f"{name} Do\nQ\n"
+        ).encode("ascii")
+        new_stream = pikepdf.Stream(pdf, content)
+        existing = page.obj.get("/Contents")
+        if existing is None:
+            page.obj["/Contents"] = new_stream
+        elif isinstance(existing, pikepdf.Array):
+            existing.append(new_stream)
+        else:
+            page.obj["/Contents"] = pikepdf.Array([existing, new_stream])
+        return True
+    except Exception:
         return False
 
 
@@ -892,32 +1032,80 @@ def _collect_signature_click_targets(pdf_path: str) -> list[dict]:
 
         targets: list[dict] = []
         with pikepdf.Pdf.open(pdf_path) as pdf:
+            page_ref_to_number: dict[tuple[int, int], int] = {}
+            annot_ref_to_page: dict[tuple[int, int], int] = {}
+            seen: set[tuple[int, str, tuple[float, float, float, float]]] = set()
+
+            def _add_target(page_index: int, field_name: str, rect: list[float] | None):
+                if not page_index or rect is None:
+                    return
+                key = (
+                    int(page_index),
+                    str(field_name or ""),
+                    tuple(round(float(v), 4) for v in rect),
+                )
+                if key in seen:
+                    return
+                seen.add(key)
+                targets.append(
+                    {
+                        "page": int(page_index),
+                        "field_name": str(field_name or ""),
+                        "rect": [float(v) for v in rect],
+                    }
+                )
+
+            def _page_for_obj(obj) -> int:
+                try:
+                    page_obj = obj.get("/P")
+                    page_obj = page_obj.get_object() if hasattr(page_obj, "get_object") else page_obj
+                    key = _pdf_obj_ref_key(page_obj)
+                    if key in page_ref_to_number:
+                        return int(page_ref_to_number[key])
+                except Exception:
+                    pass
+                key = _pdf_obj_ref_key(obj)
+                if key in annot_ref_to_page:
+                    return int(annot_ref_to_page[key])
+                return 0
+
             for page_index, page in enumerate(pdf.pages, start=1):
+                page_key = _pdf_obj_ref_key(page.obj)
+                if page_key is not None:
+                    page_ref_to_number[page_key] = page_index
                 annots = page.obj.get("/Annots")
                 if not annots:
                     continue
                 for annot in annots:
                     annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
+                    annot_key = _pdf_obj_ref_key(annot_obj)
+                    if annot_key is not None:
+                        annot_ref_to_page[annot_key] = page_index
                     if not _is_signature_widget(annot_obj):
                         continue
-                    rect = [float(v) for v in annot_obj.get("/Rect") or []]
-                    if len(rect) != 4:
+                    _add_target(page_index, _signature_field_name(annot_obj) or "", _signature_rect(annot_obj))
+
+            def _walk_sig_fields(fields, inherited_name: str = "", inherited_sig: bool = False):
+                for field in fields or []:
+                    try:
+                        field_obj = field.get_object() if hasattr(field, "get_object") else field
+                    except Exception:
                         continue
-                    left, bottom, right, top = (
-                        min(rect[0], rect[2]),
-                        min(rect[1], rect[3]),
-                        max(rect[0], rect[2]),
-                        max(rect[1], rect[3]),
+                    current_name = str(field_obj.get("/T") or "").strip() or inherited_name
+                    current_sig = (
+                        inherited_sig
+                        or str(field_obj.get("/FT") or "") == "/Sig"
+                        or field_obj.get("/V") is not None
                     )
-                    if right - left < 1 or top - bottom < 1:
-                        continue
-                    targets.append(
-                        {
-                            "page": page_index,
-                            "field_name": _signature_field_name(annot_obj) or "",
-                            "rect": [left, bottom, right, top],
-                        }
-                    )
+                    if current_sig:
+                        _add_target(_page_for_obj(field_obj), current_name, _signature_rect(field_obj))
+                    kids = field_obj.get("/Kids") or []
+                    if kids:
+                        _walk_sig_fields(kids, current_name, current_sig)
+
+            acroform = pdf.Root.get("/AcroForm")
+            if acroform is not None:
+                _walk_sig_fields(acroform.get("/Fields") or [])
         return targets
     except Exception:
         return []

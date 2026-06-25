@@ -1634,6 +1634,7 @@ def _sign_existing_signature_field_with_usb(window, report: dict, token_info) ->
                 actual_output_path,
                 target_path=window.current_path,
                 page=int(report.get("clicked_page") or 1),
+                soft_reload=True,
             )
             final_output_path = window.current_path
         else:
@@ -1784,15 +1785,11 @@ def _choose_signing_token(
 ):
     tokens = _list_signing_tokens(provider)
     if not tokens:
-        details = provider.get_last_error()
-        detail_line = f"\n\nChi tiết:\n{details}" if details else ""
         if required:
             show_warning(
                 window,
-                "Không tìm thấy thiết bị ký số",
-                "Chưa phát hiện USB token/chứng thư ký số nào.\n"
-                "Vui lòng cắm USB token, cài middleware của nhà cung cấp, rồi thử lại."
-                + detail_line,
+                "USB ký số",
+                "Vui lòng kết nối USB ký số.",
             )
         return None
 
@@ -1886,6 +1883,8 @@ def _pick_signature_placement(window, *, sig_image_url: str = "", sig_text_html:
             web_view.page().runJavaScript(
                 "if (window.__readerPdfSignaturePickCleanup) { "
                 "try { window.__readerPdfSignaturePickCleanup(); } catch (_err) {} }"
+                "window.__readerPdfSignaturePickCleanup = null;"
+                "window.__readerPdfSignaturePickInstalled = false;"
             )
         except Exception:
             pass
@@ -1901,13 +1900,10 @@ def check_token(window):
     provider = get_signing_provider()
     tokens = _list_signing_tokens(provider)
     if not tokens:
-        details = provider.get_last_error()
-        detail_line = f"\n\nChi tiết: {details}" if details else ""
         show_warning(
             window,
-            "Không tìm thấy thiết bị ký số",
-            "Chưa cắm USB ký số hoặc trình điều khiển chưa được cài đặt."
-            + detail_line,
+            "USB ký số",
+            "Không tìm thấy USB ký số.",
         )
         return
 
@@ -2143,6 +2139,7 @@ def sign_with_pfx(window):
                 actual_output_path,
                 target_path=window.current_path,
                 page=placement["page_number"],
+                soft_reload=True,
             )
             final_output_path = window.current_path
 
@@ -2290,6 +2287,7 @@ def sign_document(window):
                 actual_output_path,
                 target_path=window.current_path,
                 page=placement["page_number"],
+                soft_reload=True,
             )
             final_output_path = window.current_path
 
@@ -2564,7 +2562,7 @@ def sign_handwritten(window):
         show_warning(window, "Lỗi chèn chữ ký", traceback.format_exc())
     finally:
         _cleanup_signature_preview(window)
-class SignatureStatusDialog(QDialog):
+class _LegacySignatureStatusDialog(QDialog):
     def __init__(self, parent, report: dict, *, path: str | None = None):
         super().__init__(parent)
         self._report = report
