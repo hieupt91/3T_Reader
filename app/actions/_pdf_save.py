@@ -63,6 +63,29 @@ def _pump_qt_events() -> None:
         pass
 
 
+def _retry_viewer_load_if_blank(window, source_path: str, *, page: int, zoom: str, delay_ms: int = 1200) -> None:
+    try:
+        from packages.qt_compat.QtCore import QTimer
+    except Exception:
+        return
+
+    viewer = getattr(window, "viewer", None)
+    if viewer is None:
+        return
+
+    def _retry() -> None:
+        current_viewer = getattr(window, "viewer", None)
+        if current_viewer is None or current_viewer is not viewer:
+            return
+        if getattr(current_viewer, "_path", "") != source_path:
+            return
+        if getattr(current_viewer, "_page_count", 0) > 0:
+            return
+        current_viewer.load_pdf(source_path, page=page, zoom=zoom)
+
+    QTimer.singleShot(max(0, int(delay_ms)), _retry)
+
+
 def release_viewer_file_lock(window) -> None:
     """Move QWebEngine away from the PDF before replacing the file on Windows."""
     try:
@@ -130,10 +153,9 @@ def reload_document(
     
     if soft_reload and hasattr(window.viewer, "reload_soft"):
         window.viewer.reload_soft(source_path, zoom=target_zoom, page=target_page)
-    elif hasattr(window.viewer, "reload_soft") and window.viewer._path == source_path and target_page == current_viewer_page(window):
-        window.viewer.reload_soft(source_path, zoom=target_zoom, page=target_page)
     else:
         window.viewer.load_pdf(source_path, page=target_page, zoom=target_zoom)
+        _retry_viewer_load_if_blank(window, source_path, page=target_page, zoom=target_zoom)
 
 
 def replace_document_with_staged(

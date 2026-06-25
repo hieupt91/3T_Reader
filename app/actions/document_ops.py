@@ -938,12 +938,9 @@ def add_page_numbers(window):
         return
 
     read_path, target_path = _document_read_and_target_paths(window)
-    if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
-        show_warning(
-            window,
-            "KhÃ´ng thá»ƒ Ä‘Ã¡nh sá»‘ trang trÃªn file Ä‘ang giáº£i mÃ£",
-            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi thÃªm sá»‘ trang Ä‘á»ƒ trÃ¡nh ghi nháº§m vÃ o báº£n táº¡m.",
-        )
+    display_src = target_path or read_path or ""
+    if os.path.splitext(str(display_src))[1].lower() != ".pdf":
+        show_warning(window, "Khong the danh so trang", "Chi ho tro danh so trang cho tai lieu PDF.")
         return
     src = target_path or read_path
     _set_tmp_target(src)
@@ -979,7 +976,7 @@ def add_page_numbers(window):
 
             pdf.save(tmp)
 
-        replace_document_with_staged(window, tmp, target_path=src)
+        replace_document_with_staged(window, tmp, target_path=src, soft_reload=False)
         window.status.showMessage("Đã thêm số trang vào tất cả các trang", 4000)
     except Exception as e:
         window.status.showMessage("", 0)
@@ -991,12 +988,9 @@ def add_page_numbers(window):
 def remove_page_numbers(window):
     """Xóa các số trang đã được thêm vào."""
     read_path, target_path = _document_read_and_target_paths(window)
-    if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
-        show_warning(
-            window,
-            "KhÃ´ng thá»ƒ xÃ³a sá»‘ trang trÃªn file Ä‘ang giáº£i mÃ£",
-            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi xÃ³a sá»‘ trang Ä‘á»ƒ trÃ¡nh ghi nháº§m vÃ o báº£n táº¡m.",
-        )
+    display_src = target_path or read_path or ""
+    if os.path.splitext(str(display_src))[1].lower() != ".pdf":
+        show_warning(window, "Khong the xoa so trang", "Chi ho tro xoa so trang cho tai lieu PDF.")
         return
     src = target_path or read_path
     _set_tmp_target(src)
@@ -1012,7 +1006,7 @@ def remove_page_numbers(window):
             pdf.save(tmp)
 
         if deleted:
-            replace_document_with_staged(window, tmp, target_path=src)
+            replace_document_with_staged(window, tmp, target_path=src, soft_reload=False)
             window.status.showMessage("Đã xóa số trang thành công", 4000)
         else:
             remove_path_quietly(tmp)
