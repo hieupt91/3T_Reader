@@ -76,11 +76,19 @@ def detect_language_for_tts(text: str) -> str:
     sample = (text or "").strip()[:2000]
     if not sample:
         return "en"
-    letters = re.findall(r"[A-Za-zÀ-ỹà-ỹ]", sample)
-    if not letters:
-        return "en"
+    
     vi_letters = re.findall(r"[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]", sample)
-    return "vi" if (len(vi_letters) / max(1, len(letters))) > 0.30 else "en"
+    if len(vi_letters) > 0:
+        return "vi"
+        
+    if re.search(r"[\u4e00-\u9fff]", sample):
+        return "zh"
+    if re.search(r"[\uac00-\ud7af]", sample):
+        return "ko"
+    if re.search(r"[\u0e00-\u0e7f]", sample):
+        return "th"
+        
+    return "en"
 
 
 def _voice_language_from_name(voice_id: str) -> str:
