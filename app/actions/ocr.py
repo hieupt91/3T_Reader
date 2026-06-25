@@ -164,6 +164,7 @@ def _check_ocr_available(window) -> bool:
     import sys
 
     try:
+        import pytesseract
         from packages.ocr.engine import is_available, has_vietnamese, get_installed_langs, runtime_status
     except ImportError:
         from app.dialogs import show_warning
@@ -263,7 +264,7 @@ def _show_ocr_dialog(window, pdf_path: str, pages: list[int], current_page: int,
         pages=pages,
         current_page=current_page,
         high_quality=high_quality,
-        modal=False,
+        modal=True,
     )
 
     def _clear_active(*_args):
@@ -273,10 +274,10 @@ def _show_ocr_dialog(window, pdf_path: str, pages: list[int], current_page: int,
     dlg.finished.connect(_clear_active)
     dlg.destroyed.connect(_clear_active)
     window._active_ocr_dialog = dlg
-    dlg.show()
-    dlg.raise_()
-    dlg.activateWindow()
-
+    try:
+        dlg.exec()
+    finally:
+        _clear_active()
 
     return dlg
 

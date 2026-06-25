@@ -96,7 +96,6 @@ class OCRDialog(QDialog):
     def __init__(self, parent, pdf_path: str, pages: list[int],
                  current_page: int = 1, high_quality: bool = False, modal: bool = True):
         super().__init__(parent)
-        self.setWindowFlags(self.windowFlags() | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setWindowTitle("OCR Tiếng Việt – 3T Reader")
         self.setModal(modal)
@@ -110,7 +109,7 @@ class OCRDialog(QDialog):
         self._worker: _Worker | None = None
         self._thread = None
         self._final_text = ""
-        self._live_preview = len(pages) <= 3
+        self._live_preview = False
 
         self._build_ui(current_page)
         self._start()
