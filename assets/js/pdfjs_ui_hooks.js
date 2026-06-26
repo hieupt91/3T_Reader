@@ -479,12 +479,15 @@
         } catch (_) {}
     }
 
-    window.__3tReadSelectionPayload = function () {
+    window.__3tReadSelectionPayload = function (freshOnly) {
         var payload = collectSelectionPayload();
         if (payload && (payload.text || (payload.rects && payload.rects.length > 0))) {
             payload.timestamp = Date.now();
             window.__3tLastSelectionPayload = payload;
             return payload;
+        }
+        if (freshOnly) {
+            return payload || { text: '', rects: [] };
         }
         var cached = window.__3tLastSelectionPayload;
         if (cached && (cached.text || (cached.rects && cached.rects.length > 0)) && Date.now() - (cached.timestamp || 0) < 60000) {
@@ -548,6 +551,7 @@
         var selectionTimer = null;
         var scheduleSelectionCache = function () {
             if (selectionTimer) clearTimeout(selectionTimer);
+            updateSelectionCache();
             [0, 60, 160, 320, 640].forEach(function(delay) {
                 setTimeout(updateSelectionCache, delay);
             });

@@ -376,7 +376,7 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
             if (opPayload && opPayload.type === 'text') {
                 var scaleX = newW / startW;
                 var scaleY = newH / startH;
-                var scale = Math.max(0.25, Math.min(6.0, Math.min(scaleX, scaleY)));
+                var scale = Math.max(0.25, Math.min(6.0, Math.max(scaleX, scaleY)));
                 var txt = box.querySelector('div');
                 if (txt) {
                     var baseFs = (opPayload.font_size || 14) * (vp.scale || 1.0) * 1.333;
@@ -403,7 +403,7 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
             var newT = Math.max(p1[1], p2[1]);
             var scaleX = newBw / startW;
             var scaleY = newBh / startH;
-            var scale = Math.max(0.25, Math.min(6.0, Math.min(scaleX, scaleY)));
+            var scale = Math.max(0.25, Math.min(6.0, Math.max(scaleX, scaleY)));
             cleanupAll();
             try {
                 reportAction({type:'resize', box: [newL, newB, newR, newT], scale: scale});
@@ -516,6 +516,7 @@ _SHOW_TEXT_EDIT_LIVE_PREVIEW_JS = r"""(function(opPayloadStr) {
         + 'color:rgb('+r+','+g+','+b+');'
         + 'font-weight:'+(op.bold?'bold':'normal')+';'
         + 'text-decoration:'+(op.underline?'underline':'none')+';'
+        + 'font-style:'+(op.italic?'italic':'normal')+';'
         + 'font-family:'+fontFam+';white-space:pre-wrap;overflow:hidden;padding:0;';
     var fs = (op.font_size || 14) * (vp.scale || 1.0) * 1.333;
     txt.style.fontSize = fs + 'px';
@@ -821,6 +822,13 @@ def _ensure_edit_state(window):
             if warned is None:
                 warned = set()
                 window._edit_sig_warned_paths = warned
+            if current not in warned:
+                if hasattr(window, "status"):
+                    window.status.showMessage(
+                        "Tai lieu co chu ky so; chinh sua PDF co the lam chu ky mat hieu luc.",
+                        5000,
+                    )
+                warned.add(current)
             if current not in warned:
                 reply = QMessageBox.warning(
                     window,
@@ -1369,6 +1377,8 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
         target_op["font_color"] = dlg_edit.get_color_tuple()
         target_op["bold"] = dlg_edit.get_bold()
         target_op["underline"] = dlg_edit.get_underline()
+        target_op["italic"] = dlg_edit.get_italic()
+        target_op["font_family"] = dlg_edit.get_font_family()
         _render_edit_state(window, state, "Đã cập nhật văn bản", focus_page=page_num, erase_boxes=[{"page_number": target_op.get("page_number", page_num), "box": old_box}])
         return
 
@@ -2209,6 +2219,8 @@ def edit_text_object(window):
         color_tuple=color_tuple,
         bold=target_op.get("bold", False),
         underline=target_op.get("underline", False),
+        italic=target_op.get("italic", False),
+        font_family=target_op.get("font_family", "sans-serif"),
     )
     def _refresh_preview():
         preview_op = dict(target_op)
@@ -2217,6 +2229,8 @@ def edit_text_object(window):
         preview_op["font_color"] = dlg_edit.get_color_tuple()
         preview_op["bold"] = dlg_edit.get_bold()
         preview_op["underline"] = dlg_edit.get_underline()
+        preview_op["italic"] = dlg_edit.get_italic()
+        preview_op["font_family"] = dlg_edit.get_font_family()
         _show_text_edit_live_preview(window, preview_op)
 
     dlg_edit.previewChanged.connect(_refresh_preview)
@@ -2236,6 +2250,8 @@ def edit_text_object(window):
     target_op["font_color"] = dlg_edit.get_color_tuple()
     target_op["bold"]      = dlg_edit.get_bold()
     target_op["underline"] = dlg_edit.get_underline()
+    target_op["italic"]    = dlg_edit.get_italic()
+    target_op["font_family"] = dlg_edit.get_font_family()
 
     _render_edit_state(window, state, "Đã cập nhật văn bản",
                        focus_page=int(target_op.get("page_number", 1)))
@@ -2330,6 +2346,7 @@ def edit_existing_text(window):
             page_h = float(page.rect.height)
             best = None
             best_score = None
+            best_overlap = 0.0
             for block in page.get_text("dict").get("blocks", []):
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
@@ -2358,6 +2375,9 @@ def edit_existing_text(window):
                                 "bold": "bold" in font_name.lower(),
                             }
                             best_score = score
+                            best_overlap = overlap
+            if best is not None and best_overlap <= 0.0:
+                return None
             return best
         finally:
             doc.close()
@@ -2401,6 +2421,7 @@ def edit_existing_text(window):
         if right - left < 0.5 or top - bottom < 0.5:
             return
 
+        insert_box = (left, bottom, right, top)
         redact_box = (left, bottom, right, top)
         span_info = _find_pdf_span(base_snapshot, int(pageNum), redact_box)
         redact_padding = 2.0 if use_span_box else 0.0
@@ -2408,14 +2429,15 @@ def edit_existing_text(window):
             if use_span_box:
                 redact_box = span_info["box"]
                 left, bottom, right, top = redact_box
+                insert_box = redact_box
             else:
-                span_left, span_bottom, span_right, span_top = span_info["box"]
+                _span_left, span_bottom, _span_right, span_top = span_info["box"]
                 tight_bottom = max(bottom, span_bottom)
                 tight_top = min(top, span_top)
                 if tight_top - tight_bottom >= 0.5:
                     bottom, top = tight_bottom, tight_top
                     height = max(1.0, top - bottom)
-                    top = max(bottom + 0.5, top - min(2.0, height * 0.18))
+                    top = min(span_top, top + min(1.2, max(0.4, height * 0.10)))
                     redact_box = (left, bottom, right, top)
                 redact_padding = 0.0
             font_size = span_info["font_size"]
@@ -2426,7 +2448,8 @@ def edit_existing_text(window):
         text_value = str(new_text).strip()
 
         if text_value:
-            text_box = _expanded_text_box(left, bottom, right, top, text_value, font_size, base_snapshot, int(pageNum))
+            insert_left, insert_bottom, insert_right, insert_top = insert_box
+            text_box = _expanded_text_box(insert_left, insert_bottom, insert_right, insert_top, text_value, font_size, base_snapshot, int(pageNum))
             op = {
                 "id": state["next_id"],
                 "type": "text",
@@ -2467,13 +2490,75 @@ def edit_existing_text(window):
         if not working_file:
             return
 
-        reload_document(window, working_file, display_path=display_path, temp_path=working_file, page=pageNum)
+        reload_document(
+            window,
+            working_file,
+            display_path=display_path,
+            temp_path=working_file,
+            page=pageNum,
+            soft_reload=True,
+        )
         QTimer.singleShot(350, lambda: window.viewer.update_ops("[]") if hasattr(window.viewer, "update_ops") else None)
 
-    def edit_from_selection():
-        from app.actions.annotate import _get_selection_payload_sync, _selection_page_rects
+    def _get_live_selection_payload_sync(timeout_ms: int = 500):
+        try:
+            getter = getattr(window, "_get_webview", None)
+            web_view = getter() if callable(getter) else None
+        except Exception:
+            web_view = None
+        if web_view is None:
+            return {}
 
-        payload = _get_selection_payload_sync(window, timeout_ms=500)
+        holder = {"payload": None}
+        loop = QEventLoop(window)
+
+        def _done(payload):
+            holder["payload"] = payload
+            if loop.isRunning():
+                loop.quit()
+
+        js = """(function() {
+            function hasRects(payload) {
+                return payload && payload.rects && payload.rects.length > 0;
+            }
+            try {
+                if (typeof window.__3tReadSelectionPayload === 'function') {
+                    var live = window.__3tReadSelectionPayload(true);
+                    if (hasRects(live)) return live;
+                }
+            } catch (_err) {}
+            try {
+                var cached = window.__3tLastSelectionPayload;
+                if (hasRects(cached) && Date.now() - (cached.timestamp || 0) < 10000) {
+                    return cached;
+                }
+            } catch (_err2) {}
+            var sel = window.getSelection ? window.getSelection() : null;
+            return { text: sel ? String(sel.toString() || '') : '', rects: [] };
+        })()"""
+        try:
+            web_view.page().runJavaScript(js, _done)
+            QTimer.singleShot(timeout_ms, lambda: loop.quit() if loop.isRunning() else None)
+            loop.exec()
+        except Exception:
+            return {}
+        return holder.get("payload") or {}
+
+    def edit_from_selection():
+        from app.actions.annotate import (
+            _fallback_selection_payload_from_text,
+            _payload_has_selection_rects,
+            _qt_selected_text,
+            _selection_page_rects,
+        )
+
+        payload = _get_live_selection_payload_sync(timeout_ms=500)
+        if not _payload_has_selection_rects(payload):
+            qt_text = _qt_selected_text(window)
+            if qt_text:
+                fallback = _fallback_selection_payload_from_text(window, qt_text)
+                if _payload_has_selection_rects(fallback):
+                    payload = fallback
         selected_text, rects_by_page = _selection_page_rects(payload, merge_lines=False)
         if not rects_by_page:
             show_warning(window, "Chưa chọn văn bản", "Hãy bôi đen đúng phần chữ cần sửa trước, rồi bấm Sửa text gốc.")
