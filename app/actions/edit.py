@@ -376,7 +376,10 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
             if (opPayload && opPayload.type === 'text') {
                 var scaleX = newW / startW;
                 var scaleY = newH / startH;
-                var scale = Math.max(0.25, Math.min(6.0, Math.max(scaleX, scaleY)));
+                var rawScale = (scaleX >= 1.0 && scaleY >= 1.0)
+                    ? Math.max(scaleX, scaleY)
+                    : Math.min(scaleX, scaleY);
+                var scale = Math.max(0.25, Math.min(6.0, rawScale));
                 var txt = box.querySelector('div');
                 if (txt) {
                     var baseFs = (opPayload.font_size || 14) * (vp.scale || 1.0) * 1.333;
@@ -403,7 +406,10 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
             var newT = Math.max(p1[1], p2[1]);
             var scaleX = newBw / startW;
             var scaleY = newBh / startH;
-            var scale = Math.max(0.25, Math.min(6.0, Math.max(scaleX, scaleY)));
+            var rawScale = (scaleX >= 1.0 && scaleY >= 1.0)
+                ? Math.max(scaleX, scaleY)
+                : Math.min(scaleX, scaleY);
+            var scale = Math.max(0.25, Math.min(6.0, rawScale));
             cleanupAll();
             try {
                 reportAction({type:'resize', box: [newL, newB, newR, newT], scale: scale});
