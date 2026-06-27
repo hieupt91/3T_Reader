@@ -7,10 +7,10 @@ import os
 import json
 import hashlib
 
-VERSION = "1.0.22"
+VERSION = "1.0.24"
 BASE_URL = "https://reader.3tcomputer.com/downloads"
-PUBLIC_INSTALLER_NAME = "3TReader-1.0.22-win-r3.exe"
-PUBLIC_PORTABLE_NAME = "3TReader-1.0.22-win-portable-r3.zip"
+PUBLIC_INSTALLER_NAME = "3TReader-1.0.24-win-r3.exe"
+PUBLIC_PORTABLE_NAME = "3TReader-1.0.24-win-portable-r3.zip"
 
 def sha256_file(path: str) -> str:
     h = hashlib.sha256()
@@ -81,11 +81,10 @@ def deploy():
         remote_dir = "/home/hieupt/projects/3T_Reader/phase1-backend/downloads"
         
         files_to_upload = [
-            ("Setup_3T_Reader_v1.0.22.exe", PUBLIC_INSTALLER_NAME),
-            ("3T_Reader_Portable_v1.0.22.zip", PUBLIC_PORTABLE_NAME)
+            ("Setup_3T_Reader_v1.0.24.exe", PUBLIC_INSTALLER_NAME),
+            ("3T_Reader_Portable_v1.0.24.zip", PUBLIC_PORTABLE_NAME)
         ]
         
-        """
         for local_name, remote_name in files_to_upload:
             local_path = os.path.join(local_dir, local_name)
             remote_path = f"{remote_dir}/{remote_name}"
@@ -96,7 +95,6 @@ def deploy():
                 print(f"Success: {local_name} uploaded.")
             else:
                 print(f"Warning: {local_path} does not exist.")
-        """
         
         # sftp.close()
         
@@ -104,7 +102,7 @@ def deploy():
         update_cmd = """
         cd /home/hieupt/projects/3T_Reader/phase1-backend
         if [ -f docker-compose.yml ]; then
-            sed -i 's/1.0.20/1.0.22/g' docker-compose.yml
+            sed -i 's/1.0.22/1.0.24/g' docker-compose.yml
             docker compose restart
         else
             echo "docker-compose.yml not found, skipping restart."
@@ -118,13 +116,13 @@ def deploy():
             local_cfg = json.load(f)
 
         update_cfg = dict(local_cfg.get("update", {}))
-        installer_path = os.path.join(local_dir, "Setup_3T_Reader_v1.0.22.exe")
-        portable_path = os.path.join(local_dir, "3T_Reader_Portable_v1.0.22.zip")
+        installer_path = os.path.join(local_dir, "Setup_3T_Reader_v1.0.24.exe")
+        portable_path = os.path.join(local_dir, "3T_Reader_Portable_v1.0.24.zip")
         if os.path.exists(installer_path):
             update_cfg["win_version"] = VERSION
             update_cfg["win_url"] = f"{BASE_URL}/{PUBLIC_INSTALLER_NAME}"
             update_cfg["win_sha256"] = sha256_file(installer_path)
-            update_cfg["release_notes"] = "Phiên bản 1.0.22: Tối ưu khởi động và nạp PDF cực nhanh. Nâng cấp Lazy Load."
+            update_cfg["release_notes"] = "Phiên bản 1.0.24: Hoàn thiện Phase 7-9, tối ưu hiệu suất tốc độ cao, hỗ trợ Edit Text trực tiếp và OCR ổn định."
         if os.path.exists(portable_path):
             update_cfg["portable_url"] = f"{BASE_URL}/{PUBLIC_PORTABLE_NAME}"
             update_cfg["portable_sha256"] = sha256_file(portable_path)
