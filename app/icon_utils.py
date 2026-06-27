@@ -39,6 +39,7 @@ def _recolor_svg_data(svg_data: str, color: str) -> str:
     return svg_data
 
 
+@lru_cache(maxsize=4)
 def app_logo_icon(size: int = 64) -> QIcon:
     """Return QIcon from logo_mark.svg (full colour, no recolour)."""
     path = os.path.join(ASSETS_DIR, "logo_mark.svg")

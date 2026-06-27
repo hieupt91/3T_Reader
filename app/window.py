@@ -308,10 +308,10 @@ class PDFReaderApp(QMainWindow):
         self._start_token_monitor()
         self._apply_toolbar_prefs()
         QTimer.singleShot(15_000, self._auto_check_update)
-        # Khôi phục AI API key đã lưu (nếu có)
+        # Khôi phục AI API key đã lưu (nếu có) nhưng defer lại 500ms để không block UI khi khởi động
         try:
             from app.actions.ai_actions import load_ai_config
-            load_ai_config()
+            QTimer.singleShot(500, load_ai_config)
         except Exception:
             pass
 

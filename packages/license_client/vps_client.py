@@ -233,10 +233,12 @@ class VpsLicenseClient:
                 self._validate_server_background(token, cache)
             return offline
 
-        try:
-            return self._validate_server(token, cache)
-        except Exception:
-            return self._offline_status(cache)
+        # Đối với token cũ (không phải Ed25519), KHÔNG block main thread.
+        # Trả về trạng thái từ cache ngay lập tức và gọi server ở background.
+        status = self._offline_status(cache)
+        if status.active:
+            self._validate_server_background(token, cache)
+        return status
 
     def _validate_server(self, token: str, cache: dict) -> LicenseStatus:
         resp = _post(
