@@ -1647,13 +1647,30 @@ def _sign_existing_signature_field_with_usb(window, report: dict, token_info) ->
 
         validation = validate_signed_pdf_status(final_output_path, field_name=field_name)
         validation_line = str(validation.get("message") or "")
-        QMessageBox.information(
-            window,
-            "Ký ô ký thành công",
-            "Ký ô ký thành công!\n\n"
-            f"Trạng thái: {validation_line}\n\n"
-            f"File đã được cập nhật tại:\n{final_output_path}",
-        )
+        if in_place_output:
+            QMessageBox.information(
+                window,
+                "Ký ô ký thành công",
+                "Ký ô ký thành công!\n\n"
+                f"Trạng thái: {validation_line}\n\n"
+                f"File đã được cập nhật tại:\n{final_output_path}",
+            )
+        else:
+            reply = QMessageBox.question(
+                window,
+                "Ký ô ký thành công",
+                "Ký ô ký thành công!\n\n"
+                f"Trạng thái: {validation_line}\n\n"
+                f"File lưu tại:\n{final_output_path}\n\n"
+                "Mở file đã ký ngay?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                _refresh_document_view(
+                    window,
+                    final_output_path,
+                    page_number=int(report.get("clicked_page") or 1),
+                )
     except Exception:
         traceback.print_exc()
         msg = QMessageBox(window)

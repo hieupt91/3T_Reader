@@ -274,7 +274,10 @@
                         var width = Math.abs(coords[2] - coords[0]);
                         var height = Math.abs(coords[3] - coords[1]);
                         if (width < 1 || height < 1) return;
-                        var host = pageEl.querySelector('.annotationLayer') || pageEl;
+                        // The rectangle is computed in page viewport coordinates.
+                        // Mount the invisible hitbox on the page root to keep the
+                        // same coordinate space as the rendered signature overlay.
+                        var host = pageEl;
                         var hit = document.createElement('div');
                         hit.className = '__3t-signature-hitbox';
                         hit.setAttribute('data-page-number', String(pageNumber));

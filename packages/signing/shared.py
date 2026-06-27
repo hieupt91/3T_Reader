@@ -890,13 +890,7 @@ async def sign_pdf_with_session(
                 
             pyhanko_box = None
             if box and not field_name:
-                try:
-                    import fitz
-                    with fitz.open(burn_input_path) as tmp_doc:
-                        page_height = tmp_doc[page_number - 1].rect.height
-                    pyhanko_box = (box[0], page_height - box[3], box[2], page_height - box[1])
-                except Exception:
-                    pass
+                pyhanko_box = tuple(box)
             from pyhanko.stamp import NoOpStampStyle
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
@@ -1048,13 +1042,7 @@ async def sign_pdf_with_pkcs12(
             )
             pyhanko_box = None
             if box and not field_name:
-                try:
-                    import fitz
-                    with fitz.open(burn_input_path) as tmp_doc:
-                        page_height = tmp_doc[page_number - 1].rect.height
-                    pyhanko_box = (box[0], page_height - box[3], box[2], page_height - box[1])
-                except Exception:
-                    pass
+                pyhanko_box = tuple(box)
             from pyhanko.stamp import NoOpStampStyle
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
