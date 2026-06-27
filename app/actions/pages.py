@@ -28,6 +28,16 @@ def _is_temp_converted_document(window, path: str) -> bool:
     return False
 
 
+def _auto_commit_edit_state(window) -> bool:
+    try:
+        from app.actions.edit import _get_edit_state, save_edits_quiet
+        if _get_edit_state(window):
+            return save_edits_quiet(window)
+    except Exception:
+        pass
+    return True
+
+
 def _current_pdf_path(window) -> str | None:
     state = window._active_state() if hasattr(window, "_active_state") else None
     if state:
@@ -118,6 +128,8 @@ class _WatermarkDialog(QDialog):
 
 @require_document(show_message=True)
 def watermark_document(window):
+    if not _auto_commit_edit_state(window):
+        return
     path = _current_pdf_path(window)
     if not path:
         return
@@ -208,6 +220,8 @@ class _PageRangeDialog(QDialog):
 
 @require_document(show_message=True)
 def delete_pages_action(window):
+    if not _auto_commit_edit_state(window):
+        return
     path = _current_pdf_path(window)
     if not path:
         return
@@ -269,6 +283,8 @@ def delete_pages_action(window):
 
 @require_document(show_message=True)
 def rotate_pages_action(window):
+    if not _auto_commit_edit_state(window):
+        return
     path = _current_pdf_path(window)
     if not path:
         return
@@ -551,6 +567,8 @@ class _SplitDialog(QDialog):
 
 @require_document(show_message=True)
 def split_pdf_action(window):
+    if not _auto_commit_edit_state(window):
+        return
     path = _current_pdf_path(window)
     if not path:
         return
@@ -588,6 +606,8 @@ def split_pdf_action(window):
     window.status.showMessage(f"Đã tách thành {len(out_paths)} file PDF", 5000)
 
 def extract_single_page(window, page_num: int):
+    if not _auto_commit_edit_state(window):
+        return
     path = _current_pdf_path(window)
     if not path:
         return
@@ -614,6 +634,8 @@ def extract_single_page(window, page_num: int):
         show_warning(window, "Lỗi trích xuất", str(e))
 
 def insert_blank_page(window, target_page_num: int):
+    if not _auto_commit_edit_state(window):
+        return
     path = _current_pdf_path(window)
     if not path:
         return
