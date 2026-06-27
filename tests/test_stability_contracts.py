@@ -292,6 +292,39 @@ def test_signature_status_dialog_shows_extended_signature_properties():
     assert 'validate_signed_pdf_status(pdf_path, field_name=field_name or None)' in window_source
 
 
+def test_usb_ltv_signing_pulls_full_token_certificate_chain():
+    shared_source = _read("packages/signing/shared.py")
+
+    assert "embed_validation_info=enable_ltv" in shared_source
+    assert "_fetch_issuer_chain_from_aia(signing_cert_der) if enable_ltv else []" in shared_source
+    assert "_safe_get_pkcs11_attr(_signing_cert, Attribute.VALUE)" in shared_source
+    assert "ca_chain=fetched_issuer_chain or None" in shared_source
+    assert "other_certs=[*fetched_issuer_chain, *list(signer_obj.cert_registry)]" in shared_source
+    assert "other_certs_to_pull=None" in shared_source
+    assert "allow_fetching=True" in shared_source
+    assert "fetcher_backend=RequestsFetcherBackend()" in shared_source
+
+
+def test_usb_signing_certificate_picker_prefers_valid_nonexpired_cert():
+    shared_source = _read("packages/signing/shared.py")
+
+    assert 'cert_status = str(cert_details.get("certificate_status") if cert_details else "")' in shared_source
+    assert '1 if cert_status == "Con han" else 0' in shared_source
+    assert 'valid_to_ts = valid_to_dt.timestamp() if hasattr(valid_to_dt, "timestamp") else 0.0' in shared_source
+
+
+def test_existing_signature_field_usb_flow_handles_pin_errors_explicitly():
+    sign_source = _read("app/actions/sign.py")
+    start = sign_source.index("def _sign_existing_signature_field_with_usb(")
+    end = sign_source.index("\ndef _format_signature_report_vn(", start)
+    flow_source = sign_source[start:end]
+
+    assert 'if maybe_type in {"PinIncorrect", "PinLocked"}:' in flow_source
+    assert 'if exc_type_name == "PinIncorrect" or "PinIncorrect" in str(type(exc)):' in flow_source
+    assert 'elif exc_type_name == "PinLocked" or "PinLocked" in str(type(exc)):' in flow_source
+    assert '_cached_usb_pin = ""' in flow_source
+
+
 def test_app_update_ui_uses_current_updater_package():
     app_sources = "\n".join(
         path.read_text(encoding="utf-8")

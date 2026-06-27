@@ -5,6 +5,7 @@ import os
 import tempfile
 import unicodedata
 import uuid
+import urllib.request
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from collections import OrderedDict
@@ -490,6 +491,112 @@ def _signature_rect_from_pdf_obj(obj) -> list[float] | None:
         return None
 
 
+def _extract_ca_issuer_urls_from_der(cert_der: bytes | None) -> list[str]:
+    if not cert_der:
+        return []
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import AuthorityInformationAccessOID
+
+        cert = x509.load_der_x509_certificate(cert_der)
+        aia = cert.extensions.get_extension_for_class(x509.AuthorityInformationAccess).value
+        urls: list[str] = []
+        for access_desc in aia:
+            if access_desc.access_method != AuthorityInformationAccessOID.CA_ISSUERS:
+                continue
+            location = getattr(access_desc, "access_location", None)
+            value = getattr(location, "value", "") if location is not None else ""
+            if isinstance(value, str) and value.strip():
+                urls.append(value.strip())
+        return urls
+    except Exception:
+        return []
+
+
+def _load_der_certs_from_aia_url(url: str) -> list[bytes]:
+    try:
+        with urllib.request.urlopen(url, timeout=8) as response:
+            payload = response.read()
+    except Exception:
+        return []
+
+    if not payload:
+        return []
+
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+
+        cert = x509.load_der_x509_certificate(payload)
+        return [cert.public_bytes(encoding=serialization.Encoding.DER)]
+    except Exception:
+        pass
+
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+
+        cert = x509.load_pem_x509_certificate(payload)
+        return [cert.public_bytes(encoding=serialization.Encoding.DER)]
+    except Exception:
+        pass
+
+    try:
+        from asn1crypto import cms, pem, x509
+
+        if pem.detect(payload):
+            _type_name, _headers, payload = pem.unarmor(payload)
+        content_info = cms.ContentInfo.load(payload)
+        signed_data = content_info["content"]
+        certs = signed_data["certificates"]
+        result: list[bytes] = []
+        for cert_choice in certs:
+            if cert_choice.name != "certificate":
+                continue
+            cert_obj = cert_choice.chosen
+            if isinstance(cert_obj, x509.Certificate):
+                result.append(cert_obj.dump())
+        return result
+    except Exception:
+        return []
+
+
+def _fetch_issuer_chain_from_aia(cert_der: bytes | None, *, max_depth: int = 3) -> list[object]:
+    if not cert_der or max_depth <= 0:
+        return []
+
+    from asn1crypto import x509 as asn1_x509
+
+    fetched: list[object] = []
+    seen_urls: set[str] = set()
+    pending: list[tuple[bytes, int]] = [(cert_der, 0)]
+    seen_subject_issuers: set[tuple[str, str]] = set()
+
+    while pending:
+        current_der, depth = pending.pop(0)
+        if depth >= max_depth:
+            continue
+        for url in _extract_ca_issuer_urls_from_der(current_der):
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            for issuer_der in _load_der_certs_from_aia_url(url):
+                try:
+                    cert_obj = asn1_x509.Certificate.load(issuer_der)
+                except Exception:
+                    continue
+                key = (
+                    cert_obj.subject.human_friendly,
+                    cert_obj.issuer.human_friendly,
+                )
+                if key in seen_subject_issuers:
+                    continue
+                seen_subject_issuers.add(key)
+                fetched.append(cert_obj)
+                pending.append((issuer_der, depth + 1))
+    return fetched
+
+
 def _pdf_obj_ref_key(obj) -> tuple[int, int] | None:
     try:
         objgen = getattr(obj, "objgen", None)
@@ -748,7 +855,7 @@ def _pick_signing_certificate(session, attribute_mod, object_class_mod):
     }
     private_key_ids.discard(None)
 
-    scored_candidates: list[tuple[tuple[int, int, int, int], object, bytes | None, dict[str, object] | None]] = []
+    scored_candidates: list[tuple[tuple[int, int, int, float, int], object, bytes | None, dict[str, object] | None]] = []
     for index, cert in enumerate(certs):
         cert_id = _safe_get_pkcs11_attr(cert, attribute_mod.ID)
         cert_der = _safe_get_pkcs11_attr(cert, attribute_mod.VALUE)
@@ -758,10 +865,15 @@ def _pick_signing_certificate(session, attribute_mod, object_class_mod):
         matches_private_key = cert_id in private_key_ids if private_key_ids else True
         likely_leaf = bool(subject_raw) and subject_raw != issuer_raw
         has_subject = bool(str(cert_details.get("subject_name") if cert_details else "").strip())
+        cert_status = str(cert_details.get("certificate_status") if cert_details else "")
+        valid_to_dt = cert_details.get("valid_to_dt") if cert_details else None
+        valid_to_ts = valid_to_dt.timestamp() if hasattr(valid_to_dt, "timestamp") else 0.0
         score = (
             1 if matches_private_key else 0,
+            1 if cert_status == "Con han" else 0,
             1 if likely_leaf else 0,
             1 if has_subject else 0,
+            valid_to_ts,
             -index,
         )
         scored_candidates.append((score, cert, cert_id, cert_details))
@@ -813,8 +925,17 @@ async def sign_pdf_with_session(
         cert_tax = str(cert_details.get("tax_code") if cert_details else "") or ""
         cert_issuer = str(cert_details.get("issuer_provider") if cert_details else "") or ""
         cert_serial = str(cert_details.get("serial_hex") if cert_details else "") or ""
+        signing_cert_der = _safe_get_pkcs11_attr(_signing_cert, Attribute.VALUE)
+        fetched_issuer_chain = _fetch_issuer_chain_from_aia(signing_cert_der) if enable_ltv else []
 
-        signer_obj = PKCS11Signer(session, cert_id=cert_id)
+        # Pull all token certificates so pyHanko can build the issuer path
+        # during presign validation when LTV embedding is enabled.
+        signer_obj = PKCS11Signer(
+            session,
+            cert_id=cert_id,
+            ca_chain=fetched_issuer_chain or None,
+            other_certs_to_pull=None,
+        )
         display_name = (signer_name or "").strip() or cert_name or "Khong ro"
         visible_subject = cert_name or display_name
         signed_at_vn = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -871,8 +992,12 @@ async def sign_pdf_with_session(
             if enable_ltv:
                 from pyhanko.sign.validation import ValidationContext
                 from pyhanko_certvalidator.fetchers.requests_fetchers import RequestsFetcherBackend
-                
-                validation_context = ValidationContext(fetcher_backend=RequestsFetcherBackend())
+
+                validation_context = ValidationContext(
+                    other_certs=[*fetched_issuer_chain, *list(signer_obj.cert_registry)],
+                    allow_fetching=True,
+                    fetcher_backend=RequestsFetcherBackend(),
+                )
                 
             meta = PdfSignatureMetadata(
                 field_name=target_field_name,
