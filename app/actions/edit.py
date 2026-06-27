@@ -1848,7 +1848,7 @@ def insert_image_to_pdf(window):
     ext = os.path.splitext(image_path)[1].lower() or ".png"
     staged = os.path.join(edit_dir, f"img_{uuid.uuid4().hex[:12]}{ext}")
     try:
-        shutil.copy2(image_path, staged)
+        shutil.copy(image_path, staged)
         image_path = staged
     except OSError:
         pass  # keep original path if staging fails
@@ -1873,18 +1873,39 @@ def insert_image_to_pdf(window):
         return
 
     import base64
+    from packages.qt_compat.QtGui import QImage
+    from packages.qt_compat.QtCore import QByteArray, QBuffer, QIODevice, Qt
     try:
-        with open(image_path, "rb") as f:
-            raw = f.read()
-        ext_clean = ext.lstrip(".").lower()
-        mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "bmp": "bmp", "webp": "webp"}.get(ext_clean, "png")
-        has_alpha = False
-        try:
-            has_alpha = bool(QImage.fromData(raw).hasAlphaChannel())
-        except Exception:
-            pass
-        data_url = f"data:image/{mime};base64,{base64.b64encode(raw).decode()}"
-    except Exception:
+        img = QImage(image_path)
+        if not img.isNull():
+            if img.width() > 500 or img.height() > 500:
+                img = img.scaled(500, 500, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            
+            ba = QByteArray()
+            buffer = QBuffer(ba)
+            buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+            
+            has_alpha = img.hasAlphaChannel()
+            if not has_alpha:
+                img.save(buffer, "JPEG", 60)
+                mime = "jpeg"
+            else:
+                img.save(buffer, "PNG")
+                mime = "png"
+                
+            raw = ba.data()
+            data_url = f"data:image/{mime};base64,{base64.b64encode(raw).decode()}"
+        else:
+            with open(image_path, "rb") as f:
+                raw = f.read()
+            ext_clean = ext.lstrip(".").lower()
+            mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "bmp": "bmp", "webp": "webp"}.get(ext_clean, "png")
+            has_alpha = False
+            data_url = f"data:image/{mime};base64,{base64.b64encode(raw).decode()}"
+    except Exception as _e:
+        import traceback
+        print(f"Exception in image base64 encoding: {_e}")
+        traceback.print_exc()
         mime = "png"
         has_alpha = False
         data_url = ""

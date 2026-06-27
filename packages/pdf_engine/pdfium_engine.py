@@ -300,9 +300,24 @@ def _build_overlay_pdf(width: float, height: float, ops: list[dict]) -> bytes:
             drew_anything = True
         elif op_type == "image":
             image_path = op.get("image_path")
-            if not image_path or not os.path.exists(image_path):
+            image_data_url = op.get("image_data_url", "")
+            image = None
+
+            if image_path and os.path.exists(image_path):
+                image = ImageReader(image_path)
+            elif image_data_url and image_data_url.startswith("data:image/"):
+                import base64
+                try:
+                    b64_data = image_data_url.split(",", 1)[1]
+                    image_bytes = base64.b64decode(b64_data)
+                    image = ImageReader(io.BytesIO(image_bytes))
+                except Exception as e:
+                    print(f"Error reading image from data_url: {e}")
+                    continue
+
+            if not image:
                 continue
-            image = ImageReader(image_path)
+
             _with_optional_rotation(
                 c,
                 left,

@@ -376,11 +376,12 @@ class PDFViewerWidget(QtWidgets.QWidget):
                         var bw = Math.abs(coords[2] - coords[0]);
                         var bh = Math.abs(coords[3] - coords[1]);
                         
-                        var pRect = pageEl.getBoundingClientRect();
+                        var canvas = pageEl.querySelector('canvas') || pageEl;
+                        var cRect = canvas.getBoundingClientRect();
                         
                         var ov = document.createElement('div');
                         var pad = 13;
-                        ov.style.cssText = 'position:absolute;left:'+(pRect.left+bx-pad)+'px;top:'+(pRect.top+by-pad)+'px;width:'+(bw+2*pad)+'px;height:'+(bh+2*pad)+'px;z-index:999999;pointer-events:none;transform-origin:'+(pad+bw/2)+'px '+(pad+bh/2)+'px;';
+                        ov.style.cssText = 'position:absolute;left:'+(cRect.left+bx-pad)+'px;top:'+(cRect.top+by-pad)+'px;width:'+(bw+2*pad)+'px;height:'+(bh+2*pad)+'px;z-index:999999;pointer-events:none;transform-origin:'+(pad+bw/2)+'px '+(pad+bh/2)+'px;';
                         if (op.rotation) ov.style.transform = 'rotate('+op.rotation+'deg)';
                         
                         var box = document.createElement('div');
@@ -404,7 +405,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
                             box.appendChild(txt);
                         }} else if (op.type === 'image' && op.image_path) {{
                             var img = document.createElement('img');
-                            img.src = 'file://' + op.image_path;
+                            img.src = op.image_data_url || ('file:///' + op.image_path.replace(/\\\\/g, '/'));
                             img.style.cssText = 'width:100%;height:100%;object-fit:contain;opacity:0.85;';
                             box.appendChild(img);
                         }}
@@ -499,6 +500,12 @@ class PDFViewerWidget(QtWidgets.QWidget):
                     var bw = Math.abs(coords[2] - coords[0]);
                     var bh = Math.abs(coords[3] - coords[1]);
                     
+                    var canvas = pageEl.querySelector('canvas') || pageEl;
+                    var cr = canvas.getBoundingClientRect();
+                    var pr = pageEl.getBoundingClientRect();
+                    bx += (cr.left - pr.left);
+                    by += (cr.top - pr.top);
+                    
                     var ov = document.createElement('div');
                     ov.className = '__3t-op-overlay';
                     if (op.id !== undefined && op.id !== null) ov.setAttribute('data-op-id', String(op.id));
@@ -530,7 +537,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
                         ov.appendChild(txt);
                     }} else if (op.type === 'image' && op.image_path) {{
                         var img = document.createElement('img');
-                        img.src = op.image_data_url || ('file://' + op.image_path);
+                        img.src = op.image_data_url || ('file:///' + op.image_path.replace(/\\\\/g, '/'));
                         img.style.cssText = 'width:100%;height:100%;object-fit:contain;';
                         ov.appendChild(img);
                     }}

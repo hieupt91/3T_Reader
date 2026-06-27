@@ -139,9 +139,10 @@ class PyMuPdfEngine:
                             continue
                         from packages.platform.fonts import get_vietnamese_font_path
                         is_bold = bool(op.get("bold"))
+                        is_italic = bool(op.get("italic"))
                         font_family = op.get("font_family", "").lower()
                         # Pass family hint to our font finder
-                        font_path = get_vietnamese_font_path(bold=is_bold, family=font_family)
+                        font_path = get_vietnamese_font_path(bold=is_bold, italic=is_italic, family=font_family)
                         color = _rgb_tuple(op.get("font_color", (0.0, 0.0, 0.0)))
 
                         fs = max(6, op.get("font_size", 12))
@@ -232,11 +233,24 @@ class PyMuPdfEngine:
 
                     elif op_type == "image":
                         image_path = op.get("image_path", "")
-                        if not image_path or not _os.path.exists(image_path):
-                            continue
+                        image_data_url = op.get("image_data_url", "")
                         rotation = int(op.get("rotation", 0))
-                        page.insert_image(rect, filename=image_path,
-                                          keep_proportion=True, rotate=rotation)
+                        
+                        if image_path and _os.path.exists(image_path):
+                            page.insert_image(rect, filename=image_path,
+                                              keep_proportion=True, rotate=rotation)
+                        elif image_data_url and image_data_url.startswith("data:image/"):
+                            import base64
+                            try:
+                                b64_data = image_data_url.split(",", 1)[1]
+                                image_bytes = base64.b64decode(b64_data)
+                                page.insert_image(rect, stream=image_bytes,
+                                                  keep_proportion=True, rotate=rotation)
+                            except Exception as e:
+                                print(f"Error inserting image from data_url: {e}")
+                                continue
+                        else:
+                            continue
 
                     elif op_type == "rect":
                         fill = op.get("fill_color", (1.0, 1.0, 1.0))
