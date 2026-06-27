@@ -281,6 +281,7 @@ class PDFReaderApp(QMainWindow):
             "search_query": "",
             "temp_path": None,
         }
+        self._prune_stale_temp_files()
 
         self.setAcceptDrops(True)
         self.external_files_requested.connect(self._open_external_files_on_ui_thread)
@@ -322,6 +323,14 @@ class PDFReaderApp(QMainWindow):
         if not check_license_on_startup(self):
             from packages.qt_compat.QtWidgets import QApplication
             QApplication.quit()
+
+    def _prune_stale_temp_files(self):
+        try:
+            from app.actions._pdf_save import collect_active_pdf_temp_paths, prune_stale_app_temp_files
+
+            prune_stale_app_temp_files(active_paths=collect_active_pdf_temp_paths(self))
+        except Exception:
+            pass
 
     def _open_license_dialog(self):
         from app.license_dialog import open_license_dialog
@@ -3477,9 +3486,9 @@ class PDFReaderApp(QMainWindow):
         if self._token_monitor_timer is not None:
             self._token_monitor_timer.stop()
 
-        if self._token_check_thread is not None and getattr(self._token_check_thread, "is_alive", lambda: False)():
-            # Python threading.Thread doesn't have quit(). Just wait briefly.
-            self._token_check_thread.join(timeout=1.0)
+        if self._token_check_thread is not None and self._token_check_thread.isRunning():
+            self._token_check_thread.quit()
+            self._token_check_thread.wait(1000)
 
         queue = getattr(self, "_annotation_op_queue", None)
         if queue is not None or has_pending_annotations(self):
@@ -3540,8 +3549,9 @@ class PDFReaderApp(QMainWindow):
             timer.stop()
 
         thread = self._token_check_thread
-        if thread is not None and getattr(thread, "is_alive", lambda: False)():
-            thread.join(timeout=1.5)
+        if thread is not None and thread.isRunning():
+            thread.quit()
+            thread.wait(1500)
 
     def _resume_token_monitor(self):
         """Resume USB presence checks after signing finishes."""
@@ -3556,21 +3566,26 @@ class PDFReaderApp(QMainWindow):
             return
 
         signing_thread = getattr(self, "_signing_thread", None)
-        if signing_thread is not None and (getattr(signing_thread, "isRunning", lambda: False)() or getattr(signing_thread, "is_alive", lambda: False)()):
+        if signing_thread is not None and signing_thread.isRunning():
             return
 
-        if self._token_check_thread is not None and getattr(self._token_check_thread, "is_alive", lambda: False)():
+        if self._token_check_thread is not None and self._token_check_thread.isRunning():
             return
 
-        import threading
+        thread = QThread()
         worker = _TokenPresenceWorker()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
         worker.result.connect(self._on_token_presence_result)
         worker.error.connect(self._on_token_presence_error)
-        worker.finished.connect(self._cleanup_token_presence_worker)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._cleanup_token_presence_worker)
 
         self._token_check_worker = worker
-        self._token_check_thread = threading.Thread(target=worker.run, daemon=True)
-        self._token_check_thread.start()
+        self._token_check_thread = thread
+        thread.start()
 
     def _cleanup_token_presence_worker(self):
         self._token_check_worker = None

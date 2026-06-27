@@ -271,8 +271,8 @@ def add_watermark(window):
     if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
         show_warning(
             window,
-            "KhÃ´ng thá»ƒ Ä‘Ã¡nh sá»‘ trang trÃªn file Ä‘ang giáº£i mÃ£",
-            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi thÃªm sá»‘ trang Ä‘á»ƒ trÃ¡nh ghi nháº§m vÃ o báº£n táº¡m.",
+            "Không thể thêm watermark trên file đang giải mã",
+            "Hãy xóa mật khẩu hoặc mở lại file gốc trước khi thêm watermark để tránh ghi nhầm vào bản tạm.",
         )
         return
     src = target_path or read_path
@@ -348,8 +348,8 @@ def remove_watermark(window):
     if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
         show_warning(
             window,
-            "KhÃ´ng thá»ƒ xÃ³a sá»‘ trang trÃªn file Ä‘ang giáº£i mÃ£",
-            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi xÃ³a sá»‘ trang Ä‘á»ƒ trÃ¡nh ghi nháº§m vÃ o báº£n táº¡m.",
+            "Không thể xóa watermark trên file đang giải mã",
+            "Hãy xóa mật khẩu hoặc mở lại file gốc trước khi xóa watermark để tránh ghi nhầm vào bản tạm.",
         )
         return
     src = target_path or read_path
@@ -546,8 +546,8 @@ def compress_pdf(window):
     if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
         show_warning(
             window,
-            "KhÃ´ng thá»ƒ nÃ©n file Ä‘ang giáº£i mÃ£",
-            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi nÃ©n PDF Ä‘á»ƒ trÃ¡nh sai lá»‡ch tráº¡ng thÃ¡i mÃ£ hÃ³a.",
+            "Không thể nén file đang giải mã",
+            "Hãy xóa mật khẩu hoặc mở lại file gốc trước khi nén PDF để tránh sai lệch trạng thái mã hóa.",
         )
         return
 
@@ -683,8 +683,8 @@ def export_pages_to_images(window):
     if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
         show_warning(
             window,
-            "KhÃ´ng thá»ƒ Ä‘Ã¡nh sá»‘ trang trÃªn file Ä‘ang giáº£i mÃ£",
-            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi thÃªm sá»‘ trang Ä‘á»ƒ trÃ¡nh ghi nháº§m vÃ o báº£n táº¡m.",
+            "Không thể xuất ảnh từ file đang giải mã",
+            "Hãy xóa mật khẩu hoặc mở lại file gốc trước khi xuất ảnh để tránh ghi nhầm vào bản tạm.",
         )
         return
     src = target_path or read_path
@@ -769,8 +769,8 @@ def export_pdf_to_text(window):
     if read_path and target_path and os.path.abspath(str(read_path)) != os.path.abspath(str(target_path)):
         show_warning(
             window,
-            "KhÃ´ng thá»ƒ xÃ³a sá»‘ trang trÃªn file Ä‘ang giáº£i mÃ£",
-            "HÃ£y xÃ³a máº­t kháº©u hoáº·c má»Ÿ láº¡i file gá»‘c trÆ°á»›c khi xÃ³a sá»‘ trang Ä‘á»ƒ trÃ¡nh ghi nháº§m vÃ o báº£n táº¡m.",
+            "Không thể xuất văn bản từ file đang giải mã",
+            "Hãy xóa mật khẩu hoặc mở lại file gốc trước khi xuất văn bản để tránh ghi nhầm vào bản tạm.",
         )
         return
     src = target_path or read_path

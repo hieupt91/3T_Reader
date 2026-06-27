@@ -35,16 +35,13 @@ class DownloadThread(QThread):
 
     def run(self):
         try:
-            import ssl
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
+            from packages.net_utils import make_ssl_context
 
             req = urllib.request.Request(self.url, headers={"User-Agent": "3T_Reader"})
-            context = ssl._create_unverified_context()
+            ssl_ctx = make_ssl_context()
             opener = urllib.request.build_opener(
                 urllib.request.ProxyHandler({}),
-                urllib.request.HTTPSHandler(context=context),
+                urllib.request.HTTPSHandler(context=ssl_ctx),
             )
             with opener.open(req, timeout=120) as resp, open(self.dest_path, "wb") as out:
                 total = int(resp.headers.get("Content-Length", 0))

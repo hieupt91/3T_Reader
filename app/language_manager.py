@@ -726,8 +726,8 @@ def download_language_pack(code: str, parent=None) -> tuple[bool, str]:
             except OSError:
                 pass
 
-        import ssl
-        ssl_context = ssl._create_unverified_context()
+        from packages.net_utils import make_ssl_context
+        ssl_context = make_ssl_context()
         
         opener = urllib.request.build_opener(
             urllib.request.ProxyHandler({}),

@@ -36,7 +36,12 @@ from packages.qt_compat.QtCore import QObject, QEventLoop, Qt, QThread, QTimer, 
 from packages.signing import get_signing_provider
 from packages.signing.shared import sign_pdf_with_pkcs12, validate_signed_pdf_status
 from app.actions._guard import require_document
-from app.actions._pdf_save import make_staged_pdf_path, replace_document_with_staged
+from app.actions._pdf_save import (
+    collect_active_pdf_temp_paths,
+    make_staged_pdf_path,
+    prune_stale_app_temp_files,
+    replace_document_with_staged,
+)
 from app.dialogs import show_warning, show_info
 from app.signature_templates import find_signature_template, list_signature_templates
 
@@ -2405,6 +2410,11 @@ def sign_handwritten(window):
     import os as _os
 
     from app.signature_pad import SignaturePadDialog, SignatureTemplateManagerDialog
+
+    try:
+        prune_stale_app_temp_files(active_paths=collect_active_pdf_temp_paths(window))
+    except Exception:
+        pass
 
     source, ok = QInputDialog.getItem(
         window,

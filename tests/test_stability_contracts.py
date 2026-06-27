@@ -134,7 +134,7 @@ def test_vietnamese_stamp_uses_unicode_font_when_available(monkeypatch):
         lambda bold=False: r"C:\\Windows\\Fonts\\arial.ttf",
     )
 
-    style = shared.build_vietnamese_stamp_style("Nguyen Van A", signed_at="01/01/2026 10:00:00")
+    style, stamp_pdf = shared.build_vietnamese_stamp_style("Nguyen Van A", signed_at="01/01/2026 10:00:00")
 
     assert style.background is not None
     assert style.background_opacity == 1.0

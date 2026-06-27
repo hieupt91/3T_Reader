@@ -146,6 +146,10 @@ class _ObjectActionBridgeProxy(_BridgeProxyBase):
     def reportDragMove(self, l: float, b: float, r: float, t: float):
         self._call("reportDragMove", l, b, r, t)
 
+    @pyqtSlot(float, float, float, float, float)
+    def reportResize(self, l: float, b: float, r: float, t: float, scale: float):
+        self._call("reportResize", l, b, r, t, scale)
+
 
 class _ExistingTextBridgeProxy(_BridgeProxyBase):
     @pyqtSlot(int, float, float, float, float, str, str)

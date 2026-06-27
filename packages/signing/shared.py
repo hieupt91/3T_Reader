@@ -405,25 +405,23 @@ def build_vietnamese_stamp_style(
             y -= leading
     c.save()
 
-    # Save the stamp PDF path so the burn step can use show_pdf_page (transparent vector)
-    out_stamp_pdf = os.path.join(tempfile.gettempdir(), "3t_reader_last_stamp.pdf")
-    try:
-        if os.path.exists(out_stamp_pdf):
-            os.remove(out_stamp_pdf)
-    except OSError:
-        pass
+    # Tra ve duong dan stamp PDF duy nhat (UUID) de consumer burn
+    out_stamp_pdf = os.path.join(
+        tempfile.gettempdir(), f"3t_stamp_{uuid.uuid4().hex[:12]}.pdf"
+    )
     try:
         import shutil
         shutil.copy2(tmp_path, out_stamp_pdf)
     except Exception as e:
         open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Stamp copy error: {e}\n")
+        out_stamp_pdf = None
     finally:
         try:
             os.remove(tmp_path)
         except OSError:
             pass
 
-    return StaticStampStyle(background=None, border_width=0)
+    return StaticStampStyle(background=None, border_width=0), out_stamp_pdf
 
 def _compact_signature_stamp_value(value: object, *, head: int = 12, tail: int = 8, limit: int = 28) -> str:
     text = str(value or "").strip()
@@ -605,15 +603,15 @@ def _extract_signature_field_report(path: str, field_name: str) -> dict[str, obj
                     "selected_field_name": field_name,
                     "field_rect": [left, bottom, right, top],
                     "field_signed": False,
-                    "display_signer": "ChÆ°a kÃ½",
+                    "display_signer": "Chưa ký",
                     "reason": "",
                     "location": "",
                     "contact_info": "",
                     "signature_type": "",
                     "signing_time": "",
-                    "validation_summary_lines": ["Ã” kÃ½ nÃ y chÆ°a Ä‘Æ°á»£c kÃ½ sá»‘."],
-                    "overall_status": "Ã” kÃ½ nÃ y chÆ°a Ä‘Æ°á»£c kÃ½ sá»‘.",
-                    "message": "Ã” kÃ½ nÃ y chÆ°a Ä‘Æ°á»£c kÃ½ sá»‘.",
+                    "validation_summary_lines": ["Ô ký này chưa được ký số."],
+                    "overall_status": "Ô ký này chưa được ký số.",
+                    "message": "Ô ký này chưa được ký số.",
                     "ok": False,
                     "integrity_ok": False,
                     "intact": False,
@@ -642,7 +640,7 @@ def _extract_signature_field_report(path: str, field_name: str) -> dict[str, obj
                 "selected_field_name": field_name,
                 "field_rect": [left, bottom, right, top],
                 "field_signed": True,
-                "display_signer": str(sig.get("/Name") or "").strip() or "KhÃ´ng rÃµ",
+                "display_signer": str(sig.get("/Name") or "").strip() or "Không rõ",
                 "signer_reported_name": str(sig.get("/Name") or "").strip(),
                 "reason": str(sig.get("/Reason") or "").strip(),
                 "location": str(sig.get("/Location") or "").strip(),
@@ -821,7 +819,7 @@ async def sign_pdf_with_session(
         visible_subject = cert_name or display_name
         signed_at_vn = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         target_field_name = field_name or f"Signature_{uuid.uuid4().hex[:12]}"
-        stamp_style = build_vietnamese_stamp_style(
+        stamp_style, stamp_pdf = build_vietnamese_stamp_style(
             visible_subject,
             tax_code=cert_tax,
             signed_at=signed_at_vn,
@@ -833,7 +831,6 @@ async def sign_pdf_with_session(
         import fitz
         
         burn_input_path = input_path
-        stamp_pdf = os.path.join(tempfile.gettempdir(), "3t_reader_last_stamp.pdf")
         if stamp_pdf and os.path.exists(stamp_pdf):
             try:
                 import fitz, shutil
@@ -858,6 +855,12 @@ async def sign_pdf_with_session(
             except Exception as e:
                 open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burn error: {e}\n")
                 burn_input_path = input_path
+            finally:
+                if stamp_pdf and os.path.exists(stamp_pdf):
+                    try:
+                        os.remove(stamp_pdf)
+                    except OSError:
+                        pass
             open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burned successfully to {burn_input_path}\n")
         else:
             open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Stamp PDF not found at {stamp_pdf}\n")
@@ -980,7 +983,7 @@ async def sign_pdf_with_pkcs12(
         visible_subject = cert_name or display_name
         target_field_name = field_name or f"Signature_{uuid.uuid4().hex[:12]}"
         signed_at_vn = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        stamp_style = build_vietnamese_stamp_style(
+        stamp_style, stamp_pdf = build_vietnamese_stamp_style(
             visible_subject,
             tax_code=cert_tax,
             signed_at=signed_at_vn,
@@ -991,7 +994,6 @@ async def sign_pdf_with_pkcs12(
         import fitz
         
         burn_input_path = input_path
-        stamp_pdf = os.path.join(tempfile.gettempdir(), "3t_reader_last_stamp.pdf")
         if stamp_pdf and os.path.exists(stamp_pdf):
             try:
                 import fitz, shutil
@@ -1016,6 +1018,12 @@ async def sign_pdf_with_pkcs12(
             except Exception as e:
                 open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burn error: {e}\n")
                 burn_input_path = input_path
+            finally:
+                if stamp_pdf and os.path.exists(stamp_pdf):
+                    try:
+                        os.remove(stamp_pdf)
+                    except OSError:
+                        pass
             open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burned successfully to {burn_input_path}\n")
         else:
             open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Stamp PDF not found at {stamp_pdf}\n")

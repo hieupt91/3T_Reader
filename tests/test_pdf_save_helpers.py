@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import time
 
 from app.actions import _pdf_save
 from app.actions import edit
@@ -127,7 +128,8 @@ def test_ensure_edit_state_prefers_display_path_over_legacy_op_temp(tmp_path, mo
     temp_root.mkdir()
     legacy_temp = temp_root / "op_12345678.pdf"
     display_pdf = tmp_path / "original.pdf"
-    display_pdf.write_bytes(b"original")
+    display_bytes = b"%PDF-1.4\n%original"
+    display_pdf.write_bytes(display_bytes)
     legacy_temp.write_bytes(b"legacy")
 
     monkeypatch.setattr(edit.tempfile, "gettempdir", lambda: str(tmp_path))
@@ -138,9 +140,9 @@ def test_ensure_edit_state_prefers_display_path_over_legacy_op_temp(tmp_path, mo
     assert state is not None
     assert state["original_path"] == str(display_pdf)
     with open(state["base_snapshot"], "rb") as fh:
-        assert fh.read() == b"original"
+        assert fh.read() == display_bytes
     with open(state["working_file"], "rb") as fh:
-        assert fh.read() == b"original"
+        assert fh.read() == display_bytes
 
     edit._reset_edit_state(window)
 
@@ -211,6 +213,55 @@ def test_remove_path_quietly_no_error_on_missing(tmp_path):
 
 def test_remove_path_quietly_no_error_on_none():
     _pdf_save.remove_path_quietly(None)
+
+
+def test_prune_stale_app_temp_files_keeps_active_and_recent(tmp_path, monkeypatch):
+    monkeypatch.setattr(_pdf_save.tempfile, "gettempdir", lambda: str(tmp_path))
+
+    edit_dir = tmp_path / "reader_pdf_edit"
+    sign_dir = tmp_path / "reader_pdf_sig"
+    edit_dir.mkdir()
+    sign_dir.mkdir()
+
+    stale_base = edit_dir / "base_stale.pdf"
+    active_work = edit_dir / "work_active.pdf"
+    recent_work = edit_dir / "work_recent.pdf"
+    stale_sig = sign_dir / "sig_stale.png"
+    unrelated = edit_dir / "notes.txt"
+    for path in (stale_base, active_work, recent_work, stale_sig, unrelated):
+        path.write_bytes(b"x")
+
+    old_ts = time.time() - _pdf_save.STALE_TEMP_MAX_AGE_SECONDS - 60
+    for path in (stale_base, active_work, stale_sig, unrelated):
+        os.utime(path, (old_ts, old_ts))
+
+    removed = _pdf_save.prune_stale_app_temp_files(active_paths=[str(active_work)])
+
+    assert removed == 2
+    assert not stale_base.exists()
+    assert active_work.exists()
+    assert recent_work.exists()
+    assert not stale_sig.exists()
+    assert unrelated.exists()
+
+
+def test_make_staged_pdf_path_prunes_old_staged_pdf_in_target_dir(tmp_path):
+    stale_stage = tmp_path / ".3t_stage_old.pdf"
+    unrelated = tmp_path / ".3t_stage_notes.txt"
+    target = tmp_path / "document.pdf"
+    stale_stage.write_bytes(b"old")
+    unrelated.write_bytes(b"keep")
+
+    old_ts = time.time() - _pdf_save.STALE_TEMP_MAX_AGE_SECONDS - 60
+    os.utime(stale_stage, (old_ts, old_ts))
+    os.utime(unrelated, (old_ts, old_ts))
+
+    staged = _pdf_save.make_staged_pdf_path(str(target))
+
+    assert not stale_stage.exists()
+    assert unrelated.exists()
+    assert os.path.exists(staged)
+    _pdf_save.remove_path_quietly(staged)
 
 
 def test_document_ops_password_and_pagenum_regressions_are_guarded_in_source():

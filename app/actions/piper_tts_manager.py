@@ -157,8 +157,8 @@ def _piper_index_candidates() -> list[str]:
 
 
 def _open_no_proxy(request: urllib.request.Request, timeout: int = 12):
-    import ssl
-    ssl_context = ssl._create_unverified_context()
+    from packages.net_utils import make_ssl_context
+    ssl_context = make_ssl_context()
     opener = urllib.request.build_opener(
         urllib.request.HTTPSHandler(context=ssl_context),
         urllib.request.ProxyHandler({})

@@ -307,7 +307,10 @@ class InlineEditPanel(QFrame):
         return self._italic_btn.isChecked() if hasattr(self, "_italic_btn") else False
 
     def get_font_family(self) -> str:
-        return self._font_combo.currentFont().family() if hasattr(self, "_font_combo") else "sans-serif"
+        if not hasattr(self, "_font_combo"):
+            return "sans-serif"
+        current_text = self._font_combo.currentText()
+        return current_text.strip() or "sans-serif"
 
     def get_underline(self) -> bool:
         return self._under_btn.isChecked() if hasattr(self, "_under_btn") else False
@@ -329,8 +332,9 @@ class InlineEditPanel(QFrame):
         if hasattr(self, "_italic_btn"):
             self._italic_btn.setChecked(italic)
         if hasattr(self, "_font_combo") and font_family:
-            from packages.qt_compat.QtGui import QFont
-            self._font_combo.setCurrentFont(QFont(font_family))
+            idx = self._font_combo.findText(font_family)
+            if idx >= 0:
+                self._font_combo.setCurrentIndex(idx)
 
     def get_color_tuple(self) -> tuple:
         c = self._color
@@ -479,6 +483,7 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
 
     def _ready(page):
         panel.show(); panel.raise_(); panel.activateWindow()
+        panel._emit_font()
         _on_rotation(panel.get_rotation())
 
     bridge.ready.connect(_ready)

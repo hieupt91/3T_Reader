@@ -9,6 +9,19 @@ from app.local_server import LocalPDFJSServer
 
 
 _UNSET = object()
+STALE_TEMP_MAX_AGE_SECONDS = 24 * 60 * 60
+_EDIT_TEMP_DIR_NAME = "reader_pdf_edit"
+_SIGN_TEMP_DIR_NAME = "reader_pdf_sig"
+_EDIT_TEMP_PREFIXES = ("base_", "work_", "op_", "img_")
+_SIGN_TEMP_PREFIXES = ("sig_",)
+_STAGED_PDF_PREFIXES = (
+    ".3t_stage_",
+    ".3t_existing_sig_",
+    ".3t_sigfields_",
+    ".3t_pfx_signed_",
+    ".3t_signed_",
+    ".3t_handwritten_",
+)
 
 
 def current_viewer_page(window, default: int = 1) -> int:
@@ -38,9 +51,192 @@ def remove_path_quietly(path: str | None) -> None:
         pass
 
 
+def _normalise_path(path: str | None) -> str | None:
+    if not path:
+        return None
+    try:
+        return os.path.normcase(os.path.abspath(str(path)))
+    except OSError:
+        return None
+
+
+def _active_path_set(paths) -> set[str]:
+    active: set[str] = set()
+    for path in paths or []:
+        norm = _normalise_path(path)
+        if norm:
+            active.add(norm)
+    return active
+
+
+def _add_state_temp_paths(paths: set[str], state) -> None:
+    if not isinstance(state, dict):
+        return
+    for key in ("source_path", "display_path", "temp_path"):
+        value = state.get(key)
+        if value:
+            paths.add(str(value))
+
+    edit_state = state.get("_pdf_edit_state")
+    if not isinstance(edit_state, dict):
+        return
+    for key in ("original_path", "base_snapshot", "working_file"):
+        value = edit_state.get(key)
+        if value:
+            paths.add(str(value))
+    for op in edit_state.get("ops") or []:
+        if isinstance(op, dict):
+            image_path = op.get("image_path")
+            if image_path:
+                paths.add(str(image_path))
+
+
+def collect_active_pdf_temp_paths(window) -> set[str]:
+    """Collect paths currently referenced by tabs/edit sessions to avoid pruning them."""
+    paths: set[str] = set()
+    try:
+        current_path = getattr(window, "current_path", None)
+        if current_path:
+            paths.add(str(current_path))
+    except Exception:
+        pass
+
+    try:
+        _add_state_temp_paths(paths, getattr(window, "_global_state", None))
+    except Exception:
+        pass
+
+    try:
+        active_state = window._active_state() if hasattr(window, "_active_state") else None
+        _add_state_temp_paths(paths, active_state)
+    except Exception:
+        pass
+
+    try:
+        tabs_data = getattr(window, "_tabs_data", None)
+        if isinstance(tabs_data, dict):
+            for state in tabs_data.values():
+                _add_state_temp_paths(paths, state)
+    except Exception:
+        pass
+
+    try:
+        session_paths = getattr(window, "_session_temp_paths", None)
+        if isinstance(session_paths, set):
+            for path in session_paths:
+                if path:
+                    paths.add(str(path))
+    except Exception:
+        pass
+    return paths
+
+
+def _prune_stale_files_in_dir(
+    directory: str,
+    *,
+    prefixes: tuple[str, ...],
+    active_paths: set[str],
+    max_age_seconds: int,
+    now: float,
+    suffixes: tuple[str, ...] | None = None,
+) -> int:
+    try:
+        directory = os.path.abspath(directory)
+    except OSError:
+        return 0
+    if not os.path.isdir(directory):
+        return 0
+
+    removed = 0
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return 0
+
+    max_age_seconds = max(0, int(max_age_seconds))
+    for name in names:
+        lower_name = name.lower()
+        if not lower_name.startswith(prefixes):
+            continue
+        if suffixes and not lower_name.endswith(suffixes):
+            continue
+        path = os.path.join(directory, name)
+        norm = _normalise_path(path)
+        if not norm or norm in active_paths:
+            continue
+        try:
+            if not os.path.isfile(path):
+                continue
+            if now - os.path.getmtime(path) < max_age_seconds:
+                continue
+            os.remove(path)
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def prune_stale_staged_pdf_files(
+    target_or_directory: str,
+    *,
+    active_paths=None,
+    max_age_seconds: int = STALE_TEMP_MAX_AGE_SECONDS,
+) -> int:
+    """Remove old `.3t_*` staged PDFs from the target directory only."""
+    if not target_or_directory:
+        return 0
+    target = os.path.abspath(str(target_or_directory))
+    directory = target if os.path.isdir(target) else os.path.dirname(target)
+    if not directory:
+        return 0
+    return _prune_stale_files_in_dir(
+        directory,
+        prefixes=_STAGED_PDF_PREFIXES,
+        suffixes=(".pdf",),
+        active_paths=_active_path_set(active_paths),
+        max_age_seconds=max_age_seconds,
+        now=time.time(),
+    )
+
+
+def prune_stale_app_temp_files(
+    *,
+    active_paths=None,
+    max_age_seconds: int = STALE_TEMP_MAX_AGE_SECONDS,
+    stage_dirs=None,
+) -> int:
+    """Prune stale app-owned temp files without touching currently referenced paths."""
+    active = _active_path_set(active_paths)
+    temp_root = tempfile.gettempdir()
+    now = time.time()
+    removed = 0
+    removed += _prune_stale_files_in_dir(
+        os.path.join(temp_root, _EDIT_TEMP_DIR_NAME),
+        prefixes=_EDIT_TEMP_PREFIXES,
+        active_paths=active,
+        max_age_seconds=max_age_seconds,
+        now=now,
+    )
+    removed += _prune_stale_files_in_dir(
+        os.path.join(temp_root, _SIGN_TEMP_DIR_NAME),
+        prefixes=_SIGN_TEMP_PREFIXES,
+        active_paths=active,
+        max_age_seconds=max_age_seconds,
+        now=now,
+    )
+    for entry in stage_dirs or []:
+        removed += prune_stale_staged_pdf_files(
+            str(entry),
+            active_paths=active,
+            max_age_seconds=max_age_seconds,
+        )
+    return removed
+
+
 def make_staged_pdf_path(target_path: str, *, prefix: str = ".3t_stage_", suffix: str = ".pdf") -> str:
     directory = os.path.dirname(os.path.abspath(target_path)) or os.getcwd()
     os.makedirs(directory, exist_ok=True)
+    prune_stale_staged_pdf_files(directory, active_paths=[target_path])
     fd, staged_path = tempfile.mkstemp(prefix=prefix, suffix=suffix, dir=directory)
     os.close(fd)
     return staged_path

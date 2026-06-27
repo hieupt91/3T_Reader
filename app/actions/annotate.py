@@ -177,6 +177,11 @@ class _AnnotationOpQueue(QObject):
                 staged_path = make_staged_pdf_path(requested_target)
                 pdf.save(staged_path)
             replace_file_with_retry(staged_path, requested_target, attempts=3)
+            try:
+                from app.local_server import LocalPDFJSServer
+                LocalPDFJSServer.get().invalidate_pdf_cache(requested_target)
+            except Exception:
+                pass
             self._last_error = ""
             if hasattr(self._window, "status"):
                 self._window.status.showMessage("Đã tự động lưu chú thích.", 1800)
@@ -270,6 +275,72 @@ def _flush_annotations_before_heavy_op(window, target_path: str, operation_label
     return False
 
 
+def _refresh_viewer_after_annotation_change(window, target_path: str) -> None:
+    """Force viewer redraw so undo reflects immediately in the visible page."""
+    try:
+        current_path = getattr(window, "current_path", None)
+        if not current_path or os.path.abspath(current_path) != os.path.abspath(target_path):
+            return
+        from app.actions._pdf_save import reload_document
+
+        state = window._active_state() if hasattr(window, "_active_state") else None
+        display_path = state.get("display_path") if isinstance(state, dict) else target_path
+        temp_path = state.get("temp_path") if isinstance(state, dict) else None
+        target_abs = os.path.abspath(target_path)
+        has_marks = False
+        for item in _overlay_marks(window):
+            if not isinstance(item, dict) or item.get("_deleted"):
+                continue
+            try:
+                item_abs = os.path.abspath(str(item.get("path") or ""))
+            except Exception:
+                item_abs = ""
+            if item_abs == target_abs:
+                has_marks = True
+                break
+        reload_document(
+            window,
+            target_path,
+            page=_get_current_page(window),
+            display_path=display_path,
+            temp_path=temp_path,
+            soft_reload=has_marks,
+        )
+    except Exception:
+        pass
+
+
+def _schedule_annotation_undo_flush(window, target_path: str, *, delay_ms: int = 320) -> None:
+    """Batch rapid annotation undos into one PDF save and one viewer refresh."""
+    try:
+        from packages.qt_compat.QtCore import QTimer
+    except Exception:
+        if _flush_annotation_queue(window, target_path):
+            compact_annotation_overlay_state(window, keep_paths=[target_path, getattr(window, "current_path", None)])
+            _refresh_viewer_after_annotation_change(window, target_path)
+        return
+
+    try:
+        seq = int(getattr(window, "_annotation_undo_flush_seq", 0) or 0) + 1
+    except Exception:
+        seq = 1
+    window._annotation_undo_flush_seq = seq
+    target_abs = os.path.abspath(str(target_path))
+
+    def _run() -> None:
+        try:
+            if int(getattr(window, "_annotation_undo_flush_seq", 0) or 0) != seq:
+                return
+        except Exception:
+            return
+        if not _flush_annotation_queue(window, target_abs):
+            return
+        compact_annotation_overlay_state(window, keep_paths=[target_abs, getattr(window, "current_path", None)])
+        _refresh_viewer_after_annotation_change(window, target_abs)
+
+    QTimer.singleShot(max(0, int(delay_ms)), _run)
+
+
 def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str) -> None:
     import pikepdf
     staged_path = ""
@@ -281,6 +352,11 @@ def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str) -> None:
         except Exception:
             pass
         replace_file_with_retry(staged_path, target_path, attempts=8)
+        try:
+            from app.local_server import LocalPDFJSServer
+            LocalPDFJSServer.get().invalidate_pdf_cache(target_path)
+        except Exception:
+            pass
     except Exception:
         remove_path_quietly(staged_path)
         raise
@@ -1071,6 +1147,81 @@ def _overlay_marks(window) -> list:
     return marks
 
 
+def _normalize_overlay_paths(paths) -> set[str]:
+    normalized: set[str] = set()
+    for path in paths or ():
+        if not path:
+            continue
+        try:
+            normalized.add(os.path.abspath(str(path)))
+        except Exception:
+            continue
+    return normalized
+
+
+def compact_annotation_overlay_state(window, *, keep_paths=None) -> bool:
+    """Drop deleted/stale annotation overlay state without changing behavior."""
+    changed = False
+    keep = _normalize_overlay_paths(keep_paths)
+
+    notes = getattr(window, "_annotation_overlay_notes", None)
+    if isinstance(notes, dict):
+        for note_id in list(notes.keys()):
+            item = notes.get(note_id)
+            if not isinstance(item, dict):
+                del notes[note_id]
+                changed = True
+                continue
+            if item.get("_deleted"):
+                del notes[note_id]
+                changed = True
+
+    marks = getattr(window, "_annotation_overlay_marks", None)
+    if isinstance(marks, list):
+        compacted = []
+        for item in marks:
+            if not isinstance(item, dict):
+                changed = True
+                continue
+            if item.get("_deleted"):
+                changed = True
+                continue
+            item_path = str(item.get("path") or "")
+            try:
+                item_abs = os.path.abspath(item_path) if item_path else ""
+            except Exception:
+                item_abs = ""
+            if keep and item_abs and item_abs not in keep:
+                changed = True
+                continue
+            compacted.append(item)
+        if len(compacted) != len(marks):
+            window._annotation_overlay_marks = compacted
+            changed = True
+
+    stack = getattr(window, "_annotation_undo_stack", None)
+    if isinstance(stack, list):
+        compacted = []
+        for item in stack:
+            if not isinstance(item, dict):
+                changed = True
+                continue
+            item_path = str(item.get("path") or "")
+            try:
+                item_abs = os.path.abspath(item_path) if item_path else ""
+            except Exception:
+                item_abs = ""
+            if keep and item_abs and item_abs not in keep:
+                changed = True
+                continue
+            compacted.append(item)
+        if len(compacted) != len(stack):
+            window._annotation_undo_stack = compacted
+            changed = True
+
+    return changed
+
+
 def _merge_overlay_notes(window, notes: list[dict]) -> list[dict]:
     merged = {str(item.get("id")): dict(item) for item in notes if item.get("id")}
     for note_id, item in _overlay_notes(window).items():
@@ -1113,10 +1264,21 @@ def _remove_overlay_mark(window, mark_id: str) -> None:
             )
     except Exception:
         pass
+    compact_annotation_overlay_state(window)
 
 
 def _refresh_annotation_overlays(window) -> None:
     try:
+        active_paths = []
+        current = getattr(window, "current_path", None)
+        if current:
+            active_paths.append(current)
+        state = window._active_state() if hasattr(window, "_active_state") else None
+        if isinstance(state, dict):
+            active_paths.extend(
+                [state.get("source_path"), state.get("display_path"), state.get("temp_path")]
+            )
+        compact_annotation_overlay_state(window, keep_paths=active_paths)
         enable_note_tools(window)
     except Exception:
         pass
@@ -1274,7 +1436,8 @@ def undo_last_annotation(window) -> bool:
             def _op(pdf):
                 _delete_annotations_by_ids(pdf, annot_ids)
 
-            _queue_annotation_op(window, path, _op, delay_ms=100)
+            _queue_annotation_op(window, path, _op, delay_ms=500)
+            _schedule_annotation_undo_flush(window, path)
             if hasattr(window, "status"):
                 window.status.showMessage(f"Đã hoàn tác {item.get('label') or 'chú thích'}.", 2200)
             return True
@@ -1300,7 +1463,8 @@ def undo_last_annotation(window) -> bool:
             def _op(pdf):
                 _delete_note_by_id(pdf, note_id=note_id)
 
-            _queue_annotation_op(window, path, _op, delay_ms=100)
+            _queue_annotation_op(window, path, _op, delay_ms=500)
+            _schedule_annotation_undo_flush(window, path)
             if hasattr(window, "status"):
                 window.status.showMessage("Đã hoàn tác thêm ghi chú.", 2200)
             return True

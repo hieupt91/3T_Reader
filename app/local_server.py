@@ -408,7 +408,7 @@ class LocalPDFJSServer:
             "&disableAutoFetch=true"
             "&disableRange=false"
             "&rangeChunkSize=1048576"
-            "&annotationMode=2"
+            "&annotationMode=1"
             "&renderInteractiveForms=false"
         )
         url = f"http://127.0.0.1:{self._port}/web/viewer.html?{viewer_opts}#page={page}"
@@ -432,6 +432,8 @@ class LocalPDFJSServer:
     def cache_bust_token(self, pdf_path: str) -> str:
         abs_path = os.path.realpath(os.path.abspath(pdf_path))
         key = _PDFJSHandler._normalise_allowed_path_key(abs_path)
+        if not hasattr(self, "_path_versions"):
+            self._path_versions = {}
         version = int(self._path_versions.get(key, 0))
         try:
             stat = os.stat(abs_path)
@@ -442,6 +444,8 @@ class LocalPDFJSServer:
     def invalidate_pdf_cache(self, pdf_path: str) -> None:
         abs_path = os.path.realpath(os.path.abspath(pdf_path))
         path_key = _PDFJSHandler._normalise_allowed_path_key(abs_path)
+        if not hasattr(self, "_path_versions"):
+            self._path_versions = {}
         self._path_versions[path_key] = int(self._path_versions.get(path_key, 0)) + 1
         with _PDFJSHandler._cache_lock:
             for cache_name in (

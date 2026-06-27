@@ -1,4 +1,11 @@
-"""Edit overlay system — show text/image previews on PDF.js canvas without rebuilding.
+"""Experimental edit overlay system.
+
+IMPORTANT: this module is currently not wired into the runtime edit pipeline.
+The active pipeline lives in ``app.actions.edit``, ``app.pdf_inline_editor``
+and ``app.pdf_viewer.update_ops/reload_soft``. Keep this module as a design note
+unless a future change explicitly wires and tests deferred edit overlays.
+
+Original concept: show text/image previews on PDF.js canvas without rebuilding.
 
 This module provides overlay rendering for edit operations (insert text, insert image)
 similar to how annotations use overlay marks. The key difference:

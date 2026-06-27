@@ -21,7 +21,12 @@ from packages.qt_compat.QtWidgets import (
 
 from app.actions.file import open_file
 from app.actions._guard import require_document
-from app.actions._pdf_save import atomic_copy_file, reload_document
+from app.actions._pdf_save import (
+    atomic_copy_file,
+    collect_active_pdf_temp_paths,
+    prune_stale_app_temp_files,
+    reload_document,
+)
 from app.dialogs import show_warning
 from packages.pdf_engine import get_pdf_engine
 
@@ -301,7 +306,7 @@ _SHOW_OBJECT_WITH_HANDLES_JS = r"""(function(pageNum, pdfLeft, pdfBottom, pdfRig
         });
     }
 
-    var resizeH = mkH('__3tResizeHandle', '&#8645;', 'KÃ©o Ä‘á»ƒ thu phÃ³ng', 'mr', '#8B5CF6', 'nwse-resize', 14);
+    var resizeH = mkH('__3tResizeHandle', '&#8645;', 'Kéo để thu phóng', 'mr', '#8B5CF6', 'nwse-resize', 14);
     grp.appendChild(resizeH);
 
     // Rotation drag
@@ -602,7 +607,6 @@ class ObjectActionBridge(QObject):
 
     @pyqtSlot(float, float, float, float)
     def reportDragMove(self, l, b, r, t):
-        print(f"DEBUG: reportDragMove python slot invoked with: {l, b, r, t}")
         self.dragMoveConfirmed.emit(l, b, r, t)
 
     @pyqtSlot(float, float, float, float, float)
@@ -828,14 +832,8 @@ def _ensure_edit_state(window):
             if warned is None:
                 warned = set()
                 window._edit_sig_warned_paths = warned
-            if current not in warned:
-                if hasattr(window, "status"):
-                    window.status.showMessage(
-                        "Tai lieu co chu ky so; chinh sua PDF co the lam chu ky mat hieu luc.",
-                        5000,
-                    )
-                warned.add(current)
-            if current not in warned:
+            warning_key = os.path.abspath(current)
+            if warning_key not in warned:
                 reply = QMessageBox.warning(
                     window,
                     "Tài liệu đã có chữ ký số",
@@ -848,7 +846,12 @@ def _ensure_edit_state(window):
                 )
                 if reply != QMessageBox.StandardButton.Yes:
                     return None
-                warned.add(current)
+                warned.add(warning_key)
+                if hasattr(window, "status"):
+                    window.status.showMessage(
+                        "Tài liệu có chữ ký số; chỉnh sửa PDF có thể làm chữ ký mất hiệu lực.",
+                        5000,
+                    )
     except Exception:
         pass
 
@@ -877,7 +880,7 @@ def _ensure_edit_state(window):
         elif _is_pdf_file(display_path):
             snapshot_source = display_path
         else:
-            show_warning(window, "KhÃ´ng thá»ƒ chá»‰nh sá»­a", "KhÃ´ng tÃ¬m tháº¥y báº£n PDF há»£p lá»‡ Ä‘á»ƒ báº¯t Ä‘áº§u phiÃªn chá»‰nh sá»­a.")
+            show_warning(window, "Không thể chỉnh sửa", "Không tìm thấy bản PDF hợp lệ để bắt đầu phiên chỉnh sửa.")
             return None
 
     try:
@@ -892,6 +895,10 @@ def _ensure_edit_state(window):
 
     edit_dir = os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
     os.makedirs(edit_dir, exist_ok=True)
+    try:
+        prune_stale_app_temp_files(active_paths=collect_active_pdf_temp_paths(window))
+    except Exception:
+        pass
     session_id = uuid.uuid4().hex[:8]
     base_snapshot = os.path.join(edit_dir, f"base_{session_id}.pdf")
     working_file = os.path.join(edit_dir, f"work_{session_id}.pdf")
@@ -1039,6 +1046,14 @@ def _render_edit_state(
         return None
 
     state["working_file"] = working_file
+
+    # Xóa file working cũ để tránh rò rỉ
+    if previous_working_file and previous_working_file != working_file:
+        try:
+            if os.path.exists(previous_working_file):
+                os.remove(previous_working_file)
+        except OSError:
+            pass
 
     import json
     ops_json = json.dumps(state.get("ops", []))
@@ -1309,7 +1324,6 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
     if action == "drag_move":
         old_box = target_op["box"]
         l, b, r, t = action_result["box"]
-        print(f"DEBUG: Python _finish received drag_move! New box: {l, b, r, t}")
         target_op["box"] = (l, b, r, t)
         _sync_text_anchor_after_transform(target_op, old_box, target_op["box"])
         _render_edit_state(window, state, "Đã di chuyển đối tượng", focus_page=page_num, auto_select_op=target_op, erase_boxes=[{"page_number": target_op.get("page_number", page_num), "box": old_box}])
@@ -1324,7 +1338,7 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
             current_size = float(target_op.get("font_size", 14) or 14)
             target_op["font_size"] = max(4.0, min(120.0, current_size * scale))
             _sync_text_anchor_after_transform(target_op, old_box, target_op["box"], drop_baseline=True)
-        _render_edit_state(window, state, "ÄÃ£ thay Ä‘á»•i kÃ­ch thÆ°á»›c Ä‘á»‘i tÆ°á»£ng", focus_page=page_num, auto_select_op=target_op, erase_boxes=[{"page_number": target_op.get("page_number", page_num), "box": old_box}])
+        _render_edit_state(window, state, "Đã thay đổi kích thước đối tượng", focus_page=page_num, auto_select_op=target_op, erase_boxes=[{"page_number": target_op.get("page_number", page_num), "box": old_box}])
         return
 
     if action == "delete":
@@ -1946,7 +1960,7 @@ def save_edits(window, *, reload_viewer: bool = True) -> bool:
         return False
 
     # Reset edit state, tải lại từ file đã lưu
-    _set_edit_state(window, None)
+    _reset_edit_state(window)
     if reload_viewer:
         reload_document(window, save_path, display_path=save_path, temp_path=None)
     else:
@@ -1991,6 +2005,12 @@ def save_edits_as(window):
             )
             get_pdf_engine().rebuild_pdf_with_ops(base, rebuilt_src, state.get("ops", []))
             state["working_file"] = rebuilt_src
+            # Xóa file working cũ
+            if src != rebuilt_src and os.path.exists(src):
+                try:
+                    os.remove(src)
+                except OSError:
+                    pass
             src = rebuilt_src
         except Exception as e:
             show_warning(window, "Lỗi khi dựng file", str(e))

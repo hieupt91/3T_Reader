@@ -301,6 +301,11 @@ class PDFViewerWidget(QtWidgets.QWidget):
         encoded_path = urllib.parse.quote(abs_path)
         cache_key = server.cache_bust_token(abs_path)
         pdf_url = f"http://127.0.0.1:{server._port}/pdf?p={encoded_path}&v={cache_key}"
+        fallback_viewer_url = server.viewer_url(
+            abs_path,
+            page=max(1, int(self._current_page or 1)),
+            zoom=str(zoom or self._zoom or "100"),
+        ) or ""
         
         js = f"""
         (function() {{
@@ -386,11 +391,13 @@ class PDFViewerWidget(QtWidgets.QWidget):
                             txt.textContent = op.text || '';
                             var c = op.font_color || [0,0,0];
                             var r = Math.round(c[0]*255), g = Math.round(c[1]*255), b = Math.round(c[2]*255);
+                            var fontFam = op.font_family || 'sans-serif';
                             txt.style.cssText = 'width:100%;height:100%;display:flex;align-items:flex-start;justify-content:flex-start;'
                                 + 'color:rgb('+r+','+g+','+b+');'
                                 + 'font-weight:'+(op.bold?'bold':'normal')+';'
                                 + 'text-decoration:'+(op.underline?'underline':'none')+';'
-                                + 'font-family:sans-serif;white-space:pre-wrap;overflow:hidden;';
+                                + 'font-style:'+(op.italic?'italic':'normal')+';'
+                                + 'font-family:'+fontFam+';white-space:pre-wrap;overflow:hidden;';
                             var fs = (op.font_size || 14) * (vp.scale || 1.0) * 1.333;
                             txt.style.fontSize = fs + 'px';
                             txt.style.lineHeight = '1.15';
@@ -415,7 +422,12 @@ class PDFViewerWidget(QtWidgets.QWidget):
                 
                 document.body.appendChild(freezeDiv);
                 
-                fetch('{pdf_url}').then(res => res.arrayBuffer()).then(function(ab) {{
+                fetch({json.dumps(pdf_url)}, {{ cache: 'no-store' }}).then(function(res) {{
+                    if (!res || !res.ok) {{
+                        throw new Error('HTTP ' + (res ? res.status : '0'));
+                    }}
+                    return res.arrayBuffer();
+                }}).then(function(ab) {{
                     return app.open({{ data: new Uint8Array(ab), url: '{pdf_url}', originalUrl: '{pdf_url}' }});
                 }}).then(function() {{
                     var container = app.pdfViewer.container;
@@ -445,9 +457,12 @@ class PDFViewerWidget(QtWidgets.QWidget):
                     
                     setTimeout(removeFreeze, 2500);
                 }}).catch(function(e) {{ 
-                    console.error('Soft reload error:', e); 
-                    alert('Soft reload failed: ' + e);
+                    console.error('Soft reload error, fallback to hard reload:', e);
                     if (freezeDiv.parentNode) freezeDiv.parentNode.removeChild(freezeDiv);
+                    var fallbackUrl = {json.dumps(fallback_viewer_url)};
+                    if (fallbackUrl) {{
+                        window.location.replace(fallbackUrl);
+                    }}
                 }});
             }}
         }})();
@@ -507,6 +522,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
                             + colorCss
                             + 'font-weight:'+(op.bold?'bold':'normal')+';'
                             + 'text-decoration:'+(op.underline?'underline':'none')+';'
+                            + 'font-style:'+(op.italic?'italic':'normal')+';'
                             + 'font-family:'+fontFam+';white-space:pre-wrap;overflow:hidden;';
                         var fs = (op.font_size || 14) * (vp.scale || 1.0) * 1.333;
                         txt.style.fontSize = fs + 'px';

@@ -128,7 +128,8 @@ def detect_language(text: str) -> tuple[str, str]:
         params = urllib.parse.urlencode({
             "client": "gtx", "sl": "auto", "tl": "en", "dt": "t", "q": sample
         })
-        ctx = ssl._create_unverified_context()
+        from packages.net_utils import make_ssl_context
+        ctx = make_ssl_context()
         req = urllib.request.Request(
             f"https://translate.googleapis.com/translate_a/single?{params}",
             headers={"User-Agent": "Mozilla/5.0"}
@@ -347,7 +348,8 @@ def _google_translate_chunk(text: str, source_lang: str, target_lang: str) -> st
     })
     full_url = f"{url}?{params}"
 
-    ctx = ssl._create_unverified_context()
+    from packages.net_utils import make_ssl_context
+    ctx = make_ssl_context()
     req = urllib.request.Request(
         full_url,
         headers={
