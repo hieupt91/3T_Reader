@@ -922,6 +922,10 @@ def _remove_pagenums(pdf, page) -> bool:
 @require_document(show_message=True)
 def add_page_numbers(window):
     """Thêm số trang vào cuối mỗi trang PDF."""
+    from app.actions.pages import _auto_commit_edit_state
+    if not _auto_commit_edit_state(window):
+        return
+
     position, ok = QInputDialog.getItem(
         window, "Vị trí số trang", "Chọn vị trí:",
         ["Giữa — dưới trang", "Phải — dưới trang", "Trái — dưới trang",
@@ -976,7 +980,7 @@ def add_page_numbers(window):
 
             pdf.save(tmp)
 
-        replace_document_with_staged(window, tmp, target_path=src, soft_reload=False)
+        replace_document_with_staged(window, tmp, target_path=src, soft_reload=True)
         window.status.showMessage("Đã thêm số trang vào tất cả các trang", 4000)
     except Exception as e:
         window.status.showMessage("", 0)
@@ -987,6 +991,10 @@ def add_page_numbers(window):
 @require_document(show_message=True)
 def remove_page_numbers(window):
     """Xóa các số trang đã được thêm vào."""
+    from app.actions.pages import _auto_commit_edit_state
+    if not _auto_commit_edit_state(window):
+        return
+
     read_path, target_path = _document_read_and_target_paths(window)
     display_src = target_path or read_path or ""
     if os.path.splitext(str(display_src))[1].lower() != ".pdf":
@@ -1006,7 +1014,7 @@ def remove_page_numbers(window):
             pdf.save(tmp)
 
         if deleted:
-            replace_document_with_staged(window, tmp, target_path=src, soft_reload=False)
+            replace_document_with_staged(window, tmp, target_path=src, soft_reload=True)
             window.status.showMessage("Đã xóa số trang thành công", 4000)
         else:
             remove_path_quietly(tmp)
