@@ -1934,16 +1934,32 @@ def insert_image_to_pdf(window):
 @require_document(show_message=True)
 def save_edits(window, *, reload_viewer: bool = True) -> bool:
     """Lưu các thay đổi (text/ảnh đã chèn) vào file gốc."""
-    if hasattr(window, "annotation_saver"):
-        window.annotation_saver.flush_all()
-        
+    annotations_were_pending = False
+    annotation_saver = getattr(window, "annotation_saver", None)
+    if annotation_saver is not None:
+        try:
+            has_pending = getattr(annotation_saver, "has_pending", None)
+            annotations_were_pending = bool(has_pending()) if callable(has_pending) else False
+        except Exception:
+            annotations_were_pending = False
+        try:
+            flush_ok = annotation_saver.flush_all()
+        except Exception as exc:
+            show_warning(window, "Không lưu được", f"Không lưu được chú thích: {exc}")
+            return False
+        if flush_ok is False:
+            show_warning(window, "Không lưu được", "Không lưu được chú thích đang chờ.")
+            return False
+
     state = _get_edit_state(window)
     if not state:
-        # Không có edit state — lưu thông thường
-        try:
-            window.viewer.save_pdf()
-        except Exception:
-            return False
+        status = getattr(window, "status", None)
+        if status is not None:
+            message = "Đã lưu chú thích." if annotations_were_pending else "Không có thay đổi cần lưu."
+            try:
+                status.showMessage(message, 3000)
+            except Exception:
+                pass
         return True
 
     working = state.get("working_file")

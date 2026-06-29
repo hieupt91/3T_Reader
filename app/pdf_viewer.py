@@ -558,9 +558,13 @@ class PDFViewerWidget(QtWidgets.QWidget):
         """
         self._web_view.page().runJavaScript(js)
 
-    def save_pdf(self):
+    def save_pdf(self) -> bool:
+        """The PDF.js viewer does not own persistence; app actions save documents."""
         if not self._path:
             self.error_occurred.emit("Chưa mở tệp PDF.")
+        else:
+            self.error_occurred.emit("Viewer không lưu trực tiếp. Hãy dùng lệnh Lưu của ứng dụng.")
+        return False
 
     def goto_page(self, page: int):
         self._current_page = max(1, min(int(page), max(1, self._page_count)))
