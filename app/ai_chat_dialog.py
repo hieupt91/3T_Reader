@@ -216,6 +216,9 @@ class AIChatDialog(QDialog):
             self.show()
             self.raise_()
             self.activateWindow()
+            # TC37: setWindowFlags destroys/recreates the native window,
+            # which clears the QTextEdit content. Rebuild from session history.
+            self._rebuild_chat()
 
     def _append_html(self, html: str):
         self._chat_area.append(html)

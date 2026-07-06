@@ -310,7 +310,7 @@ def _refresh_viewer_after_annotation_change(window, target_path: str) -> None:
         pass
 
 
-def _schedule_annotation_undo_flush(window, target_path: str, *, delay_ms: int = 320) -> None:
+def _schedule_annotation_undo_flush(window, target_path: str, *, delay_ms: int = 520) -> None:
     """Batch rapid annotation undos into one PDF save and one viewer refresh."""
     try:
         from packages.qt_compat.QtCore import QTimer
@@ -691,6 +691,28 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
         installMenuDismiss(menu);
     }
 
+    function showMarkMenu(markId, pageNumber, x, y, bridge) {
+        closeMenu();
+        var menu = document.createElement('div');
+        menu.id = '__3tNoteMenu';
+        menu.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;z-index:10050;min-width:150px;background:#fff;color:#111827;border:1px solid rgba(15,23,42,.18);box-shadow:0 10px 28px rgba(15,23,42,.22);border-radius:6px;padding:4px;font:13px sans-serif';
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = '🗑️ Xóa nét vẽ';
+        btn.style.cssText = 'display:block;width:100%;border:0;background:transparent;color:#dc2626;text-align:left;padding:7px 9px;border-radius:4px;cursor:pointer';
+        btn.addEventListener('mouseenter', function() { btn.style.background = '#fef2f2'; });
+        btn.addEventListener('mouseleave', function() { btn.style.background = 'transparent'; });
+        btn.addEventListener('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            closeMenu();
+            bridge.deleteMark(markId, pageNumber);
+        }, true);
+        menu.appendChild(btn);
+        document.body.appendChild(menu);
+        installMenuDismiss(menu);
+    }
+
     function pageViewFor(viewer, pageNumber) {
         return viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
     }
@@ -935,12 +957,75 @@ _ARM_NOTE_TOOLS_JS = r"""(function(notes) {
                 });
         };
         window.__3tNotesDeleteMark = function(markId) {
-            document
-                .querySelectorAll('.threeTMarkOverlay[data-three-t-mark-id="' + markId + '"]')
-                .forEach(function(node) {
-                    if (node && node.parentNode) node.parentNode.removeChild(node);
-                });
+            // One mark can be split into several child overlays (`id-0`,
+            // `id-1`, ...): remove the exact ID and every child by prefix.
+            var base = String(markId || '').replace(/-\d+$/, '');
+            document.querySelectorAll('.threeTMarkOverlay').forEach(function(node) {
+                var id = node.dataset ? String(node.dataset.threeTMarkId || '') : '';
+                if (!id) return;
+                if (id === markId || id === base || id.indexOf(base + '-') === 0) {
+                    if (node.parentNode) node.parentNode.removeChild(node);
+                }
+            });
         };
+
+        // Marks are pointer-events:none (so they never block text selection),
+        // so delete works via document-level hit-testing (TC27): right-click
+        // anywhere on a mark, or plain left-click (no drag, no selection).
+        function findMarkAtPoint(x, y) {
+            var els = document.querySelectorAll('.threeTMarkOverlay');
+            for (var i = 0; i < els.length; i++) {
+                var r = els[i].getBoundingClientRect();
+                if (x >= r.left - 3 && x <= r.right + 3 && y >= r.top - 3 && y <= r.bottom + 3)
+                    return els[i];
+            }
+            return null;
+        }
+
+        function openMarkMenuAt(event) {
+            var el = findMarkAtPoint(event.clientX, event.clientY);
+            if (!el) return false;
+            var markId = el.dataset.threeTMarkId;
+            if (!markId) return false;
+            var pageEl = el.closest('.page');
+            var pageNumber = pageEl ? parseInt(pageEl.dataset.pageNumber, 10) || 0 : 0;
+            event.preventDefault();
+            event.stopPropagation();
+            showMarkMenu(markId, pageNumber, event.clientX, event.clientY, bridge);
+            return true;
+        }
+
+        function onMarkContextMenu(event) {
+            openMarkMenuAt(event);
+        }
+
+        var markMouseDown = null;
+        function onMarkMouseDown(event) {
+            if (event.button !== 0) { markMouseDown = null; return; }
+            markMouseDown = { x: event.clientX, y: event.clientY };
+        }
+
+        function onMarkClick(event) {
+            if (event.button !== 0 || !markMouseDown) return;
+            var moved = Math.abs(event.clientX - markMouseDown.x) > 4 ||
+                        Math.abs(event.clientY - markMouseDown.y) > 4;
+            markMouseDown = null;
+            if (moved) return;                      // drag = text selection
+            var sel = window.getSelection && window.getSelection();
+            if (sel && sel.toString()) return;      // an active selection wins
+            if (event.target && event.target.closest &&
+                event.target.closest('.threeTNoteOverlay,#__3tNoteMenu,button,input,textarea')) return;
+            openMarkMenuAt(event);
+        }
+
+        document.addEventListener('contextmenu', onMarkContextMenu, true);
+        document.addEventListener('mousedown', onMarkMouseDown, true);
+        document.addEventListener('click', onMarkClick, true);
+        cleanupFns.push(function() {
+            document.removeEventListener('contextmenu', onMarkContextMenu, true);
+            document.removeEventListener('mousedown', onMarkMouseDown, true);
+            document.removeEventListener('click', onMarkClick, true);
+        });
 
         function doRender(event) {
             var pageNumber = event && event.pageNumber ? Number(event.pageNumber) : 0;
@@ -1094,6 +1179,29 @@ class _NoteToolsBridge(QObject):
             return
         except Exception as exc:
             show_warning(self._window, "Lỗi xóa ghi chú", str(exc))
+
+    @pyqtSlot(str, int)
+    def deleteMark(self, mark_id: str, page_number: int):
+        """Delete a highlight/underline/strikeout mark (click menu, TC27)."""
+        if not self._path_is_current():
+            return
+        try:
+            # A long mark is split into child annotations `base-0`, `base-1`…
+            # Normalize to the base ID so clicking any segment deletes them all.
+            mark_id = _mark_base_id(mark_id)
+            # Hide immediately and deactivate: if the add-op is still queued,
+            # its _annotation_mark_active guard turns it into a no-op.
+            _remove_overlay_mark(self._window, mark_id)
+            _flush_annotation_queue(self._window, self._pdf_path)
+
+            import pikepdf
+            with pikepdf.open(self._pdf_path) as pdf:
+                if _delete_annotations_by_prefix(pdf, str(mark_id)):
+                    _save_pikepdf_in_place(pdf, self._pdf_path)
+            if hasattr(self._window, "status"):
+                self._window.status.showMessage("Đã xóa đánh dấu.", 1800)
+        except Exception as exc:
+            show_warning(self._window, "Lỗi xóa đánh dấu", str(exc))
 
 
 def enable_note_tools(window):
@@ -1249,10 +1357,18 @@ def _annotation_mark_active(window, mark_id: str) -> bool:
     return False
 
 
+def _mark_base_id(mark_id: str) -> str:
+    """`base-0`, `base-1`… (một nét vẽ dài bị tách khúc) → `base`."""
+    import re
+    return re.sub(r"-\d+$", "", str(mark_id or ""))
+
+
 def _remove_overlay_mark(window, mark_id: str) -> None:
     marks = _overlay_marks(window)
+    base = _mark_base_id(mark_id)
     for item in marks:
-        if str(item.get("id") or "") == str(mark_id):
+        item_id = str(item.get("id") or "")
+        if item_id == str(mark_id) or item_id == base or item_id.startswith(base + "-"):
             item["_deleted"] = True
     try:
         getter = getattr(window, "_get_webview", None)
@@ -1412,6 +1528,25 @@ def _delete_annotations_by_ids(pdf: pikepdf.Pdf, annot_ids: list[str]) -> int:
         for idx in range(len(annots) - 1, -1, -1):
             annot_id = _annotation_id(annots[idx])
             if annot_id in targets:
+                del annots[idx]
+                deleted += 1
+    return deleted
+
+
+def _delete_annotations_by_prefix(pdf: pikepdf.Pdf, mark_id: str) -> int:
+    """Delete every annotation whose /NM is `mark_id` or `mark_id-<idx>`
+    (one mark can span several rects, each saved as its own annotation)."""
+    prefix = str(mark_id or "")
+    if not prefix:
+        return 0
+    deleted = 0
+    for page in pdf.pages:
+        annots = page.get("/Annots", None)
+        if annots is None:
+            continue
+        for idx in range(len(annots) - 1, -1, -1):
+            annot_id = _annotation_id(annots[idx])
+            if annot_id and (annot_id == prefix or annot_id.startswith(prefix + "-")):
                 del annots[idx]
                 deleted += 1
     return deleted

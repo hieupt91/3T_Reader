@@ -1384,7 +1384,7 @@ class PDFReaderApp(QMainWindow):
                     app.pdfViewer.currentScaleValue = "page-width";
                 """,
                 "facing": """
-                    app.pdfViewer.scrollMode = 0;
+                    app.pdfViewer.scrollMode = 3;
                     app.pdfViewer.spreadMode = 1;
                     app.pdfViewer.currentScaleValue = "page-fit";
                 """,
@@ -1395,6 +1395,21 @@ class PDFReaderApp(QMainWindow):
                     var app = window.PDFViewerApplication;
                     if (!app || !app.pdfViewer) return;
                     {scripts.get(mode, scripts["single"])}
+                }})()
+                """
+            )
+
+        def _nav_page(direction: int):
+            # nextPage()/previousPage() are spread-aware: in facing (PAGE) mode
+            # they advance a full spread, where currentPageNumber ± 1 would
+            # land inside the same spread and not move the view.
+            _run_pdfjs(
+                f"""
+                (function() {{
+                    var app = window.PDFViewerApplication;
+                    if (!app || !app.pdfViewer) return;
+                    if ({int(direction)} > 0) app.pdfViewer.nextPage();
+                    else app.pdfViewer.previousPage();
                 }})()
                 """
             )
@@ -1420,15 +1435,42 @@ class PDFReaderApp(QMainWindow):
                 zoom_spin.blockSignals(False)
 
         printer_holder = {"printer": self._configured_pdf_printer(pdf_path, current_page=current_page)}
+        # None = auto (per-page orientation from PDF dimensions); a QPageLayout
+        # orientation once the user explicitly picks portrait/landscape.
+        orientation_override = {"value": None}
 
         def _page_setup():
             QPageSetupDialog(printer_holder["printer"], dialog).exec()
+
+        def _natural_orientation(page_number: int):
+            try:
+                pdf = get_pdf_engine().open(pdf_path)
+                try:
+                    w_pt, h_pt = pdf.page_size(max(1, int(page_number or 1)))
+                finally:
+                    pdf.close()
+                return self._page_orientation_for_pdf_size(w_pt, h_pt)
+            except Exception:
+                return QPageLayout.Orientation.Portrait
 
         def _set_orientation(orientation):
             try:
                 printer_holder["printer"].setPageOrientation(orientation)
             except Exception:
                 pass
+            orientation_override["value"] = orientation
+            # Mirror the forced orientation in the preview: pages whose natural
+            # orientation differs are shown rotated, matching how they print.
+            rotation = 0 if orientation == _natural_orientation(page_spin.value()) else 90
+            _run_pdfjs(
+                f"""
+                (function() {{
+                    var app = window.PDFViewerApplication;
+                    if (!app || !app.pdfViewer) return;
+                    app.pdfViewer.pagesRotation = {rotation};
+                }})()
+                """
+            )
 
         preview_viewer.page_changed.connect(_update_page)
         preview_viewer.zoom_changed.connect(_update_zoom)
@@ -1439,8 +1481,8 @@ class PDFReaderApp(QMainWindow):
         btn_fit_page.clicked.connect(_fit_page)
         page_spin.valueChanged.connect(_set_page)
         zoom_spin.editingFinished.connect(lambda: _set_zoom(zoom_spin.value()))
-        btn_prev.clicked.connect(lambda: _set_page(page_spin.value() - 1))
-        btn_next.clicked.connect(lambda: _set_page(page_spin.value() + 1))
+        btn_prev.clicked.connect(lambda: _nav_page(-1))
+        btn_next.clicked.connect(lambda: _nav_page(1))
         btn_zoom_out.clicked.connect(lambda: _set_zoom(max(25, int(zoom_spin.value() / 1.1))))
         btn_zoom_in.clicked.connect(lambda: _set_zoom(min(400, int(zoom_spin.value() * 1.1))))
         btn_page_setup.clicked.connect(_page_setup)
@@ -1451,7 +1493,12 @@ class PDFReaderApp(QMainWindow):
             printer = printer_holder["printer"]
             print_dialog = QPrintDialog(printer, dialog)
             if print_dialog.exec() == QDialog.DialogCode.Accepted:
-                self._do_print_pages(printer, pdf_path, show_progress=True)
+                self._do_print_pages(
+                    printer,
+                    pdf_path,
+                    show_progress=True,
+                    forced_orientation=orientation_override["value"],
+                )
 
         btn_print.clicked.connect(_run_print)
         btn_close.clicked.connect(dialog.accept)
@@ -1584,7 +1631,8 @@ class PDFReaderApp(QMainWindow):
         scale_by_pixels = (pixel_cap / page_pixels) ** 0.5
         return min(job_cap, max(dpi_scale, scale_by_pixels, 1.0))
 
-    def _do_print_pages(self, printer: QPrinter, pdf_path: str, show_progress: bool = True, preview_dlg=None):
+    def _do_print_pages(self, printer: QPrinter, pdf_path: str, show_progress: bool = True, preview_dlg=None,
+                        forced_orientation=None):
         """Vẽ từng trang PDF lên printer — chạy trên main thread qua paintRequested.
 
         Tiến độ xử lý qua QProgressDialog (hiện sau 1s nếu vẫn đang chạy) cho
@@ -1632,7 +1680,12 @@ class PDFReaderApp(QMainWindow):
                 progress.setAutoReset(False)
 
             current_orientation = None
-            if page_list:
+            if forced_orientation is not None:
+                # User explicitly picked portrait/landscape in the preview:
+                # keep it for the whole job instead of per-page auto-detect.
+                self._apply_printer_orientation(printer, forced_orientation)
+                current_orientation = forced_orientation
+            elif page_list:
                 try:
                     page_w_pt, page_h_pt = pdf.page_size(page_list[0] + 1)
                     current_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)
@@ -1667,10 +1720,13 @@ class PDFReaderApp(QMainWindow):
                 except Exception:
                     page_w_pt, page_h_pt = 595.0, 842.0
 
-                desired_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)
-                if desired_orientation != current_orientation:
-                    self._apply_printer_orientation(printer, desired_orientation)
-                    current_orientation = desired_orientation
+                natural_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)
+                rotate_to_fit = False
+                if forced_orientation is not None:
+                    rotate_to_fit = natural_orientation != forced_orientation
+                elif natural_orientation != current_orientation:
+                    self._apply_printer_orientation(printer, natural_orientation)
+                    current_orientation = natural_orientation
 
                 if i > 0:
                     printer.newPage()
@@ -1698,6 +1754,13 @@ class PDFReaderApp(QMainWindow):
                     raise MemoryError(
                         f"Không đủ bộ nhớ để render trang {page_num + 1}. "
                         "Hãy thử in ít trang hơn hoặc giảm chất lượng in."
+                    )
+
+                if rotate_to_fit:
+                    from packages.qt_compat.QtGui import QTransform
+                    img = img.transformed(
+                        QTransform().rotate(90),
+                        Qt.TransformationMode.SmoothTransformation,
                     )
 
                 src_w = max(1, img.width())

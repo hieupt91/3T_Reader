@@ -32,8 +32,11 @@ LANGUAGE_LABELS = {
     "tg": "Тоҷикӣ", "uz": "Oʻzbekcha", "cy": "Cymraeg", "yi": "ייִדיש", "xh": "isiXhosa"
 }
 
+# Byte sequences that only occur when UTF-8 text was mis-decoded as Latin-1.
+# Deliberately limited to multi-char sequences — single chars like "Ã", "ì", "í"
+# appear in legitimate French/Italian/Vietnamese text.
 _MOJIBAKE_MARKERS = (
-    "Ã", "Â", "Ä", "Æ", "áº", "á»", "à¸", "à¹", "è¯", "ì", "í",
+    "áº", "á»", "à¸", "à¹", "è¯", "Ã¡", "Ã©", "Ã­", "Ã³", "Ãº", "Ã¢", "Ã´", "Ãª",
 )
 
 BUILTIN_TRANSLATIONS = {
@@ -661,6 +664,9 @@ def _normalize_language_pack_payload(data, *, expected_code: str) -> dict[str, s
     if not isinstance(data, dict):
         return None
     strings = {str(k): str(v) for k, v in data.items()}
+    sample = "\n".join(strings.values())
+    if any(marker in sample for marker in _MOJIBAKE_MARKERS):
+        return None
     return strings
 
 

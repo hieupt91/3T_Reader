@@ -2424,7 +2424,15 @@ def edit_existing_text(window):
                             best_score = score
                             best_overlap = overlap
             if best is not None and best_overlap <= 0.0:
-                return None
+                # PDF.js text-layer rects are often offset a point or two from
+                # the true span bbox. Accept a near miss (small gap) instead of
+                # dropping the match — otherwise font/size/color fall back to
+                # CSS defaults and results look inconsistent (TC30).
+                bb = best["box"]
+                gap_x = max(0.0, max(pick_box[0], bb[0]) - min(pick_box[2], bb[2]))
+                gap_y = max(0.0, max(pick_box[1], bb[1]) - min(pick_box[3], bb[3]))
+                if max(gap_x, gap_y) > 5.0:
+                    return None
             return best
         finally:
             doc.close()
@@ -2576,7 +2584,10 @@ def edit_existing_text(window):
             } catch (_err) {}
             try {
                 var cached = window.__3tLastSelectionPayload;
-                if (hasRects(cached) && Date.now() - (cached.timestamp || 0) < 10000) {
+                // Clicking the ribbon button clears the DOM selection, so this
+                // cache is the main path; keep it valid long enough for the
+                // user to reach the button (TC30).
+                if (hasRects(cached) && Date.now() - (cached.timestamp || 0) < 30000) {
                     return cached;
                 }
             } catch (_err2) {}
@@ -2599,7 +2610,7 @@ def edit_existing_text(window):
             _selection_page_rects,
         )
 
-        payload = _get_live_selection_payload_sync(timeout_ms=500)
+        payload = _get_live_selection_payload_sync(timeout_ms=900)
         if not _payload_has_selection_rects(payload):
             qt_text = _qt_selected_text(window)
             if qt_text:

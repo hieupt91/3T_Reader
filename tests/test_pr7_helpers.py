@@ -10,7 +10,27 @@ def test_normalize_language_pack_payload_rejects_wrong_code():
         "strings": {"menu.file": "File"},
     }
 
-    assert _normalize_language_pack_payload(payload, expected_code="vi") == {}
+    # None signals rejection; callers must not save/apply the pack.
+    assert _normalize_language_pack_payload(payload, expected_code="vi") is None
+
+
+def test_normalize_language_pack_payload_rejects_mojibake():
+    payload = {
+        "code": "vi",
+        "strings": {"menu.file": "Tá»‡p"},
+    }
+
+    assert _normalize_language_pack_payload(payload, expected_code="vi") is None
+
+
+def test_normalize_language_pack_payload_accepts_valid_vietnamese():
+    payload = {
+        "code": "vi",
+        "strings": {"menu.file": "Tệp", "menu.tools": "Công cụ tính năng"},
+    }
+
+    result = _normalize_language_pack_payload(payload, expected_code="vi")
+    assert result == {"menu.file": "Tệp", "menu.tools": "Công cụ tính năng"}
 
 
 def test_normalize_language_pack_payload_accepts_wrapped_strings():
@@ -167,6 +187,42 @@ def test_edit_and_delete_text_note_by_id(tmp_path):
     pdf.save(deleted)
     pdf.close()
     assert load_annotations(str(deleted)) == []
+
+
+def test_delete_annotations_by_prefix_removes_all_mark_rects(tmp_path):
+    import pytest
+
+    pikepdf = pytest.importorskip("pikepdf")
+    from app.actions.annotate import _add_pdf_annotation, _delete_annotations_by_prefix
+
+    pdf = pikepdf.Pdf.new()
+    pdf.add_blank_page(page_size=(200, 200))
+    _add_pdf_annotation(
+        pdf,
+        page_idx=0,
+        subtype="Highlight",
+        rects=[(10, 100, 40, 112), (10, 80, 40, 92)],
+        color=[1.0, 1.0, 0.0],
+        annot_ids=["3t-mark-abc-0", "3t-mark-abc-1"],
+    )
+    _add_pdf_annotation(
+        pdf,
+        page_idx=0,
+        subtype="Underline",
+        rects=[(10, 60, 40, 72)],
+        color=[0.0, 0.0, 1.0],
+        annot_ids=["3t-mark-xyz-0"],
+    )
+
+    # Deleting one mark removes all of its rects but leaves other marks alone.
+    assert _delete_annotations_by_prefix(pdf, "3t-mark-abc") == 2
+    annots = pdf.pages[0].get("/Annots", [])
+    assert len(annots) == 1
+    assert str(annots[0].get("/NM")) == "3t-mark-xyz-0"
+
+    # A prefix that only partially matches an id segment must not delete.
+    assert _delete_annotations_by_prefix(pdf, "3t-mark-xy") == 0
+    pdf.close()
 
 
 def test_merge_rects_by_line_normalizes_fragmented_marks():

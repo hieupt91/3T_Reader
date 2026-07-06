@@ -181,6 +181,23 @@ def runtime_status() -> OCRRuntimeStatus:
     )
 
 
+def _preprocess_for_ocr(pil_image, *, denoise: bool = False):
+    """Normalize an image before Tesseract: grayscale + contrast stretch,
+    optional median denoise for scans. Binarization is left to Tesseract's
+    internal Otsu, which handles anti-aliased renders better than a fixed
+    threshold."""
+    try:
+        from PIL import ImageFilter, ImageOps
+
+        img = pil_image.convert("L")
+        img = ImageOps.autocontrast(img, cutoff=1)
+        if denoise:
+            img = img.filter(ImageFilter.MedianFilter(size=3))
+        return img
+    except Exception:
+        return pil_image
+
+
 def ocr_pil_image(pil_image, page_num: int = 1, high_quality: bool = False) -> OCRResult:
     """
     Recognize text from a PIL Image.
@@ -213,6 +230,8 @@ def ocr_pil_image(pil_image, page_num: int = 1, high_quality: bool = False) -> O
             w, h = pil_image.size
             scale = 2.0
             pil_image = pil_image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+
+        pil_image = _preprocess_for_ocr(pil_image, denoise=high_quality)
 
         text = pytesseract.image_to_string(pil_image, lang=lang, config=config)
         text = text.strip()
