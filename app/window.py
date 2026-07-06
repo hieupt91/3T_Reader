@@ -261,7 +261,11 @@ class PDFReaderApp(QMainWindow):
         self._usb_token_detected = False
         self._closing = False
         self._highlight_color_pdf = [1.0, 1.0, 0.0]
-        self._highlight_color_overlay = "rgba(250,204,21,.35)"
+        # Đồng bộ với alpha /CA ghi vào PDF (0.60) để màu lúc vừa tô và sau
+        # khi đóng/mở lại file giống nhau (TC27).
+        self._highlight_color_overlay = "rgba(255,255,0,.60)"
+        # "select": chỉ tô vùng bôi đen; "find": tô toàn bộ từ khóa (TC27).
+        self._mark_mode = "select"
 
         self._brightness = 100
         self._action_icons: dict = {}   # {QAction: svg_filename} for theme refresh
@@ -838,6 +842,16 @@ class PDFReaderApp(QMainWindow):
         self.g_mark.add(make_action_btn(self.act_strikeout, "Gạch ngang"))
         self._act_comment = make("Ghi chú", "insert_text.svg", "Thêm ghi chú", None, lambda: add_comment(self))
         self.g_mark.add(make_action_btn(self._act_comment, "Ghi chú"))
+        # TC27: chuyển giữa "Chọn" (chỉ tô vùng bôi đen) và "Tìm" (tự tìm và
+        # tô toàn bộ từ khóa trên tài liệu; xóa cũng xóa hàng loạt theo từ khóa).
+        self.act_mark_mode = make(
+            "Chế độ: Chọn", "search.svg",
+            "Chế độ đánh dấu — Chọn: chỉ tô/gạch vùng bôi đen; "
+            "Tìm: tô/gạch (và xóa) toàn bộ từ khóa trên tài liệu",
+            None, lambda: self._toggle_mark_mode(),
+        )
+        self._mark_mode_btn = make_action_btn(self.act_mark_mode, "Chế độ: Chọn")
+        self.g_mark.add(self._mark_mode_btn)
         p1.add_group(self.g_mark)
 
         self.g_edit = RibbonGroup("Chỉnh sửa")
@@ -3298,6 +3312,21 @@ class PDFReaderApp(QMainWindow):
         self.annotation_sidebar.setVisible(not visible)
         if not visible:
             self._load_annotations_for_active()
+
+    def _toggle_mark_mode(self):
+        """TC27: đổi chế độ đánh dấu giữa 'Chọn' (vùng bôi đen) và 'Tìm' (toàn tài liệu)."""
+        self._mark_mode = "find" if getattr(self, "_mark_mode", "select") == "select" else "select"
+        label = "Chế độ: Tìm" if self._mark_mode == "find" else "Chế độ: Chọn"
+        if hasattr(self, "act_mark_mode"):
+            self.act_mark_mode.setText(label)
+        if hasattr(self, "status"):
+            hint = (
+                "Chế độ Tìm: Tô sáng/Gạch sẽ tự tìm và đánh dấu TOÀN BỘ từ khóa trên tài liệu; "
+                "xóa một nét sẽ xóa mọi nét trùng từ khóa."
+                if self._mark_mode == "find"
+                else "Chế độ Chọn: chỉ tô/gạch đúng vùng văn bản đang bôi đen."
+            )
+            self.status.showMessage(hint, 5000)
 
     def _show_highlight_context_menu(self):
         """Right-click menu on highlight button: underline, strikeout, color picker."""

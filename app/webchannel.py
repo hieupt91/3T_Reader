@@ -43,6 +43,14 @@ class _NoteToolsBridgeProxy(_BridgeProxyBase):
     def deleteNote(self, note_id: str, page_number: int):
         self._call("deleteNote", note_id, page_number)
 
+    @pyqtSlot(str, int)
+    def deleteMark(self, mark_id: str, page_number: int):
+        self._call("deleteMark", mark_id, page_number)
+
+    @pyqtSlot(int)
+    def deleteMarksOnPage(self, page_number: int):
+        self._call("deleteMarksOnPage", page_number)
+
 
 class _AreaPickBridgeProxy(_BridgeProxyBase):
     @pyqtSlot(int, float, float, float, float)

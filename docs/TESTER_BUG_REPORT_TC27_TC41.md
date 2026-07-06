@@ -37,14 +37,26 @@ Tham chiếu chi tiết kỹ thuật từng lỗi: `BAO_CAO_TONG_HOP_PHAN_TICH_L
 2. Tạo nét kéo qua nhiều dòng, click vào một khúc bất kỳ để xóa → toàn bộ nét biến mất, không sót khúc con.
 3. Đóng mở lại file sau khi xóa → file thật không còn annotation.
 4. Bôi đen chọn chữ đè lên vùng có highlight → thao tác chọn chữ vẫn bình thường (menu xóa không nhảy ra khi đang kéo chọn).
+5. **Màu sau khi mở lại file:** tạo highlight mới (vàng, độ đậm 60%), đóng file mở lại → màu/độ trong suốt giữ nguyên, KHÔNG bị vàng đặc che chữ (annotation mới lưu opacity /CA vào PDF).
+6. **Xóa nét cũ sau khi mở lại file:** đóng/mở lại file → click vào nét đã lưu → menu xóa vẫn hoạt động bình thường.
+7. Rê chuột lên nét vẽ → KHÔNG hiện tooltip/preview nào (theo yêu cầu), chỉ đổi con trỏ và click vẫn mở menu xóa bình thường.
+8. **Xóa cả trang:** chuột phải/click vào một nét → chọn "🧹 Xóa toàn bộ highlight trên trang" → mọi nét vẽ trên trang đó biến mất (cả trong file PDF).
+9. **Nút "Chế độ" trên Ribbon (nhóm Đánh dấu):**
+   - Mặc định "Chế độ: Chọn" — Tô sáng/Gạch chỉ áp dụng đúng vùng bôi đen.
+   - Bấm chuyển "Chế độ: Tìm" — bôi đen một từ rồi bấm Tô sáng/Gạch dưới/Gạch ngang → TOÀN BỘ từ đó trên tài liệu được đánh dấu (không bôi đen thì app hỏi từ khóa).
+   - Ở "Chế độ: Tìm", xóa một nét → mọi nét trùng từ khóa đó trên toàn tài liệu bị xóa theo. Ở "Chế độ: Chọn" chỉ xóa đúng nét được click.
 
 ### TC28 — Clear highlight tìm kiếm
 1. Ctrl+F, nhập từ khóa → bấm Đóng/Esc → highlight biến mất.
 2. Ctrl+F, nhập từ khóa → xóa trắng ô tìm kiếm → highlight biến mất ngay.
 3. Chuyển trang/zoom rồi lặp lại → highlight tạm không quay lại.
+4. **Nút "Tô sáng tất cả" (icon bút vàng trên thanh tìm kiếm):** nhập từ khóa → bấm nút bút vàng → mọi kết quả trên tài liệu được tô sáng thành nét vẽ THẬT (lưu vào PDF, khác với highlight tạm của Ctrl+F). Đóng thanh tìm kiếm → highlight tạm biến mất nhưng nét tô sáng thật vẫn còn; xóa được bằng menu click như TC27.
 
 ### TC29 — Hover ghi chú
-1. Rê chuột vào icon/vùng ghi chú → có viền nét đứt xanh + hiệu ứng nhận biết; rời chuột → hết hiệu ứng.
+1. Bôi đen một đoạn chữ → thêm ghi chú (Ghi chú trong nhóm Đánh dấu) → rê chuột vào icon 📌 vừa tạo → chính đoạn chữ đã bôi đen hiện viền nét đứt xanh + nền xanh nhạt (không phải icon, không phải preview nội dung).
+2. Rời chuột khỏi icon → viền/nền biến mất ngay.
+3. Ghi chú tạo bằng cách click vùng trống (không bôi đen chữ trước) → hover vẫn có viền quanh icon (fallback), vì không có đoạn chữ nào để tô sáng.
+4. Ghi chú tạo từ **trước bản vá này** chưa có vùng chữ liên kết → hover fallback về icon, cần tạo ghi chú mới trên build mới để thấy đúng vùng chữ.
 
 ### TC30 — Sửa text gốc
 1. Chọn chế độ sửa text gốc, click nhiều vùng văn bản khác nhau (đầu dòng, cuối dòng, chữ nhỏ) → nhận diện đều, font/cỡ/màu lấy đúng theo chữ gốc.

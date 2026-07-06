@@ -52,6 +52,14 @@ class SearchPanel(QFrame):
         )
         row.addWidget(window.btn_search_next)
 
+        # TC28: quét và tô sáng (lưu thành nét vẽ thật) mọi từ khóa tìm được.
+        window.btn_search_mark_all = QToolButton()
+        window.btn_search_mark_all.setObjectName("SearchBtn")
+        window.btn_search_mark_all.setToolTip("Tô sáng tất cả kết quả tìm được trên tài liệu")
+        window.btn_search_mark_all.setIcon(svg_icon("highlight.svg", size=16, color="#facc15"))
+        window.btn_search_mark_all.clicked.connect(lambda: _mark_all_from_panel(window))
+        row.addWidget(window.btn_search_mark_all)
+
         window.btn_search_close = QToolButton()
         window.btn_search_close.setObjectName("SearchBtnClose")
         window.btn_search_close.setToolTip("Đóng tìm kiếm (Esc)")
@@ -99,6 +107,11 @@ def hide_search_panel(window):
     window.search_panel.hide()
     # Clear PDF.js find highlights, otherwise matches stay painted on the page.
     clear_search(window)
+
+
+def _mark_all_from_panel(window):
+    from app.actions.annotate import mark_all_search_hits
+    mark_all_search_hits(window)
 
 
 def _on_search_text_changed(window, text: str):
