@@ -61,7 +61,8 @@ RestartApplications=no
 RestartIfNeededByRun=no
 
 [Registry]
-Root: HKCR; Subkey: ".pdf"; ValueType: string; ValueName: ""; ValueData: "3TReader.PDF"; Flags: uninsdeletevalue
+; Chiếm quyền mở .pdf mặc định — chỉ khi người dùng chọn (ARCH-10)
+Root: HKCR; Subkey: ".pdf"; ValueType: string; ValueName: ""; ValueData: "3TReader.PDF"; Flags: uninsdeletevalue; Tasks: pdfassoc
 Root: HKCR; Subkey: ".pdf\OpenWithProgids"; ValueType: string; ValueName: "3TReader.PDF"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKCR; Subkey: "3TReader.PDF"; ValueType: string; ValueName: ""; ValueData: "PDF Document"; Flags: uninsdeletekey
 Root: HKCR; Subkey: "3TReader.PDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\assets\pdf_icon.ico"
@@ -77,6 +78,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "pdfassoc"; Description: "Đặt 3T Reader làm ứng dụng mở file PDF mặc định"; GroupDescription: "Liên kết tệp:"
 
 [Files]
 ; Toàn bộ thư mục build onedir của PyInstaller

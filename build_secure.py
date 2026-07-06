@@ -88,7 +88,10 @@ def main():
         shutil.rmtree(target_dist, ignore_errors=True)
         
     shutil.copytree(built_dist, target_dist)
-    
+
+    print("5. Cleaning up temporary build directory...")
+    shutil.rmtree(build_dir, ignore_errors=True)
+
     print(f"=== BUILD COMPLETE! SECURE APP LOCATED AT: {target_dist} ===")
 
 if __name__ == "__main__":

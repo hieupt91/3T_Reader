@@ -4,8 +4,6 @@ import os
 # USB PIN CACHE
 _cached_usb_pin = ""
 import asyncio
-import json
-import os
 import subprocess
 import sys
 import tempfile
