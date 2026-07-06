@@ -6,6 +6,7 @@ import paramiko
 import os
 import json
 import hashlib
+from vps_secret import vps_password
 
 VERSION = "1.0.24"
 BASE_URL = "https://reader.3tcomputer.com/downloads"
@@ -66,7 +67,7 @@ def deploy():
         client.connect(
             hostname="ssh.3tcomputer.com",
             username="hieupt",
-            password="Congnghe3t",
+            password=vps_password(),
             sock=s2,
             timeout=15,
             banner_timeout=200,
@@ -102,7 +103,7 @@ def deploy():
         update_cmd = """
         cd /home/hieupt/projects/3T_Reader/phase1-backend
         if [ -f docker-compose.yml ]; then
-            sed -i 's/1.0.22/1.0.24/g' docker-compose.yml
+            sed -i 's/1.1.0/1.0.24/g' docker-compose.yml
             docker compose restart
         else
             echo "docker-compose.yml not found, skipping restart."
@@ -127,6 +128,9 @@ def deploy():
             update_cfg["portable_url"] = f"{BASE_URL}/{PUBLIC_PORTABLE_NAME}"
             update_cfg["portable_sha256"] = sha256_file(portable_path)
             
+        update_cfg["mac_version"] = "1.0.21"
+        update_cfg["mac_url"] = f"{BASE_URL}/3TReader-1.0.21-mac.dmg"
+        
         local_cfg["update"] = update_cfg
 
         cfg_str = json.dumps(local_cfg, ensure_ascii=False, indent=2)
@@ -145,7 +149,7 @@ def deploy():
         """
         stdin, stdout, stderr = client.exec_command(update_json_cmd, get_pty=True)
         time.sleep(1)
-        stdin.write("Congnghe3t\n")
+        stdin.write(vps_password() + "\n")
         stdin.flush()
         # Do not print stdout/stderr because of cp1252 charmap encoding errors
         

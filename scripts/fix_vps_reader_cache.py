@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 
@@ -7,7 +8,12 @@ import paramiko
 HOST = "192.168.1.254"
 PORT = 2222
 USERNAME = "hieupt"
-PASSWORD = "Congnghe3t"
+PASSWORD = os.environ.get("THREET_VPS_PASSWORD", "")
+if not PASSWORD:
+    sys.exit(
+        "THREET_VPS_PASSWORD chưa được thiết lập.\n"
+        'PowerShell: $env:THREET_VPS_PASSWORD = "<mật khẩu VPS>"'
+    )
 
 REMOTE_MAIN = "/home/hieupt/projects/3T_Reader/phase1-backend/server/license-api/app/main.py"
 REMOTE_INDEX = "/home/hieupt/projects/3T_Reader/phase1-backend/server/license-api/app/static/index.html"

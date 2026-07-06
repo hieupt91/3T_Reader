@@ -44,7 +44,6 @@ admin_config = AdminConfig(f"{settings.data_dir}/admin-config.json")
 staff_service = StaffService(f"{settings.data_dir}/staff.json")
 update_service = UpdateService(token_service, admin_config=admin_config)
 
-_ADMIN_PASSWORD = os.environ.get("THREET_ADMIN_PASSWORD", "3tAdmin2026")
 _STATIC = Path(__file__).parent / "static"
 _active_tokens: set[str] = set()
 _staff_tokens: dict[str, dict] = {}  # token → {username, permissions}
@@ -954,9 +953,9 @@ def admin_revoke_device(license_key: str, device_id: str, _=Depends(_require_adm
 def admin_delete_license(license_key: str, _=Depends(_require_admin)) -> dict:
     record = license_service.licenses.get(license_key)
     if record is None:
-        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y license key")
+        raise HTTPException(status_code=404, detail="Không tìm thấy license key")
     if record.active_devices:
-        raise HTTPException(status_code=400, detail="KhÃ´ng thá»ƒ xÃ³a key Ä‘ang cÃ³ thiáº¿t bá»‹ kÃ­ch hoáº¡t")
+        raise HTTPException(status_code=400, detail="Không thể xóa key đang có thiết bị kích hoạt")
     license_service.licenses.pop(license_key, None)
     license_service._save()
     return {"ok": True}

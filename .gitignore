@@ -73,3 +73,7 @@ piper_voices/
 piper_macos.tar.gz
 piper_whl/
 piper_tts*.whl
+
+# Secrets & generated deploy configs — never commit
+pass.txt
+admin-config-update.json

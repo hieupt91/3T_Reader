@@ -2,6 +2,7 @@ import paramiko
 import os
 import json
 import hashlib
+from vps_secret import vps_password
 
 
 VERSION = "1.0.18"
@@ -23,7 +24,7 @@ def deploy():
     hostname = "192.168.1.254"
     port = 2222
     username = "hieupt"
-    password = "Congnghe3t"
+    password = vps_password()
     
     print(f"Connecting to {hostname}:{port} as {username}...")
     
@@ -59,8 +60,8 @@ def deploy():
         cd /home/hieupt/projects/3T_Reader/phase1-backend/data
         echo '{cfg_str}' > /tmp/update_cfg.json
         jq '.update = input' admin-config.json /tmp/update_cfg.json > /tmp/tmp_admin.json
-        echo "Congnghe3t" | sudo -S cp /tmp/tmp_admin.json admin-config.json
-        echo "Congnghe3t" | sudo -S chmod 666 admin-config.json
+        echo {vps_password()} | sudo -S cp /tmp/tmp_admin.json admin-config.json
+        echo {vps_password()} | sudo -S chmod 666 admin-config.json
         """
         stdin, stdout, stderr = client.exec_command(update_json_cmd)
         out = stdout.read().decode()

@@ -4,6 +4,7 @@ import subprocess
 import time
 import paramiko
 import os
+from vps_secret import vps_password
 
 def forward_proc_to_sock(proc, sock):
     try:
@@ -50,7 +51,7 @@ def deploy():
         client.connect(
             hostname="ssh.3tcomputer.com",
             username="hieupt",
-            password="Congnghe3t",
+            password=vps_password(),
             sock=s2,
             timeout=15,
             banner_timeout=200,
@@ -62,7 +63,7 @@ def deploy():
         print(f"--- {cmd} ---")
         stdin, stdout, stderr = client.exec_command(cmd, get_pty=True)
         time.sleep(1)
-        stdin.write("Congnghe3t\n")
+        stdin.write(vps_password() + "\n")
         stdin.flush()
         print(stdout.read().decode())
         print(stderr.read().decode())

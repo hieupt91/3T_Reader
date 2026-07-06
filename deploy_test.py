@@ -4,6 +4,7 @@ import threading
 import paramiko
 import time
 import sys
+from vps_secret import vps_password
 
 def forward_proc_to_sock(proc, sock):
     try:
@@ -48,7 +49,7 @@ try:
     client.connect(
         hostname="ssh.3tcomputer.com",
         username="hieupt",
-        password="Congnghe3t",
+        password=vps_password(),
         sock=s2,
         timeout=15
     )
@@ -66,7 +67,7 @@ try:
         stdin, stdout, stderr = client.exec_command(cmd, get_pty=True)
         time.sleep(1)
         # If it prompts for sudo password
-        stdin.write("Congnghe3t\n")
+        stdin.write(vps_password() + "\n")
         stdin.flush()
         
         out = stdout.read().decode()

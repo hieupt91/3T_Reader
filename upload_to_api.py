@@ -3,9 +3,10 @@ import json
 import hashlib
 import sys
 import os
+from vps_secret import vps_password
 
 BASE_URL = "https://reader.3tcomputer.com"
-ADMIN_PASSWORD = "Congnghe3t"
+ADMIN_PASSWORD = vps_password()
 INSTALLER_PATH = r"C:\Users\HieuPC\Desktop\3T_Reader_Phase1_Win\build\installer\Setup_3T_Reader_v1.0.22.exe"
 PORTABLE_PATH = r"C:\Users\HieuPC\Desktop\3T_Reader_Phase1_Win\build\installer\3T_Reader_Portable_v1.0.22.zip"
 VERSION = "1.0.22"

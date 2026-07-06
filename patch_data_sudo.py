@@ -1,11 +1,12 @@
 import paramiko
 import json
+from vps_secret import vps_password
 
 def run():
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        client.connect('192.168.1.254', 2222, 'hieupt', 'Congnghe3t')
+        client.connect('192.168.1.254', 2222, 'hieupt', vps_password())
         
         # Upload a python script to do the patch
         patcher = """import json
@@ -40,13 +41,13 @@ else:
         
         # Run with sudo
         stdin, stdout, stderr = client.exec_command('sudo -S python3 /home/hieupt/patch_json.py', get_pty=True)
-        stdin.write("Congnghe3t\n")
+        stdin.write(vps_password() + "\n")
         stdin.flush()
         print("Patcher output:", stdout.read().decode())
         
         # Restart backend
         stdin, stdout, stderr = client.exec_command('cd /home/hieupt/projects/3T_Reader/phase1-backend/infra/backend && docker compose restart license-api', get_pty=True)
-        stdin.write("Congnghe3t\n")
+        stdin.write(vps_password() + "\n")
         stdin.flush()
         print("Restart output:", stdout.read().decode())
         
