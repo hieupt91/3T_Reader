@@ -83,6 +83,12 @@ class LicenseService:
             return {"ok": False, "message": "Device mismatch."}
         if self._is_expired(payload.get("expires_at", "")):
             return {"ok": False, "message": "Token expired.", "expires_at": payload.get("expires_at")}
+        # Chặn thiết bị đã bị thu hồi: nếu không, token đã ký vẫn hợp lệ tới khi
+        # hết hạn (tới 1 năm) dù admin đã revoke -> thu hồi thành vô nghĩa.
+        license_key = payload.get("license_key")
+        record = self.licenses.get(license_key) if license_key else None
+        if record is not None and device_id in record.revoked_devices:
+            return {"ok": False, "message": "This device is revoked."}
         return {
             "ok": True,
             "message": "Valid.",

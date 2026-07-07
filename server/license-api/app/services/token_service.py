@@ -71,7 +71,12 @@ class TokenService:
                 sig_bytes = _b64url_decode(sig_part)
                 pub_key.verify(sig_bytes, body_b64.encode("ascii"))
             elif len(parts) == 2:
-                # HMAC fallback
+                # HMAC fallback: CHỈ chấp nhận khi server chưa cấu hình Ed25519.
+                # Nếu đã có khóa Ed25519, từ chối token HMAC để chống giả mạo —
+                # kẻ biết signing_secret không thể chế token được server chấp nhận,
+                # khôi phục lại bảo đảm bất đối xứng của Ed25519.
+                if self._ed25519_key is not None:
+                    raise ValueError("HMAC token rejected: server uses Ed25519")
                 expected = hmac.new(self.secret.encode("utf-8"), body_b64.encode("ascii"), hashlib.sha256).hexdigest()
                 if not hmac.compare_digest(sig_part, expected):
                     raise ValueError("Invalid token signature")

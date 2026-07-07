@@ -3,11 +3,12 @@ from __future__ import annotations
 import os
 import re
 import secrets as _secrets
+import time
 from pathlib import Path
 
 _KEY_PATTERN = re.compile(r'^3TR-[BPE]-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -43,11 +44,33 @@ admin_config = AdminConfig(f"{settings.data_dir}/admin-config.json")
 staff_service = StaffService(f"{settings.data_dir}/staff.json")
 update_service = UpdateService(token_service, admin_config=admin_config)
 
-_ADMIN_PASSWORD = os.environ.get("THREET_ADMIN_PASSWORD", "3tAdmin2026")
 _STATIC = Path(__file__).parent / "static"
-_active_tokens: set[str] = set()
-_staff_tokens: dict[str, dict] = {}  # token → {username, permissions}
+_TOKEN_TTL_SECONDS = 8 * 3600  # phiên đăng nhập admin/staff hết hạn sau 8 giờ
+_active_tokens: dict[str, float] = {}  # token → thời điểm hết hạn (epoch)
+_staff_tokens: dict[str, dict] = {}  # token → {username, permissions, expires_at}
 _bearer = HTTPBearer(auto_error=False)
+_RATE_BUCKETS: dict[tuple[str, str], list[float]] = {}
+
+
+def _rate_dep(bucket: str, max_hits: int, window_s: float):
+    """Dependency chống brute-force theo IP (fixed-window trong bộ nhớ)."""
+
+    def _dep(request: Request) -> None:
+        ip = request.client.host if request.client else "unknown"
+        now = time.time()
+        key = (bucket, ip)
+        hits = [t for t in _RATE_BUCKETS.get(key, []) if now - t < window_s]
+        if len(hits) >= max_hits:
+            raise HTTPException(status_code=429, detail="Quá nhiều yêu cầu, vui lòng thử lại sau.")
+        hits.append(now)
+        _RATE_BUCKETS[key] = hits
+
+    return _dep
+
+
+def _token_live(expires_at: float | None) -> bool:
+    """True nếu token phiên còn hạn."""
+    return expires_at is not None and time.time() <= expires_at
 
 app = FastAPI(title=settings.app_name, version="0.3.0")
 
@@ -98,12 +121,12 @@ class LoginRequest(BaseModel):
     password: str
 
 
-@app.post("/api/admin/login")
+@app.post("/api/admin/login", dependencies=[Depends(_rate_dep("admin_login", 5, 300))])
 def admin_login(req: LoginRequest):
     if not admin_config.verify_password(req.password):
         raise HTTPException(status_code=401, detail="Mật khẩu không đúng")
     tok = _secrets.token_hex(32)
-    _active_tokens.add(tok)
+    _active_tokens[tok] = time.time() + _TOKEN_TTL_SECONDS
     return {"token": tok, "role": "admin"}
 
 
@@ -112,7 +135,7 @@ class StaffLoginRequest(BaseModel):
     password: str
 
 
-@app.post("/api/staff/login")
+@app.post("/api/staff/login", dependencies=[Depends(_rate_dep("staff_login", 5, 300))])
 def staff_login(req: StaffLoginRequest):
     if not staff_service.authenticate(req.username, req.password):
         raise HTTPException(status_code=401, detail="Tên đăng nhập hoặc mật khẩu không đúng")
@@ -121,6 +144,7 @@ def staff_login(req: StaffLoginRequest):
     _staff_tokens[tok] = {
         "username": req.username.strip().lower(),
         "permissions": info.get("permissions", []),
+        "expires_at": time.time() + _TOKEN_TTL_SECONDS,
     }
     return {
         "token": tok,
@@ -130,8 +154,25 @@ def staff_login(req: StaffLoginRequest):
     }
 
 
+def _admin_token_active(tok: str) -> bool:
+    if not _token_live(_active_tokens.get(tok)):
+        _active_tokens.pop(tok, None)  # dọn token hết hạn
+        return False
+    return True
+
+
+def _staff_token_info(tok: str) -> dict | None:
+    info = _staff_tokens.get(tok)
+    if info is None:
+        return None
+    if not _token_live(info.get("expires_at")):
+        _staff_tokens.pop(tok, None)
+        return None
+    return info
+
+
 def _require_admin(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)):
-    if creds is None or creds.credentials not in _active_tokens:
+    if creds is None or not _admin_token_active(creds.credentials):
         raise HTTPException(status_code=401, detail="Chưa đăng nhập hoặc phiên hết hạn")
     return creds.credentials
 
@@ -140,10 +181,11 @@ def _require_staff_or_admin(creds: HTTPAuthorizationCredentials | None = Depends
     if creds is None:
         raise HTTPException(status_code=401, detail="Chưa đăng nhập")
     tok = creds.credentials
-    if tok in _active_tokens:
+    if _admin_token_active(tok):
         return {"role": "admin", "permissions": ["approve", "reject", "delete"]}
-    if tok in _staff_tokens:
-        return _staff_tokens[tok]
+    info = _staff_token_info(tok)
+    if info is not None:
+        return info
     raise HTTPException(status_code=401, detail="Phiên đăng nhập hết hạn")
 
 
@@ -271,7 +313,7 @@ class OrderSubmitRequest(BaseModel):
     quantity: int = 1
 
 
-@app.post("/api/v1/order/submit")
+@app.post("/api/v1/order/submit", dependencies=[Depends(_rate_dep("order_submit", 5, 300))])
 def submit_order(req: OrderSubmitRequest):
     if not req.customer_name.strip() or not req.customer_email.strip():
         raise HTTPException(status_code=422, detail="Vui lòng điền đầy đủ thông tin")
@@ -296,7 +338,11 @@ def api_health() -> dict:
     return health()
 
 
-@app.post("/api/license/activate", response_model=ActivateResponse)
+@app.post(
+    "/api/license/activate",
+    response_model=ActivateResponse,
+    dependencies=[Depends(_rate_dep("license_activate", 10, 60))],
+)
 def activate(req: ActivateRequest) -> ActivateResponse:
     if not _KEY_PATTERN.match(req.license_key.strip().upper()):
         raise HTTPException(status_code=400, detail="Mã key không đúng định dạng. Ví dụ: 3TR-P-XXXX-XXXX-XXXX")
@@ -322,12 +368,20 @@ def activate(req: ActivateRequest) -> ActivateResponse:
     )
 
 
-@app.post(f"/api/{settings.api_version}/license/activate", response_model=ActivateResponse)
+@app.post(
+    f"/api/{settings.api_version}/license/activate",
+    response_model=ActivateResponse,
+    dependencies=[Depends(_rate_dep("license_activate", 10, 60))],
+)
 def activate_v1(req: ActivateRequest) -> ActivateResponse:
     return activate(req)
 
 
-@app.post("/api/license/validate", response_model=ValidateResponse)
+@app.post(
+    "/api/license/validate",
+    response_model=ValidateResponse,
+    dependencies=[Depends(_rate_dep("license_validate", 60, 60))],
+)
 def validate(req: ValidateRequest) -> ValidateResponse:
     result = license_service.validate(req.token, req.device_id)
     return ValidateResponse(
@@ -340,7 +394,11 @@ def validate(req: ValidateRequest) -> ValidateResponse:
     )
 
 
-@app.post(f"/api/{settings.api_version}/license/validate", response_model=ValidateResponse)
+@app.post(
+    f"/api/{settings.api_version}/license/validate",
+    response_model=ValidateResponse,
+    dependencies=[Depends(_rate_dep("license_validate", 60, 60))],
+)
 def validate_v1(req: ValidateRequest) -> ValidateResponse:
     return validate(req)
 
@@ -486,7 +544,7 @@ def set_update_config(req: UpdateConfigRequest, _=Depends(_require_admin)) -> di
     return {"ok": True}
 
 @app.get("/api/admin/licenses")
-def admin_licenses() -> dict:
+def admin_licenses(_=Depends(_require_staff_or_admin)) -> dict:
     return {
         "items": [
             {
@@ -501,7 +559,7 @@ def admin_licenses() -> dict:
 
 
 @app.get("/api/admin/devices")
-def admin_devices() -> dict:
+def admin_devices(_=Depends(_require_staff_or_admin)) -> dict:
     devices = []
     for record in license_service.licenses.values():
         for device_id, payload in record.active_devices.items():
