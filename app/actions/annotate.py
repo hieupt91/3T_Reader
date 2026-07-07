@@ -171,12 +171,15 @@ class _AnnotationOpQueue(QObject):
         staged_path = ""
         try:
             import pikepdf
-            with pikepdf.open(requested_target) as pdf:
-                for _path, op in same_target:
-                    op(pdf)
-                staged_path = make_staged_pdf_path(requested_target)
-                pdf.save(staged_path)
-            replace_file_with_retry(staged_path, requested_target, attempts=3)
+            # Cùng khóa với luồng ghi nền (rotate) để không hai luồng cùng
+            # mở/save/replace một file PDF -> tránh hỏng file / mất dữ liệu.
+            with _PDF_SAVE_LOCK:
+                with pikepdf.open(requested_target) as pdf:
+                    for _path, op in same_target:
+                        op(pdf)
+                    staged_path = make_staged_pdf_path(requested_target)
+                    pdf.save(staged_path)
+                replace_file_with_retry(staged_path, requested_target, attempts=3)
             try:
                 from app.local_server import LocalPDFJSServer
                 LocalPDFJSServer.get().invalidate_pdf_cache(requested_target)

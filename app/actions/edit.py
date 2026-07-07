@@ -815,6 +815,21 @@ def _ensure_edit_state(window):
             _reset_edit_state(window)
             state = None
 
+    if state:
+        # File gốc có thể đã bị ghi thêm sau khi base_snapshot được chụp
+        # (ví dụ auto-OCR ghi text layer chạy nền) — nếu vậy base_snapshot
+        # cũ sẽ không bao giờ thấy text mới, khiến "sửa text gốc" tìm span
+        # thất bại dù OCR đã xong. Phát hiện qua mtime và làm mới nếu lệch.
+        original_path = state.get("original_path")
+        source_mtime = state.get("source_mtime")
+        if original_path and source_mtime is not None:
+            try:
+                if os.path.getmtime(original_path) > source_mtime + 0.5:
+                    _reset_edit_state(window)
+                    state = None
+            except OSError:
+                pass
+
     # Nếu đang edit state và file gốc khớp → tái sử dụng
     if state and state.get("original_path") == current:
         return state
@@ -906,10 +921,16 @@ def _ensure_edit_state(window):
     shutil.copy2(snapshot_source, base_snapshot)
     shutil.copy2(snapshot_source, working_file)
 
+    try:
+        source_mtime = os.path.getmtime(snapshot_source)
+    except OSError:
+        source_mtime = None
+
     state = {
         "original_path": snapshot_source,
         "base_snapshot": base_snapshot,
         "working_file": working_file,
+        "source_mtime": source_mtime,
         "ops": [],
         "next_id": 1,
     }
@@ -1152,6 +1173,14 @@ def undo_last_edit(window):
 
     removed = state["ops"].pop()
     op_type = "văn bản" if removed.get("type") == "text" else "ảnh"
+    # Sửa text trên trang scan tạo một CẶP op: miếng vá ảnh nền + text mới.
+    # Hoàn tác phải gỡ cả cặp, nếu không sẽ còn sót miếng vá che chữ gốc.
+    if (
+        removed.get("is_existing_edit")
+        and state["ops"]
+        and state["ops"][-1].get("is_scan_patch")
+    ):
+        state["ops"].pop()
 
     if not state["ops"]:
         # Không còn ops → dọn dẹp state và quay về file gốc
@@ -2304,6 +2333,303 @@ def edit_text_object(window):
                        focus_page=int(target_op.get("page_number", 1)))
 
 
+def _inter_area(a, b) -> float:
+    x0 = max(a[0], b[0])
+    y0 = max(a[1], b[1])
+    x1 = min(a[2], b[2])
+    y1 = min(a[3], b[3])
+    return max(0.0, x1 - x0) * max(0.0, y1 - y0)
+
+
+def _center_distance(a, b) -> float:
+    ax = (a[0] + a[2]) / 2.0
+    ay = (a[1] + a[3]) / 2.0
+    bx = (b[0] + b[2]) / 2.0
+    by = (b[1] + b[3]) / 2.0
+    return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
+
+
+def _find_pdf_span(base_path: str, page_num: int, pick_box: tuple[float, float, float, float]) -> dict | None:
+    """Tìm span PyMuPDF khớp nhất với `pick_box` trên `page_num`, dùng cho
+    "sửa text gốc" (TC30) để lấy font/size/color/vị trí của text đang sửa."""
+    try:
+        import fitz
+    except Exception:
+        return None
+
+    doc = fitz.open(base_path)
+    try:
+        if page_num < 1 or page_num > doc.page_count:
+            return None
+        page = doc[page_num - 1]
+        page_h = float(page.rect.height)
+        best = None
+        best_score = None
+        best_overlap = 0.0
+        for block in page.get_text("dict").get("blocks", []):
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    text = str(span.get("text", ""))
+                    if not text.strip():
+                        continue
+                    x0, y0, x1, y1 = [float(v) for v in span.get("bbox", (0, 0, 0, 0))]
+                    span_box = (x0, page_h - y1, x1, page_h - y0)
+                    overlap = _inter_area(pick_box, span_box)
+                    distance = _center_distance(pick_box, span_box)
+                    score = (-overlap, distance)
+                    if best_score is None or score < best_score:
+                        origin_x, origin_y = span.get("origin", (x0, y1))
+                        color_int = int(span.get("color", 0) or 0)
+                        font_name = str(span.get("font", ""))
+                        # Text do auto-OCR chèn (packages/ocr/engine.py,
+                        # Tesseract textonly_pdf) dùng font vô hình đặt tên
+                        # "GlyphLessFont" chỉ để định vị/chọn chữ — không
+                        # phải font thật của ảnh scan. Lấy font_family/bold
+                        # từ đây sẽ ra tên font vô nghĩa; đánh dấu để
+                        # on_click() giữ font mặc định thay vì áp nó.
+                        is_ocr_placeholder_font = "glyphless" in font_name.lower()
+                        best = {
+                            "box": span_box,
+                            "baseline": (float(origin_x), page_h - float(origin_y)),
+                            "font_size": float(span.get("size", 12) or 12),
+                            "font_family": "" if is_ocr_placeholder_font else font_name,
+                            "font_color": (
+                                ((color_int >> 16) & 0xFF) / 255.0,
+                                ((color_int >> 8) & 0xFF) / 255.0,
+                                (color_int & 0xFF) / 255.0,
+                            ),
+                            "bold": False if is_ocr_placeholder_font else ("bold" in font_name.lower()),
+                            "is_ocr_placeholder_font": is_ocr_placeholder_font,
+                        }
+                        best_score = score
+                        best_overlap = overlap
+        if best is not None and best_overlap <= 0.0:
+            # PDF.js text-layer rects are often offset a point or two from
+            # the true span bbox. Accept a near miss (small gap) instead of
+            # dropping the match — otherwise font/size/color fall back to
+            # CSS defaults and results look inconsistent (TC30).
+            bb = best["box"]
+            gap_x = max(0.0, max(pick_box[0], bb[0]) - min(pick_box[2], bb[2]))
+            gap_y = max(0.0, max(pick_box[1], bb[1]) - min(pick_box[3], bb[3]))
+            if max(gap_x, gap_y) > 5.0:
+                return None
+        return best
+    finally:
+        doc.close()
+
+
+def _sample_background_color(
+    pdf_path: str, page_num: int, box: tuple[float, float, float, float], *, margin: float = 6.0
+) -> tuple[float, float, float] | None:
+    """Lấy màu nền THẬT xung quanh `box` (đọc dải viền ngoài box, không đọc
+    bên trong box để tránh dính pixel của chính chữ đang sửa).
+
+    Dùng khi redact/chèn đè lên ảnh scan (auto-OCR): nền ảnh scan hiếm khi
+    trắng tinh (hơi ngả vàng/xám/có nhiễu), nếu cứ tô đè màu trắng (1,1,1)
+    mặc định sẽ hiện rõ một mảng trắng lộ liễu không khớp nền xung quanh.
+    Trả None nếu không lấy được (ví dụ trang không phải ảnh scan).
+    """
+    try:
+        import statistics
+
+        import pypdfium2 as pdfium
+
+        scale = 2.0
+        doc = pdfium.PdfDocument(pdf_path)
+        try:
+            if page_num < 1 or page_num > len(doc):
+                return None
+            page = doc[page_num - 1]
+            page_h_pt = float(page.get_height())
+            bitmap = page.render(scale=scale)
+            pil_img = bitmap.to_pil().convert("RGB")
+        finally:
+            doc.close()
+
+        left, bottom, right, top = [float(v) for v in box]
+
+        def _to_px(x_pt: float, y_pt: float) -> tuple[float, float]:
+            # PDF: gốc dưới-trái, y hướng lên. Ảnh render: gốc trên-trái.
+            return (x_pt * scale, (page_h_pt - y_pt) * scale)
+
+        px_left, px_top = _to_px(left, top)
+        px_right, px_bottom = _to_px(right, bottom)
+        px_left, px_right = sorted((px_left, px_right))
+        px_top, px_bottom = sorted((px_top, px_bottom))
+
+        img_w, img_h = pil_img.size
+        m = margin * scale
+        outer_left = max(0, int(px_left - m))
+        outer_top = max(0, int(px_top - m))
+        outer_right = min(img_w, int(px_right + m))
+        outer_bottom = min(img_h, int(px_bottom + m))
+        box_left, box_top = int(px_left), int(px_top)
+        box_right, box_bottom = int(px_right), int(px_bottom)
+        if outer_right <= outer_left or outer_bottom <= outer_top:
+            return None
+
+        # 4 dải viền quanh box (trên/dưới/trái/phải), không lấy vùng trong box.
+        strips = (
+            (outer_left, outer_top, outer_right, max(outer_top, box_top)),
+            (outer_left, min(outer_bottom, box_bottom), outer_right, outer_bottom),
+            (outer_left, outer_top, max(outer_left, box_left), outer_bottom),
+            (min(outer_right, box_right), outer_top, outer_right, outer_bottom),
+        )
+        samples: list[tuple[int, int, int]] = []
+        for l, t, r, b in strips:
+            if r <= l or b <= t:
+                continue
+            samples.extend(pil_img.crop((l, t, r, b)).getdata())
+        if not samples:
+            return None
+
+        r_med = statistics.median(s[0] for s in samples)
+        g_med = statistics.median(s[1] for s in samples)
+        b_med = statistics.median(s[2] for s in samples)
+        return (r_med / 255.0, g_med / 255.0, b_med / 255.0)
+    except Exception:
+        return None
+
+
+def _page_is_scan_text(base_path: str, page_num: int) -> bool:
+    """True nếu text trên trang chỉ là lớp OCR vô hình (GlyphLessFont) —
+    tức trang là ảnh scan, mọi chữ nhìn thấy đều là pixel của ảnh."""
+    try:
+        import fitz
+    except Exception:
+        return False
+    try:
+        doc = fitz.open(base_path)
+        try:
+            if page_num < 1 or page_num > doc.page_count:
+                return False
+            page = doc[page_num - 1]
+            has_any_span = False
+            for block in page.get_text("dict").get("blocks", []):
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        if not str(span.get("text", "")).strip():
+                            continue
+                        has_any_span = True
+                        if "glyphless" not in str(span.get("font", "")).lower():
+                            return False
+            if not has_any_span:
+                return False
+            return bool(page.get_images(full=True))
+        finally:
+            doc.close()
+    except Exception:
+        return False
+
+
+def _build_scan_patch(
+    base_path: str,
+    page_num: int,
+    box: tuple[float, float, float, float],
+    *,
+    margin_pt: float = 5.0,
+    scale: float = 3.0,
+) -> tuple[str, str, tuple[float, float, float, float]] | None:
+    """Tạo miếng vá ẢNH che vùng chữ cũ trên trang scan.
+
+    Tô màu phẳng (kể cả màu lấy mẫu từ nền) vẫn lộ trên ảnh scan vì nền có
+    vân/nhiễu/đậm nhạt không đều. Thay vào đó: cắt đúng vùng ảnh quanh chữ
+    từ trang đã render, lấp phần chữ bằng màu trung vị của viền xung quanh,
+    rồi ghép mềm (feather) — viền miếng vá là chính pixel của trang nên
+    không có đường ranh.
+
+    Trả về (đường_dẫn_png, data_url, patch_box_pdf) hoặc None nếu thất bại.
+    """
+    try:
+        import base64
+        import statistics
+        import uuid as _uuid
+
+        import pypdfium2 as pdfium
+        from PIL import Image, ImageDraw, ImageFilter
+
+        doc = pdfium.PdfDocument(base_path)
+        try:
+            if page_num < 1 or page_num > len(doc):
+                return None
+            page = doc[page_num - 1]
+            page_w_pt = float(page.get_width())
+            page_h_pt = float(page.get_height())
+            bitmap = page.render(scale=scale)
+            pil_img = bitmap.to_pil().convert("RGB")
+        finally:
+            doc.close()
+
+        left, bottom, right, top = [float(v) for v in box]
+        patch_left = max(0.0, left - margin_pt)
+        patch_bottom = max(0.0, bottom - margin_pt)
+        patch_right = min(page_w_pt, right + margin_pt)
+        patch_top = min(page_h_pt, top + margin_pt)
+        if patch_right - patch_left < 1.0 or patch_top - patch_bottom < 1.0:
+            return None
+
+        # PDF (gốc dưới-trái, y lên) -> pixel ảnh (gốc trên-trái, y xuống).
+        px_l = int(patch_left * scale)
+        px_t = int((page_h_pt - patch_top) * scale)
+        px_r = int(patch_right * scale)
+        px_b = int((page_h_pt - patch_bottom) * scale)
+        img_w, img_h = pil_img.size
+        px_l, px_r = max(0, px_l), min(img_w, px_r)
+        px_t, px_b = max(0, px_t), min(img_h, px_b)
+        if px_r - px_l < 4 or px_b - px_t < 4:
+            return None
+
+        region = pil_img.crop((px_l, px_t, px_r, px_b))
+
+        # Vùng chữ cũ, tính theo toạ độ trong region.
+        in_l = int((left - patch_left) * scale)
+        in_t = int((patch_top - top) * scale)
+        in_r = region.width - int((patch_right - right) * scale)
+        in_b = region.height - int((bottom - patch_bottom) * scale)
+        in_l, in_t = max(0, in_l), max(0, in_t)
+        in_r, in_b = min(region.width, in_r), min(region.height, in_b)
+
+        # Màu nền = trung vị của các pixel viền (ngoài vùng chữ).
+        border: list[tuple[int, int, int]] = []
+        for strip in (
+            (0, 0, region.width, in_t),
+            (0, in_b, region.width, region.height),
+            (0, in_t, in_l, in_b),
+            (in_r, in_t, region.width, in_b),
+        ):
+            l, t, r, b = strip
+            if r > l and b > t:
+                border.extend(region.crop((l, t, r, b)).getdata())
+        if not border:
+            return None
+        med = (
+            int(statistics.median(p[0] for p in border)),
+            int(statistics.median(p[1] for p in border)),
+            int(statistics.median(p[2] for p in border)),
+        )
+
+        fill_img = Image.new("RGB", region.size, med)
+        mask = Image.new("L", region.size, 0)
+        ImageDraw.Draw(mask).rectangle((in_l, in_t, in_r, in_b), fill=255)
+        feather = max(2, int(margin_pt * scale / 3))
+        mask = mask.filter(ImageFilter.GaussianBlur(radius=feather))
+        patch = Image.composite(fill_img, region, mask)
+
+        edit_dir = os.path.join(tempfile.gettempdir(), "reader_pdf_edit")
+        os.makedirs(edit_dir, exist_ok=True)
+        patch_path = os.path.join(edit_dir, f"img_patch_{_uuid.uuid4().hex[:10]}.png")
+        patch.save(patch_path, format="PNG")
+
+        import io as _io
+        buf = _io.BytesIO()
+        patch.save(buf, format="PNG")
+        data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+        return patch_path, data_url, (patch_left, patch_bottom, patch_right, patch_top)
+    except Exception:
+        return None
+
+
 @require_document(show_message=True)
 def edit_existing_text(window):
     """Edit existing text in the PDF by redacting it and inserting new text."""
@@ -2364,78 +2690,6 @@ def edit_existing_text(window):
             new_right = max(right, new_right)
             new_top = max(top, new_top)
         return (left, bottom, new_right, new_top)
-
-    def _find_pdf_span(base_path: str, page_num: int, pick_box: tuple[float, float, float, float]) -> dict | None:
-        try:
-            import fitz
-        except Exception:
-            return None
-
-        def _inter_area(a, b) -> float:
-            x0 = max(a[0], b[0])
-            y0 = max(a[1], b[1])
-            x1 = min(a[2], b[2])
-            y1 = min(a[3], b[3])
-            return max(0.0, x1 - x0) * max(0.0, y1 - y0)
-
-        def _center_distance(a, b) -> float:
-            ax = (a[0] + a[2]) / 2.0
-            ay = (a[1] + a[3]) / 2.0
-            bx = (b[0] + b[2]) / 2.0
-            by = (b[1] + b[3]) / 2.0
-            return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
-
-        doc = fitz.open(base_path)
-        try:
-            if page_num < 1 or page_num > doc.page_count:
-                return None
-            page = doc[page_num - 1]
-            page_h = float(page.rect.height)
-            best = None
-            best_score = None
-            best_overlap = 0.0
-            for block in page.get_text("dict").get("blocks", []):
-                for line in block.get("lines", []):
-                    for span in line.get("spans", []):
-                        text = str(span.get("text", ""))
-                        if not text.strip():
-                            continue
-                        x0, y0, x1, y1 = [float(v) for v in span.get("bbox", (0, 0, 0, 0))]
-                        span_box = (x0, page_h - y1, x1, page_h - y0)
-                        overlap = _inter_area(pick_box, span_box)
-                        distance = _center_distance(pick_box, span_box)
-                        score = (-overlap, distance)
-                        if best_score is None or score < best_score:
-                            origin_x, origin_y = span.get("origin", (x0, y1))
-                            color_int = int(span.get("color", 0) or 0)
-                            font_name = str(span.get("font", ""))
-                            best = {
-                                "box": span_box,
-                                "baseline": (float(origin_x), page_h - float(origin_y)),
-                                "font_size": float(span.get("size", 12) or 12),
-                                "font_family": font_name,
-                                "font_color": (
-                                    ((color_int >> 16) & 0xFF) / 255.0,
-                                    ((color_int >> 8) & 0xFF) / 255.0,
-                                    (color_int & 0xFF) / 255.0,
-                                ),
-                                "bold": "bold" in font_name.lower(),
-                            }
-                            best_score = score
-                            best_overlap = overlap
-            if best is not None and best_overlap <= 0.0:
-                # PDF.js text-layer rects are often offset a point or two from
-                # the true span bbox. Accept a near miss (small gap) instead of
-                # dropping the match — otherwise font/size/color fall back to
-                # CSS defaults and results look inconsistent (TC30).
-                bb = best["box"]
-                gap_x = max(0.0, max(pick_box[0], bb[0]) - min(pick_box[2], bb[2]))
-                gap_y = max(0.0, max(pick_box[1], bb[1]) - min(pick_box[3], bb[3]))
-                if max(gap_x, gap_y) > 5.0:
-                    return None
-            return best
-        finally:
-            doc.close()
 
     def on_click(pageNum, left, bottom, right, top, old_text, styles_json, use_span_box=True):
         window.status.showMessage("", 0)
@@ -2502,6 +2756,44 @@ def edit_existing_text(window):
 
         text_value = str(new_text).strip()
 
+        # Trang scan (chữ nhìn thấy là pixel ảnh, text chỉ là lớp OCR vô
+        # hình): che chữ cũ bằng MIẾNG VÁ ẢNH lấy từ chính nền trang —
+        # tô màu phẳng kiểu gì cũng lộ vệt trên nền scan có vân/nhiễu.
+        is_scan_page = (
+            bool(span_info and span_info.get("is_ocr_placeholder_font"))
+            or _page_is_scan_text(base_snapshot, int(pageNum))
+        )
+        patch_info = None
+        fill_color = (1.0, 1.0, 1.0)
+        if is_scan_page:
+            patch_pad = redact_padding + 1.0
+            patch_source_box = (
+                redact_box[0] - patch_pad,
+                redact_box[1] - patch_pad,
+                redact_box[2] + patch_pad,
+                redact_box[3] + patch_pad,
+            )
+            patch_info = _build_scan_patch(base_snapshot, int(pageNum), patch_source_box)
+            if patch_info is None:
+                # Không vá được bằng ảnh → lùi về tô màu nền lấy mẫu.
+                sampled = _sample_background_color(base_snapshot, int(pageNum), redact_box)
+                if sampled:
+                    fill_color = sampled
+
+        if patch_info is not None:
+            patch_path, patch_data_url, patch_box = patch_info
+            state["ops"].append({
+                "id": state["next_id"],
+                "type": "image",
+                "page_number": pageNum,
+                "box": patch_box,
+                "image_path": patch_path,
+                "image_data_url": patch_data_url,
+                "rotation": 0,
+                "is_scan_patch": True,
+            })
+            state["next_id"] += 1
+
         if text_value:
             insert_left, insert_bottom, insert_right, insert_top = insert_box
             text_box = _expanded_text_box(insert_left, insert_bottom, insert_right, insert_top, text_value, font_size, base_snapshot, int(pageNum))
@@ -2510,8 +2802,10 @@ def edit_existing_text(window):
                 "type": "text",
                 "page_number": pageNum,
                 "box": text_box,
-                "redact_box": redact_box,
+                # Miếng vá ảnh đã che chữ cũ — không tô đè màu nữa.
+                "redact_box": None if patch_info is not None else redact_box,
                 "redact_padding": redact_padding,
+                "fill_color": fill_color,
                 "text": text_value,
                 "font_size": font_size,
                 "font_color": color,
@@ -2527,13 +2821,30 @@ def edit_existing_text(window):
                 else:
                     op["baseline"] = (left, float(span_info["baseline"][1]))
                 op["single_line"] = True
+        elif patch_info is not None:
+            # Xóa text trên trang scan: miếng vá ảnh ở trên đã là toàn bộ
+            # thao tác — không cần op redact màu phẳng nào nữa.
+            display_path = window.get_display_path() if hasattr(window, "get_display_path") else state.get("original_path")
+            working_file = _render_edit_state(window, state, "Đã xóa text", focus_page=int(pageNum))
+            if not working_file:
+                return
+            reload_document(
+                window,
+                working_file,
+                display_path=display_path,
+                temp_path=working_file,
+                page=pageNum,
+                soft_reload=True,
+            )
+            QTimer.singleShot(350, lambda: window.viewer.update_ops("[]") if hasattr(window.viewer, "update_ops") else None)
+            return
         else:
             op = {
                 "id": state["next_id"],
                 "type": "redact",
                 "page_number": pageNum,
                 "box": redact_box,
-                "fill_color": (1.0, 1.0, 1.0),
+                "fill_color": fill_color,
                 "redact_padding": redact_padding,
             }
 

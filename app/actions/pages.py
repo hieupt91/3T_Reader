@@ -405,11 +405,15 @@ def rotate_pages_action(window):
 
     def _burn_rotation_in_background():
         import tempfile
+        from app.actions.annotate import _PDF_SAVE_LOCK
         tmp = make_staged_pdf_path(path)
         try:
             from app.actions._pdf_save import replace_file_with_retry
-            get_pdf_engine().rotate_pages(path, tmp, rotations)
-            replace_file_with_retry(tmp, path, attempts=12)
+            # Cùng khóa với luồng lưu chú thích và rotate đơn trang để không có
+            # hai luồng cùng ghi đè một file PDF (tránh hỏng file).
+            with _PDF_SAVE_LOCK:
+                get_pdf_engine().rotate_pages(path, tmp, rotations)
+                replace_file_with_retry(tmp, path, attempts=12)
         except Exception as e:
             remove_path_quietly(tmp)
             try:

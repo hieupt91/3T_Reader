@@ -18,7 +18,15 @@
   - Khắc phục triệt để lỗi crash giao diện PDF.js khi load các file chứa chữ ký số phức tạp (Bằng cách chuyển Widget thành Stamp).
 - [x] **Ký lô (Batch Sign):** Tự động ký hàng trăm file PDF cùng lúc trong một thư mục.
 
-## 3. Đợt sửa lỗi Test Case QA — TC27–TC41 (06/07/2026, chờ tester retest)
+## 3. Auto-OCR khi mở file (06/07/2026, chờ tester retest)
+- [x] **OCR nền tự động ngay khi mở file scan** (`app/actions/auto_ocr.py`, mới): với file scan (ảnh thuần, không có text layer), ứng dụng tự OCR ngầm ngay khi mở, không cần bấm nút nào. Trang đang xem được OCR trước tiên để bôi đen/tìm kiếm/sửa text hoạt động sớm nhất, các trang còn lại xử lý dần ở nền.
+- [x] Kết quả OCR được ghi thành **text layer vô hình, định vị đúng theo từng từ** vào file PDF thật (dùng chế độ xuất `textonly_pdf` có sẵn của Tesseract, ghép bằng `pikepdf.Page.add_overlay`) — nhờ vậy tìm kiếm (Ctrl+F), bôi đen/gạch dưới/gạch ngang và **sửa text gốc (TC30)** đều hoạt động trên file scan như file PDF thường, không cần code riêng cho từng tính năng.
+- [x] Idempotent theo thiết kế: trước khi OCR một trang, hệ thống kiểm tra trang đã có text chưa (`page_has_text`) — mở lại file đã xử lý sẽ tự bỏ qua, không tốn công OCR lại.
+- [x] Ghi PDF dùng chung hàng đợi autosave chú thích sẵn có nên không xung đột với các thao tác ghi file khác (highlight, ghi chú...) đang chạy song song.
+- [x] **Mở cho mọi gói license** (không giống OCR thủ công toàn tài liệu/1 trang trong menu, vẫn khóa Personal/Enterprise như cũ) — vì đây là nền tảng để tính năng cơ bản (bôi đen, sửa text) hoạt động, không phải tính năng OCR độc lập.
+- Đã kiểm chứng bằng test thực tế (không chỉ lý thuyết): tạo PDF giả lập chỉ có ảnh chữ, chạy OCR + ghép text layer, xác nhận text trích xuất được khớp chính xác nội dung ảnh.
+
+## 4. Đợt sửa lỗi Test Case QA — TC27–TC41 (06/07/2026, chờ tester retest)
 - [x] **TC27** — Xóa nét bôi vẽ (highlight/gạch dưới/gạch ngang): click trái hoặc chuột phải trực tiếp vào nét vẽ → menu "🗑️ Xóa nét vẽ" / "🧹 Xóa toàn bộ highlight trên trang". Nét dài bị PDF tách thành nhiều khúc (`id-0`, `id-1`…) được chuẩn hóa về ID gốc nên xóa một phát là sạch cả nét, trên cả file PDF lẫn overlay UI. Click trái chỉ kích hoạt khi không kéo chọn chữ nên không ảnh hưởng bôi đen văn bản. Annotation PDF nay ghi thêm opacity `/CA` (0.60 highlight, 0.9 gạch dưới/ngang) và `/Contents` nên màu không đổi và xóa được cả sau khi đóng/mở lại file. Thêm nút **"Chế độ: Chọn/Tìm"** trên Ribbon: chế độ Tìm tô/gạch (và xóa) toàn bộ từ khóa trên tài liệu thay vì chỉ vùng bôi đen.
   - *Bản vá 06/07 (chiều):* phát hiện và sửa bug chặn toàn bộ chức năng xóa — `app/webchannel.py` dùng proxy WebChannel ổn định (`_NoteToolsBridgeProxy`) đứng giữa JS và backend; slot `deleteMark`/`deleteMarksOnPage` mới thêm vào backend nhưng thiếu trong proxy khiến JS báo lỗi `bridge.deleteMark is not a function`. Đã bổ sung 2 slot vào proxy.
 - [x] **TC28** — Tắt thanh tìm kiếm (Ctrl+F) hoặc xóa trắng ô tìm kiếm là highlight biến mất ngay: thêm `clear_search()` gửi query rỗng + `findbarclose`, reset `findController` và dọn class highlight còn sót trong text layer. Thêm nút **"Tô sáng tất cả"** trên thanh tìm kiếm — quét và lưu toàn bộ kết quả tìm được thành nét vẽ thật (khác với highlight tạm của Ctrl+F).

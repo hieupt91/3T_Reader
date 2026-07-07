@@ -2164,6 +2164,21 @@ class PDFReaderApp(QMainWindow):
             QTimer.singleShot(0, self._update_chrome_for_active_tab)
             QTimer.singleShot(0, self._load_toc_for_active)
             QTimer.singleShot(0, self._load_annotations_for_active)
+            QTimer.singleShot(0, lambda s=state: self._start_auto_ocr_for_state(s))
+
+    def _start_auto_ocr_for_state(self, state: dict) -> None:
+        """Bôi đen/gạch/sửa text gốc cần text layer thật — với file scan
+        (ảnh thuần) thì phải OCR trước. Chạy nền ngay khi mở file, không phân
+        biệt gói license (khác với OCR thủ công toàn tài liệu, vẫn khóa
+        Enterprise trong app/actions/ocr.py)."""
+        pdf_path = state.get("source_path")
+        if not pdf_path:
+            return
+        try:
+            from app.actions.auto_ocr import start_auto_ocr_for_document
+            start_auto_ocr_for_document(self, pdf_path, current_page=self.viewer.get_current_page())
+        except Exception:
+            pass
 
     def _on_page_ready(self, viewer):
         if viewer is not self.viewer:
@@ -2387,6 +2402,12 @@ class PDFReaderApp(QMainWindow):
             return False
         queue = getattr(self, "_annotation_op_queue", None)
         target_path = state.get("source_path") if state else None
+        if target_path:
+            try:
+                from app.actions.auto_ocr import stop_auto_ocr_for_document
+                stop_auto_ocr_for_document(self, target_path)
+            except Exception:
+                pass
         if queue is not None or has_pending_annotations(self, target_path):
             try:
                 flush_all = getattr(queue, "flush_all", None)
@@ -2549,8 +2570,12 @@ class PDFReaderApp(QMainWindow):
         worker.available.connect(self._show_update_dialog)
         if show_up_to_date:
             worker.up_to_date.connect(self._on_update_up_to_date)
-        worker.error.connect(lambda msg: self._on_update_check_error(msg, show_errors))
-        worker.finished.connect(lambda: QTimer.singleShot(0, self._cleanup_update_check_worker))
+        # Nối vào bound-method của self (main-thread affinity) để Qt tự queue
+        # signal từ Python thread về main thread. Dùng lambda sẽ khiến slot chạy
+        # ngay trên background thread -> gọi GUI (QMessageBox) sai luồng, dễ crash.
+        self._update_check_show_errors = show_errors
+        worker.error.connect(self._on_update_check_error_signal)
+        worker.finished.connect(self._cleanup_update_check_worker)
 
         self._update_check_worker = worker
 
@@ -2585,6 +2610,9 @@ class PDFReaderApp(QMainWindow):
         latest = getattr(info, "latest_version", "") or APP_VERSION
         self.status.showMessage("Bạn đang dùng phiên bản mới nhất.", 4000)
         show_info(self, "Đã cập nhật", f"Phiên bản {APP_VERSION} là mới nhất.\nLatest server: {latest}")
+
+    def _on_update_check_error_signal(self, message: str):
+        self._on_update_check_error(message, getattr(self, "_update_check_show_errors", False))
 
     def _on_update_check_error(self, message: str, show_warning_dialog: bool):
         safe_message = message or "Không thể kiểm tra cập nhật."
