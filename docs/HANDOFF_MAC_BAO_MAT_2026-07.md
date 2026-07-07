@@ -29,7 +29,21 @@ Backend là dùng chung (1 VPS, branch `phase1-backend`). Khi deploy `fix-vps-se
 
 ## PHẦN B — Fix CLIENT phải PORT sang `phase1-mac`
 
-⚠️ **Đã kiểm chứng: nhánh `phase1-mac` VẪN CÒN NGUYÊN các lỗi này** (file client Win và Mac đã diverge nên fix Win không tự sang Mac). Cần áp thủ công lên bản Mac tương ứng.
+⚠️ File client Win và Mac đã diverge. Sau khi rà `phase1-mac` (07/07/2026), trạng thái thực tế:
+
+| Mục | Trạng thái trên Mac | Hành động |
+|---|---|---|
+| **B1 bypass license** | 🔴 CÒN LỖI | ✅ **ĐÃ PORT + push branch `fix-mac-license-bypass`** — chỉ cần review + merge |
+| B2 export os.system | ✅ Mac đã an toàn sẵn (`subprocess.Popen(["open"])`) | Không cần làm |
+| B4 race QEventLoop (sign.py) | Không có pattern `_run_signing_task` — luồng ký Mac viết khác | Mac tự review luồng ký của mình |
+| B5 cảnh báo RSA yếu (shared.py) | Không có `rsa_key_size_threshold=0` — code validate Mac khác | Mac tự review |
+| B6 threading update-check (window.py) | Không có pattern lambda đó | Mac tự review |
+| B7 race ghi PDF (annotate.py) | Không có `_PDF_SAVE_LOCK`; `pages.py` không tồn tại trên Mac | Mac tự review luồng lưu/rotate |
+| B8 dọn code chết (webchannel.py) | `webchannel.py` không tồn tại trên Mac | Không áp dụng |
+
+**Tóm lại: chỉ B1 là bug logic dùng chung thật (đã port). B2–B8 là đặc thù Win — Mac review code tương ứng của mình, tham khảo mô tả dưới.**
+
+Mô tả từng fix (để Mac đối chiếu code của mình):
 
 ### B1. 🔴 CRITICAL — Bypass license offline (BẮT BUỘC port)
 **File:** `packages/license_client/vps_client.py`
