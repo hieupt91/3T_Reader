@@ -77,3 +77,8 @@ piper_tts*.whl
 # Secrets & generated deploy configs — never commit
 pass.txt
 admin-config-update.json
+
+# Dữ liệu cá nhân/giấy tờ dùng để test cục bộ — KHÔNG commit (rủi ro PII)
+cccd_temp.pdf
+*cccd*.pdf
+*_temp.pdf
