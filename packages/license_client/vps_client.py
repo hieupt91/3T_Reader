@@ -284,19 +284,11 @@ class VpsLicenseClient:
     # ── offline fallback ──────────────────────────────────────────────
 
     def _offline_status(self, cache: dict) -> LicenseStatus:
-        expires_at = _parse_dt(cache.get("expires_at", ""))
-        grace_days = int(cache.get("grace_days", 7))
-        grace_until = (expires_at + timedelta(days=grace_days)) if expires_at else None
-
-        if grace_until and datetime.now(tz=timezone.utc) > grace_until:
-            return LicenseStatus(
-                active=False,
-                message="License hết grace period — kiểm tra kết nối với máy chủ.",
-            )
+        # Không thể xác minh chữ ký offline => KHÔNG cấp quyền dựa trên cache
+        # (cache là JSON sửa tay được). Chỉ token Ed25519 hợp lệ (đã kiểm ở
+        # _verify_offline) mới được dùng offline; ngoài ra buộc xác thực server.
+        del cache
         return LicenseStatus(
-            active=True,
-            plan_code=cache.get("plan_code", ""),
-            expires_at=expires_at,
-            offline_grace_until=grace_until,
-            message="Offline — sẽ xác thực lại khi có kết nối.",
+            active=False,
+            message="Không thể xác thực license. Vui lòng kết nối internet để xác thực lại.",
         )
