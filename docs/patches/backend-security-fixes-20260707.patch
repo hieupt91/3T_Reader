@@ -1,5 +1,5 @@
 --- a/main.py	2026-07-07 14:18:01.598028459 +0700
-+++ b/main.py	2026-07-07 14:18:24.207433491 +0700
++++ b/main.py	2026-07-07 16:04:34.952151630 +0700
 @@ -3,12 +3,13 @@
  import os
  import re
@@ -15,7 +15,7 @@
  from fastapi.responses import FileResponse, HTMLResponse
  from fastapi.staticfiles import StaticFiles
  from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-@@ -46,9 +47,31 @@
+@@ -46,9 +47,46 @@
  
  _ADMIN_PASSWORD = os.environ.get("THREET_ADMIN_PASSWORD", "3tAdmin2026")
  _STATIC = Path(__file__).parent / "static"
@@ -28,11 +28,26 @@
 +_RATE_BUCKETS: dict[tuple[str, str], list[float]] = {}
 +
 +
++def _client_ip(request: Request) -> str:
++    # App chạy sau proxy (nginx/Cloudflare) -> request.client.host là IP proxy,
++    # sẽ gom TẤT CẢ user vào 1 rọ rate-limit. Ưu tiên IP thật từ header proxy đặt.
++    cf = request.headers.get("cf-connecting-ip")
++    if cf:
++        return cf.strip()
++    xff = request.headers.get("x-forwarded-for")
++    if xff:
++        return xff.split(",")[0].strip()
++    xr = request.headers.get("x-real-ip")
++    if xr:
++        return xr.strip()
++    return request.client.host if request.client else "unknown"
++
++
 +def _rate_dep(bucket: str, max_hits: int, window_s: float):
-+    """Dependency chống brute-force theo IP (fixed-window trong bộ nhớ)."""
++    """Dependency chống brute-force theo IP thật (fixed-window trong bộ nhớ)."""
 +
 +    def _dep(request: Request) -> None:
-+        ip = request.client.host if request.client else "unknown"
++        ip = _client_ip(request)
 +        now = time.time()
 +        key = (bucket, ip)
 +        hits = [t for t in _RATE_BUCKETS.get(key, []) if now - t < window_s]
@@ -49,12 +64,12 @@
  _LICENSE_PREFIX = {"basic": "3TR-B", "personal": "3TR-P", "enterprise": "3TR-E"}
  
  app = FastAPI(title=settings.app_name, version="0.3.0")
-@@ -133,12 +156,12 @@
+@@ -133,12 +171,12 @@
      password: str
  
  
 -@app.post("/api/admin/login")
-+@app.post("/api/admin/login", dependencies=[Depends(_rate_dep("admin_login", 5, 300))])
++@app.post("/api/admin/login", dependencies=[Depends(_rate_dep("admin_login", 10, 300))])
  def admin_login(req: LoginRequest):
      if not admin_config.verify_password(req.password):
          raise HTTPException(status_code=401, detail="Mật khẩu không đúng")
@@ -64,16 +79,16 @@
      return {"token": tok, "role": "admin"}
  
  
-@@ -147,7 +170,7 @@
+@@ -147,7 +185,7 @@
      password: str
  
  
 -@app.post("/api/staff/login")
-+@app.post("/api/staff/login", dependencies=[Depends(_rate_dep("staff_login", 5, 300))])
++@app.post("/api/staff/login", dependencies=[Depends(_rate_dep("staff_login", 10, 300))])
  def staff_login(req: StaffLoginRequest):
      if not staff_service.authenticate(req.username, req.password):
          raise HTTPException(status_code=401, detail="Tên đăng nhập hoặc mật khẩu không đúng")
-@@ -156,6 +179,7 @@
+@@ -156,6 +194,7 @@
      _staff_tokens[tok] = {
          "username": req.username.strip().lower(),
          "permissions": info.get("permissions", []),
@@ -81,7 +96,7 @@
      }
      return {
          "token": tok,
-@@ -165,8 +189,25 @@
+@@ -165,8 +204,25 @@
      }
  
  
@@ -108,7 +123,7 @@
          raise HTTPException(status_code=401, detail="Chưa đăng nhập hoặc phiên hết hạn")
      return creds.credentials
  
-@@ -175,10 +216,11 @@
+@@ -175,10 +231,11 @@
      if creds is None:
          raise HTTPException(status_code=401, detail="Chưa đăng nhập")
      tok = creds.credentials
@@ -123,7 +138,7 @@
      raise HTTPException(status_code=401, detail="Phiên đăng nhập hết hạn")
  
  
-@@ -654,7 +696,7 @@
+@@ -654,7 +711,7 @@
      promo_code: str | None = None
  
  
@@ -132,7 +147,7 @@
  def submit_order(req: OrderSubmitRequest):
      if not req.customer_name.strip() or not req.customer_email.strip():
          raise HTTPException(status_code=422, detail="Vui lòng điền đầy đủ thông tin")
-@@ -765,7 +807,11 @@
+@@ -765,7 +822,11 @@
      return health()
  
  
@@ -145,7 +160,7 @@
  def activate(req: ActivateRequest) -> ActivateResponse:
      if not _KEY_PATTERN.match(req.license_key.strip().upper()):
          raise HTTPException(status_code=400, detail="Mã key không đúng định dạng. Ví dụ: 3TR-P-XXXX-XXXX-XXXX")
-@@ -792,12 +838,20 @@
+@@ -792,12 +853,20 @@
      )
  
  
@@ -168,7 +183,7 @@
  def validate(req: ValidateRequest) -> ValidateResponse:
      result = license_service.validate(req.token, req.device_id)
      return ValidateResponse(
-@@ -811,7 +865,11 @@
+@@ -811,7 +880,11 @@
      )
  
  
