@@ -119,7 +119,8 @@ if sys.platform == "darwin":
 ## PHẦN D — Phối hợp
 
 - **Purge lịch sử `cccd_temp.pdf`:** file PII này ở commit `6dec164` (tổ tiên chung, đã lên remote). Nếu purge history + force-push nhánh dùng chung → **clone team Mac sẽ vỡ**. Phải hẹn lịch, cùng re-clone. Chưa thực hiện.
-- **Deploy backend:** branch `fix-vps-security` (ahead 1 của `phase1-backend`) **chưa push**. Push = VPS pull + docker rebuild = deploy prod cho cả Mac lẫn Win. Thống nhất thời điểm + set env (Phần A) trước.
+- **Deploy backend: ĐÃ THỰC HIỆN LIVE 07/07/2026.** Fix đã áp thẳng lên code thật đang chạy trên VPS (`phase1-backend/server/license-api/app`, bản **1285 dòng** — KHÁC bản 516 dòng trên `origin/phase1-backend`), rebuild container `backend-license-api-1`, verify live OK (health 200, admin 401 khi không auth, token HMAC giả mạo bị chặn). Env Ed25519 + signing_secret đã set sẵn đúng. Patch + hướng dẫn: `docs/patches/`. ⚠️ Branch `fix-vps-security` (baseline 516 dòng) **đã lỗi thời — ĐỪNG deploy nó**.
+- **Nợ git backend:** VPS chạy working tree chưa commit → fix đang chạy nhưng chưa version-control; rebuild từ checkout sạch sẽ mất fix. Cần đồng bộ `origin/phase1-backend` về bản 1285 dòng thật rồi áp patch. `admin-config.json` trên VPS đang UNTRACKED chứa hash mật khẩu admin → thêm `.gitignore`, KHÔNG commit. Backup rollback: `/home/hieupt/backups/license-fix-20260707-141801`.
 
 ---
 
