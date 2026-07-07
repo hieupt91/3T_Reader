@@ -1340,7 +1340,14 @@ def validate_signed_pdf_status(path: str, field_name: str | None = None) -> dict
 
             integrity_ok = intact and valid
             overall_ok = integrity_ok and not revoked
-            if overall_ok and trusted:
+            if overall_ok and policy_warning:
+                # Khóa/thuật toán yếu (vd RSA < 2048 bit) có thể bị giả mạo:
+                # đưa cảnh báo lên kết luận thay vì để chữ ký hiện "hợp lệ" trơn.
+                overall_status = (
+                    "Chữ ký hợp lệ về mặt kỹ thuật nhưng dùng khóa/thuật toán yếu "
+                    f"({policy_warning}) nên không bảo đảm an toàn cho văn bản pháp lý."
+                )
+            elif overall_ok and trusted:
                 overall_status = "Chữ ký số hợp lệ và đã được xác minh."
             elif overall_ok and signing_time_ok is False:
                 overall_status = "Chữ ký hợp lệ về mặt kỹ thuật nhưng thời điểm ký ngoài thời hạn hiệu lực."

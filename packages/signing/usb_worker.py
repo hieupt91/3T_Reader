@@ -68,8 +68,13 @@ def main(argv: list[str] | None = None) -> int:
 
     payload_path = args[0]
     try:
-        with open(payload_path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
+        if payload_path == "-":
+            # Payload (kèm PIN) được truyền qua stdin để không ghi PIN ra đĩa.
+            # Đọc bytes rồi decode utf-8 để không phụ thuộc locale của stdin.
+            payload = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+        else:
+            with open(payload_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
         result = run_job(payload)
     except Exception as exc:
         result = {

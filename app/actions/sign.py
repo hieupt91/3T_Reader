@@ -141,6 +141,34 @@ class _SigningWorker(QObject):
             self.succeeded.emit()
 
 
+class _SigningLoopRelay(QObject):
+    """Nhận kết quả từ worker thread và thoát QEventLoop trên main thread.
+
+    Slot bound-method của QObject này (sống ở main thread) được Qt tự queue
+    khi signal emit từ worker thread. Nhờ vậy loop.quit() luôn chạy trên main
+    thread và chỉ sau khi loop.exec() bắt đầu -> tránh trường hợp worker xong
+    trước exec() làm quit bị bỏ qua và treo UI vĩnh viễn.
+    """
+
+    def __init__(self, loop, result: dict):
+        super().__init__()
+        self._loop = loop
+        self._result = result
+
+    @pyqtSlot()
+    def on_success(self):
+        self._result["ok"] = True
+        if self._loop.isRunning():
+            self._loop.quit()
+
+    @pyqtSlot(str, str, str)
+    def on_error(self, exc_type: str, exc_message: str, tb_text: str):
+        self._result["ok"] = False
+        self._result["error"] = (exc_type, exc_message, tb_text)
+        if self._loop.isRunning():
+            self._loop.quit()
+
+
 def _run_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[str, str, str] | None]:
     existing = getattr(window, "_signing_thread", None)
     if existing is not None and (getattr(existing, "isRunning", lambda: False)() or getattr(existing, "is_alive", lambda: False)()):
@@ -158,19 +186,9 @@ def _run_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[s
     loop = QEventLoop(window)
     result: dict[str, object] = {"ok": False, "error": None}
 
-    def _finish_success():
-        result["ok"] = True
-        if loop.isRunning():
-            loop.quit()
-
-    def _finish_error(exc_type: str, exc_message: str, tb_text: str):
-        result["ok"] = False
-        result["error"] = (exc_type, exc_message, tb_text)
-        if loop.isRunning():
-            loop.quit()
-
-    worker.succeeded.connect(_finish_success)
-    worker.failed.connect(_finish_error)
+    relay = _SigningLoopRelay(loop, result)
+    worker.succeeded.connect(relay.on_success)
+    worker.failed.connect(relay.on_error)
 
     thread = threading.Thread(target=worker.run, daemon=True)
     window._signing_thread = thread
@@ -301,69 +319,59 @@ def _run_usb_signing_subprocess(
         "enable_ltv": enable_ltv,
     }
 
-    payload_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w", encoding="utf-8")
-    payload_path = payload_file.name
-    try:
-        json.dump(payload, payload_file, ensure_ascii=False)
-        payload_file.close()
+    # Truyền payload (kèm PIN) qua stdin thay vì file tạm để PIN chữ ký số
+    # không bao giờ nằm trên đĩa (kể cả khi tiến trình bị kill giữa chừng).
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "--usb-sign-worker", "-"]
+    else:
+        cmd = [
+            sys.executable,
+            "-m",
+            "packages.signing.usb_worker",
+            "-",
+        ]
+    result = subprocess.run(
+        cmd,
+        input=payload_json,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+    )
 
-        if getattr(sys, "frozen", False):
-            cmd = [sys.executable, "--usb-sign-worker", payload_path]
-        else:
-            cmd = [
-                sys.executable,
-                "-m",
-                "packages.signing.usb_worker",
-                payload_path,
-            ]
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+    stdout = (result.stdout or "").strip().splitlines()
+    if not stdout:
+        raise RuntimeError(
+            "USB signing worker did not return a result.\n"
+            f"Return code: {result.returncode}\n"
+            f"stderr: {(result.stderr or '').strip()}"
         )
 
-        stdout = (result.stdout or "").strip().splitlines()
-        if not stdout:
-            raise RuntimeError(
-                "USB signing worker did not return a result.\n"
-                f"Return code: {result.returncode}\n"
-                f"stderr: {(result.stderr or '').strip()}"
-            )
+    try:
+        data = json.loads(stdout[-1])
+    except Exception as exc:
+        raise RuntimeError(
+            "USB signing worker returned invalid output.\n"
+            f"Return code: {result.returncode}\n"
+            f"stdout: {(result.stdout or '').strip()}\n"
+            f"stderr: {(result.stderr or '').strip()}"
+        ) from exc
 
-        try:
-            data = json.loads(stdout[-1])
-        except Exception as exc:
-            raise RuntimeError(
-                "USB signing worker returned invalid output.\n"
-                f"Return code: {result.returncode}\n"
-                f"stdout: {(result.stdout or '').strip()}\n"
-                f"stderr: {(result.stderr or '').strip()}"
-            ) from exc
+    if not data.get("ok"):
+        error_type = str(data.get("error_type") or "RuntimeError")
+        error_message = str(data.get("error_message") or "USB signing failed.")
+        tb_text = str(data.get("traceback") or "")
+        raise RuntimeError(f"{error_type}: {error_message}\n{tb_text}".strip())
 
-        if not data.get("ok"):
-            error_type = str(data.get("error_type") or "RuntimeError")
-            error_message = str(data.get("error_message") or "USB signing failed.")
-            tb_text = str(data.get("traceback") or "")
-            raise RuntimeError(f"{error_type}: {error_message}\n{tb_text}".strip())
-
-        if result.returncode != 0:
-            raise RuntimeError(
-                "USB signing worker exited with a non-zero code despite reporting success.\n"
-                f"Return code: {result.returncode}\n"
-                f"stderr: {(result.stderr or '').strip()}"
-            )
-    finally:
-        try:
-            payload_file.close()
-        except Exception:
-            pass
-        try:
-            if os.path.exists(payload_path):
-                os.remove(payload_path)
-        except OSError:
-            pass
+    if result.returncode != 0:
+        raise RuntimeError(
+            "USB signing worker exited with a non-zero code despite reporting success.\n"
+            f"Return code: {result.returncode}\n"
+            f"stderr: {(result.stderr or '').strip()}"
+        )
 
 
 MM_TO_PT = 72.0 / 25.4
@@ -2741,46 +2749,38 @@ def _run_usb_signing_batch_subprocess(
         "enable_ltv": enable_ltv,
     }
 
-    payload_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w", encoding="utf-8")
-    payload_path = payload_file.name
+    # Truyền payload (kèm PIN) qua stdin thay vì file tạm để PIN không nằm trên đĩa.
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "--usb-sign-worker", "-"]
+    else:
+        cmd = [
+            sys.executable,
+            "-m",
+            "packages.signing.usb_worker",
+            "-",
+        ]
+    result = subprocess.run(
+        cmd,
+        input=payload_json,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        err_msg = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"Tien trinh ky so that bai (Ma loi: {result.returncode}):\n{err_msg}")
+
     try:
-        json.dump(payload, payload_file, ensure_ascii=False)
-        payload_file.close()
+        out_data = json.loads(result.stdout)
+    except Exception:
+        raise RuntimeError(f"Khong the phan tich ket qua tu tien trinh ky so:\n{result.stdout}")
 
-        if getattr(sys, "frozen", False):
-            cmd = [sys.executable, "--usb-sign-worker", payload_path]
-        else:
-            cmd = [
-                sys.executable,
-                "-m",
-                "packages.signing.usb_worker",
-                payload_path,
-            ]
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        if result.returncode != 0:
-            err_msg = result.stderr.strip() or result.stdout.strip()
-            raise RuntimeError(f"Tien trinh ky so that bai (Ma loi: {result.returncode}):\n{err_msg}")
-
-        try:
-            out_data = json.loads(result.stdout)
-        except Exception:
-            raise RuntimeError(f"Khong the phan tich ket qua tu tien trinh ky so:\n{result.stdout}")
-
-        if not out_data.get("ok"):
-            err_type = out_data.get("error_type", "Error")
-            err_msg = out_data.get("error_message", "Unknown error")
-            raise RuntimeError(f"{err_type}: {err_msg}")
-    finally:
-        try:
-            os.remove(payload_path)
-        except Exception:
-            pass
+    if not out_data.get("ok"):
+        err_type = out_data.get("error_type", "Error")
+        err_msg = out_data.get("error_message", "Unknown error")
+        raise RuntimeError(f"{err_type}: {err_msg}")
 
 
 def sign_document_batch(window):
