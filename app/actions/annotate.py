@@ -1975,13 +1975,22 @@ def _search_words_across_lines(words: list[dict], query_tokens: list[str]) -> li
     normalized_words = [str(word["text_key"]) for word in words]
     matches: list[list[dict]] = []
     qlen = len(query_tokens)
-    i = 0
-    while i <= len(normalized_words) - qlen:
-        if normalized_words[i:i + qlen] == query_tokens:
-            matches.append(words[i:i + qlen])
-            i += qlen
-        else:
-            i += 1
+    if qlen == 1:
+        # Query 1 từ: khớp MỌI từ CHỨA nó (substring) — như PDF.js
+        # (match_whole_word=False). Khớp nguyên token bỏ sót từ dính dấu câu
+        # (vd "sửa" không khớp "sửa." trong "chỉnh sửa.") -> tô sáng thiếu match.
+        q = query_tokens[0]
+        for idx, word_key in enumerate(normalized_words):
+            if q in word_key:
+                matches.append([words[idx]])
+    else:
+        i = 0
+        while i <= len(normalized_words) - qlen:
+            if normalized_words[i:i + qlen] == query_tokens:
+                matches.append(words[i:i + qlen])
+                i += qlen
+            else:
+                i += 1
 
     rects: list[tuple] = []
     for match in matches:

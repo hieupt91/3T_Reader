@@ -338,3 +338,24 @@ def test_delete_mark_annotations_by_ids(tmp_path):
     assert len(annots) == 1
     assert str(annots[0].get("/NM")) == "mark-2"
     pdf.close()
+
+
+def test_search_single_token_matches_word_with_punctuation(tmp_path):
+    """Tô sáng tìm kiếm: query 1 từ phải khớp cả từ dính dấu câu ("sua" khớp
+    "sua." trong "chinh sua.") — trước đây khớp nguyên token nên bỏ sót."""
+    import pytest
+    try:
+        from reportlab.pdfgen import canvas
+    except ImportError:
+        pytest.skip("reportlab not installed")
+    from app.actions.annotate import _search_text_on_page
+
+    pdf = tmp_path / "s.pdf"
+    c = canvas.Canvas(str(pdf), pagesize=(600, 800))
+    c.setFont("Helvetica", 14)
+    c.drawString(80, 700, "cho phep sua chu, sua so truc tiep")
+    c.drawString(80, 660, "co the chinh sua. AI nhan dien")
+    c.save()
+
+    rects = _search_text_on_page(str(pdf), 1, "sua")
+    assert len(rects) == 3, f"bỏ sót match dính dấu câu: chỉ {len(rects)}/3"
