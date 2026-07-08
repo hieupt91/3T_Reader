@@ -52,7 +52,7 @@ from app.actions.annotate import (
     underline_text, strikeout_text, add_comment, enable_note_tools,
     has_pending_annotations,
 )
-from app.actions.pages import merge_pdfs_action, split_pdf_action
+from app.actions.pages import merge_pdfs_action, rotate_pages_action, split_pdf_action
 from app.actions.sign import (
     check_token,
     create_signature_field,
@@ -877,9 +877,11 @@ class PDFReaderApp(QMainWindow):
         self.g_rot = RibbonGroup("Xoay / Xóa")
         self._act_rcw = make("Xoay phải", "rotate_cw.svg",  "Xoay phải 90°", None, lambda: rotate_page_cw(self))
         self._act_rccw = make("Xoay trái", "rotate_ccw.svg", "Xoay trái 90°", None, lambda: rotate_page_ccw(self))
+        self._act_rotate_pages = make("Xoay trang...", "rotate_cw.svg", "Xoay một trang hoặc toàn bộ tài liệu", None, lambda: rotate_pages_action(self))
         self._act_del = make("Xóa trang", "trash.svg", "Xóa trang hiện tại", None, lambda: delete_current_page(self))
         self.g_rot.add(make_action_btn(self._act_rcw,  "Xoay phải"))
         self.g_rot.add(make_action_btn(self._act_rccw, "Xoay trái"))
+        self.g_rot.add(make_action_btn(self._act_rotate_pages, "Xoay trang"))
         self.g_rot.add(make_action_btn(self._act_del,  "Xóa trang"))
         p2.add_group(self.g_rot)
 
@@ -1979,6 +1981,10 @@ class PDFReaderApp(QMainWindow):
         act_rotate_ccw.triggered.connect(lambda: rotate_page_ccw(self))
         act_rotate_ccw.setIcon(svg_icon("rotate_ccw.svg", size=16, color="#50b8f0"))
 
+        act_rotate_pages = menu_pages.addAction("Xoay trang...")
+        act_rotate_pages.triggered.connect(lambda: rotate_pages_action(self))
+        act_rotate_pages.setIcon(svg_icon("rotate_cw.svg", size=16, color="#50b8f0"))
+
         menu_pages.addSeparator()
 
         act_del_page = menu_pages.addAction("Xóa trang này")
@@ -2727,7 +2733,7 @@ class PDFReaderApp(QMainWindow):
         
         Private actions (tạo trong _build_toolbar_impl, KHÔNG có trong toolbar cũ):
         - self._act_comment (Tab Annotate)
-        - self._act_rcw, self._act_rccw, self._act_del (Tab Page - Rotate/Delete)
+        - self._act_rcw, self._act_rccw, self._act_rotate_pages, self._act_del (Tab Page - Rotate/Delete)
         - self._act_merge, self._act_extract, self._act_pgnum (Tab Page - Organize)
         - self._act_wm, self._act_rmwm, self._act_setpw, self._act_rmpw, self._act_comp (Tab Security)
         - self._act_word, self._act_xl, self._act_img, self._act_txt (Tab Export)
@@ -2813,6 +2819,7 @@ class PDFReaderApp(QMainWindow):
         _set("_act_comment",         "action.comment",           "Ghi chú")
         _set("_act_rcw",             "action.rotate_cw",         "Xoay phải")
         _set("_act_rccw",            "action.rotate_ccw",        "Xoay trái")
+        _set("_act_rotate_pages",    "action.rotate_pages",      "Xoay trang")
         _set("_act_del",             "action.delete_page",       "Xóa trang")
         _set("_act_merge",           "action.merge_pdf",         "Ghép PDF")
         _set("_act_extract",         "action.extract_page",      "Tách PDF")

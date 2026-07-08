@@ -382,7 +382,10 @@ def rotate_pages_action(window):
         }})();
     """
     try:
-        window.viewer.page().runJavaScript(js_code)
+        from packages.qt_compat.QtWebEngineWidgets import QWebEngineView
+        wv = window.viewer.findChild(QWebEngineView)
+        if wv:
+            wv.page().runJavaScript(js_code)
     except Exception:
         pass
 
@@ -391,7 +394,14 @@ def rotate_pages_action(window):
             from packages.qt_compat.QtGui import QTransform, QIcon
             from packages.qt_compat.QtCore import Qt
             size = window.sidebar.list.iconSize()
-            for pn, rdeg in rotations.items():
+            preview_rotations = rotations
+            if _all_pages[0]:
+                try:
+                    first, last = window.sidebar._visible_page_range()
+                    preview_rotations = {pn: deg for pn in range(first, last + 1)}
+                except Exception:
+                    preview_rotations = {current: deg}
+            for pn, rdeg in preview_rotations.items():
                 item = window.sidebar.list.item(pn - 1)
                 if item:
                     pixmap = item.icon().pixmap(size)
