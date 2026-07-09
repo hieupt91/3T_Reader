@@ -85,26 +85,28 @@ def build_index(pdf_path: str, progress_cb=None) -> tuple[SearchIndex, str]:
 
     try:
         import pypdfium2 as pdfium
-        doc = pdfium.PdfDocument(pdf_path)
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
         all_chunks = []
         all_pages = []
-        page_count = len(doc)
-        try:
-            for i in range(page_count):
-                page = doc[i]
-                textpage = page.get_textpage()
-                text = textpage.get_text_range().strip()
-                textpage.close()
-                page.close()
-                if not text:
-                    continue
-                chunks = _chunk_text(text)
-                all_chunks.extend(chunks)
-                all_pages.extend([i + 1] * len(chunks))
-                if progress_cb:
-                    progress_cb(f"Đang phân tích trang {i+1}/{page_count}…")
-        finally:
-            doc.close()
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(pdf_path)
+            try:
+                page_count = len(doc)
+                for i in range(page_count):
+                    page = doc[i]
+                    textpage = page.get_textpage()
+                    text = textpage.get_text_range().strip()
+                    textpage.close()
+                    page.close()
+                    if not text:
+                        continue
+                    chunks = _chunk_text(text)
+                    all_chunks.extend(chunks)
+                    all_pages.extend([i + 1] * len(chunks))
+                    if progress_cb:
+                        progress_cb(f"Đang phân tích trang {i+1}/{page_count}…")
+            finally:
+                doc.close()
     except Exception as e:
         return SearchIndex(pdf_path=pdf_path), f"Không đọc được PDF: {e}"
 

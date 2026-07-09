@@ -293,6 +293,20 @@ def test_pdf_viewer_injects_pdfjs_override_css_at_document_ready():
     assert "self._inject_css_for_viewer(viewer)" in window_source
 
 
+def test_pdfjs_find_state_not_found_constant_matches_vendored_pdfjs():
+    viewer_source = _read("app/pdf_viewer.py")
+    document_source = _read("app/actions/document.py")
+    js_hooks = _read("assets/js/pdfjs_ui_hooks.js")
+    pdfjs_source = _read("third_party/pdfjs/web/viewer.mjs")
+
+    assert "FOUND: 0" in pdfjs_source
+    assert "NOT_FOUND: 1" in pdfjs_source
+    assert "_PDFJS_FIND_NOT_FOUND = 1" in viewer_source
+    assert "state == _PDFJS_FIND_NOT_FOUND" in viewer_source
+    assert "window.__3tFindState = 3;" in document_source
+    assert "0=FOUND, 1=NOT_FOUND, 2=WRAPPED, 3=PENDING" in js_hooks
+
+
 def test_signature_status_dialog_shows_extended_signature_properties():
     sign_source = _read("app/actions/sign.py")
     shared_source = _read("packages/signing/shared.py")

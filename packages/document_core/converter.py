@@ -25,9 +25,11 @@ def convert_pdf_to_docx(
 
     try:
         import pypdfium2 as _pdfium
-        _d = _pdfium.PdfDocument(pdf_path)
-        total_pages = len(_d)
-        _d.close()
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+        with PDFIUM_LOCK:
+            _d = _pdfium.PdfDocument(pdf_path)
+            total_pages = len(_d)
+            _d.close()
     except Exception:
         total_pages = 0
 
@@ -74,24 +76,27 @@ def convert_pdf_to_docx_layout(
     if progress_cb:
         progress_cb("Dang mo file PDF...")
 
+    from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+
     doc = Document()
-    pdf = pdfium.PdfDocument(pdf_path)
-    total_pages = len(pdf)
+    with PDFIUM_LOCK:
+        pdf = pdfium.PdfDocument(pdf_path)
+        total_pages = len(pdf)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        for i, page in enumerate(pdf):
-            if progress_cb:
-                progress_cb(f"Dang xuat trang {i+1}/{total_pages} (Layout-preserving)...")
-            
-            bitmap = page.render(scale=150/72)
-            img_path = os.path.join(tmpdir, f"page_{i}.png")
-            bitmap.to_pil().save(img_path)
-            
-            doc.add_picture(img_path, width=Inches(6.5))
-            if i < total_pages - 1:
-                doc.add_page_break()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for i, page in enumerate(pdf):
+                if progress_cb:
+                    progress_cb(f"Dang xuat trang {i+1}/{total_pages} (Layout-preserving)...")
 
-    pdf.close()
+                bitmap = page.render(scale=150/72)
+                img_path = os.path.join(tmpdir, f"page_{i}.png")
+                bitmap.to_pil().save(img_path)
+
+                doc.add_picture(img_path, width=Inches(6.5))
+                if i < total_pages - 1:
+                    doc.add_page_break()
+
+        pdf.close()
     
     if progress_cb:
         progress_cb("Dang luu file Word...")

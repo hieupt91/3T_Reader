@@ -263,3 +263,82 @@ def test_find_pdf_span_keeps_real_font_for_non_ocr_text(tmp_path):
     assert span["is_ocr_placeholder_font"] is False
     assert "helvetica" in span["font_family"].lower()
     assert span["bold"] is True
+
+
+# ── Màu mực thật cho "sửa text gốc" trên scan (SUA_TEXT_GOC_SCAN plan) ─────────
+
+def _make_scan_pdf_with_rect(tmp_path, rect_px, rect_color,
+                             page_w_pt=612.0, page_h_pt=792.0, scale=2.0):
+    """Tạo PDF chỉ chứa ảnh (giống scan): nền trắng + 1 khối màu đặc tại
+    vị trí pixel `rect_px`. Trả (pdf_path, page_h_pt, scale) để tính box PDF.
+    """
+    from PIL import Image, ImageDraw
+    from reportlab.pdfgen import canvas
+
+    img = Image.new("RGB", (int(page_w_pt * scale), int(page_h_pt * scale)), "white")
+    ImageDraw.Draw(img).rectangle(rect_px, fill=rect_color)
+    img_path = tmp_path / "scanrect.png"
+    pdf_path = tmp_path / "scanrect.pdf"
+    img.save(img_path)
+    c = canvas.Canvas(str(pdf_path), pagesize=(page_w_pt, page_h_pt))
+    c.drawImage(str(img_path), 0, 0, width=page_w_pt, height=page_h_pt)
+    c.save()
+    return str(pdf_path), page_h_pt, scale
+
+
+def _px_rect_to_pdf_box(rect_px, page_h_pt, scale):
+    """(x0,y0,x1,y1) pixel (gốc trên-trái) -> box PDF (left,bottom,right,top)."""
+    x0, y0, x1, y1 = rect_px
+    return (x0 / scale, page_h_pt - y1 / scale, x1 / scale, page_h_pt - y0 / scale)
+
+
+def test_sample_text_ink_color_reads_dark_ink_not_background(tmp_path):
+    _skip_if_missing("reportlab", "pypdfium2", "PIL")
+    from app.actions.edit import _sample_text_ink_color
+
+    rect_px = (200, 200, 500, 300)
+    pdf, page_h, scale = _make_scan_pdf_with_rect(tmp_path, rect_px, (40, 40, 45))
+    box = _px_rect_to_pdf_box(rect_px, page_h, scale)
+
+    color = _sample_text_ink_color(pdf, 1, box)
+    assert color is not None
+    r, g, b = color
+    # Phải ra màu MỰC (tối), KHÔNG phải nền trắng.
+    assert r < 0.4 and g < 0.4 and b < 0.4, f"quá sáng, dính nền: {color}"
+    # Và rõ ràng khác nền trắng (chênh > 0.5 mỗi kênh).
+    assert (1.0 - r) > 0.5 and (1.0 - g) > 0.5, f"không tách được khỏi nền: {color}"
+
+
+def test_sample_text_ink_color_handles_colored_ink(tmp_path):
+    _skip_if_missing("reportlab", "pypdfium2", "PIL")
+    from app.actions.edit import _sample_text_ink_color
+
+    rect_px = (200, 200, 500, 300)
+    # Mực xanh dương đậm — KHÔNG được ép về đen/xám trung tính.
+    pdf, page_h, scale = _make_scan_pdf_with_rect(tmp_path, rect_px, (20, 30, 160))
+    box = _px_rect_to_pdf_box(rect_px, page_h, scale)
+
+    color = _sample_text_ink_color(pdf, 1, box)
+    assert color is not None
+    r, g, b = color
+    assert b > r and b > g, f"mất sắc xanh, bị ép về trung tính: {color}"
+    assert b > 0.4, f"kênh xanh quá thấp: {color}"
+
+
+def test_sample_text_ink_color_is_position_accurate(tmp_path):
+    """Xác nhận hàm tôn trọng ĐÚNG toạ độ box truyền vào (không snap/dời):
+    box trùng khối mực -> tối; box ở vùng lề trắng -> sáng."""
+    _skip_if_missing("reportlab", "pypdfium2", "PIL")
+    from app.actions.edit import _sample_text_ink_color
+
+    rect_px = (200, 200, 500, 300)
+    pdf, page_h, scale = _make_scan_pdf_with_rect(tmp_path, rect_px, (30, 30, 30))
+
+    box_on_ink = _px_rect_to_pdf_box(rect_px, page_h, scale)
+    box_on_blank = _px_rect_to_pdf_box((800, 800, 1000, 900), page_h, scale)
+
+    ink = _sample_text_ink_color(pdf, 1, box_on_ink)
+    blank = _sample_text_ink_color(pdf, 1, box_on_blank)
+    assert ink is not None and blank is not None
+    assert max(ink) < 0.4, f"box trên mực phải tối: {ink}"
+    assert min(blank) > 0.8, f"box trên lề trắng phải sáng: {blank}"

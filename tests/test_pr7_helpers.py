@@ -340,6 +340,31 @@ def test_delete_mark_annotations_by_ids(tmp_path):
     pdf.close()
 
 
+def test_keyword_already_marked_prevents_duplicate_highlight_stacking():
+    """Tô sáng cùng từ khóa nhiều lần KHÔNG được xếp chồng lớp trùng (gây undo
+    lag/không rõ). Nhưng vẫn cho tô lại sau khi undo, và tô từ/kiểu khác."""
+    import os
+    from app.actions.annotate import _keyword_already_marked, _overlay_marks
+
+    class _Win:
+        pass
+
+    w = _Win()
+    path = os.path.abspath("doc.pdf")
+
+    assert _keyword_already_marked(w, path, "sửa", "highlight") is False
+    _overlay_marks(w).append({
+        "id": "m1", "kind": "mark", "path": path,
+        "content": "sửa", "style": "highlight", "rects": [[0, 0, 1, 1]],
+    })
+    assert _keyword_already_marked(w, path, "sửa", "highlight") is True      # chặn trùng
+    assert _keyword_already_marked(w, path, "duyệt", "highlight") is False   # từ khác: cho
+    assert _keyword_already_marked(w, path, "sửa", "underline") is False     # kiểu khác: cho
+
+    _overlay_marks(w)[0]["_deleted"] = True
+    assert _keyword_already_marked(w, path, "sửa", "highlight") is False     # sau undo: cho lại
+
+
 def test_search_single_token_matches_word_with_punctuation(tmp_path):
     """Tô sáng tìm kiếm: query 1 từ phải khớp cả từ dính dấu câu ("sua" khớp
     "sua." trong "chinh sua.") — trước đây khớp nguyên token nên bỏ sót."""

@@ -245,15 +245,17 @@ def ocr_pdf_page(pdf_path: str, page_num: int, high_quality: bool = False) -> OC
     """Render a PDF page and OCR it. page_num starts at 1."""
     try:
         import pypdfium2 as pdfium
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
 
-        doc = pdfium.PdfDocument(pdf_path)
-        try:
-            page = doc[page_num - 1]
-            scale = 3.0 if high_quality else 2.0
-            bitmap = page.render(scale=scale)
-            pil_img = bitmap.to_pil().convert("RGB")
-        finally:
-            doc.close()
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(pdf_path)
+            try:
+                page = doc[page_num - 1]
+                scale = 3.0 if high_quality else 2.0
+                bitmap = page.render(scale=scale)
+                pil_img = bitmap.to_pil().convert("RGB")
+            finally:
+                doc.close()
 
         return ocr_pil_image(pil_img, page_num=page_num, high_quality=False)
     except Exception as e:
@@ -268,17 +270,19 @@ def page_has_text(pdf_path: str, page_num: int, *, min_chars: int = 3) -> bool:
     """
     try:
         import pypdfium2 as pdfium
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
 
-        doc = pdfium.PdfDocument(pdf_path)
-        try:
-            page = doc[page_num - 1]
-            textpage = page.get_textpage()
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(pdf_path)
             try:
-                text = textpage.get_text_range().strip()
+                page = doc[page_num - 1]
+                textpage = page.get_textpage()
+                try:
+                    text = textpage.get_text_range().strip()
+                finally:
+                    textpage.close()
             finally:
-                textpage.close()
-        finally:
-            doc.close()
+                doc.close()
         return len(text) >= min_chars
     except Exception:
         # If we can't tell, don't block auto-OCR on this page.
@@ -301,14 +305,16 @@ def ocr_pdf_page_text_layer(pdf_path: str, page_num: int, *, scale: float = 2.0)
     try:
         import pypdfium2 as pdfium
         import pytesseract
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
 
-        doc = pdfium.PdfDocument(pdf_path)
-        try:
-            page = doc[page_num - 1]
-            bitmap = page.render(scale=scale)
-            pil_image = bitmap.to_pil().convert("RGB")
-        finally:
-            doc.close()
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(pdf_path)
+            try:
+                page = doc[page_num - 1]
+                bitmap = page.render(scale=scale)
+                pil_image = bitmap.to_pil().convert("RGB")
+            finally:
+                doc.close()
 
         pytesseract.pytesseract.tesseract_cmd = cmd
         tessdata_dir = _tessdata_dir(cmd)

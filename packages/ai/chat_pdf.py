@@ -146,24 +146,26 @@ class PDFChatSession:
         if not text.strip():
             try:
                 import pypdfium2 as pdfium
+                from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
 
                 parts = []
-                doc = pdfium.PdfDocument(self.pdf_path)
-                try:
-                    for i in range(len(doc)):
-                        page = doc[i]
-                        textpage = None
-                        try:
-                            textpage = page.get_textpage()
-                            t = (textpage.get_text_range() or "").strip()
-                            if t:
-                                parts.append(f"[Trang {i+1}]\n{t}")
-                        finally:
-                            if textpage is not None:
-                                textpage.close()
-                            page.close()
-                finally:
-                    doc.close()
+                with PDFIUM_LOCK:
+                    doc = pdfium.PdfDocument(self.pdf_path)
+                    try:
+                        for i in range(len(doc)):
+                            page = doc[i]
+                            textpage = None
+                            try:
+                                textpage = page.get_textpage()
+                                t = (textpage.get_text_range() or "").strip()
+                                if t:
+                                    parts.append(f"[Trang {i+1}]\n{t}")
+                            finally:
+                                if textpage is not None:
+                                    textpage.close()
+                                page.close()
+                    finally:
+                        doc.close()
                 text = "\n\n".join(parts)
             except Exception as e:
                 text = f"[Không đọc được tài liệu: {e}]"

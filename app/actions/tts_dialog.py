@@ -1007,29 +1007,31 @@ def open_tts_dialog(window):
             elif hasattr(viewer, "_current_page"):
                 page_number = max(1, int(getattr(viewer, "_current_page", 1) or 1))
             if pdf_path and os.path.isfile(pdf_path):
-                doc = pdfium.PdfDocument(pdf_path)
-                try:
-                    if 1 <= page_number <= len(doc):
-                        page = doc[page_number - 1]
-                        try:
-                            textpage = page.get_textpage()
+                from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+                with PDFIUM_LOCK:
+                    doc = pdfium.PdfDocument(pdf_path)
+                    try:
+                        if 1 <= page_number <= len(doc):
+                            page = doc[page_number - 1]
                             try:
-                                page_text = (textpage.get_text_range() or "").strip()
+                                textpage = page.get_textpage()
+                                try:
+                                    page_text = (textpage.get_text_range() or "").strip()
+                                finally:
+                                    textpage.close()
                             finally:
-                                textpage.close()
-                        finally:
-                            page.close()
-                            
-                    full_texts = []
-                    for i in range(len(doc)):
-                        p = doc[i]
-                        tp = p.get_textpage()
-                        t = tp.get_text_range() or ""
-                        tp.close()
-                        p.close()
-                        full_texts.append(t.strip())
-                finally:
-                    doc.close()
+                                page.close()
+
+                        full_texts = []
+                        for i in range(len(doc)):
+                            p = doc[i]
+                            tp = p.get_textpage()
+                            t = tp.get_text_range() or ""
+                            tp.close()
+                            p.close()
+                            full_texts.append(t.strip())
+                    finally:
+                        doc.close()
         except Exception:
             page_text = ""
             full_texts = []

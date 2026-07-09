@@ -145,8 +145,9 @@ _JS_GET_VIEW_STATE = """
 })()
 """
 
-# Poll JS: returns find state (-1/0/1/2)
+# Poll JS: returns PDF.js FindState (-1 unknown, 0 FOUND, 1 NOT_FOUND, 2 WRAPPED, 3 PENDING)
 _JS_GET_FIND_STATE = "window.__3tFindState"
+_PDFJS_FIND_NOT_FOUND = 1
 
 
 class PDFViewerWidget(QtWidgets.QWidget):
@@ -581,11 +582,11 @@ class PDFViewerWidget(QtWidgets.QWidget):
         return self._page_count
 
     def check_find_result(self, query: str, delay_ms: int = 700):
-        """After dispatching a find event, wait delay_ms then emit find_not_found if state==0."""
+        """After dispatching a find event, wait delay_ms then emit only for PDF.js NOT_FOUND."""
         def _check():
             self._web_view.page().runJavaScript(
                 _JS_GET_FIND_STATE,
-                lambda state: self.find_not_found.emit(query) if state == 0 else None,
+                lambda state: self.find_not_found.emit(query) if state == _PDFJS_FIND_NOT_FOUND else None,
             )
         QtCore.QTimer.singleShot(delay_ms, _check)
 

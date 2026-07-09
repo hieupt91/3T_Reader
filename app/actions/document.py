@@ -40,6 +40,7 @@ def _run_find(window, query: str, *, find_previous: bool, new_search: bool):
         if (!app || !app.eventBus) {{
             return "PDF.js chưa khởi tạo xong";
         }}
+        window.__3tFindState = 3;
         app.eventBus.dispatch("find", Object.assign({{ source: window }}, {json.dumps(payload)}));
         return "OK";
     }} catch (e) {{

@@ -234,8 +234,16 @@ def _annotation_undo_stack(window) -> list:
     return stack
 
 
+_MAX_ANNOTATION_UNDO = 30  # Giới hạn undo stack — tránh lag khi tô sáng nhiều lần liên tiếp
+
+
 def _push_annotation_undo(window, item: dict) -> None:
-    _annotation_undo_stack(window).append(dict(item))
+    stack = _annotation_undo_stack(window)
+    stack.append(dict(item))
+    # Cắt entry cũ nhất khi vượt ngưỡng — entry bị drop đã được lưu vào PDF rồi,
+    # chỉ không còn undo được nữa (chấp nhận được hơn là lag/freeze khi flush).
+    if len(stack) > _MAX_ANNOTATION_UNDO:
+        del stack[0]
 
 
 def _flush_annotation_queue(window, target_path: str | None = None) -> bool:
@@ -365,7 +373,7 @@ def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str) -> None:
         raise
 
 
-def _merge_rects_by_line(rects: list[tuple]) -> list[tuple[float, float, float, float]]:
+def _merge_rects_by_line(rects: list[tuple], *, pad: bool = True) -> list[tuple[float, float, float, float]]:
     """Normalize text-mark rectangles so highlight/underline/strike render line-stable."""
     if not rects:
         return []
@@ -405,13 +413,41 @@ def _merge_rects_by_line(rects: list[tuple]) -> list[tuple[float, float, float, 
 
     merged: list[tuple[float, float, float, float]] = []
     for group in groups:
-        left = min(r[0] for r in group)
-        right = max(r[2] for r in group)
-        bottom = min(r[1] for r in group)
-        top = max(r[3] for r in group)
-        height = max(1.0, top - bottom)
-        pad = min(height * 0.08, 2.0)
-        merged.append((left, bottom - pad, right, top + pad))
+        # Sắp xếp các rect trong dòng theo tọa độ x (từ trái qua phải)
+        group.sort(key=lambda r: r[0])
+        
+        # Chia nhỏ nhóm nếu có khoảng trống quá lớn (tránh gộp các từ khóa 
+        # riêng biệt nằm xa nhau trên cùng một dòng thành vệt dài).
+        sub_groups: list[list[tuple[float, float, float, float]]] = []
+        current_sub: list[tuple[float, float, float, float]] = []
+        for r in group:
+            if not current_sub:
+                current_sub.append(r)
+            else:
+                prev_r = current_sub[-1]
+                gap = r[0] - prev_r[2]
+                avg_height = sum(max(1.0, cr[3] - cr[1]) for cr in current_sub) / len(current_sub)
+                
+                # Nếu khoảng cách ngang lớn hơn 2 lần chiều cao chữ -> tách khối
+                if gap > max(4.0, avg_height * 2.0):
+                    sub_groups.append(current_sub)
+                    current_sub = [r]
+                else:
+                    current_sub.append(r)
+        if current_sub:
+            sub_groups.append(current_sub)
+
+        for sub in sub_groups:
+            left = min(r[0] for r in sub)
+            right = max(r[2] for r in sub)
+            bottom = min(r[1] for r in sub)
+            top = max(r[3] for r in sub)
+            if pad:
+                height = max(1.0, top - bottom)
+                padding = min(height * 0.08, 2.0)
+                bottom -= padding
+                top += padding
+            merged.append((left, bottom, right, top))
     return sorted(merged, key=lambda r: (-r[3], r[0]))
 
 
@@ -1822,6 +1858,34 @@ def _remove_overlay_marks_by_content(window, pdf_path: str, keyword: str) -> Non
             _remove_overlay_mark(window, str(item.get("id") or ""))
 
 
+def _keyword_already_marked(window, pdf_path: str, keyword: str, style: str) -> bool:
+    """True nếu từ khóa này đã được đánh dấu (cùng kiểu) cho tài liệu này.
+
+    Dùng để 'Tô sáng/đánh dấu toàn tài liệu' KHÔNG xếp chồng nhiều lớp giống
+    hệt khi bấm lặp lại — nhiều lớp trùng làm hoàn tác bị lag và không thấy rõ
+    từng bước (mỗi lần undo chỉ bỏ 1 lớp vô hình trong chồng lớp giống nhau).
+    """
+    target = _normalize_text(keyword).casefold()
+    if not target:
+        return False
+    current = os.path.abspath(pdf_path)
+    for item in _overlay_marks(window):
+        if not isinstance(item, dict) or item.get("_deleted"):
+            continue
+        if item.get("kind") != "mark":
+            continue
+        try:
+            if os.path.abspath(str(item.get("path") or "")) != current:
+                continue
+        except Exception:
+            continue
+        if str(item.get("style") or "") != str(style):
+            continue
+        if _normalize_text(str(item.get("content") or "")).casefold() == target:
+            return True
+    return False
+
+
 def undo_last_annotation(window) -> bool:
     """Undo the last lightweight annotation without reloading the whole viewer."""
     stack = _annotation_undo_stack(window)
@@ -2041,37 +2105,40 @@ def _search_text_on_page(pdf_path: str, page_no: int, text: str) -> list[tuple]:
         if rects:
             return rects
 
+    from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+
     rects = []
-    doc = pdfium.PdfDocument(pdf_path)
-    textpage = None
-    searcher = None
-    try:
-        page = doc[page_no - 1]
-        textpage = page.get_textpage()
-        search_text = _normalize_text(text)
-        if not search_text:
-            return []
-        searcher = textpage.search(search_text, match_case=False, match_whole_word=False)
-        while True:
-            res = searcher.get_next()
-            if res is None:
-                break
-            # pypdfium2 v5+: get_next() returns (start_index, char_count)
-            # Use count_rects + get_rect to get bounding boxes
-            start, count = res
-            n = textpage.count_rects(start, count)
-            for i in range(n):
-                r = textpage.get_rect(i)
-                rects.append((float(r[0]), float(r[1]), float(r[2]), float(r[3])))
-    finally:
-        for obj in (searcher, textpage):
-            try:
-                close = getattr(obj, "close", None)
-                if callable(close):
-                    close()
-            except Exception:
-                pass
-        doc.close()
+    with PDFIUM_LOCK:
+        doc = pdfium.PdfDocument(pdf_path)
+        textpage = None
+        searcher = None
+        try:
+            page = doc[page_no - 1]
+            textpage = page.get_textpage()
+            search_text = _normalize_text(text)
+            if not search_text:
+                return []
+            searcher = textpage.search(search_text, match_case=False, match_whole_word=False)
+            while True:
+                res = searcher.get_next()
+                if res is None:
+                    break
+                # pypdfium2 v5+: get_next() returns (start_index, char_count)
+                # Use count_rects + get_rect to get bounding boxes
+                start, count = res
+                n = textpage.count_rects(start, count)
+                for i in range(n):
+                    r = textpage.get_rect(i)
+                    rects.append((float(r[0]), float(r[1]), float(r[2]), float(r[3])))
+        finally:
+            for obj in (searcher, textpage):
+                try:
+                    close = getattr(obj, "close", None)
+                    if callable(close):
+                        close()
+                except Exception:
+                    pass
+            doc.close()
     return rects
 
 
@@ -2416,18 +2483,33 @@ def _mark_keyword_everywhere(window, mark_type: str, keyword: str) -> bool:
         config["pdf_color"] = list(getattr(window, "_highlight_color_pdf", config["pdf_color"]))
         config["overlay_color"] = getattr(window, "_highlight_color_overlay", config["overlay_color"])
 
+    # Chống xếp chồng: từ khóa đã đánh dấu (cùng kiểu) rồi thì không thêm lớp
+    # trùng — nhiều lớp giống hệt là nguyên nhân undo lag + không thấy rõ từng
+    # bước hoàn tác khi bấm lặp lại. Muốn bỏ: bấm Hoàn tác.
+    if _keyword_already_marked(window, path, keyword, config["overlay_style"]):
+        if hasattr(window, "status"):
+            window.status.showMessage(
+                f'"{keyword}" đã được {config["label"]} rồi (bấm Hoàn tác để bỏ).', 3500
+            )
+        return True
+
     if hasattr(window, "status"):
         window.status.showMessage(f'Đang quét "{keyword}" trên toàn tài liệu…', 0)
     try:
-        doc = pdfium.PdfDocument(path)
-        try:
-            total_pages = len(doc)
-        finally:
-            doc.close()
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(path)
+            try:
+                total_pages = len(doc)
+            finally:
+                doc.close()
 
         rects_by_page: dict[int, list[tuple[float, float, float, float]]] = {}
         for page_no in range(1, total_pages + 1):
-            rects = _merge_rects_by_line(_search_text_on_page(path, page_no, keyword))
+            rects = _merge_rects_by_line(
+                _search_text_on_page(path, page_no, keyword),
+                pad=(mark_type == "highlight"),
+            )
             if rects:
                 rects_by_page[page_no] = rects
 
@@ -2487,8 +2569,10 @@ def _mark_keyword_everywhere(window, mark_type: str, keyword: str) -> bool:
             "label": config["label"],
         })
         if hasattr(window, "status"):
+            word_count = len(_tokenize_text(keyword))
+            word_part = f", cụm {word_count} từ" if word_count > 1 else ""
             window.status.showMessage(
-                f'Đã {config["label"]} {total_rects} chỗ cho "{keyword}" '
+                f'Đã {config["label"]} {total_rects} dòng/vùng{word_part} cho "{keyword}" '
                 f"trên {len(rects_by_page)} trang.", 4000)
         return True
     except Exception as exc:
@@ -2501,12 +2585,7 @@ def _mark_keyword_everywhere(window, mark_type: str, keyword: str) -> bool:
 @require_document(show_message=True)
 def mark_all_search_hits(window):
     """Nút 'Tô sáng tất cả' trên thanh tìm kiếm (Ctrl+F) — TC28."""
-    query = ""
-    try:
-        query = window.search_input.text().strip()
-    except Exception:
-        pass
-    query = query or (getattr(window, "search_query", "") or "").strip()
+    query = _current_search_keyword(window)
     if not query:
         if hasattr(window, "status"):
             window.status.showMessage("Nhập từ khóa tìm kiếm trước khi tô sáng tất cả.", 3000)
@@ -2751,7 +2830,10 @@ def _parse_page_range(text: str, max_page: int) -> list[int]:
 def _do_line_annot(window, text: str, annot_type: str):
     path = window.current_path
     page_no = _get_current_page(window)
-    rects = _merge_rects_by_line(_search_text_on_page(path, page_no, text))
+    rects = _merge_rects_by_line(
+        _search_text_on_page(path, page_no, text),
+        pad=(annot_type not in {"underline", "strikeout"}),
+    )
     if not rects:
         show_warning(window, "Không tìm thấy",
             f'Không tìm thấy "{text}" trên trang {page_no}.')
@@ -2938,11 +3020,32 @@ def _mark_keyword_from_selection(window, mark_type: str) -> bool:
     return _mark_keyword_everywhere(window, mark_type, keyword)
 
 
+def _current_search_keyword(window) -> str:
+    query = ""
+    try:
+        query = window.search_input.text().strip()
+    except Exception:
+        pass
+    return _normalize_text(query or (getattr(window, "search_query", "") or ""))
+
+
+def _mark_search_keyword_when_no_selection(window, mark_type: str) -> bool:
+    selected_text, rects_by_page = _get_selection_page_rects_sync(window)
+    if rects_by_page or selected_text:
+        return False
+    keyword = _current_search_keyword(window)
+    if not keyword:
+        return False
+    return _mark_keyword_everywhere(window, mark_type, keyword)
+
+
 @require_document(show_message=True)
 def underline_text(window):
     """Underline the current PDF.js text selection."""
     if _mark_mode_is_find(window):
         _mark_keyword_from_selection(window, "underline")
+        return
+    if _mark_search_keyword_when_no_selection(window, "underline"):
         return
     _do_selected_text_mark(window, "underline")
 
@@ -2952,6 +3055,8 @@ def strikeout_text(window):
     """Strike out the current PDF.js text selection."""
     if _mark_mode_is_find(window):
         _mark_keyword_from_selection(window, "strikeout")
+        return
+    if _mark_search_keyword_when_no_selection(window, "strikeout"):
         return
     _do_selected_text_mark(window, "strikeout")
 

@@ -256,11 +256,13 @@ class AISummarizeDialog(QDialog):
 
         try:
             import pypdfium2 as pdfium
-            doc = pdfium.PdfDocument(self._pdf_path)
-            try:
-                total = len(doc)
-            finally:
-                doc.close()
+            from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+            with PDFIUM_LOCK:
+                doc = pdfium.PdfDocument(self._pdf_path)
+                try:
+                    total = len(doc)
+                finally:
+                    doc.close()
         except Exception:
             return ""
 

@@ -119,11 +119,13 @@ def start_auto_ocr_for_document(window, pdf_path: str | None, current_page: int 
 
     try:
         import pypdfium2 as pdfium
-        doc = pdfium.PdfDocument(pdf_path)
-        try:
-            total_pages = len(doc)
-        finally:
-            doc.close()
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(pdf_path)
+            try:
+                total_pages = len(doc)
+            finally:
+                doc.close()
     except Exception:
         return
     if total_pages <= 0:

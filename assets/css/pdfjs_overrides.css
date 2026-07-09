@@ -40,7 +40,7 @@
 
 /* Hover cue so users can tell a region carries a note/annotation (TC29).
    Signature widgets keep their own styling above. */
-.annotationLayer section[data-annotation-id]:not(.signatureWidgetAnnotation):hover {
+.annotationLayer .textAnnotation:hover {
     outline: 2px dashed #0b84f3 !important;
     outline-offset: 2px;
     cursor: pointer;
@@ -48,4 +48,28 @@
 
 .annotationLayer .textAnnotation:hover img {
     filter: drop-shadow(0 0 4px rgba(11, 132, 243, 0.65));
+}
+
+/* PDF.js treats saved highlight/underline/strikeout as annotation sections too.
+   Do not show its popup/hover cue for 3T text marks; click-delete is handled by
+   the transparent .threeTMarkOverlay hit test in annotate.py. */
+.annotationLayer :is(.highlightAnnotation, .underlineAnnotation, .strikeoutAnnotation, .squigglyAnnotation):hover {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.annotationLayer :is(.highlightAnnotation, .underlineAnnotation, .strikeoutAnnotation, .squigglyAnnotation).popupTriggerArea,
+.annotationLayer :is(.highlightAnnotation, .underlineAnnotation, .strikeoutAnnotation, .squigglyAnnotation) .popupTriggerArea {
+    pointer-events: none !important;
+}
+
+/* Search-highlight khớp màu tô sáng của app (vàng/cam). Mặc định PDF.js dùng
+   hồng (rgb 180 0 170) cho match và xanh lá cho match hiện tại -> lệch màu với
+   mark overlay vàng của app, gây "lỗi tô sáng" 2 màu khi vừa search vừa tô sáng.
+   !important để thắng CSS variable của viewer.css. */
+.textLayer .highlight {
+    background-color: rgb(255 221 0 / 0.40) !important;
+}
+.textLayer .highlight.selected {
+    background-color: rgb(255 140 0 / 0.55) !important;
 }

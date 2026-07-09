@@ -738,9 +738,11 @@ def export_pages_to_images(window):
         return
     src = target_path or read_path
 
-    doc   = pdfium.PdfDocument(src)
-    total = len(doc)
-    doc.close()
+    from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+    with PDFIUM_LOCK:
+        doc   = pdfium.PdfDocument(src)
+        total = len(doc)
+        doc.close()
 
     try:
         cur_page = window.viewer.get_current_page()
@@ -792,37 +794,39 @@ def export_pages_to_images(window):
         done = 0
         result_path = ""
         zf = None
-        doc = pdfium.PdfDocument(src)
-        try:
-            if make_zip:
-                import zipfile
-                zf = zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED)
-            for pg in page_list:
-                page = doc[pg - 1]
-                try:
-                    width = float(page.get_width())
-                    height = float(page.get_height())
-                    area = max(1.0, width * height)
-                    capped_scale = min(scale, (max_render_pixels / area) ** 0.5)
-                    bitmap  = page.render(scale=max(0.25, capped_scale))
-                    pil_img = bitmap.to_pil()
-                    img_name = f"{base_name}_trang{pg:03d}.{p['ext']}"
-                    if zf is not None:
-                        import io
-                        buf = io.BytesIO()
-                        pil_img.save(buf, format=p["fmt"])
-                        zf.writestr(img_name, buf.getvalue())
-                    else:
-                        result_path = os.path.join(out_dir, img_name)
-                        pil_img.save(result_path)
-                finally:
-                    page.close()
-                done += 1
-                window.status.showMessage(f"Đang xuất trang {pg}… ({done}/{len(page_list)})", 0)
-        finally:
-            doc.close()
-            if zf is not None:
-                zf.close()
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(src)
+            try:
+                if make_zip:
+                    import zipfile
+                    zf = zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED)
+                for pg in page_list:
+                    page = doc[pg - 1]
+                    try:
+                        width = float(page.get_width())
+                        height = float(page.get_height())
+                        area = max(1.0, width * height)
+                        capped_scale = min(scale, (max_render_pixels / area) ** 0.5)
+                        bitmap  = page.render(scale=max(0.25, capped_scale))
+                        pil_img = bitmap.to_pil()
+                        img_name = f"{base_name}_trang{pg:03d}.{p['ext']}"
+                        if zf is not None:
+                            import io
+                            buf = io.BytesIO()
+                            pil_img.save(buf, format=p["fmt"])
+                            zf.writestr(img_name, buf.getvalue())
+                        else:
+                            result_path = os.path.join(out_dir, img_name)
+                            pil_img.save(result_path)
+                    finally:
+                        page.close()
+                    done += 1
+                    window.status.showMessage(f"Đang xuất trang {pg}… ({done}/{len(page_list)})", 0)
+            finally:
+                doc.close()
+                if zf is not None:
+                    zf.close()
         if make_zip:
             result_path = zip_path
 
@@ -872,19 +876,21 @@ def export_pdf_to_text(window):
 
     window.status.showMessage("Đang trích xuất văn bản…", 0)
     try:
-        doc   = pdfium.PdfDocument(src)
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
         lines = []
-        for i in range(len(doc)):
-            page     = doc[i]
-            textpage = page.get_textpage()
-            text     = textpage.get_text_range().strip()
-            textpage.close()
-            page.close()
-            if text:
-                lines.append(f"=== Trang {i + 1} ===")
-                lines.append(text)
-                lines.append("")
-        doc.close()
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(src)
+            for i in range(len(doc)):
+                page     = doc[i]
+                textpage = page.get_textpage()
+                text     = textpage.get_text_range().strip()
+                textpage.close()
+                page.close()
+                if text:
+                    lines.append(f"=== Trang {i + 1} ===")
+                    lines.append(text)
+                    lines.append("")
+            doc.close()
 
         with open(out_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))

@@ -2434,17 +2434,20 @@ def _sample_background_color(
 
         import pypdfium2 as pdfium
 
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+
         scale = 2.0
-        doc = pdfium.PdfDocument(pdf_path)
-        try:
-            if page_num < 1 or page_num > len(doc):
-                return None
-            page = doc[page_num - 1]
-            page_h_pt = float(page.get_height())
-            bitmap = page.render(scale=scale)
-            pil_img = bitmap.to_pil().convert("RGB")
-        finally:
-            doc.close()
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(pdf_path)
+            try:
+                if page_num < 1 or page_num > len(doc):
+                    return None
+                page = doc[page_num - 1]
+                page_h_pt = float(page.get_height())
+                bitmap = page.render(scale=scale)
+                pil_img = bitmap.to_pil().convert("RGB")
+            finally:
+                doc.close()
 
         left, bottom, right, top = [float(v) for v in box]
 
@@ -2491,6 +2494,75 @@ def _sample_background_color(
         return None
 
 
+def _sample_text_ink_color(
+    pdf_path: str,
+    page_num: int,
+    box: tuple[float, float, float, float],
+    *,
+    scale: float = 2.0,
+    dark_percentile: float = 0.15,
+) -> tuple[float, float, float] | None:
+    """Lấy màu MỰC thật bên trong `box` (khác _sample_background_color lấy màu
+    NỀN quanh box).
+
+    Dùng cho "sửa text gốc" trên trang scan: text OCR vô hình luôn báo màu đen
+    (color=0) vô nghĩa, nên phải đọc màu thật từ pixel ảnh. Kỹ thuật: render
+    box, lọc ra `dark_percentile` tỉ lệ pixel tối nhất (mực luôn tối hơn nền
+    giấy rõ rệt), lấy trung vị nhóm đó. Trả None nếu box quá nhỏ / lỗi.
+    """
+    try:
+        import statistics
+
+        import pypdfium2 as pdfium
+
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(pdf_path)
+            try:
+                if page_num < 1 or page_num > len(doc):
+                    return None
+                page = doc[page_num - 1]
+                page_h_pt = float(page.get_height())
+                bitmap = page.render(scale=scale)
+                pil_img = bitmap.to_pil().convert("RGB")
+            finally:
+                doc.close()
+
+        left, bottom, right, top = [float(v) for v in box]
+
+        def _to_px(x_pt: float, y_pt: float) -> tuple[float, float]:
+            return (x_pt * scale, (page_h_pt - y_pt) * scale)
+
+        px_l, px_t = _to_px(left, top)
+        px_r, px_b = _to_px(right, bottom)
+        px_l, px_r = sorted((int(px_l), int(px_r)))
+        px_t, px_b = sorted((int(px_t), int(px_b)))
+        img_w, img_h = pil_img.size
+        px_l, px_r = max(0, px_l), min(img_w, px_r)
+        px_t, px_b = max(0, px_t), min(img_h, px_b)
+        if px_r - px_l < 3 or px_b - px_t < 3:
+            return None
+
+        pixels = list(pil_img.crop((px_l, px_t, px_r, px_b)).getdata())
+        if not pixels:
+            return None
+
+        def _luma(p: tuple[int, int, int]) -> float:
+            return 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]
+
+        pixels_sorted = sorted(pixels, key=_luma)
+        n_dark = max(1, int(len(pixels_sorted) * dark_percentile))
+        dark_pixels = pixels_sorted[:n_dark]
+
+        r_med = statistics.median(p[0] for p in dark_pixels)
+        g_med = statistics.median(p[1] for p in dark_pixels)
+        b_med = statistics.median(p[2] for p in dark_pixels)
+        return (r_med / 255.0, g_med / 255.0, b_med / 255.0)
+    except Exception:
+        return None
+
+
 def _page_is_scan_text(base_path: str, page_num: int) -> bool:
     """True nếu text trên trang chỉ là lớp OCR vô hình (GlyphLessFont) —
     tức trang là ảnh scan, mọi chữ nhìn thấy đều là pixel của ảnh."""
@@ -2504,16 +2576,22 @@ def _page_is_scan_text(base_path: str, page_num: int) -> bool:
             if page_num < 1 or page_num > doc.page_count:
                 return False
             page = doc[page_num - 1]
-            has_any_span = False
+            ocr_count = 0
+            total_count = 0
             for block in page.get_text("dict").get("blocks", []):
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
                         if not str(span.get("text", "")).strip():
                             continue
-                        has_any_span = True
-                        if "glyphless" not in str(span.get("font", "")).lower():
-                            return False
-            if not has_any_span:
+                        total_count += 1
+                        if "glyphless" in str(span.get("font", "")).lower():
+                            ocr_count += 1
+            if total_count == 0:
+                return False
+            # Coi là trang scan nếu ĐA SỐ span là OCR vô hình. Không đòi 100%
+            # để chịu được vài span thật lẫn vào (số trang đóng dấu, header...)
+            # — 1 span thật không được làm hỏng cả trang scan.
+            if ocr_count / total_count < 0.6:
                 return False
             return bool(page.get_images(full=True))
         finally:
@@ -2547,18 +2625,20 @@ def _build_scan_patch(
 
         import pypdfium2 as pdfium
         from PIL import Image, ImageDraw, ImageFilter
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
 
-        doc = pdfium.PdfDocument(base_path)
-        try:
-            if page_num < 1 or page_num > len(doc):
-                return None
-            page = doc[page_num - 1]
-            page_w_pt = float(page.get_width())
-            page_h_pt = float(page.get_height())
-            bitmap = page.render(scale=scale)
-            pil_img = bitmap.to_pil().convert("RGB")
-        finally:
-            doc.close()
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(base_path)
+            try:
+                if page_num < 1 or page_num > len(doc):
+                    return None
+                page = doc[page_num - 1]
+                page_w_pt = float(page.get_width())
+                page_h_pt = float(page.get_height())
+                bitmap = page.render(scale=scale)
+                pil_img = bitmap.to_pil().convert("RGB")
+            finally:
+                doc.close()
 
         left, bottom, right, top = [float(v) for v in box]
         patch_left = max(0.0, left - margin_pt)
@@ -2732,9 +2812,46 @@ def edit_existing_text(window):
 
         insert_box = (left, bottom, right, top)
         redact_box = (left, bottom, right, top)
-        span_info = _find_pdf_span(base_snapshot, int(pageNum), redact_box)
         redact_padding = 2.0 if use_span_box else 0.0
-        if span_info:
+        span_info = _find_pdf_span(base_snapshot, int(pageNum), redact_box)
+
+        # Loại trang quyết định CÁCH lấy vị trí + màu (xem
+        # docs/SUA_TEXT_GOC_SCAN_IMPLEMENTATION_PLAN.md).
+        is_scan_page = (
+            bool(span_info and span_info.get("is_ocr_placeholder_font"))
+            or _page_is_scan_text(base_snapshot, int(pageNum))
+        )
+
+        scan_baseline_y = None
+        if is_scan_page:
+            # SCAN: box NGANG giữ nguyên vùng người dùng bôi đen (không snap ->
+            # không nhảy ngang). Nhưng CHIỀU DỌC phải bó khít theo span OCR:
+            # chọn chuột thường cao hơn glyph (gồm cả khoảng dòng), nếu vá cả
+            # chiều cao đó sẽ TÔ TRẮNG 1 MẢNG trên/dưới dòng chữ.
+            redact_padding = 0.0
+            if span_info:
+                font_size = span_info["font_size"]
+                # Baseline DỌC của OCR chính xác (chỉ box ngang mới nhiễu).
+                scan_baseline_y = float(span_info["baseline"][1])
+                _sl, span_bottom, _sr, span_top = span_info["box"]
+                t_bottom = max(bottom, span_bottom)
+                t_top = min(top, span_top)
+                if t_top - t_bottom >= 0.5:
+                    bottom, top = t_bottom, t_top
+                    redact_box = (left, bottom, right, top)
+                    insert_box = redact_box
+            else:
+                font_size = max(6.0, min(96.0, (top - bottom) * 0.82))
+                scan_baseline_y = bottom + font_size * 0.08
+            # Màu chữ: đọc pixel mực THẬT — text OCR vô hình luôn báo màu đen
+            # (color=0) vô nghĩa nên KHÔNG dùng span_info["font_color"].
+            ink = _sample_text_ink_color(base_snapshot, int(pageNum), redact_box)
+            color = ink if ink is not None else (0.0, 0.0, 0.0)
+            # Font family / bold: không đoán từ dữ liệu OCR — giữ mặc định an
+            # toàn (font từ styles JS). ponytail: thêm heuristic bold nếu cần.
+        elif span_info:
+            # VECTOR (PDF thường / convert Word-Excel): span PyMuPDF chính xác
+            # tuyệt đối → cho phép ghi đè cả vị trí lẫn style.
             if use_span_box:
                 redact_box = span_info["box"]
                 left, bottom, right, top = redact_box
@@ -2756,13 +2873,8 @@ def edit_existing_text(window):
 
         text_value = str(new_text).strip()
 
-        # Trang scan (chữ nhìn thấy là pixel ảnh, text chỉ là lớp OCR vô
-        # hình): che chữ cũ bằng MIẾNG VÁ ẢNH lấy từ chính nền trang —
+        # Trang scan: che chữ cũ bằng MIẾNG VÁ ẢNH lấy từ chính nền trang —
         # tô màu phẳng kiểu gì cũng lộ vệt trên nền scan có vân/nhiễu.
-        is_scan_page = (
-            bool(span_info and span_info.get("is_ocr_placeholder_font"))
-            or _page_is_scan_text(base_snapshot, int(pageNum))
-        )
         patch_info = None
         fill_color = (1.0, 1.0, 1.0)
         if is_scan_page:
@@ -2815,7 +2927,12 @@ def edit_existing_text(window):
                 "rotation": 0,
                 "is_existing_edit": True,
             }
-            if span_info:
+            if is_scan_page:
+                # Scan: baseline = (mép trái box đã chọn, baseline dọc OCR).
+                # X từ box (khớp đúng chỗ bôi đen), Y từ OCR (căn đúng dòng).
+                op["baseline"] = (left, scan_baseline_y)
+                op["single_line"] = True
+            elif span_info:
                 if use_span_box:
                     op["baseline"] = span_info["baseline"]
                 else:

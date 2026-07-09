@@ -205,6 +205,13 @@ class AIChatDialog(QDialog):
         root.addLayout(input_row)
 
     def _set_stays_on_top(self, enabled: bool):
+        chat_html = self._chat_area.toHtml()
+        input_text = self._input.text()
+        status_text = self._lbl_status.text()
+        status_style = self._lbl_status.styleSheet()
+        send_enabled = self._btn_send.isEnabled()
+        scroll_value = self._chat_area.verticalScrollBar().value()
+
         flags = self.windowFlags()
         if enabled:
             flags |= Qt.WindowType.WindowStaysOnTopHint
@@ -212,13 +219,17 @@ class AIChatDialog(QDialog):
             flags &= ~Qt.WindowType.WindowStaysOnTopHint
         was_visible = self.isVisible()
         self.setWindowFlags(flags)
+        self._chat_area.setHtml(chat_html)
+        self._input.setText(input_text)
+        self._lbl_status.setText(status_text)
+        self._lbl_status.setStyleSheet(status_style)
+        self._btn_send.setEnabled(send_enabled)
+        self._chat_area.verticalScrollBar().setValue(scroll_value)
         if was_visible:
             self.show()
-            self.raise_()
-            self.activateWindow()
-            # TC37: setWindowFlags destroys/recreates the native window,
-            # which clears the QTextEdit content. Rebuild from session history.
-            self._rebuild_chat()
+            if enabled:
+                self.raise_()
+                self.activateWindow()
 
     def _append_html(self, html: str):
         self._chat_area.append(html)
@@ -369,7 +380,7 @@ class AIChatDialog(QDialog):
         self._rebuild_chat()
 
     def closeEvent(self, event):
-        event.ignore()
+        event.accept()
         self.hide()
 
     @staticmethod
