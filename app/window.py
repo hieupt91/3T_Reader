@@ -461,6 +461,9 @@ class PDFReaderApp(QMainWindow):
             "viewer":       viewer,
             "source_path":  source_path,
             "display_path": display_path or source_path,
+            # Khóa ổn định cho lịch sử chat AI — đặt 1 lần tại đây, KHÔNG luồng
+            # reload/chú thích/sửa nào được ghi đè (khác display_path hay bị đè).
+            "chat_identity_path": display_path or source_path,
             "web_view":     None,
             "search_query": "",
             "temp_path":    temp_path,

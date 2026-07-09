@@ -43,3 +43,29 @@ def test_pdf_chat_uses_cached_ocr_text_when_pdf_text_missing(monkeypatch, tmp_pa
     monkeypatch.setitem(__import__("sys").modules, "pypdfium2", SimpleNamespace(PdfDocument=lambda _path: (_ for _ in ()).throw(RuntimeError("no text"))))
 
     assert session._load_text() == "[Trang OCR]\nnoi dung tu ocr"
+
+
+def test_pdf_chat_history_survives_file_edit(monkeypatch, tmp_path):
+    """Lịch sử chat phải theo ĐƯỜNG DẪN tài liệu (ổn định), không mất khi file
+    bị sửa/chú thích (đổi mtime/size) — trước đây băm theo mtime nên mở lại là
+    trống."""
+    from packages.ai import chat_pdf
+
+    monkeypatch.setattr(chat_pdf, "get_cache_dir", lambda: str(tmp_path))
+    pdf = tmp_path / "doc.pdf"
+    pdf.write_bytes(b"%PDF-1.4 noi dung ban dau")
+
+    s1 = chat_pdf.PDFChatSession(str(pdf), history_identity_path=str(pdf))
+    s1.history.append(chat_pdf.ChatMessage(role="user", content="Cau A"))
+    s1.history.append(chat_pdf.ChatMessage(role="assistant", content="Tra loi A"))
+    s1._save_history()
+
+    # Sửa file -> đổi mtime + size
+    import time
+    time.sleep(0.02)
+    pdf.write_bytes(b"%PDF-1.4 noi dung da sua them rat nhieu chu khac han")
+
+    s2 = chat_pdf.PDFChatSession(str(pdf), history_identity_path=str(pdf))
+    assert [(m.role, m.content) for m in s2.history] == [
+        ("user", "Cau A"), ("assistant", "Tra loi A")
+    ], "lịch sử chat bị mất sau khi sửa file"
