@@ -1,7 +1,7 @@
 [project]
 name = "3t-reader"
 # Version is kept in sync with app/version.py (single source of truth).
-version = "1.0.24"
+version = "1.0.25"
 description = "3T Reader desktop foundation for Windows and macOS"
 requires-python = ">=3.11"
 readme = "README.md"
