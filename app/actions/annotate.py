@@ -43,10 +43,11 @@ def _search_text_on_page(pdf_path: str, page_no: int, text: str) -> list[tuple]:
             # multi-word query: keep exact match
             words = text.strip().split()
             if len(words) == 1:
-                # substring: search the single word without match_whole_word
+                # 1 word: substring match so tokens glued to punctuation ("sửa.") are found
                 searcher = textpage.search(text, match_case=False, match_whole_word=False)
             else:
-                searcher = textpage.search(text, match_case=False, match_whole_word=False)
+                # multi-word: keep exact (whole-word) match per Win contract F1
+                searcher = textpage.search(text, match_case=False, match_whole_word=True)
             while True:
                 res = searcher.get_next()
                 if res is None:
@@ -173,6 +174,39 @@ def _rotate_page(window, degrees: int):
             window.status.showMessage(f"Đã xoay trang {page_no} {direction}", 2000)
     except Exception as e:
         show_warning(window, "Lỗi xoay trang", str(e))
+
+
+@require_document(show_message=True)
+def rotate_all_pages_cw(window):
+    """Rotate all pages in the document 90° clockwise (Rotate pages...)."""
+    _rotate_all_pages(window, 90)
+
+
+@require_document(show_message=True)
+def rotate_all_pages_ccw(window):
+    """Rotate all pages in the document 90° counter-clockwise (Rotate pages...)."""
+    _rotate_all_pages(window, -90)
+
+
+def _rotate_all_pages(window, degrees: int):
+    path = window.current_path
+    try:
+        with pikepdf.open(path) as pdf:
+            page_count = len(pdf.pages)
+            for page in pdf.pages:
+                try:
+                    current_rot = int(page["/Rotate"])
+                except (KeyError, AttributeError):
+                    current_rot = 0
+                page["/Rotate"] = (current_rot + degrees) % 360
+            _save_pikepdf_reload(window, pdf)
+        if hasattr(window, "status"):
+            direction = "thuận chiều kim đồng hồ" if degrees > 0 else "ngược chiều kim đồng hồ"
+            window.status.showMessage(
+                f"Đã xoay toàn bộ {page_count} trang {direction}", 2500
+            )
+    except Exception as e:
+        show_warning(window, "Lỗi xoay tài liệu", str(e))
 
 
 # ── Delete page ───────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import threading
 
-from packages.qt_compat.QtCore import Qt, QTimer, QObject, pyqtSignal
+from packages.qt_compat.QtCore import Qt, QTimer, QObject, pyqtSignal, pyqtSlot
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QPushButton, QFrame, QFileDialog, QButtonGroup, QRadioButton,
@@ -68,6 +68,23 @@ class _TranslateWorker(QObject):
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
+
+
+class _TranslateRelay(QObject):
+    """Relay — lives on main thread to ensure worker callbacks run on main thread."""
+    finished = pyqtSignal(object)
+    error    = pyqtSignal(str)
+
+    def __init__(self, parent: QObject):
+        super().__init__(parent)
+
+    @pyqtSlot(object)
+    def on_finished(self, result):
+        self.finished.emit(result)
+
+    @pyqtSlot(str)
+    def on_error(self, msg: str):
+        self.error.emit(msg)
 
 
 class AITranslateDialog(QDialog):
@@ -175,8 +192,12 @@ class AITranslateDialog(QDialog):
         self._worker = _TranslateWorker(
             self._pdf_path, self._current_page, source_lang, target_lang
         )
-        self._worker.finished.connect(self._on_finished)
-        self._worker.error.connect(self._on_error)
+        # Relay ensures GUI callbacks always run on main thread
+        self._relay = _TranslateRelay(self)
+        self._worker.finished.connect(self._relay.on_finished)
+        self._worker.error.connect(self._relay.on_error)
+        self._relay.finished.connect(self._on_finished)
+        self._relay.error.connect(self._on_error)
 
         thread = threading.Thread(target=self._worker.run, daemon=True)
         thread.start()
