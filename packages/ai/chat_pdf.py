@@ -1,6 +1,7 @@
 """Chat với PDF — hỏi đáp nội dung tài liệu."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -36,7 +37,11 @@ class PDFChatSession:
     """Session chat với một file PDF. Giữ lịch sử hội thoại."""
 
     def __init__(self, pdf_path: str, max_context_chars: int = 6000):
+        # Lock identity to the resolved source path at open time.
+        # Temp/auto-saved paths must NOT replace this — otherwise history
+        # is lost when the file is reload-saved to a temp location.
         self.pdf_path = pdf_path
+        self._chat_identity_path = os.path.realpath(pdf_path)
         self.max_context_chars = max_context_chars
         self.history: list[ChatMessage] = []
         self._pdf_text: Optional[str] = None

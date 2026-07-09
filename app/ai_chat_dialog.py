@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import threading
 
-from packages.qt_compat.QtCore import Qt, QTimer, QObject, pyqtSignal
+from packages.qt_compat.QtCore import Qt, QTimer, QObject, pyqtSignal, pyqtSlot
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QPushButton, QFrame, QLineEdit, QSizePolicy,
@@ -103,6 +103,27 @@ class _ChatWorker(QObject):
             self.error.emit(str(e))
 
 
+class _ChatRelay(QObject):
+    """Relay — lives on main thread, receives signals from worker thread.
+    Using a bound-method of a QObject ensures Qt marshals the call to the
+    main thread even when the signal is emitted from a background thread.
+    """
+    finished = pyqtSignal(object)
+    error    = pyqtSignal(str)
+
+    def __init__(self, parent: QObject):
+        super().__init__(parent)
+
+    @pyqtSlot(object)
+    def on_finished(self, result):
+        self.finished.emit(result)
+
+    @pyqtSlot(str)
+    def on_error(self, msg: str):
+        self.error.emit(msg)
+
+
+
 class AIChatDialog(QDialog):
     """Dialog chat với PDF — non-modal, giữ nguyên khi đọc."""
 
@@ -120,6 +141,7 @@ class AIChatDialog(QDialog):
         self._pdf_path = pdf_path
         self._session  = None
         self._busy     = False
+        self._thinking_start_pos = -1  # cursor position where thinking bubble starts
 
         self._build_ui()
         self._append_system_msg(
@@ -213,6 +235,8 @@ class AIChatDialog(QDialog):
 
         self._input.clear()
         self._append_html(_MSG_USER_TMPL.format(text=self._escape(question)))
+        # Record position before inserting thinking bubble so we can replace it in-place
+        self._thinking_start_pos = self._chat_area.document().characterCount()
         self._append_html(_MSG_THINKING)
 
         self._busy = True
@@ -220,31 +244,42 @@ class AIChatDialog(QDialog):
         self._lbl_status.setText("AI đang trả lời…")
 
         self._worker = _ChatWorker(self._session, question)
-        self._worker.finished.connect(self._on_finished)
-        self._worker.error.connect(self._on_error)
+        # Use _ChatRelay so callbacks are guaranteed to run on the main thread
+        self._relay = _ChatRelay(self)
+        self._worker.finished.connect(self._relay.on_finished)
+        self._worker.error.connect(self._relay.on_error)
+        self._relay.finished.connect(self._on_finished)
+        self._relay.error.connect(self._on_error)
 
         thread = threading.Thread(target=self._worker.run, daemon=True)
         thread.start()
 
-    def _remove_thinking_bubble(self):
-        cursor = self._chat_area.document().find(_MSG_THINKING)
-        html = self._chat_area.toHtml()
-        # Replace the thinking indicator with empty before appending real answer
-        # We re-render chat from scratch to keep it clean
-        # Simpler: just let new message append after; the thinking bubble stays brief
+    def _replace_thinking_bubble(self, replacement_html: str):
+        """Replace the thinking bubble in-place using QTextCursor.
+        Avoids expensive full-rebuild of the chat area on every response.
+        """
+        if self._thinking_start_pos >= 0:
+            from packages.qt_compat.QtGui import QTextCursor
+            doc = self._chat_area.document()
+            cursor = QTextCursor(doc)
+            cursor.setPosition(self._thinking_start_pos)
+            cursor.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
+            cursor.removeSelectedText()
+            self._thinking_start_pos = -1
+        self._append_html(replacement_html)
 
     def _on_finished(self, result):
         self._busy = False
         self._btn_send.setEnabled(True)
 
-        # Remove thinking bubble by rebuilding from session history
-        self._rebuild_chat()
-
         if result.success:
+            self._replace_thinking_bubble(
+                _MSG_AI_TMPL.format(text=self._escape(result.answer))
+            )
             self._lbl_status.setStyleSheet("color:#4fc080;font-size:11px")
             self._lbl_status.setText("Sẵn sàng.")
         else:
-            self._append_html(
+            self._replace_thinking_bubble(
                 _MSG_ERROR_TMPL.format(text=self._escape(result.error or "Lỗi không xác định."))
             )
             self._lbl_status.setStyleSheet("color:#E05050;font-size:11px")
@@ -253,8 +288,9 @@ class AIChatDialog(QDialog):
     def _on_error(self, msg: str):
         self._busy = False
         self._btn_send.setEnabled(True)
-        self._rebuild_chat()
-        self._append_html(_MSG_ERROR_TMPL.format(text=self._escape(msg)))
+        self._replace_thinking_bubble(
+            _MSG_ERROR_TMPL.format(text=self._escape(msg))
+        )
         self._lbl_status.setStyleSheet("color:#E05050;font-size:11px")
         self._lbl_status.setText(f"Lỗi: {msg}")
 

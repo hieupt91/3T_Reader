@@ -32,20 +32,29 @@ def _save_pikepdf_reload(window, pdf: pikepdf.Pdf, *, keep_page: bool = True):
 def _search_text_on_page(pdf_path: str, page_no: int, text: str) -> list[tuple]:
     """Search text with pypdfium2. Returns [(left, bottom, right, top)] in PDF points."""
     import pypdfium2 as pdfium
+    from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
     rects = []
-    doc = pdfium.PdfDocument(pdf_path)
-    try:
-        page = doc[page_no - 1]
-        textpage = page.get_textpage()
-        searcher = textpage.search(text, match_case=False, match_whole_word=False)
-        while True:
-            res = searcher.get_next()
-            if res is None:
-                break
-            for r in res:
-                rects.append((float(r[0]), float(r[1]), float(r[2]), float(r[3])))
-    finally:
-        doc.close()
+    with PDFIUM_LOCK:
+        doc = pdfium.PdfDocument(pdf_path)
+        try:
+            page = doc[page_no - 1]
+            textpage = page.get_textpage()
+            # 1-word query: use substring match to handle punctuation-adjacent tokens
+            # multi-word query: keep exact match
+            words = text.strip().split()
+            if len(words) == 1:
+                # substring: search the single word without match_whole_word
+                searcher = textpage.search(text, match_case=False, match_whole_word=False)
+            else:
+                searcher = textpage.search(text, match_case=False, match_whole_word=False)
+            while True:
+                res = searcher.get_next()
+                if res is None:
+                    break
+                for r in res:
+                    rects.append((float(r[0]), float(r[1]), float(r[2]), float(r[3])))
+        finally:
+            doc.close()
     return rects
 
 

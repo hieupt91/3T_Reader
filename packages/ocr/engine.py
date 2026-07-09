@@ -111,15 +111,22 @@ def ocr_pdf_page(pdf_path: str, page_num: int, high_quality: bool = False) -> OC
         import pypdfium2 as pdfium
         from PIL import Image
         import io
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
 
-        doc = pdfium.PdfDocument(pdf_path)
-        try:
-            page = doc[page_num - 1]
-            scale = 3.0 if high_quality else 2.0
-            bitmap = page.render(scale=scale)
-            pil_img = bitmap.to_pil().convert("RGB")
-        finally:
-            doc.close()
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(pdf_path)
+            try:
+                # init_forms() needed for scan files with widget appearances
+                try:
+                    doc.init_forms()
+                except Exception:
+                    pass
+                page = doc[page_num - 1]
+                scale = 3.0 if high_quality else 2.0
+                bitmap = page.render(scale=scale)
+                pil_img = bitmap.to_pil().convert("RGB")
+            finally:
+                doc.close()
 
         return ocr_pil_image(pil_img, page_num=page_num, high_quality=False)
 
