@@ -46,6 +46,25 @@ def open_chat_dialog(window):
 
 
 @require_document(show_message=True)
+def open_tts_dialog(window):
+    """Mở dialog đọc văn bản trang hiện tại (non-modal, giữ mở khi đọc)."""
+    pdf_path = _current_pdf_path(window)
+    current_page = _current_page(window)
+
+    existing = getattr(window, "_ai_tts_dialog", None)
+    if existing is not None and existing.isVisible():
+        existing.set_pdf(pdf_path, current_page)
+        existing.raise_()
+        existing.activateWindow()
+        return
+
+    from app.ai_tts_dialog import AITTSDialog
+    dlg = AITTSDialog(window, pdf_path, current_page)
+    window._ai_tts_dialog = dlg
+    dlg.show()
+
+
+@require_document(show_message=True)
 def open_search_dialog(window):
     """Mở dialog tìm kiếm theo nghĩa (non-modal, có thể giữ mở khi đọc)."""
     pdf_path = _current_pdf_path(window)
@@ -355,5 +374,9 @@ def notify_pdf_changed(new_path: str | None):
             dlg = getattr(widget, "_ai_chat_dialog", None)
             if dlg is not None and dlg.isVisible() and new_path:
                 dlg.set_pdf(new_path)
+            # TTS dialog: dừng đọc bản cũ + nạp lại khi đổi tài liệu
+            tts = getattr(widget, "_ai_tts_dialog", None)
+            if tts is not None and tts.isVisible() and new_path:
+                tts.set_pdf(new_path)
     except Exception:
         pass

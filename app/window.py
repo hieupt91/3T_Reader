@@ -52,6 +52,7 @@ from app.actions.sign import check_token, sign_document, sign_handwritten
 from app.actions.ai_actions import (
     open_translate_dialog, open_summarize_dialog,
     open_chat_dialog, open_ai_settings, open_search_dialog,
+    open_tts_dialog,
 )
 from app.actions.export import export_pdf_to_word, export_pdf_to_excel
 from app.actions.document_ops import (
@@ -1129,6 +1130,10 @@ class PDFReaderApp(QMainWindow):
         act_ai_search = menu_ai.addAction("🔎  Tìm kiếm theo nghĩa...")
         act_ai_search.setShortcut(QKeySequence("Ctrl+Shift+F"))
         act_ai_search.triggered.connect(lambda: open_search_dialog(self))
+
+        act_ai_tts = menu_ai.addAction("🔊  Đọc văn bản trang này...")
+        act_ai_tts.setShortcut(QKeySequence("Ctrl+Shift+R"))
+        act_ai_tts.triggered.connect(lambda: open_tts_dialog(self))
 
         menu_ai.addSeparator()
         act_ai_settings = menu_ai.addAction("⚙️  Cài đặt AI (API Key)...")
