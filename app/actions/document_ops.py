@@ -472,12 +472,14 @@ def _parse_range(text: str, max_page: int) -> list[int]:
 @require_document(show_message=True)
 def export_pages_to_images(window):
     import pypdfium2 as pdfium
+    from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
 
     src = window.current_path
 
-    doc   = pdfium.PdfDocument(src)
-    total = len(doc)
-    doc.close()
+    with PDFIUM_LOCK:
+        doc   = pdfium.PdfDocument(src)
+        total = len(doc)
+        doc.close()
 
     try:
         cur_page = window.viewer.get_current_page()
@@ -513,19 +515,20 @@ def export_pages_to_images(window):
 
     window.status.showMessage("Đang xuất ảnh…", 0)
     try:
-        doc  = pdfium.PdfDocument(src)
-        done = 0
-        for pg in page_list:
-            page    = doc[pg - 1]
-            bitmap  = page.render(scale=scale)
-            pil_img = bitmap.to_pil()
-            suffix   = f"_trang{pg:03d}.{p['ext']}"
-            out_path = os.path.join(out_dir, base_name + suffix)
-            pil_img.save(out_path)
-            page.close()
-            done += 1
-            window.status.showMessage(f"Đang xuất trang {pg}… ({done}/{len(page_list)})", 0)
-        doc.close()
+        with PDFIUM_LOCK:
+            doc  = pdfium.PdfDocument(src)
+            done = 0
+            for pg in page_list:
+                page    = doc[pg - 1]
+                bitmap  = page.render(scale=scale)
+                pil_img = bitmap.to_pil()
+                suffix   = f"_trang{pg:03d}.{p['ext']}"
+                out_path = os.path.join(out_dir, base_name + suffix)
+                pil_img.save(out_path)
+                page.close()
+                done += 1
+                window.status.showMessage(f"Đang xuất trang {pg}… ({done}/{len(page_list)})", 0)
+            doc.close()
         window.status.showMessage(
             f"Đã xuất {done} ảnh {p['fmt']} vào: {out_dir}", 6000
         )
@@ -546,6 +549,7 @@ def export_pages_to_images(window):
 def export_pdf_to_text(window):
     """Trích xuất toàn bộ văn bản từ PDF ra file .txt."""
     import pypdfium2 as pdfium
+    from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
 
     src = window.current_path
     base_name = os.path.splitext(os.path.basename(src))[0]
@@ -558,19 +562,20 @@ def export_pdf_to_text(window):
 
     window.status.showMessage("Đang trích xuất văn bản…", 0)
     try:
-        doc   = pdfium.PdfDocument(src)
-        lines = []
-        for i in range(len(doc)):
-            page     = doc[i]
-            textpage = page.get_textpage()
-            text     = textpage.get_text_range().strip()
-            textpage.close()
-            page.close()
-            if text:
-                lines.append(f"=== Trang {i + 1} ===")
-                lines.append(text)
-                lines.append("")
-        doc.close()
+        with PDFIUM_LOCK:
+            doc   = pdfium.PdfDocument(src)
+            lines = []
+            for i in range(len(doc)):
+                page     = doc[i]
+                textpage = page.get_textpage()
+                text     = textpage.get_text_range().strip()
+                textpage.close()
+                page.close()
+                if text:
+                    lines.append(f"=== Trang {i + 1} ===")
+                    lines.append(text)
+                    lines.append("")
+            doc.close()
 
         with open(out_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))

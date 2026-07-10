@@ -138,38 +138,44 @@ def _search_words_across_lines(words: list[dict], query_tokens: list[str]) -> li
 def _search_text_on_page(pdf_path: str, page_no: int, text: str) -> list[tuple]:
     """Search text with pypdfium2. Returns [(left, bottom, right, top)] in PDF points."""
     import pypdfium2 as pdfium
+    from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+
     query_tokens = [token.casefold() for token in _tokenize_text(text)]
     if not query_tokens:
         return []
 
+    # Local (Mac) enhancement: pdfplumber word-across-lines pre-pass. Additive —
+    # if it finds matches, return them; otherwise fall back to the shared pdfium
+    # text search below.
     words = _extract_words_with_pdfplumber(pdf_path, page_no)
     if words:
         rects = _search_words_across_lines(words, query_tokens)
         if rects:
             return rects
 
+    # Shared Win/Mac contract (F1) + PDFIUM_LOCK (pypdfium2 is not thread-safe):
+    #   1-word query -> substring match (catch tokens glued to punctuation, e.g. "sửa.")
+    #   multi-word   -> whole-word match
     rects = []
-    doc = pdfium.PdfDocument(pdf_path)
-    try:
-        page = doc[page_no - 1]
-        textpage = page.get_textpage()
-        search_text = _normalize_text(text)
-        if not search_text:
-            return []
-        searcher = textpage.search(search_text, match_case=False, match_whole_word=False)
-        while True:
-            res = searcher.get_next()
-            if res is None:
-                break
-            # pypdfium2 v5+: get_next() returns (start_index, char_count)
-            # Use count_rects + get_rect to get bounding boxes
-            start, count = res
-            n = textpage.count_rects(start, count)
-            for i in range(n):
-                r = textpage.get_rect(i)
-                rects.append((float(r[0]), float(r[1]), float(r[2]), float(r[3])))
-    finally:
-        doc.close()
+    with PDFIUM_LOCK:
+        doc = pdfium.PdfDocument(pdf_path)
+        try:
+            page = doc[page_no - 1]
+            textpage = page.get_textpage()
+            match_whole_word = len(text.strip().split()) > 1
+            searcher = textpage.search(text, match_case=False, match_whole_word=match_whole_word)
+            while True:
+                res = searcher.get_next()
+                if res is None:
+                    break
+                # pypdfium2 v5: get_next() -> (start_index, char_count)
+                start, count = res
+                n = textpage.count_rects(start, count)
+                for i in range(n):
+                    r = textpage.get_rect(i)
+                    rects.append((float(r[0]), float(r[1]), float(r[2]), float(r[3])))
+        finally:
+            doc.close()
     return rects
 
 
@@ -288,6 +294,39 @@ def _rotate_page(window, degrees: int):
             window.status.showMessage(f"Đã xoay trang {page_no} {direction}", 2000)
     except Exception as e:
         show_warning(window, "Lỗi xoay trang", str(e))
+
+
+@require_document(show_message=True)
+def rotate_all_pages_cw(window):
+    """Rotate all pages in the document 90° clockwise (Rotate pages...)."""
+    _rotate_all_pages(window, 90)
+
+
+@require_document(show_message=True)
+def rotate_all_pages_ccw(window):
+    """Rotate all pages in the document 90° counter-clockwise (Rotate pages...)."""
+    _rotate_all_pages(window, -90)
+
+
+def _rotate_all_pages(window, degrees: int):
+    path = window.current_path
+    try:
+        with pikepdf.open(path) as pdf:
+            page_count = len(pdf.pages)
+            for page in pdf.pages:
+                try:
+                    current_rot = int(page["/Rotate"])
+                except (KeyError, AttributeError):
+                    current_rot = 0
+                page["/Rotate"] = (current_rot + degrees) % 360
+            _save_pikepdf_reload(window, pdf)
+        if hasattr(window, "status"):
+            direction = "thuận chiều kim đồng hồ" if degrees > 0 else "ngược chiều kim đồng hồ"
+            window.status.showMessage(
+                f"Đã xoay toàn bộ {page_count} trang {direction}", 2500
+            )
+    except Exception as e:
+        show_warning(window, "Lỗi xoay tài liệu", str(e))
 
 
 # ── Delete page ───────────────────────────────────────────────────────────────

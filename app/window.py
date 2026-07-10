@@ -44,6 +44,7 @@ from app.actions.brightness import brightness_up, brightness_down, apply_brightn
 from styles.theme import toggle_theme, is_dark
 from app.actions.annotate import (
     highlight_text, rotate_page_cw, rotate_page_ccw,
+    rotate_all_pages_cw, rotate_all_pages_ccw,
     delete_current_page, merge_pdf, extract_pages,
     underline_text, strikeout_text, add_comment,
 )
@@ -1137,6 +1138,14 @@ class PDFReaderApp(QMainWindow):
         act_rotate_ccw.setShortcut(QKeySequence("Ctrl+["))
         act_rotate_ccw.triggered.connect(lambda: rotate_page_ccw(self))
         act_rotate_ccw.setIcon(svg_icon("rotate_ccw.svg", size=16, color="#50b8f0"))
+
+        # Rotate pages... — rotate entire document (port from Win handoff H)
+        submenu_rotate_all = menu_pages.addMenu("Rotate pages...")
+        submenu_rotate_all.setIcon(svg_icon("rotate_cw.svg", size=16, color="#9b9bc0"))
+        act_all_cw = submenu_rotate_all.addAction("Xoay toàn bộ sang phải 90°")
+        act_all_cw.triggered.connect(lambda: rotate_all_pages_cw(self))
+        act_all_ccw = submenu_rotate_all.addAction("Xoay toàn bộ sang trái 90°")
+        act_all_ccw.triggered.connect(lambda: rotate_all_pages_ccw(self))
 
         menu_pages.addSeparator()
 

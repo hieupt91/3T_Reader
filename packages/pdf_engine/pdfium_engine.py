@@ -3,8 +3,14 @@ from __future__ import annotations
 import io
 import os
 import shutil
+import threading
 
 from .base import RenderedPage
+
+# pypdfium2 is NOT thread-safe — concurrent access (OCR/render/search/summarize)
+# can cause native crashes or access violations that cannot be caught by try/except.
+# All callers MUST acquire this lock before touching any PdfDocument or PdfPage.
+PDFIUM_LOCK = threading.RLock()
 
 
 class PdfiumDocument:
@@ -77,11 +83,18 @@ class PdfiumDocument:
     def render_page_rgb(self, page_number: int, scale: float = 1.0) -> RenderedPage:
         if self._doc is None:
             raise RuntimeError("PDF cần mật khẩu để mở.")
-        page = self._doc[page_number - 1]
-        bitmap = page.render(scale=scale)
-        pil_image = bitmap.to_pil().convert("RGB")
-        width, height = pil_image.size
-        samples = pil_image.tobytes()
+        with PDFIUM_LOCK:
+            # init_forms() required before render so scan files with widget
+            # appearances (stamps, signatures) are rendered correctly.
+            try:
+                self._doc.init_forms()
+            except Exception:
+                pass
+            page = self._doc[page_number - 1]
+            bitmap = page.render(scale=scale)
+            pil_image = bitmap.to_pil().convert("RGB")
+            width, height = pil_image.size
+            samples = pil_image.tobytes()
         return RenderedPage(
             width=width,
             height=height,
@@ -111,10 +124,11 @@ class PdfiumEngine:
     def create_blank_pdf(self, output_path: str, width_pt: float, height_pt: float) -> None:
         import pypdfium2 as pdfium
 
-        doc = pdfium.PdfDocument.new()
-        doc.new_page(width_pt, height_pt)
-        doc.save(output_path)
-        doc.close()
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument.new()
+            doc.new_page(width_pt, height_pt)
+            doc.save(output_path)
+            doc.close()
 
     def watermark_pdf(self, input_path: str, output_path: str, text: str,
                       color: tuple = (0.6, 0.6, 0.6), angle: float = 45.0,

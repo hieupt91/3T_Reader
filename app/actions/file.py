@@ -118,10 +118,39 @@ def _populate_recent_menu(menu, window):
             action.setIcon(svg_icon("folder_open.svg", size=16, color="#9b9bc0"))
             action.setToolTip(path)
             action.setStatusTip(path)
-            action.triggered.connect(lambda checked=False, p=path: open_file(window, p))
+            action.triggered.connect(lambda checked=False, p=path: _open_recent_file(window, p))
         menu.addSeparator()
         clear_action = menu.addAction("🗑  Xóa danh sách")
         clear_action.triggered.connect(lambda: _clear_and_notify(window))
+
+
+def _open_recent_file(window, path: str):
+    """Open a file from the recent list with explicit 'file missing' detection.
+    Separates 'source file was deleted/moved' from 'failed to open valid file'
+    so the user gets an actionable error message, not a generic one.
+    """
+    if not os.path.exists(path):
+        from app.dialogs import show_warning
+        show_warning(
+            window,
+            "Không tìm thấy tài liệu",
+            f"Không tìm thấy tài liệu tại đường dẫn:\n{path}\n\n"
+            "Tệp có thể đã bị xóa hoặc di chuyển. "
+            "Mục này sẽ được gỡ khỏi danh sách gần đây."
+        )
+        # Remove stale entry from recent list by rewriting without it
+        import json
+        current = load_recent()
+        if isinstance(current, list) and path in current:
+            current.remove(path)
+            from core.recent import RECENT_FILE
+            try:
+                with open(RECENT_FILE, "w", encoding="utf-8") as f:
+                    json.dump(current, f, ensure_ascii=False)
+            except OSError:
+                pass
+        return
+    open_file(window, path)
 
 
 def show_recent_menu(window):
