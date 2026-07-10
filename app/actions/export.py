@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -72,7 +73,9 @@ def _run_conversion(window, task: str, pdf_path: str, output_path: str):
             msg.setDefaultButton(QMessageBox.StandardButton.Ok)
             if msg.exec() == QMessageBox.StandardButton.Open:
                 if sys.platform == "darwin":
-                    os.system(f'open "{output_path}"')
+                    # B2: tránh command injection khi tên/đường dẫn file chứa
+                    # ký tự shell (`, $(), ...). Không dùng os.system + f-string.
+                    subprocess.run(["open", output_path], check=False)
                 elif sys.platform == "win32":
                     os.startfile(output_path)
             return
