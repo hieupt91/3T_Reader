@@ -55,3 +55,50 @@ def test_license_token_public_key_accepts_vps_urlsafe_format():
 
     assert len(standard) == 32
     assert standard == urlsafe
+
+
+# ── Bảo mật B1: chặn bypass license offline ──────────────────────────────
+# Lỗ hổng cũ: sửa tay file cache JSON (token không-Ed25519) + để offline =>
+# app vẫn coi là active vĩnh viễn. Fix: _offline_status không được cấp active
+# từ cache; nhánh non-Ed25519 phải xác thực server, offline thì báo inactive.
+
+def _make_client(tmp_path):
+    from packages.license_client.vps_client import VpsLicenseClient
+
+    return VpsLicenseClient("https://example.invalid", tmp_path / "license_cache.json")
+
+
+def test_offline_status_never_grants_active_from_cache(tmp_path):
+    client = _make_client(tmp_path)
+    # Cache "sửa tay" trông rất hợp lệ, hạn xa tít
+    forged = {
+        "plan_code": "PRO",
+        "expires_at": "2099-01-01T00:00:00+00:00",
+        "grace_days": 3650,
+    }
+    status = client._offline_status(forged)
+    assert status.active is False
+
+
+def test_validate_cached_non_ed25519_offline_is_inactive(tmp_path, monkeypatch):
+    import packages.license_client.vps_client as vc
+
+    client = _make_client(tmp_path)
+    # Token HMAC cũ (2 phần) => không phải Ed25519 (Ed25519 phải 4 phần, phần[2]=="ed")
+    forged_cache = {
+        "token": "forgedbody.forgedsig",
+        "device_id": "dev-1",
+        "plan_code": "PRO",
+        "expires_at": "2099-01-01T00:00:00+00:00",
+        "grace_days": 3650,
+    }
+    monkeypatch.setattr(client, "_load_cache", lambda: forged_cache)
+
+    # Giả lập offline: mọi request tới server đều ném lỗi
+    def _offline_post(*args, **kwargs):
+        raise ConnectionError("offline")
+
+    monkeypatch.setattr(vc, "_post", _offline_post)
+
+    status = client.validate_cached()
+    assert status.active is False
