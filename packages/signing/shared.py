@@ -592,6 +592,11 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
             else:
                 overall_status = f"Chữ ký không hợp lệ hoặc tài liệu đã bị sửa đổi.{(' ' + validation_error) if validation_error else ''}"
 
+            # B5: chữ ký khóa yếu (RSA<2048) không được hiện "hợp lệ" trơn —
+            # đưa cảnh báo lên dòng trạng thái chính (không lật valid/ok).
+            if overall_ok and policy_warning:
+                overall_status = f"{overall_status} ⚠️ {policy_warning}"
+
             subject_name = str(cert_details.get("subject_name") if cert_details else "")
             issuer_name = str(cert_details.get("issuer_provider") if cert_details else "")
             serial_hex = str(cert_details.get("serial_hex") if cert_details else "")
@@ -741,6 +746,10 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
                 overall_status = "Chữ ký không hợp lệ hoặc tài liệu đã bị sửa đổi."
                 if trust_error:
                     overall_status = f"{overall_status} {trust_error}"
+
+            # B5: đưa cảnh báo khóa yếu (RSA<2048) lên dòng trạng thái chính.
+            if overall_ok and policy_warning:
+                overall_status = f"{overall_status} ⚠️ {policy_warning}"
 
             subject_name = str(cert_details.get("subject_name") if cert_details else "")
             issuer_name = str(cert_details.get("issuer_provider") if cert_details else "")
