@@ -197,38 +197,25 @@ def _render_signature_info_page(
     box: tuple[float, float, float, float],
     text: str,
 ) -> None:
-    import fitz
+    # Render tem thông tin chữ ký bằng reportlab + pikepdf overlay (qua engine
+    # dùng chung) — KHÔNG dùng PyMuPDF/fitz để tránh nghĩa vụ AGPL. `box` đã ở
+    # toạ độ PDF (gốc dưới-trái, y hướng lên) nên khớp thẳng với overlay reportlab,
+    # font tiếng Việt do _resolve_reportlab_font/get_vietnamese_font_path lo.
+    from packages.pdf_engine import get_pdf_engine
 
-    doc = fitz.open(input_path)
-    try:
-        from packages.platform import get_vietnamese_font_path
-
-        page_index = max(0, int(page_number) - 1)
-        page = doc[page_index]
-        page_h = page.rect.height
-        left, bottom, right, top = box
-        rect = fitz.Rect(left, page_h - top, right, page_h - bottom)
-        font_path = get_vietnamese_font_path(bold=False)
-        kwargs = {
-            "align": fitz.TEXT_ALIGN_LEFT,
-            "fontsize": 8.0,
-            "lineheight": 1.15,
-            "color": (0.05, 0.26, 0.52),
-            "overlay": True,
+    left, bottom, right, top = [float(v) for v in box]
+    ops = [
+        {
+            "type": "text",
+            "page_number": int(page_number),
+            "box": (left, bottom, right, top),
+            "text": text,
+            "font_size": 8.0,
+            "font_color": (0.05, 0.26, 0.52),
+            "bold": False,
         }
-        if font_path:
-            kwargs["fontfile"] = font_path
-            kwargs["fontname"] = "vietnamese"
-        else:
-            kwargs["fontname"] = "helv"
-        page.insert_textbox(
-            rect,
-            text,
-            **kwargs,
-        )
-        doc.save(output_path, garbage=4, deflate=True)
-    finally:
-        doc.close()
+    ]
+    get_pdf_engine().rebuild_pdf_with_ops(input_path, output_path, ops)
 
 
 def build_vietnamese_stamp_style(
