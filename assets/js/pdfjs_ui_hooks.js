@@ -796,7 +796,11 @@
                 document.body.style.cursor = '';
             }
             container.addEventListener('mousedown', function (event) {
-                if (!event.ctrlKey || event.button !== 0) return;
+                // Ctrl (Win/Linux) hoặc Ctrl/⌘ (macOS) + chuột trái để kéo di chuyển.
+                // LƯU Ý macOS: Ctrl+chuột trái bị hệ điều hành đổi thành chuột phải
+                // (button === 2) → phải chấp nhận cả button 0 và 2 khi giữ Ctrl/⌘.
+                if (!(event.ctrlKey || event.metaKey)) return;
+                if (event.button !== 0 && event.button !== 2) return;
                 var target = event.target && event.target.nodeType === 1 ? event.target : event.target.parentElement;
                 if (target && target.closest && target.closest('input, textarea, select, button, [contenteditable="true"]')) return;
                 ctrlPan = {
@@ -810,6 +814,15 @@
                 event.preventDefault();
                 event.stopPropagation();
             }, true);
+            // macOS: Ctrl + chuột trái bị hệ điều hành coi là chuột phải → bật context
+            // menu cắt ngang thao tác kéo. Chặn context menu khi đang giữ Ctrl/⌘ hoặc
+            // khi đang pan, để Ctrl+kéo di chuyển mượt trên Mac.
+            container.addEventListener('contextmenu', function (event) {
+                if (ctrlPan || event.ctrlKey || event.metaKey) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+            }, true);
             document.addEventListener('mousemove', function (event) {
                 if (!ctrlPan) return;
                 container.scrollLeft = ctrlPan.scrollLeft - (event.clientX - ctrlPan.x);
@@ -822,7 +835,7 @@
             }, true);
             window.addEventListener('blur', stopCtrlPan, true);
             window.addEventListener('keyup', function (event) {
-                if (event.key === 'Control') stopCtrlPan();
+                if (event.key === 'Control' || event.key === 'Meta') stopCtrlPan();
             }, true);
             container.addEventListener('pointermove', function (event) {
                 window.__3tLastPointer = {
