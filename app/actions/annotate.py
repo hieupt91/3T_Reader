@@ -2347,7 +2347,7 @@ def _fallback_selection_payload_from_text(window, text: str) -> dict:
     }
 
 
-def _get_selection_payload_sync(window, *, timeout_ms: int = 350):
+def _get_selection_payload_sync(window, *, timeout_ms: int = 350, allow_text_search_fallback: bool = True):
     """Read the current PDF.js selection payload synchronously for modal flows."""
     try:
         getter = getattr(window, "_get_webview", None)
@@ -2376,7 +2376,7 @@ def _get_selection_payload_sync(window, *, timeout_ms: int = 350):
         return payload
 
     qt_text = _qt_selected_text(window)
-    if qt_text:
+    if qt_text and allow_text_search_fallback:
         fallback = _fallback_selection_payload_from_text(window, qt_text)
         if _payload_has_selection_rects(fallback):
             return fallback
@@ -2385,8 +2385,17 @@ def _get_selection_payload_sync(window, *, timeout_ms: int = 350):
     return payload
 
 
-def _get_selection_page_rects_sync(window, *, timeout_ms: int = 350) -> tuple[str, dict[int, list[tuple[float, float, float, float]]]]:
-    payload = _get_selection_payload_sync(window, timeout_ms=timeout_ms)
+def _get_selection_page_rects_sync(
+    window,
+    *,
+    timeout_ms: int = 350,
+    allow_text_search_fallback: bool = True,
+) -> tuple[str, dict[int, list[tuple[float, float, float, float]]]]:
+    payload = _get_selection_payload_sync(
+        window,
+        timeout_ms=timeout_ms,
+        allow_text_search_fallback=allow_text_search_fallback,
+    )
     return _selection_page_rects(payload)
 
 
@@ -3030,7 +3039,10 @@ def _current_search_keyword(window) -> str:
 
 
 def _mark_search_keyword_when_no_selection(window, mark_type: str) -> bool:
-    selected_text, rects_by_page = _get_selection_page_rects_sync(window)
+    selected_text, rects_by_page = _get_selection_page_rects_sync(
+        window,
+        allow_text_search_fallback=False,
+    )
     if rects_by_page or selected_text:
         return False
     keyword = _current_search_keyword(window)
