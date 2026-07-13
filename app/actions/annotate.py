@@ -17,6 +17,7 @@ from packages.qt_compat.QtWidgets import (
     QMessageBox,
 )
 from app.actions._guard import require_document
+from packages.pdf_engine import get_pdf_engine
 from app.actions._pdf_save import (
     make_staged_pdf_path,
     remove_path_quietly,
@@ -1997,88 +1998,27 @@ def _rotate_page(window, degrees: int):
     if not _flush_annotations_before_heavy_op(window, path, "xoay trang"):
         return
 
-    # 1. Visual feedback tức thì bằng CSS Transform
-    js_code = f"""
-        (function() {{
-            function applyCSSRotation(targetPage, rot) {{
-                let pageDiv = document.querySelector(`.page[data-page-number="${{targetPage}}"]`);
-                if (pageDiv) {{
-                    let currentRot = parseInt(pageDiv.getAttribute('data-css-rotation') || '0');
-                    let newRot = (currentRot + rot) % 360;
-                    pageDiv.setAttribute('data-css-rotation', newRot);
-                    pageDiv.style.transition = 'transform 0.25s ease';
-                    pageDiv.style.transform = `rotate(${{newRot}}deg)`;
-                }}
-                
-                let thumbDiv = document.querySelector(`.thumbnail[data-page-number="${{targetPage}}"]`);
-                if (thumbDiv) {{
-                    let currentRot = parseInt(thumbDiv.getAttribute('data-css-rotation') || '0');
-                    let newRot = (currentRot + rot) % 360;
-                    thumbDiv.setAttribute('data-css-rotation', newRot);
-                    
-                    let thumbImg = thumbDiv.querySelector('.thumbnailImage') || thumbDiv.querySelector('canvas') || thumbDiv;
-                    thumbImg.style.transition = 'transform 0.25s ease';
-                    thumbImg.style.transform = `rotate(${{newRot}}deg)`;
-                }}
-            }}
-            applyCSSRotation({page_no}, {degrees});
-        }})();
-    """
+    # Xoay THẬT 1 trang (ghi /Rotate) rồi reload MỀM (giữ zoom + vị trí, phủ nhẹ).
+    # Dùng chung cơ chế với "Xoay tất cả" để nhất quán và đúng layout.
+    tmp = make_staged_pdf_path(path)
     try:
-        from packages.qt_compat.QtWebEngineWidgets import QWebEngineView
-        wv = window.viewer.findChild(QWebEngineView)
-        if wv:
-            wv.page().runJavaScript(js_code)
+        # Dùng đúng engine như "Xoay tất cả" (đang chạy OK) để nhất quán.
+        get_pdf_engine().rotate_pages(path, tmp, {page_no: degrees})
+        if _is_temp_converted_document(window, path):
+            from app.actions._pdf_save import reload_document
+            state = window._active_state() if hasattr(window, "_active_state") else None
+            display_path = state.get("display_path") if state else path
+            reload_document(window, tmp, page=max(1, page_no),
+                            display_path=display_path, temp_path=tmp, soft_reload=True)
+        else:
+            replace_document_with_staged(window, tmp, target_path=path,
+                                         page=max(1, page_no), soft_reload=True)
     except Exception as e:
-        print("Rotate JS Error:", e)
+        remove_path_quietly(tmp)
+        show_warning(window, "Lỗi xoay trang", str(e))
+        return
 
-    # 1.5 Xoay tức thì thumbnail trên thanh bên bằng QTransform
-    try:
-        if hasattr(window, "sidebar") and window.sidebar.isVisible():
-            item = window.sidebar.list.item(page_no - 1)
-            if item:
-                from packages.qt_compat.QtGui import QTransform, QIcon
-                from packages.qt_compat.QtCore import Qt
-                size = window.sidebar.list.iconSize()
-                pixmap = item.icon().pixmap(size)
-                if not pixmap.isNull():
-                    transform = QTransform().rotate(degrees)
-                    rotated = pixmap.transformed(transform, Qt.TransformationMode.SmoothTransformation)
-                    item.setIcon(QIcon(rotated))
-                    # Xóa cache để lần sau có scroll thì load lại bản nét từ pdf engine
-                    window.sidebar._loaded_pages.discard(page_no)
-    except Exception as e:
-        pass
-
-    # 2. Ghi ngầm file PDF để không block UI và không reload làm chớp màn hình
-    def _burn():
-        with _PDF_SAVE_LOCK:
-            import tempfile
-            import shutil
-            import os
-            from app.actions._pdf_save import make_staged_pdf_path, remove_path_quietly, replace_file_with_retry
-            tmp = make_staged_pdf_path(path)
-            try:
-                import pikepdf
-                with pikepdf.open(path) as pdf:
-                    page = pdf.pages[page_no - 1]
-                    try:
-                        current_rot = int(page.get("/Rotate", 0))
-                    except Exception:
-                        current_rot = 0
-                    page["/Rotate"] = (current_rot + degrees) % 360
-                    pdf.save(tmp)
-                replace_file_with_retry(tmp, path, attempts=12)
-            except Exception as e:
-                remove_path_quietly(tmp)
-                try:
-                    with open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a") as f:
-                        f.write(f"Background rotate error: {e}\n")
-                except Exception:
-                    pass
-
-    import threading
-    threading.Thread(target=_burn, daemon=True).start()
+    window.status.showMessage(f"Đã xoay trang {page_no} {degrees}°", 3000)
 
     if hasattr(window, "status"):
         direction = "thuận chiều kim đồng hồ" if degrees > 0 else "ngược chiều kim đồng hồ"

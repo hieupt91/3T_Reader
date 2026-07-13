@@ -52,7 +52,7 @@ from app.actions.annotate import (
     underline_text, strikeout_text, add_comment, enable_note_tools,
     has_pending_annotations,
 )
-from app.actions.pages import merge_pdfs_action, split_pdf_action
+from app.actions.pages import merge_pdfs_action, split_pdf_action, rotate_pages_action
 from app.actions.sign import (
     check_token,
     create_signature_field,
@@ -245,6 +245,8 @@ class _TokenPresenceWorker(QObject):
             self.error.emit(str(exc))
         finally:
             self.finished.emit()
+
+
 
 
 class PDFReaderApp(QMainWindow):
@@ -863,9 +865,11 @@ class PDFReaderApp(QMainWindow):
         self.g_rot = RibbonGroup("Xoay / Xóa")
         self._act_rcw = make("Xoay phải", "rotate_cw.svg",  "Xoay phải 90°", None, lambda: rotate_page_cw(self))
         self._act_rccw = make("Xoay trái", "rotate_ccw.svg", "Xoay trái 90°", None, lambda: rotate_page_ccw(self))
+        self._act_rall = make("Xoay tất cả", "rotate_cw.svg", "Xoay trang: chọn 1 trang hoặc TẤT CẢ trang", None, lambda: rotate_pages_action(self))
         self._act_del = make("Xóa trang", "trash.svg", "Xóa trang hiện tại", None, lambda: delete_current_page(self))
         self.g_rot.add(make_action_btn(self._act_rcw,  "Xoay phải"))
         self.g_rot.add(make_action_btn(self._act_rccw, "Xoay trái"))
+        self.g_rot.add(make_action_btn(self._act_rall, "Xoay tất cả"))
         self.g_rot.add(make_action_btn(self._act_del,  "Xóa trang"))
         p2.add_group(self.g_rot)
 
@@ -1902,6 +1906,10 @@ class PDFReaderApp(QMainWindow):
         act_rotate_ccw.triggered.connect(lambda: rotate_page_ccw(self))
         act_rotate_ccw.setIcon(svg_icon("rotate_ccw.svg", size=16, color="#50b8f0"))
 
+        act_rotate_all = menu_pages.addAction("Xoay trang… (chọn / tất cả)")
+        act_rotate_all.triggered.connect(lambda: rotate_pages_action(self))
+        act_rotate_all.setIcon(svg_icon("rotate_cw.svg", size=16, color="#50b8f0"))
+
         menu_pages.addSeparator()
 
         act_del_page = menu_pages.addAction("Xóa trang này")
@@ -2166,6 +2174,10 @@ class PDFReaderApp(QMainWindow):
             show_warning(self, "Lỗi kiểm tra chữ ký", str(exc))
 
     def _load_toc_for_active(self):
+        # Panel ẩn thì KHÔNG mở lại PDF để đọc outline (pikepdf.open nặng) — đây là
+        # nguồn lag sau mỗi thao tác xoay/sửa. Khi bật panel sẽ nạp lại (_toggle_toc).
+        if not self.toc_sidebar.isVisible():
+            return
         state = self._active_state()
         if not state:
             self.toc_sidebar.clear()
@@ -2181,6 +2193,10 @@ class PDFReaderApp(QMainWindow):
         )
 
     def _load_annotations_for_active(self):
+        # Panel ẩn thì KHÔNG mở lại PDF để đọc annotation — tránh lag. Khi bật panel
+        # sẽ nạp lại (_toggle_annotations).
+        if not self.annotation_sidebar.isVisible():
+            return
         state = self._active_state()
         if not state:
             self.annotation_sidebar.clear()
@@ -3229,6 +3245,8 @@ class PDFReaderApp(QMainWindow):
     def _toggle_toc(self):
         visible = self.toc_sidebar.isVisible()
         self.toc_sidebar.setVisible(not visible)
+        if not visible:
+            self._load_toc_for_active()
 
     def _toggle_annotations(self):
         visible = self.annotation_sidebar.isVisible()
@@ -3486,9 +3504,8 @@ class PDFReaderApp(QMainWindow):
         if self._token_monitor_timer is not None:
             self._token_monitor_timer.stop()
 
-        if self._token_check_thread is not None and self._token_check_thread.isRunning():
-            self._token_check_thread.quit()
-            self._token_check_thread.wait(1000)
+        if self._token_check_thread is not None and self._token_check_thread.is_alive():
+            self._token_check_thread.join(timeout=1.0)
 
         queue = getattr(self, "_annotation_op_queue", None)
         if queue is not None or has_pending_annotations(self):
@@ -3549,9 +3566,8 @@ class PDFReaderApp(QMainWindow):
             timer.stop()
 
         thread = self._token_check_thread
-        if thread is not None and thread.isRunning():
-            thread.quit()
-            thread.wait(1500)
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.5)
 
     def _resume_token_monitor(self):
         """Resume USB presence checks after signing finishes."""
@@ -3569,21 +3585,22 @@ class PDFReaderApp(QMainWindow):
         if signing_thread is not None and signing_thread.isRunning():
             return
 
-        if self._token_check_thread is not None and self._token_check_thread.isRunning():
+        if self._token_check_thread is not None and self._token_check_thread.is_alive():
             return
 
-        thread = QThread()
         worker = _TokenPresenceWorker()
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
         worker.result.connect(self._on_token_presence_result)
         worker.error.connect(self._on_token_presence_error)
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(self._cleanup_token_presence_worker)
+        worker.finished.connect(self._cleanup_token_presence_worker)
 
         self._token_check_worker = worker
+
+        # Use a Python thread instead of QThread/moveToThread. On macOS with
+        # PySide6 6.11 + Python 3.14, QThread wrapper teardown can segfault
+        # while queued QObject events are still being destroyed.
+        import threading as _threading
+
+        thread = _threading.Thread(target=worker.run, daemon=True, name="token-presence")
         self._token_check_thread = thread
         thread.start()
 

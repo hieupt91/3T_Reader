@@ -181,6 +181,21 @@ class ThumbnailSidebar(QDockWidget):
             self._schedule_visible_load()
             return
 
+        # Cùng file, nội dung đổi nhưng SỐ TRANG không đổi (xoay/sửa text/chú
+        # thích): làm mới icon TẠI CHỖ — không clear() danh sách (clear gây
+        # thumbnail nháy trắng + dựng lại toàn bộ = lag sau mỗi thao tác).
+        if self._pdf_path == pdf_path and self.list.count() > 0:
+            new_count = self._read_page_count(pdf_path)
+            if new_count == self._page_count and new_count > 0:
+                self._on_click = on_click
+                self._context_actions = context_actions or {}
+                self._doc_signature = new_signature
+                self._loaded_pages.clear()
+                self._requested_pages = []
+                self._pending_pages = []
+                self._schedule_visible_load()
+                return
+
         self._load_token += 1
         self._populate_token = self._load_token
         self.list.clear()

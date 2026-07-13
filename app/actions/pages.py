@@ -338,93 +338,31 @@ def rotate_pages_action(window):
     else:
         rotations = {page_spin.value(): deg}
 
-    # --- Bắt đầu: Zero-reload Lazy Rotation ---
-    page_target = 0 if _all_pages[0] else page_spin.value()
-    js_code = f"""
-        (function() {{
-            let angle = {deg};
-            let pageNum = {page_target};
-            
-            // Xoay bằng CSS Transform để mượt nhất và không kích hoạt render lại canvas của PDF.js
-            function applyCSSRotation(targetPage, rot) {{
-                let pageDiv = document.querySelector(`.page[data-page-number="${{targetPage}}"]`);
-                if (pageDiv) {{
-                    let currentRot = parseInt(pageDiv.getAttribute('data-css-rotation') || '0');
-                    let newRot = (currentRot + rot) % 360;
-                    pageDiv.setAttribute('data-css-rotation', newRot);
-                    pageDiv.style.transition = 'transform 0.25s ease';
-                    pageDiv.style.transform = `rotate(${{newRot}}deg)`;
-                }}
-                
-                let thumbDiv = document.querySelector(`.thumbnail[data-page-number="${{targetPage}}"]`);
-                if (thumbDiv) {{
-                    let currentRot = parseInt(thumbDiv.getAttribute('data-css-rotation') || '0');
-                    let newRot = (currentRot + rot) % 360;
-                    thumbDiv.setAttribute('data-css-rotation', newRot);
-                    
-                    let thumbImg = thumbDiv.querySelector('.thumbnailImage') || thumbDiv.querySelector('canvas') || thumbDiv;
-                    thumbImg.style.transition = 'transform 0.25s ease';
-                    thumbImg.style.transform = `rotate(${{newRot}}deg)`;
-                }}
-            }}
-
-            if (pageNum === 0) {{
-                // Xoay tất cả
-                let allPages = document.querySelectorAll('.page');
-                allPages.forEach(p => {{
-                    let pn = p.getAttribute('data-page-number');
-                    if (pn) applyCSSRotation(parseInt(pn), angle);
-                }});
-            }} else {{
-                // Xoay 1 trang
-                applyCSSRotation(pageNum, angle);
-            }}
-        }})();
-    """
+    # Xoay THẬT vào tài liệu (ghi /Rotate) rồi reload MỀM (giữ zoom + vị trí, chỉ
+    # phủ nhẹ trong tích tắc). Đây là cách duy nhất đúng layout cho mọi tài liệu:
+    # CSS transform gây méo/tràn; pagesRotation không hiện ổn định với setup này.
+    keep_page = current if _all_pages[0] else page_spin.value()
+    temp_converted = _is_temp_converted_document(window, path)
+    tmp = make_staged_pdf_path(path)
     try:
-        window.viewer.page().runJavaScript(js_code)
-    except Exception:
-        pass
-
-    try:
-        if hasattr(window, "sidebar") and window.sidebar.isVisible():
-            from packages.qt_compat.QtGui import QTransform, QIcon
-            from packages.qt_compat.QtCore import Qt
-            size = window.sidebar.list.iconSize()
-            for pn, rdeg in rotations.items():
-                item = window.sidebar.list.item(pn - 1)
-                if item:
-                    pixmap = item.icon().pixmap(size)
-                    if not pixmap.isNull():
-                        transform = QTransform().rotate(rdeg)
-                        rotated = pixmap.transformed(transform, Qt.TransformationMode.SmoothTransformation)
-                        item.setIcon(QIcon(rotated))
-                        window.sidebar._loaded_pages.discard(pn)
-    except Exception:
-        pass
-
-    def _burn_rotation_in_background():
-        import tempfile
-        tmp = make_staged_pdf_path(path)
-        try:
-            from app.actions._pdf_save import replace_file_with_retry
-            get_pdf_engine().rotate_pages(path, tmp, rotations)
-            replace_file_with_retry(tmp, path, attempts=12)
-        except Exception as e:
-            remove_path_quietly(tmp)
-            try:
-                with open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a") as f:
-                    f.write(f"Background rotate error: {e}\n")
-            except Exception:
-                pass
-
-    import threading
-    threading.Thread(target=_burn_rotation_in_background, daemon=True).start()
-    # --- Kết thúc: Zero-reload Lazy Rotation ---
+        get_pdf_engine().rotate_pages(path, tmp, rotations)
+        if temp_converted:
+            from app.actions._pdf_save import reload_document
+            state = window._active_state() if hasattr(window, "_active_state") else None
+            display_path = state.get("display_path") if state else path
+            reload_document(window, tmp, page=max(1, keep_page),
+                            display_path=display_path, temp_path=tmp, soft_reload=True)
+        else:
+            replace_document_with_staged(window, tmp, target_path=path,
+                                         page=max(1, keep_page), soft_reload=True)
+    except Exception as e:
+        remove_path_quietly(tmp)
+        show_warning(window, "Lỗi xoay trang", str(e))
+        return
 
     if hasattr(window, "_active_state") and window._active_state():
-        window._active_state()["source_path"] = path
-    window.status.showMessage(f"Đã xoay {len(rotations)} trang {deg}°", 4000)
+        window._active_state()["source_path"] = tmp if temp_converted else path
+    window.status.showMessage(f"Đã xoay trang {keep_page} {deg}°", 4000)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

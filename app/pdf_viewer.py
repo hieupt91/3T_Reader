@@ -461,26 +461,31 @@ class PDFViewerWidget(QtWidgets.QWidget):
                         }}
                     }}
 
-                    // Layout dựng dần khi từng trang render → tái áp vị trí NHIỀU LẦN
-                    // trong ~2.5s cho tới khi ổn định, nếu không màn hình nhảy về đầu.
+                    // Layout dựng dần khi từng trang render → tái áp vị trí lặp lại
+                    // trong thời gian ngắn, nếu không màn hình nhảy về đầu.
                     var _restoreCount = 0;
                     var _restoreTimer = setInterval(function() {{
                         restoreScroll();
                         _restoreCount++;
-                        if (_restoreCount > 50) clearInterval(_restoreTimer);  // ~2.5s
+                        if (_restoreCount > 12) clearInterval(_restoreTimer);  // ~600ms
                     }}, 50);
-                    function onRender() {{ restoreScroll(); }}
+                    // Gỡ lớp phủ NGAY khi trang đầu render xong (thường ~150-300ms)
+                    // — giữ phủ lâu cố định gây cảm giác lag sau mỗi thao tác.
+                    function onRender() {{
+                        app.pdfViewer.eventBus.off('pagerendered', onRender);
+                        restoreScroll();
+                        setTimeout(function() {{ restoreScroll(); removeFreeze(); }}, 80);
+                    }}
                     app.pdfViewer.eventBus.on('pagerendered', onRender);
                     try {{ app.pdfViewer.eventBus.on('pagesloaded', restoreScroll); }} catch (_) {{}}
 
-                    // Chỉ gỡ lớp phủ SAU khi đã định vị xong → không thấy cảnh nhảy.
+                    // Fallback nếu pagerendered không tới.
                     setTimeout(function() {{
                         app.pdfViewer.eventBus.off('pagerendered', onRender);
                         clearInterval(_restoreTimer);
                         restoreScroll();
                         removeFreeze();
-                    }}, 700);
-                    setTimeout(function() {{ clearInterval(_restoreTimer); }}, 2600);
+                    }}, 900);
                 }}).catch(function(e) {{
                     console.error('Soft reload error, fallback to hard reload:', e);
                     if (freezeDiv.parentNode) freezeDiv.parentNode.removeChild(freezeDiv);
