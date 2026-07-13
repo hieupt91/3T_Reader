@@ -2382,6 +2382,11 @@ def _get_selection_payload_sync(window, *, timeout_ms: int = 350, allow_text_sea
             return fallback
         if not isinstance(payload, dict) or not str(payload.get("text") or "").strip():
             return fallback
+
+    # If fallback is disabled but JS returned no text, we can still use qt_text for the error messages
+    if qt_text and isinstance(payload, dict) and not str(payload.get("text") or "").strip():
+        payload["text"] = qt_text
+
     return payload
 
 
@@ -2928,7 +2933,9 @@ def _do_selected_text_mark(window, mark_type: str) -> bool:
         show_warning(window, "Chú thích", "Không tìm thấy tài liệu đang mở.")
         return False
 
-    selected_text, rects_by_page = _get_selection_page_rects_sync(window, allow_text_search_fallback=False)
+    selected_text, rects_by_page = _get_selection_page_rects_sync(
+        window, timeout_ms=1000, allow_text_search_fallback=False
+    )
     if not rects_by_page:
         if selected_text:
             show_warning(
