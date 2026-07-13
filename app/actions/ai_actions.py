@@ -526,8 +526,18 @@ def _current_pdf_path(window) -> str:
 
 
 def _current_history_identity_path(window) -> str:
+    # Ưu tiên khóa GHI-MỘT-LẦN `chat_identity_path` (đặt lúc mở file, không luồng
+    # reload/chú thích/sửa nào đụng tới). Trước đây dùng `display_path` — nhưng
+    # nhiều luồng (pages._reload, reload_document...) ghi đè display_path sang
+    # đường dẫn temp -> identity chat đổi -> lịch sử chat "biến mất" khi mở lại.
     state = window._state_or_global() if hasattr(window, "_state_or_global") else {}
-    return state.get("display_path") or state.get("source_path") or getattr(window, "current_path", "") or ""
+    return (
+        state.get("chat_identity_path")
+        or state.get("display_path")
+        or state.get("source_path")
+        or getattr(window, "current_path", "")
+        or ""
+    )
 
 
 def _current_page(window) -> int:

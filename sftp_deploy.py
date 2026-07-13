@@ -7,6 +7,7 @@ import socket
 import threading
 import subprocess
 import time
+from vps_secret import vps_password
 
 def forward_proc_to_sock(proc, sock):
     try:
@@ -55,7 +56,7 @@ def upload_files():
         client.connect(
             hostname="ssh.3tcomputer.com",
             username="hieupt",
-            password="Congnghe3t",
+            password=vps_password(),
             sock=s2,
             timeout=15,
             banner_timeout=200,
@@ -105,7 +106,7 @@ with open(conf_path, "w", encoding="utf-8") as f:
             print("Running command...")
             stdin, stdout, stderr = client.exec_command(cmd.encode("utf-8"), get_pty=True)
             time.sleep(1)
-            stdin.write("Congnghe3t\n")
+            stdin.write(vps_password() + "\n")
             stdin.flush()
             out = stdout.read().decode("utf-8", "ignore")
             err = stderr.read().decode("utf-8", "ignore")

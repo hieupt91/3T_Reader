@@ -4,8 +4,6 @@ import os
 # USB PIN CACHE
 _cached_usb_pin = ""
 import asyncio
-import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -143,6 +141,34 @@ class _SigningWorker(QObject):
             self.succeeded.emit()
 
 
+class _SigningLoopRelay(QObject):
+    """Nhận kết quả từ worker thread và thoát QEventLoop trên main thread.
+
+    Slot bound-method của QObject này (sống ở main thread) được Qt tự queue
+    khi signal emit từ worker thread. Nhờ vậy loop.quit() luôn chạy trên main
+    thread và chỉ sau khi loop.exec() bắt đầu -> tránh trường hợp worker xong
+    trước exec() làm quit bị bỏ qua và treo UI vĩnh viễn.
+    """
+
+    def __init__(self, loop, result: dict):
+        super().__init__()
+        self._loop = loop
+        self._result = result
+
+    @pyqtSlot()
+    def on_success(self):
+        self._result["ok"] = True
+        if self._loop.isRunning():
+            self._loop.quit()
+
+    @pyqtSlot(str, str, str)
+    def on_error(self, exc_type: str, exc_message: str, tb_text: str):
+        self._result["ok"] = False
+        self._result["error"] = (exc_type, exc_message, tb_text)
+        if self._loop.isRunning():
+            self._loop.quit()
+
+
 def _run_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[str, str, str] | None]:
     existing = getattr(window, "_signing_thread", None)
     if existing is not None and (getattr(existing, "isRunning", lambda: False)() or getattr(existing, "is_alive", lambda: False)()):
@@ -160,19 +186,9 @@ def _run_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[s
     loop = QEventLoop(window)
     result: dict[str, object] = {"ok": False, "error": None}
 
-    def _finish_success():
-        result["ok"] = True
-        if loop.isRunning():
-            loop.quit()
-
-    def _finish_error(exc_type: str, exc_message: str, tb_text: str):
-        result["ok"] = False
-        result["error"] = (exc_type, exc_message, tb_text)
-        if loop.isRunning():
-            loop.quit()
-
-    worker.succeeded.connect(_finish_success)
-    worker.failed.connect(_finish_error)
+    relay = _SigningLoopRelay(loop, result)
+    worker.succeeded.connect(relay.on_success)
+    worker.failed.connect(relay.on_error)
 
     thread = threading.Thread(target=worker.run, daemon=True)
     window._signing_thread = thread
@@ -303,108 +319,59 @@ def _run_usb_signing_subprocess(
         "enable_ltv": enable_ltv,
     }
 
-    payload_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w", encoding="utf-8")
-    payload_path = payload_file.name
+    # Truyền payload (kèm PIN) qua stdin thay vì file tạm để PIN chữ ký số
+    # không bao giờ nằm trên đĩa (kể cả khi tiến trình bị kill giữa chừng).
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "--usb-sign-worker", "-"]
+    else:
+        cmd = [
+            sys.executable,
+            "-m",
+            "packages.signing.usb_worker",
+            "-",
+        ]
+    result = subprocess.run(
+        cmd,
+        input=payload_json,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+    )
+
+    stdout = (result.stdout or "").strip().splitlines()
+    if not stdout:
+        raise RuntimeError(
+            "USB signing worker did not return a result.\n"
+            f"Return code: {result.returncode}\n"
+            f"stderr: {(result.stderr or '').strip()}"
+        )
+
     try:
-        json.dump(payload, payload_file, ensure_ascii=False)
-        payload_file.close()
+        data = json.loads(stdout[-1])
+    except Exception as exc:
+        raise RuntimeError(
+            "USB signing worker returned invalid output.\n"
+            f"Return code: {result.returncode}\n"
+            f"stdout: {(result.stdout or '').strip()}\n"
+            f"stderr: {(result.stderr or '').strip()}"
+        ) from exc
 
-        if getattr(sys, "frozen", False):
-            cmd = [sys.executable, "--usb-sign-worker", payload_path]
-        else:
-            cmd = [
-                sys.executable,
-                "-m",
-                "packages.signing.usb_worker",
-                payload_path,
-            ]
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+    if not data.get("ok"):
+        error_type = str(data.get("error_type") or "RuntimeError")
+        error_message = str(data.get("error_message") or "USB signing failed.")
+        tb_text = str(data.get("traceback") or "")
+        raise RuntimeError(f"{error_type}: {error_message}\n{tb_text}".strip())
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            "USB signing worker exited with a non-zero code despite reporting success.\n"
+            f"Return code: {result.returncode}\n"
+            f"stderr: {(result.stderr or '').strip()}"
         )
-
-        stdout = (result.stdout or "").strip().splitlines()
-        if not stdout:
-            raise RuntimeError(
-                "USB signing worker did not return a result.\n"
-                f"Return code: {result.returncode}\n"
-                f"stderr: {(result.stderr or '').strip()}"
-            )
-
-        try:
-            data = json.loads(stdout[-1])
-        except Exception as exc:
-            raise RuntimeError(
-                "USB signing worker returned invalid output.\n"
-                f"Return code: {result.returncode}\n"
-                f"stdout: {(result.stdout or '').strip()}\n"
-                f"stderr: {(result.stderr or '').strip()}"
-            ) from exc
-
-        if not data.get("ok"):
-            error_type = str(data.get("error_type") or "RuntimeError")
-            error_message = str(data.get("error_message") or "USB signing failed.")
-            tb_text = str(data.get("traceback") or "")
-            raise RuntimeError(f"{error_type}: {error_message}\n{tb_text}".strip())
-
-        if result.returncode != 0:
-            raise RuntimeError(
-                "USB signing worker exited with a non-zero code despite reporting success.\n"
-                f"Return code: {result.returncode}\n"
-                f"stderr: {(result.stderr or '').strip()}"
-            )
-    finally:
-        try:
-            payload_file.close()
-        except Exception:
-            pass
-        try:
-            if os.path.exists(payload_path):
-                os.remove(payload_path)
-        except OSError:
-            pass
-
-
-def _format_signature_report(report: dict, path: str | None = None) -> str:
-    lines = []
-    if path:
-        lines.append(f"File: {path}")
-    lines.append(f"Kết luận: {report.get('overall_status') or report.get('message') or 'Không rõ'}")
-    lines.append(f"Tính toàn vẹn: {'Đạt' if report.get('integrity_ok') else 'Không đạt'}")
-    lines.append(f"Chuỗi tin cậy: {'Đã xác minh' if report.get('trusted') else 'Chưa xác minh'}")
-    if report.get("subject_name"):
-        lines.append(f"Chủ thể: {report.get('subject_name')}")
-    if report.get("issuer_name"):
-        lines.append(f"Nhà cung cấp: {report.get('issuer_name')}")
-    if report.get("serial_hex"):
-        lines.append(f"Serial: {report.get('serial_hex')}")
-    if report.get("valid_from") or report.get("valid_to"):
-        lines.append(
-            f"Hiệu lực: {report.get('valid_from') or 'Khong ro'} - {report.get('valid_to') or 'Khong ro'}"
-        )
-    if report.get("certificate_status"):
-        lines.append(f"Trạng thái chứng thư: {report.get('certificate_status')}")
-    signing_time = report.get("signing_time")
-    if signing_time:
-        lines.append(f"Thời điểm ký: {signing_time}")
-    signing_time_ok = report.get("signing_time_ok")
-    if signing_time_ok is True:
-        lines.append("Thời điểm ký nằm trong thời hạn hiệu lực.")
-    elif signing_time_ok is False:
-        lines.append("Thời điểm ký nằm ngoài thời hạn hiệu lực.")
-    return "\n".join(lines)
-
-
-def _show_signature_report(window, title: str, report: dict, *, path: str | None = None):
-    msg = QMessageBox(window)
-    msg.setWindowTitle(title)
-    msg.setIcon(QMessageBox.Icon.Information if report.get("ok") else QMessageBox.Icon.Warning)
-    msg.setText(report.get("overall_status") or report.get("message") or "Không rõ kết quả.")
-    msg.setDetailedText(_format_signature_report(report, path))
-    msg.exec()
 
 
 MM_TO_PT = 72.0 / 25.4
@@ -2589,98 +2556,6 @@ def sign_handwritten(window):
         show_warning(window, "Lỗi chèn chữ ký", traceback.format_exc())
     finally:
         _cleanup_signature_preview(window)
-class _LegacySignatureStatusDialog(QDialog):
-    def __init__(self, parent, report: dict, *, path: str | None = None):
-        super().__init__(parent)
-        self._report = report
-        self._path = path
-        self.setWindowTitle("Chữ ký số")
-        self.setModal(True)
-        self.setMinimumWidth(380)
-
-        root = QVBoxLayout(self)
-        root.setSpacing(10)
-
-        top = QHBoxLayout()
-        icon_label = QLabel()
-        icon_kind = (
-            QStyle.StandardPixmap.SP_DialogApplyButton
-            if report.get("ok")
-            else QStyle.StandardPixmap.SP_MessageBoxWarning
-        )
-        icon_label.setPixmap(self.style().standardIcon(icon_kind).pixmap(36, 36))
-        top.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
-
-        title_wrap = QVBoxLayout()
-        title = QLabel("Hợp lệ Chữ ký" if report.get("ok") else "Chữ ký không hợp lệ")
-        title.setStyleSheet(
-            "font-size: 17px; font-weight: 700; color: %s;"
-            % ("#168038" if report.get("ok") else "#c23b22")
-        )
-        title_wrap.addWidget(title)
-
-        signer = str(report.get("subject_name") or "Không rõ")
-        signer_label = QLabel(signer)
-        signer_label.setWordWrap(True)
-        signer_label.setStyleSheet("font-size: 12px; color: #2b2b2b;")
-        title_wrap.addWidget(signer_label)
-
-        signed_time = report.get("signing_time")
-        if signed_time:
-            time_label = QLabel(f"Đã ký {signed_time}")
-            time_label.setStyleSheet("font-size: 11px; color: #666666;")
-            title_wrap.addWidget(time_label)
-
-        top.addLayout(title_wrap)
-        root.addLayout(top)
-
-        summary = QLabel(report.get("overall_status") or report.get("message") or "Không rõ")
-        summary.setWordWrap(True)
-        summary.setStyleSheet(
-            "background:#f5f7fb; border:1px solid #d9e0ea; border-radius:8px; "
-            "padding:8px 10px; color:#223; font-size:11px;"
-        )
-        root.addWidget(summary)
-
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
-        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft)
-        form.setSpacing(6)
-
-        identity_value = QLabel("Hợp lệ" if report.get("trusted") else "Chưa xác minh")
-        modify_value = QLabel("Không" if report.get("integrity_ok") else "Có")
-        cert_value = QLabel(str(report.get("certificate_status") or "Không rõ"))
-        issuer_value = QLabel(str(report.get("issuer_name") or "Không rõ"))
-
-        for widget in (identity_value, modify_value, cert_value, issuer_value):
-            widget.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-
-        clicked_page = int(report.get("clicked_page") or 0)
-        clicked_field = str(report.get("clicked_field") or "").strip()
-        if clicked_page:
-            form.addRow("Vi tri da bam", QLabel(f"Trang {clicked_page}"))
-        if clicked_field:
-            field_value = QLabel(clicked_field)
-            field_value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            form.addRow("Truong chu ky", field_value)
-
-        form.addRow("Danh tính người ký", identity_value)
-        form.addRow("Đã sửa đổi tài liệu", modify_value)
-        form.addRow("Trạng thái chứng thư", cert_value)
-        form.addRow("Nhà cung cấp", issuer_value)
-        root.addLayout(form)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        self._detail_btn = QPushButton("Thuộc tính")
-        buttons.addButton(self._detail_btn, QDialogButtonBox.ButtonRole.ActionRole)
-        self._detail_btn.clicked.connect(self._show_details)
-        buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
-
-    def _show_details(self):
-        _show_signature_report_vn(self, "Chi tiết chữ ký số", self._report, path=self._path)
-
-
 class SignatureStatusDialog(QDialog):
     def __init__(self, parent, report: dict, *, path: str | None = None):
         super().__init__(parent)
@@ -2874,46 +2749,38 @@ def _run_usb_signing_batch_subprocess(
         "enable_ltv": enable_ltv,
     }
 
-    payload_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w", encoding="utf-8")
-    payload_path = payload_file.name
+    # Truyền payload (kèm PIN) qua stdin thay vì file tạm để PIN không nằm trên đĩa.
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "--usb-sign-worker", "-"]
+    else:
+        cmd = [
+            sys.executable,
+            "-m",
+            "packages.signing.usb_worker",
+            "-",
+        ]
+    result = subprocess.run(
+        cmd,
+        input=payload_json,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        err_msg = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"Tien trinh ky so that bai (Ma loi: {result.returncode}):\n{err_msg}")
+
     try:
-        json.dump(payload, payload_file, ensure_ascii=False)
-        payload_file.close()
+        out_data = json.loads(result.stdout)
+    except Exception:
+        raise RuntimeError(f"Khong the phan tich ket qua tu tien trinh ky so:\n{result.stdout}")
 
-        if getattr(sys, "frozen", False):
-            cmd = [sys.executable, "--usb-sign-worker", payload_path]
-        else:
-            cmd = [
-                sys.executable,
-                "-m",
-                "packages.signing.usb_worker",
-                payload_path,
-            ]
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        if result.returncode != 0:
-            err_msg = result.stderr.strip() or result.stdout.strip()
-            raise RuntimeError(f"Tien trinh ky so that bai (Ma loi: {result.returncode}):\n{err_msg}")
-
-        try:
-            out_data = json.loads(result.stdout)
-        except Exception:
-            raise RuntimeError(f"Khong the phan tich ket qua tu tien trinh ky so:\n{result.stdout}")
-
-        if not out_data.get("ok"):
-            err_type = out_data.get("error_type", "Error")
-            err_msg = out_data.get("error_message", "Unknown error")
-            raise RuntimeError(f"{err_type}: {err_msg}")
-    finally:
-        try:
-            os.remove(payload_path)
-        except Exception:
-            pass
+    if not out_data.get("ok"):
+        err_type = out_data.get("error_type", "Error")
+        err_msg = out_data.get("error_message", "Unknown error")
+        raise RuntimeError(f"{err_type}: {err_msg}")
 
 
 def sign_document_batch(window):

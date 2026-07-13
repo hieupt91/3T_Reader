@@ -1,10 +1,11 @@
 import paramiko
+from vps_secret import vps_password
 
 def run():
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        client.connect('192.168.1.254', 2222, 'hieupt', 'Congnghe3t')
+        client.connect('192.168.1.254', 2222, 'hieupt', vps_password())
         
         # Read state_store.py
         target_file = "/home/hieupt/projects/3T_Reader/phase1-backend/server/license-api/app/services/state_store.py"

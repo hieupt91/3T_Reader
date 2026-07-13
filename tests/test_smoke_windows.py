@@ -89,10 +89,14 @@ class TestWindowsPdfEngine:
 
     @skip_non_windows
     def test_no_fitz_in_default_path(self):
+        # Other test modules may legitimately import fitz (handwritten signing);
+        # only assert on modules get_pdf_engine() itself pulls in.
+        fitz_loaded_before = "fitz" in sys.modules or "pymupdf" in sys.modules
         from packages.pdf_engine import get_pdf_engine
         get_pdf_engine()
         fitz_loaded = "fitz" in sys.modules or "pymupdf" in sys.modules
-        assert not fitz_loaded
+        if not fitz_loaded_before:
+            assert not fitz_loaded
 
     @skip_non_windows
     def test_page_count_on_sample(self, tmp_path):

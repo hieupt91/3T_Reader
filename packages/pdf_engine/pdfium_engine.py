@@ -3,8 +3,16 @@ from __future__ import annotations
 import io
 import os
 import shutil
+import threading
 
 from .base import RenderedPage
+
+# PDFium không thread-safe: gọi FPDF_* đồng thời từ 2 thread khác nhau (kể cả
+# trên 2 PdfDocument riêng biệt) có thể phá hỏng trạng thái nội bộ của thư viện
+# C, gây access violation sập tiến trình (đã tái hiện 3/3 lần: luồng
+# ThumbnailLoader render thumbnail đụng luồng auto-OCR đọc cùng lúc). Mọi lệnh
+# gọi pypdfium2 trong app phải qua lock này.
+PDFIUM_LOCK = threading.RLock()
 
 
 class PdfiumDocument:
@@ -18,12 +26,23 @@ class PdfiumDocument:
         self._needs_password = False
 
         try:
-            self._doc = pdfium.PdfDocument(path)
+            with PDFIUM_LOCK:
+                self._doc = pdfium.PdfDocument(path)
+                self._init_forms_for_render()
         except Exception as exc:
             if self._is_password_protected(path):
                 self._needs_password = True
             else:
                 raise exc
+
+    def _init_forms_for_render(self) -> None:
+        if self._doc is None or not hasattr(self._doc, "init_forms"):
+            return
+        try:
+            self._doc.init_forms()
+        except Exception:
+            # Malformed form data must not make ordinary PDF rendering fail.
+            pass
 
     @property
     def page_count(self) -> int:
@@ -58,7 +77,9 @@ class PdfiumDocument:
 
         self.close()
         try:
-            self._doc = self._pdfium.PdfDocument(self._path, password=password)
+            with PDFIUM_LOCK:
+                self._doc = self._pdfium.PdfDocument(self._path, password=password)
+                self._init_forms_for_render()
         except Exception:
             self._doc = None
         self._password = password
@@ -77,9 +98,10 @@ class PdfiumDocument:
     def render_page_rgb(self, page_number: int, scale: float = 1.0) -> RenderedPage:
         if self._doc is None:
             raise RuntimeError("PDF cần mật khẩu để mở.")
-        page = self._doc[page_number - 1]
-        bitmap = page.render(scale=scale)
-        pil_image = bitmap.to_pil().convert("RGB")
+        with PDFIUM_LOCK:
+            page = self._doc[page_number - 1]
+            bitmap = page.render(scale=scale)
+            pil_image = bitmap.to_pil().convert("RGB")
         width, height = pil_image.size
         samples = pil_image.tobytes()
         return RenderedPage(
@@ -92,16 +114,18 @@ class PdfiumDocument:
     def page_size(self, page_number: int) -> tuple[float, float]:
         if self._doc is None:
             raise RuntimeError("PDF cần mật khẩu để mở.")
-        page = self._doc[page_number - 1]
         try:
-            width, height = page.get_size()
+            with PDFIUM_LOCK:
+                page = self._doc[page_number - 1]
+                width, height = page.get_size()
             return float(width), float(height)
         except Exception:
             return 595.0, 842.0
 
     def close(self) -> None:
         if self._doc is not None:
-            self._doc.close()
+            with PDFIUM_LOCK:
+                self._doc.close()
             self._doc = None
 
 
@@ -121,10 +145,11 @@ class PdfiumEngine:
     def create_blank_pdf(self, output_path: str, width_pt: float, height_pt: float) -> None:
         import pypdfium2 as pdfium
 
-        doc = pdfium.PdfDocument.new()
-        doc.new_page(width_pt, height_pt)
-        doc.save(output_path)
-        doc.close()
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument.new()
+            doc.new_page(width_pt, height_pt)
+            doc.save(output_path)
+            doc.close()
 
     def watermark_pdf(self, input_path: str, output_path: str, text: str,
                       color: tuple = (0.6, 0.6, 0.6), angle: float = 45.0,

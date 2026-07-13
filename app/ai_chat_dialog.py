@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from packages.qt_compat.QtCore import Qt
+from packages.qt_compat.QtGui import QTextCursor
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QPushButton, QFrame, QLineEdit, QSizePolicy, QApplication,
@@ -143,6 +144,7 @@ class AIChatDialog(QDialog):
         self._active_request_id = 0
         self._task_thread = None
         self._task_worker = None
+        self._thinking_start_pos: int | None = None
 
         self._build_ui()
         self._rebuild_chat()
@@ -205,6 +207,13 @@ class AIChatDialog(QDialog):
         root.addLayout(input_row)
 
     def _set_stays_on_top(self, enabled: bool):
+        chat_html = self._chat_area.toHtml()
+        input_text = self._input.text()
+        status_text = self._lbl_status.text()
+        status_style = self._lbl_status.styleSheet()
+        send_enabled = self._btn_send.isEnabled()
+        scroll_value = self._chat_area.verticalScrollBar().value()
+
         flags = self.windowFlags()
         if enabled:
             flags |= Qt.WindowType.WindowStaysOnTopHint
@@ -212,10 +221,17 @@ class AIChatDialog(QDialog):
             flags &= ~Qt.WindowType.WindowStaysOnTopHint
         was_visible = self.isVisible()
         self.setWindowFlags(flags)
+        self._chat_area.setHtml(chat_html)
+        self._input.setText(input_text)
+        self._lbl_status.setText(status_text)
+        self._lbl_status.setStyleSheet(status_style)
+        self._btn_send.setEnabled(send_enabled)
+        self._chat_area.verticalScrollBar().setValue(scroll_value)
         if was_visible:
             self.show()
-            self.raise_()
-            self.activateWindow()
+            if enabled:
+                self.raise_()
+                self.activateWindow()
 
     def _append_html(self, html: str):
         self._chat_area.append(html)
@@ -251,6 +267,10 @@ class AIChatDialog(QDialog):
 
         self._input.clear()
         self._append_html(self._theme["user"].format(text=self._escape(question)))
+        # Nhớ vị trí NGAY TRƯỚC bong bóng "đang trả lời" để lúc có kết quả
+        # thay đúng đoạn đó tại chỗ — không clear() + dựng lại toàn bộ khung
+        # chat (kiểu cũ làm mất cảm giác chat kiểu Messenger, giật khi cuộn).
+        self._thinking_start_pos = self._chat_area.document().characterCount() - 1
         self._append_html(self._theme["thinking"])
 
         self._busy = True
@@ -274,12 +294,21 @@ class AIChatDialog(QDialog):
             self._btn_send.setEnabled(True)
             self._lbl_status.setText("Đang có một yêu cầu AI khác đang chạy.")
 
-    def _remove_thinking_bubble(self):
-        cursor = self._chat_area.document().find(_MSG_THINKING)
-        html = self._chat_area.toHtml()
-        # Replace the thinking indicator with empty before appending real answer
-        # We re-render chat from scratch to keep it clean
-        # Simpler: just let new message append after; the thinking bubble stays brief
+    def _replace_thinking_with(self, html: str) -> None:
+        """Thay bong bóng 'đang trả lời' bằng nội dung thật, CHỈ SỬA đúng
+        đoạn đó — không clear() + dựng lại toàn bộ khung chat. Giữ nguyên
+        mọi tin nhắn cũ đã hiện + vị trí cuộn (kiểu chat Messenger)."""
+        if self._thinking_start_pos is None:
+            self._append_html(html)
+            return
+        cursor = QTextCursor(self._chat_area.document())
+        cursor.setPosition(self._thinking_start_pos)
+        cursor.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        cursor.insertHtml(html)
+        self._thinking_start_pos = None
+        sb = self._chat_area.verticalScrollBar()
+        sb.setValue(sb.maximum())
 
     def _run_request(self, request_id: int, session, question: str):
         try:
@@ -294,18 +323,20 @@ class AIChatDialog(QDialog):
         self._busy = False
         self._btn_send.setEnabled(True)
 
-        # Remove thinking bubble by rebuilding from session history
-        self._rebuild_chat()
-
         if error_message:
-            self._append_html(self._theme["error"].format(text=self._escape(error_message)))
+            self._replace_thinking_with(
+                self._theme["error"].format(text=self._escape(error_message))
+            )
             self._lbl_status.setStyleSheet("color:#DC2626;font-size:11px")
             self._lbl_status.setText(f"Lỗi: {error_message}")
         elif result.success:
+            self._replace_thinking_with(
+                self._theme["ai"].format(text=self._escape(result.answer))
+            )
             self._lbl_status.setStyleSheet("color:#059669;font-size:11px")
             self._lbl_status.setText("Sẵn sàng.")
         else:
-            self._append_html(
+            self._replace_thinking_with(
                 self._theme["error"].format(text=self._escape(result.error or "Lỗi không xác định."))
             )
             self._lbl_status.setStyleSheet("color:#DC2626;font-size:11px")
@@ -314,8 +345,7 @@ class AIChatDialog(QDialog):
     def _on_runner_error(self, msg: str, _tb: str):
         self._busy = False
         self._btn_send.setEnabled(True)
-        self._rebuild_chat()
-        self._append_html(self._theme["error"].format(text=self._escape(msg)))
+        self._replace_thinking_with(self._theme["error"].format(text=self._escape(msg)))
         self._lbl_status.setStyleSheet("color:#DC2626;font-size:11px")
         self._lbl_status.setText(f"Lỗi: {msg}")
 
@@ -366,7 +396,7 @@ class AIChatDialog(QDialog):
         self._rebuild_chat()
 
     def closeEvent(self, event):
-        event.ignore()
+        event.accept()
         self.hide()
 
     @staticmethod

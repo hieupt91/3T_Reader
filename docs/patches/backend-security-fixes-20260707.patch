@@ -1,0 +1,237 @@
+--- a/main.py	2026-07-07 14:18:01.598028459 +0700
++++ b/main.py	2026-07-07 16:04:34.952151630 +0700
+@@ -3,12 +3,13 @@
+ import os
+ import re
+ import secrets as _secrets
++import time
+ from datetime import datetime, timezone
+ from pathlib import Path
+ 
+ _KEY_PATTERN = re.compile(r'^3TR-[BPE]-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
+ 
+-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
++from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+ from fastapi.responses import FileResponse, HTMLResponse
+ from fastapi.staticfiles import StaticFiles
+ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+@@ -46,9 +47,46 @@
+ 
+ _ADMIN_PASSWORD = os.environ.get("THREET_ADMIN_PASSWORD", "3tAdmin2026")
+ _STATIC = Path(__file__).parent / "static"
+-_active_tokens: set[str] = set()
+-_staff_tokens: dict[str, dict] = {}  # token → {username, permissions}
++_TOKEN_TTL_SECONDS = 8 * 3600  # phiên đăng nhập admin/staff hết hạn sau 8 giờ
++_active_tokens: dict[str, float] = {}  # token → thời điểm hết hạn (epoch)
++_staff_tokens: dict[str, dict] = {}  # token → {username, permissions, expires_at}
+ _bearer = HTTPBearer(auto_error=False)
++_RATE_BUCKETS: dict[tuple[str, str], list[float]] = {}
++
++
++def _client_ip(request: Request) -> str:
++    # App chạy sau proxy (nginx/Cloudflare) -> request.client.host là IP proxy,
++    # sẽ gom TẤT CẢ user vào 1 rọ rate-limit. Ưu tiên IP thật từ header proxy đặt.
++    cf = request.headers.get("cf-connecting-ip")
++    if cf:
++        return cf.strip()
++    xff = request.headers.get("x-forwarded-for")
++    if xff:
++        return xff.split(",")[0].strip()
++    xr = request.headers.get("x-real-ip")
++    if xr:
++        return xr.strip()
++    return request.client.host if request.client else "unknown"
++
++
++def _rate_dep(bucket: str, max_hits: int, window_s: float):
++    """Dependency chống brute-force theo IP thật (fixed-window trong bộ nhớ)."""
++
++    def _dep(request: Request) -> None:
++        ip = _client_ip(request)
++        now = time.time()
++        key = (bucket, ip)
++        hits = [t for t in _RATE_BUCKETS.get(key, []) if now - t < window_s]
++        if len(hits) >= max_hits:
++            raise HTTPException(status_code=429, detail="Quá nhiều yêu cầu, vui lòng thử lại sau.")
++        hits.append(now)
++        _RATE_BUCKETS[key] = hits
++
++    return _dep
++
++
++def _token_live(expires_at: float | None) -> bool:
++    return expires_at is not None and time.time() <= expires_at
+ _LICENSE_PREFIX = {"basic": "3TR-B", "personal": "3TR-P", "enterprise": "3TR-E"}
+ 
+ app = FastAPI(title=settings.app_name, version="0.3.0")
+@@ -133,12 +171,12 @@
+     password: str
+ 
+ 
+-@app.post("/api/admin/login")
++@app.post("/api/admin/login", dependencies=[Depends(_rate_dep("admin_login", 10, 300))])
+ def admin_login(req: LoginRequest):
+     if not admin_config.verify_password(req.password):
+         raise HTTPException(status_code=401, detail="Mật khẩu không đúng")
+     tok = _secrets.token_hex(32)
+-    _active_tokens.add(tok)
++    _active_tokens[tok] = time.time() + _TOKEN_TTL_SECONDS
+     return {"token": tok, "role": "admin"}
+ 
+ 
+@@ -147,7 +185,7 @@
+     password: str
+ 
+ 
+-@app.post("/api/staff/login")
++@app.post("/api/staff/login", dependencies=[Depends(_rate_dep("staff_login", 10, 300))])
+ def staff_login(req: StaffLoginRequest):
+     if not staff_service.authenticate(req.username, req.password):
+         raise HTTPException(status_code=401, detail="Tên đăng nhập hoặc mật khẩu không đúng")
+@@ -156,6 +194,7 @@
+     _staff_tokens[tok] = {
+         "username": req.username.strip().lower(),
+         "permissions": info.get("permissions", []),
++        "expires_at": time.time() + _TOKEN_TTL_SECONDS,
+     }
+     return {
+         "token": tok,
+@@ -165,8 +204,25 @@
+     }
+ 
+ 
++def _admin_token_active(tok: str) -> bool:
++    if not _token_live(_active_tokens.get(tok)):
++        _active_tokens.pop(tok, None)  # dọn token hết hạn
++        return False
++    return True
++
++
++def _staff_token_info(tok: str) -> dict | None:
++    info = _staff_tokens.get(tok)
++    if info is None:
++        return None
++    if not _token_live(info.get("expires_at")):
++        _staff_tokens.pop(tok, None)
++        return None
++    return info
++
++
+ def _require_admin(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)):
+-    if creds is None or creds.credentials not in _active_tokens:
++    if creds is None or not _admin_token_active(creds.credentials):
+         raise HTTPException(status_code=401, detail="Chưa đăng nhập hoặc phiên hết hạn")
+     return creds.credentials
+ 
+@@ -175,10 +231,11 @@
+     if creds is None:
+         raise HTTPException(status_code=401, detail="Chưa đăng nhập")
+     tok = creds.credentials
+-    if tok in _active_tokens:
++    if _admin_token_active(tok):
+         return {"role": "admin", "permissions": ["approve", "reject", "delete"]}
+-    if tok in _staff_tokens:
+-        return _staff_tokens[tok]
++    info = _staff_token_info(tok)
++    if info is not None:
++        return info
+     raise HTTPException(status_code=401, detail="Phiên đăng nhập hết hạn")
+ 
+ 
+@@ -654,7 +711,7 @@
+     promo_code: str | None = None
+ 
+ 
+-@app.post("/api/v1/order/submit")
++@app.post("/api/v1/order/submit", dependencies=[Depends(_rate_dep("order_submit", 5, 300))])
+ def submit_order(req: OrderSubmitRequest):
+     if not req.customer_name.strip() or not req.customer_email.strip():
+         raise HTTPException(status_code=422, detail="Vui lòng điền đầy đủ thông tin")
+@@ -765,7 +822,11 @@
+     return health()
+ 
+ 
+-@app.post("/api/license/activate", response_model=ActivateResponse)
++@app.post(
++    "/api/license/activate",
++    response_model=ActivateResponse,
++    dependencies=[Depends(_rate_dep("license_activate", 10, 60))],
++)
+ def activate(req: ActivateRequest) -> ActivateResponse:
+     if not _KEY_PATTERN.match(req.license_key.strip().upper()):
+         raise HTTPException(status_code=400, detail="Mã key không đúng định dạng. Ví dụ: 3TR-P-XXXX-XXXX-XXXX")
+@@ -792,12 +853,20 @@
+     )
+ 
+ 
+-@app.post(f"/api/{settings.api_version}/license/activate", response_model=ActivateResponse)
++@app.post(
++    f"/api/{settings.api_version}/license/activate",
++    response_model=ActivateResponse,
++    dependencies=[Depends(_rate_dep("license_activate", 10, 60))],
++)
+ def activate_v1(req: ActivateRequest) -> ActivateResponse:
+     return activate(req)
+ 
+ 
+-@app.post("/api/license/validate", response_model=ValidateResponse)
++@app.post(
++    "/api/license/validate",
++    response_model=ValidateResponse,
++    dependencies=[Depends(_rate_dep("license_validate", 60, 60))],
++)
+ def validate(req: ValidateRequest) -> ValidateResponse:
+     result = license_service.validate(req.token, req.device_id)
+     return ValidateResponse(
+@@ -811,7 +880,11 @@
+     )
+ 
+ 
+-@app.post(f"/api/{settings.api_version}/license/validate", response_model=ValidateResponse)
++@app.post(
++    f"/api/{settings.api_version}/license/validate",
++    response_model=ValidateResponse,
++    dependencies=[Depends(_rate_dep("license_validate", 60, 60))],
++)
+ def validate_v1(req: ValidateRequest) -> ValidateResponse:
+     return validate(req)
+ 
+--- a/services/token_service.py	2026-07-07 14:18:01.600257221 +0700
++++ b/services/token_service.py	2026-07-07 14:18:24.269433946 +0700
+@@ -71,7 +71,11 @@
+                 sig_bytes = _b64url_decode(sig_part)
+                 pub_key.verify(sig_bytes, body_b64.encode("ascii"))
+             elif len(parts) == 2:
+-                # HMAC fallback
++                # HMAC fallback: CHỈ chấp nhận khi server chưa cấu hình Ed25519.
++                # Đã có khóa Ed25519 -> từ chối token HMAC để chống giả mạo
++                # (kẻ biết signing_secret không chế được token server chấp nhận).
++                if self._ed25519_key is not None:
++                    raise ValueError("HMAC token rejected: server uses Ed25519")
+                 expected = hmac.new(self.secret.encode("utf-8"), body_b64.encode("ascii"), hashlib.sha256).hexdigest()
+                 if not hmac.compare_digest(sig_part, expected):
+                     raise ValueError("Invalid token signature")
+--- a/services/license_service.py	2026-07-07 14:18:01.600305253 +0700
++++ b/services/license_service.py	2026-07-07 14:18:24.331434401 +0700
+@@ -124,6 +124,10 @@
+             return {"ok": False, "message": "Token expired.", "expires_at": payload.get("expires_at")}
+         license_key = payload.get("license_key")
+         record = self.licenses.get(license_key) if license_key else None
++        # Chặn thiết bị đã bị thu hồi: nếu không, token đã ký vẫn hợp lệ tới khi
++        # hết hạn dù admin đã revoke -> thu hồi thành vô nghĩa.
++        if record is not None and device_id in record.revoked_devices:
++            return {"ok": False, "message": "This device is revoked."}
+         return {
+             "ok": True,
+             "message": "Valid.",
+--- a/services/order_service.py	2026-07-07 14:18:01.600349573 +0700
++++ b/services/order_service.py	2026-07-07 14:18:24.392434850 +0700
+@@ -5,7 +5,7 @@
+ import secrets
+ import smtplib
+ import string
+-from datetime import datetime, timezone
++from datetime import datetime, timedelta, timezone
+ from email.mime.multipart import MIMEMultipart
+ from email.mime.text import MIMEText
+ from pathlib import Path

@@ -2,6 +2,12 @@
 from PyInstaller.utils.hooks import collect_all
 import os
 
+# Single source of truth for the app version (ARCH-01).
+_version_ns = {}
+with open(os.path.join(os.path.dirname(os.path.abspath(SPEC)), 'app', 'version.py'), encoding='utf-8') as _f:
+    exec(_f.read(), _version_ns)
+APP_VERSION = _version_ns['APP_VERSION']
+
 datas = []
 binaries = []
 hiddenimports = ['pypdfium2', 'pikepdf', 'pyhanko.network', 'pyhanko.network.requests', 'pyhanko_certvalidator', 'pyhanko_certvalidator.fetchers.requests_fetchers', 'PySide6.QtPrintSupport', 'PySide6.QtWebEngineWidgets', 'pdf2docx', 'pdfplumber', 'openpyxl', 'openai', 'anthropic', 'huggingface_hub', 'google.genai', 'requests', 'keyring']
@@ -94,8 +100,8 @@ if sys.platform == 'darwin':
         icon='assets/app.icns' if os.path.exists('assets/app.icns') else None,
         bundle_identifier='com.3t.reader',
         info_plist={
-            'CFBundleShortVersionString': '1.0.19',
-            'CFBundleVersion': '1.0.19',
+            'CFBundleShortVersionString': APP_VERSION,
+            'CFBundleVersion': APP_VERSION,
             'NSHighResolutionCapable': True,
             'NSMicrophoneUsageDescription': 'Used for audio recording',
             'CFBundleDocumentTypes': [

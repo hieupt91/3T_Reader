@@ -1,11 +1,12 @@
 import paramiko
 import os
+from vps_secret import vps_password
 
 def deploy():
     hostname = "192.168.1.254"
     port = 2222
     username = "hieupt"
-    password = "Congnghe3t"
+    password = vps_password()
     
     print(f"Connecting to {hostname}:{port} as {username}...")
     

@@ -102,6 +102,14 @@ def open_file(window, path=None):
     if not path:
         path = _pick_document_file(window)
     if path:
+        if not os.path.exists(path):
+            show_warning(
+                window,
+                "Không tìm thấy tài liệu",
+                f"Không tìm thấy tài liệu tại đường dẫn:\n{path}",
+            )
+            return
+
         from app.actions.document_converter import process_file_and_open
         pdf_path = process_file_and_open(window, path)
         if not pdf_path:

@@ -127,18 +127,31 @@ def test_signing_task_pauses_usb_monitor_while_working():
 
 
 def test_vietnamese_stamp_uses_unicode_font_when_available(monkeypatch):
+    """Stamp content is rendered into a standalone PDF (burned by the consumer);
+    the StaticStampStyle itself stays empty so pyHanko doesn't double-draw."""
+    import os
+
     from packages.signing import shared
 
     monkeypatch.setattr(
         "packages.platform.fonts.get_vietnamese_font_path",
-        lambda bold=False: r"C:\\Windows\\Fonts\\arial.ttf",
+        lambda bold=False: r"C:\Windows\Fonts\arial.ttf",
     )
 
     style, stamp_pdf = shared.build_vietnamese_stamp_style("Nguyen Van A", signed_at="01/01/2026 10:00:00")
 
-    assert style.background is not None
-    assert style.background_opacity == 1.0
-    assert style.stamp_text.strip() == ""
+    assert style.background is None
+    assert style.border_width == 0
+    assert stamp_pdf is not None
+    try:
+        assert os.path.getsize(stamp_pdf) > 0
+        with open(stamp_pdf, "rb") as f:
+            assert f.read(5) == b"%PDF-"
+    finally:
+        try:
+            os.remove(stamp_pdf)
+        except OSError:
+            pass
 
 
 def test_signature_preview_for_png_remains_transparent():
@@ -219,9 +232,13 @@ def test_print_entry_uses_pdfjs_preview_for_screen_clarity():
 
 def test_print_loop_updates_orientation_per_page():
     source = _read("app/window.py")
-    assert "desired_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)" in source
-    assert "_apply_printer_orientation(printer, desired_orientation)" in source
+    assert "natural_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)" in source
+    assert "_apply_printer_orientation(printer, natural_orientation)" in source
     assert "printer.newPage()" in source
+    # User-forced orientation from the preview toolbar must override
+    # per-page auto-detection and rotate mismatched pages to fill the sheet.
+    assert "forced_orientation=orientation_override[\"value\"]" in source
+    assert "rotate_to_fit = natural_orientation != forced_orientation" in source
 
 
 def test_print_preview_prefers_higher_render_scale_for_clarity():
@@ -274,6 +291,20 @@ def test_pdf_viewer_injects_pdfjs_override_css_at_document_ready():
     assert "data-3t-pdfjs-overrides" in viewer_source
     assert "page_scripts.insert(pdfjs_overrides)" in viewer_source
     assert "self._inject_css_for_viewer(viewer)" in window_source
+
+
+def test_pdfjs_find_state_not_found_constant_matches_vendored_pdfjs():
+    viewer_source = _read("app/pdf_viewer.py")
+    document_source = _read("app/actions/document.py")
+    js_hooks = _read("assets/js/pdfjs_ui_hooks.js")
+    pdfjs_source = _read("third_party/pdfjs/web/viewer.mjs")
+
+    assert "FOUND: 0" in pdfjs_source
+    assert "NOT_FOUND: 1" in pdfjs_source
+    assert "_PDFJS_FIND_NOT_FOUND = 1" in viewer_source
+    assert "state == _PDFJS_FIND_NOT_FOUND" in viewer_source
+    assert "window.__3tFindState = 3;" in document_source
+    assert "0=FOUND, 1=NOT_FOUND, 2=WRAPPED, 3=PENDING" in js_hooks
 
 
 def test_signature_status_dialog_shows_extended_signature_properties():

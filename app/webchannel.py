@@ -43,6 +43,14 @@ class _NoteToolsBridgeProxy(_BridgeProxyBase):
     def deleteNote(self, note_id: str, page_number: int):
         self._call("deleteNote", note_id, page_number)
 
+    @pyqtSlot(str, int)
+    def deleteMark(self, mark_id: str, page_number: int):
+        self._call("deleteMark", mark_id, page_number)
+
+    @pyqtSlot(int)
+    def deleteMarksOnPage(self, page_number: int):
+        self._call("deleteMarksOnPage", page_number)
+
 
 class _AreaPickBridgeProxy(_BridgeProxyBase):
     @pyqtSlot(int, float, float, float, float)
@@ -151,12 +159,6 @@ class _ObjectActionBridgeProxy(_BridgeProxyBase):
         self._call("reportResize", l, b, r, t, scale)
 
 
-class _ExistingTextBridgeProxy(_BridgeProxyBase):
-    @pyqtSlot(int, float, float, float, float, str, str)
-    def reportExistingTextClick(self, page_number: int, left: float, bottom: float, right: float, top: float, text: str, styles: str):
-        self._call("reportExistingTextClick", page_number, left, bottom, right, top, text, styles)
-
-
 _PROXY_TYPES = {
     "pageStateBridge": _PageStateBridgeProxy,
     "noteToolsBridge": _NoteToolsBridgeProxy,
@@ -167,7 +169,6 @@ _PROXY_TYPES = {
     "inlineTextBridge": _InlineTextBridgeProxy,
     "inlineImageBridge": _InlineImageBridgeProxy,
     "objectActionBridge": _ObjectActionBridgeProxy,
-    "editExistingTextBridge": _ExistingTextBridgeProxy,
 }
 
 _SHORT_LIVED_BRIDGES = {
@@ -177,7 +178,6 @@ _SHORT_LIVED_BRIDGES = {
     "inlineTextBridge",
     "inlineImageBridge",
     "objectActionBridge",
-    "editExistingTextBridge",
 }
 
 

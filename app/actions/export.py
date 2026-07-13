@@ -6,6 +6,7 @@ In frozen EXE → QThread in-process, since the frozen bootloader can't run `-m`
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 from threading import Event
@@ -19,7 +20,7 @@ from app.dialogs import show_warning
 
 def _open_after_export(output_path: str):
     if sys.platform == "darwin":
-        os.system(f'open "{output_path}"')
+        subprocess.run(["open", output_path], check=False)
     elif sys.platform == "win32":
         os.startfile(output_path)
 

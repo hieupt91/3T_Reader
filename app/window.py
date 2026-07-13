@@ -263,7 +263,11 @@ class PDFReaderApp(QMainWindow):
         self._usb_token_detected = False
         self._closing = False
         self._highlight_color_pdf = [1.0, 1.0, 0.0]
-        self._highlight_color_overlay = "rgba(250,204,21,.35)"
+        # Đồng bộ với alpha /CA ghi vào PDF (0.60) để màu lúc vừa tô và sau
+        # khi đóng/mở lại file giống nhau (TC27).
+        self._highlight_color_overlay = "rgba(255,255,0,.60)"
+        # "select": chỉ tô vùng bôi đen; "find": tô toàn bộ từ khóa (TC27).
+        self._mark_mode = "select"
 
         self._brightness = 100
         self._action_icons: dict = {}   # {QAction: svg_filename} for theme refresh
@@ -459,6 +463,9 @@ class PDFReaderApp(QMainWindow):
             "viewer":       viewer,
             "source_path":  source_path,
             "display_path": display_path or source_path,
+            # Khóa ổn định cho lịch sử chat AI — đặt 1 lần tại đây, KHÔNG luồng
+            # reload/chú thích/sửa nào được ghi đè (khác display_path hay bị đè).
+            "chat_identity_path": display_path or source_path,
             "web_view":     None,
             "search_query": "",
             "temp_path":    temp_path,
@@ -840,6 +847,16 @@ class PDFReaderApp(QMainWindow):
         self.g_mark.add(make_action_btn(self.act_strikeout, "Gạch ngang"))
         self._act_comment = make("Ghi chú", "insert_text.svg", "Thêm ghi chú", None, lambda: add_comment(self))
         self.g_mark.add(make_action_btn(self._act_comment, "Ghi chú"))
+        # TC27: chuyển giữa "Chọn" (chỉ tô vùng bôi đen) và "Tìm" (tự tìm và
+        # tô toàn bộ từ khóa trên tài liệu; xóa cũng xóa hàng loạt theo từ khóa).
+        self.act_mark_mode = make(
+            "Chế độ: Chọn", "search.svg",
+            "Chế độ đánh dấu — Chọn: chỉ tô/gạch vùng bôi đen; "
+            "Tìm: tô/gạch (và xóa) toàn bộ từ khóa trên tài liệu",
+            None, lambda: self._toggle_mark_mode(),
+        )
+        self._mark_mode_btn = make_action_btn(self.act_mark_mode, "Chế độ: Chọn")
+        self.g_mark.add(self._mark_mode_btn)
         p1.add_group(self.g_mark)
 
         self.g_edit = RibbonGroup("Chỉnh sửa")
@@ -1388,7 +1405,7 @@ class PDFReaderApp(QMainWindow):
                     app.pdfViewer.currentScaleValue = "page-width";
                 """,
                 "facing": """
-                    app.pdfViewer.scrollMode = 0;
+                    app.pdfViewer.scrollMode = 3;
                     app.pdfViewer.spreadMode = 1;
                     app.pdfViewer.currentScaleValue = "page-fit";
                 """,
@@ -1399,6 +1416,21 @@ class PDFReaderApp(QMainWindow):
                     var app = window.PDFViewerApplication;
                     if (!app || !app.pdfViewer) return;
                     {scripts.get(mode, scripts["single"])}
+                }})()
+                """
+            )
+
+        def _nav_page(direction: int):
+            # nextPage()/previousPage() are spread-aware: in facing (PAGE) mode
+            # they advance a full spread, where currentPageNumber ± 1 would
+            # land inside the same spread and not move the view.
+            _run_pdfjs(
+                f"""
+                (function() {{
+                    var app = window.PDFViewerApplication;
+                    if (!app || !app.pdfViewer) return;
+                    if ({int(direction)} > 0) app.pdfViewer.nextPage();
+                    else app.pdfViewer.previousPage();
                 }})()
                 """
             )
@@ -1424,15 +1456,42 @@ class PDFReaderApp(QMainWindow):
                 zoom_spin.blockSignals(False)
 
         printer_holder = {"printer": self._configured_pdf_printer(pdf_path, current_page=current_page)}
+        # None = auto (per-page orientation from PDF dimensions); a QPageLayout
+        # orientation once the user explicitly picks portrait/landscape.
+        orientation_override = {"value": None}
 
         def _page_setup():
             QPageSetupDialog(printer_holder["printer"], dialog).exec()
+
+        def _natural_orientation(page_number: int):
+            try:
+                pdf = get_pdf_engine().open(pdf_path)
+                try:
+                    w_pt, h_pt = pdf.page_size(max(1, int(page_number or 1)))
+                finally:
+                    pdf.close()
+                return self._page_orientation_for_pdf_size(w_pt, h_pt)
+            except Exception:
+                return QPageLayout.Orientation.Portrait
 
         def _set_orientation(orientation):
             try:
                 printer_holder["printer"].setPageOrientation(orientation)
             except Exception:
                 pass
+            orientation_override["value"] = orientation
+            # Mirror the forced orientation in the preview: pages whose natural
+            # orientation differs are shown rotated, matching how they print.
+            rotation = 0 if orientation == _natural_orientation(page_spin.value()) else 90
+            _run_pdfjs(
+                f"""
+                (function() {{
+                    var app = window.PDFViewerApplication;
+                    if (!app || !app.pdfViewer) return;
+                    app.pdfViewer.pagesRotation = {rotation};
+                }})()
+                """
+            )
 
         preview_viewer.page_changed.connect(_update_page)
         preview_viewer.zoom_changed.connect(_update_zoom)
@@ -1443,8 +1502,8 @@ class PDFReaderApp(QMainWindow):
         btn_fit_page.clicked.connect(_fit_page)
         page_spin.valueChanged.connect(_set_page)
         zoom_spin.editingFinished.connect(lambda: _set_zoom(zoom_spin.value()))
-        btn_prev.clicked.connect(lambda: _set_page(page_spin.value() - 1))
-        btn_next.clicked.connect(lambda: _set_page(page_spin.value() + 1))
+        btn_prev.clicked.connect(lambda: _nav_page(-1))
+        btn_next.clicked.connect(lambda: _nav_page(1))
         btn_zoom_out.clicked.connect(lambda: _set_zoom(max(25, int(zoom_spin.value() / 1.1))))
         btn_zoom_in.clicked.connect(lambda: _set_zoom(min(400, int(zoom_spin.value() * 1.1))))
         btn_page_setup.clicked.connect(_page_setup)
@@ -1455,7 +1514,12 @@ class PDFReaderApp(QMainWindow):
             printer = printer_holder["printer"]
             print_dialog = QPrintDialog(printer, dialog)
             if print_dialog.exec() == QDialog.DialogCode.Accepted:
-                self._do_print_pages(printer, pdf_path, show_progress=True)
+                self._do_print_pages(
+                    printer,
+                    pdf_path,
+                    show_progress=True,
+                    forced_orientation=orientation_override["value"],
+                )
 
         btn_print.clicked.connect(_run_print)
         btn_close.clicked.connect(dialog.accept)
@@ -1588,7 +1652,8 @@ class PDFReaderApp(QMainWindow):
         scale_by_pixels = (pixel_cap / page_pixels) ** 0.5
         return min(job_cap, max(dpi_scale, scale_by_pixels, 1.0))
 
-    def _do_print_pages(self, printer: QPrinter, pdf_path: str, show_progress: bool = True, preview_dlg=None):
+    def _do_print_pages(self, printer: QPrinter, pdf_path: str, show_progress: bool = True, preview_dlg=None,
+                        forced_orientation=None):
         """Vẽ từng trang PDF lên printer — chạy trên main thread qua paintRequested.
 
         Tiến độ xử lý qua QProgressDialog (hiện sau 1s nếu vẫn đang chạy) cho
@@ -1636,7 +1701,12 @@ class PDFReaderApp(QMainWindow):
                 progress.setAutoReset(False)
 
             current_orientation = None
-            if page_list:
+            if forced_orientation is not None:
+                # User explicitly picked portrait/landscape in the preview:
+                # keep it for the whole job instead of per-page auto-detect.
+                self._apply_printer_orientation(printer, forced_orientation)
+                current_orientation = forced_orientation
+            elif page_list:
                 try:
                     page_w_pt, page_h_pt = pdf.page_size(page_list[0] + 1)
                     current_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)
@@ -1671,10 +1741,13 @@ class PDFReaderApp(QMainWindow):
                 except Exception:
                     page_w_pt, page_h_pt = 595.0, 842.0
 
-                desired_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)
-                if desired_orientation != current_orientation:
-                    self._apply_printer_orientation(printer, desired_orientation)
-                    current_orientation = desired_orientation
+                natural_orientation = self._page_orientation_for_pdf_size(page_w_pt, page_h_pt)
+                rotate_to_fit = False
+                if forced_orientation is not None:
+                    rotate_to_fit = natural_orientation != forced_orientation
+                elif natural_orientation != current_orientation:
+                    self._apply_printer_orientation(printer, natural_orientation)
+                    current_orientation = natural_orientation
 
                 if i > 0:
                     printer.newPage()
@@ -1702,6 +1775,13 @@ class PDFReaderApp(QMainWindow):
                     raise MemoryError(
                         f"Không đủ bộ nhớ để render trang {page_num + 1}. "
                         "Hãy thử in ít trang hơn hoặc giảm chất lượng in."
+                    )
+
+                if rotate_to_fit:
+                    from packages.qt_compat.QtGui import QTransform
+                    img = img.transformed(
+                        QTransform().rotate(90),
+                        Qt.TransformationMode.SmoothTransformation,
                     )
 
                 src_w = max(1, img.width())
@@ -2095,6 +2175,21 @@ class PDFReaderApp(QMainWindow):
             QTimer.singleShot(0, self._update_chrome_for_active_tab)
             QTimer.singleShot(0, self._load_toc_for_active)
             QTimer.singleShot(0, self._load_annotations_for_active)
+            QTimer.singleShot(0, lambda s=state: self._start_auto_ocr_for_state(s))
+
+    def _start_auto_ocr_for_state(self, state: dict) -> None:
+        """Bôi đen/gạch/sửa text gốc cần text layer thật — với file scan
+        (ảnh thuần) thì phải OCR trước. Chạy nền ngay khi mở file, không phân
+        biệt gói license (khác với OCR thủ công toàn tài liệu, vẫn khóa
+        Enterprise trong app/actions/ocr.py)."""
+        pdf_path = state.get("source_path")
+        if not pdf_path:
+            return
+        try:
+            from app.actions.auto_ocr import start_auto_ocr_for_document
+            start_auto_ocr_for_document(self, pdf_path, current_page=self.viewer.get_current_page())
+        except Exception:
+            pass
 
     def _on_page_ready(self, viewer):
         if viewer is not self.viewer:
@@ -2326,6 +2421,12 @@ class PDFReaderApp(QMainWindow):
             return False
         queue = getattr(self, "_annotation_op_queue", None)
         target_path = state.get("source_path") if state else None
+        if target_path:
+            try:
+                from app.actions.auto_ocr import stop_auto_ocr_for_document
+                stop_auto_ocr_for_document(self, target_path)
+            except Exception:
+                pass
         if queue is not None or has_pending_annotations(self, target_path):
             try:
                 flush_all = getattr(queue, "flush_all", None)
@@ -2488,8 +2589,12 @@ class PDFReaderApp(QMainWindow):
         worker.available.connect(self._show_update_dialog)
         if show_up_to_date:
             worker.up_to_date.connect(self._on_update_up_to_date)
-        worker.error.connect(lambda msg: self._on_update_check_error(msg, show_errors))
-        worker.finished.connect(lambda: QTimer.singleShot(0, self._cleanup_update_check_worker))
+        # Nối vào bound-method của self (main-thread affinity) để Qt tự queue
+        # signal từ Python thread về main thread. Dùng lambda sẽ khiến slot chạy
+        # ngay trên background thread -> gọi GUI (QMessageBox) sai luồng, dễ crash.
+        self._update_check_show_errors = show_errors
+        worker.error.connect(self._on_update_check_error_signal)
+        worker.finished.connect(self._cleanup_update_check_worker)
 
         self._update_check_worker = worker
 
@@ -2524,6 +2629,9 @@ class PDFReaderApp(QMainWindow):
         latest = getattr(info, "latest_version", "") or APP_VERSION
         self.status.showMessage("Bạn đang dùng phiên bản mới nhất.", 4000)
         show_info(self, "Đã cập nhật", f"Phiên bản {APP_VERSION} là mới nhất.\nLatest server: {latest}")
+
+    def _on_update_check_error_signal(self, message: str):
+        self._on_update_check_error(message, getattr(self, "_update_check_show_errors", False))
 
     def _on_update_check_error(self, message: str, show_warning_dialog: bool):
         safe_message = message or "Không thể kiểm tra cập nhật."
@@ -2638,7 +2746,7 @@ class PDFReaderApp(QMainWindow):
         
         Private actions (tạo trong _build_toolbar_impl, KHÔNG có trong toolbar cũ):
         - self._act_comment (Tab Annotate)
-        - self._act_rcw, self._act_rccw, self._act_del (Tab Page - Rotate/Delete)
+        - self._act_rcw, self._act_rccw, self._act_rotate_pages, self._act_del (Tab Page - Rotate/Delete)
         - self._act_merge, self._act_extract, self._act_pgnum (Tab Page - Organize)
         - self._act_wm, self._act_rmwm, self._act_setpw, self._act_rmpw, self._act_comp (Tab Security)
         - self._act_word, self._act_xl, self._act_img, self._act_txt (Tab Export)
@@ -2724,6 +2832,7 @@ class PDFReaderApp(QMainWindow):
         _set("_act_comment",         "action.comment",           "Ghi chú")
         _set("_act_rcw",             "action.rotate_cw",         "Xoay phải")
         _set("_act_rccw",            "action.rotate_ccw",        "Xoay trái")
+        _set("_act_rotate_pages",    "action.rotate_pages",      "Xoay trang")
         _set("_act_del",             "action.delete_page",       "Xóa trang")
         _set("_act_merge",           "action.merge_pdf",         "Ghép PDF")
         _set("_act_extract",         "action.extract_page",      "Tách PDF")
@@ -3253,6 +3362,21 @@ class PDFReaderApp(QMainWindow):
         self.annotation_sidebar.setVisible(not visible)
         if not visible:
             self._load_annotations_for_active()
+
+    def _toggle_mark_mode(self):
+        """TC27: đổi chế độ đánh dấu giữa 'Chọn' (vùng bôi đen) và 'Tìm' (toàn tài liệu)."""
+        self._mark_mode = "find" if getattr(self, "_mark_mode", "select") == "select" else "select"
+        label = "Chế độ: Tìm" if self._mark_mode == "find" else "Chế độ: Chọn"
+        if hasattr(self, "act_mark_mode"):
+            self.act_mark_mode.setText(label)
+        if hasattr(self, "status"):
+            hint = (
+                "Chế độ Tìm: Tô sáng/Gạch sẽ tự tìm và đánh dấu TOÀN BỘ từ khóa trên tài liệu; "
+                "xóa một nét sẽ xóa mọi nét trùng từ khóa."
+                if self._mark_mode == "find"
+                else "Chế độ Chọn: chỉ tô/gạch đúng vùng văn bản đang bôi đen."
+            )
+            self.status.showMessage(hint, 5000)
 
     def _show_highlight_context_menu(self):
         """Right-click menu on highlight button: underline, strikeout, color picker."""

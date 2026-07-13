@@ -238,6 +238,21 @@ class ThumbnailSidebar(QDockWidget):
         if self._populate_index <= self._page_count:
             self._populate_timer.start(0)
 
+    def is_loading(self, pdf_path: str | None = None) -> bool:
+        """True nếu ThumbnailLoader đang có 1 pypdfium2 document handle mở
+        cho `pdf_path` (mặc định: tài liệu hiện tại). Dùng để tránh thao tác
+        khác thay thế file trên đĩa trong lúc handle này còn sống — pdfium
+        có thể crash cứng (access violation) nếu file bị thay trong lúc nó
+        vẫn đang lặp qua các trang bằng 1 document handle cũ."""
+        if self._loader is None or not self._loader.isRunning():
+            return False
+        if pdf_path is None:
+            return True
+        try:
+            return os.path.abspath(self._loader.pdf_path) == os.path.abspath(pdf_path)
+        except OSError:
+            return True
+
     def _read_page_count(self, pdf_path: str) -> int:
         try:
             return get_pdf_engine().page_count(pdf_path)
@@ -295,11 +310,27 @@ class ThumbnailSidebar(QDockWidget):
         current_token = self._load_token
         pdf_path = self._pdf_path
         self._loader = ThumbnailLoader(self._pdf_path, page_numbers, self._thumbnail_render_scale())
-        self._loader.thumbnailReady.connect(
-            lambda page_number, image, token=current_token, path=pdf_path: self._append_thumbnail(token, path, page_number, image)
-        )
-        self._loader.finishedLoading.connect(lambda token=current_token: self._finish_loading(token))
+        # ThumbnailLoader.run() chạy trên threading.Thread thô (không moveToThread),
+        # nên thumbnailReady/finishedLoading emit từ background thread. Nối vào
+        # bound-method thật của self (QDockWidget, sống ở main thread) để Qt tự
+        # suy ra thread affinity và queue đúng -> tránh thao tác QListWidget/QIcon
+        # (GUI) chạy nhầm trên background thread (cùng lớp bug đã biết, xem
+        # _AutoOcrRelay trong app/actions/auto_ocr.py).
+        self._loader.load_token = current_token
+        self._loader.thumbnailReady.connect(self._on_loader_thumbnail_ready)
+        self._loader.finishedLoading.connect(self._on_loader_finished)
         self._loader.start()
+
+    def _on_loader_thumbnail_ready(self, page_number: int, image: QImage) -> None:
+        loader = self.sender()
+        token = getattr(loader, "load_token", None)
+        path = getattr(loader, "pdf_path", None)
+        self._append_thumbnail(token, path, page_number, image)
+
+    def _on_loader_finished(self) -> None:
+        loader = self.sender()
+        token = getattr(loader, "load_token", None)
+        self._finish_loading(token)
 
     def _append_thumbnail(self, token: int, pdf_path: str, page_number: int, image: QImage):
         if token != self._load_token or pdf_path != self._pdf_path:

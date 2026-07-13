@@ -473,7 +473,6 @@ def set_pdf_password(window):
     out = _tmp_pdf()
 
     try:
-        import pikepdf
         with pikepdf.open(read_path) as doc:
             doc.save(
                 out,
@@ -486,7 +485,39 @@ def set_pdf_password(window):
         if os.path.abspath(str(read_path)) != os.path.abspath(str(src)):
             replace_file_with_retry(out, src)
         else:
-            replace_document_with_staged(window, out, target_path=src)
+            # The file on disk becomes encrypted, but the viewer/thumbnails
+            # cannot render an encrypted PDF. Keep a decrypted snapshot as the
+            # viewing temp (same layout as opening an encrypted file).
+            import shutil
+            import tempfile
+            import uuid
+
+            from app.actions._pdf_save import (
+                current_viewer_page,
+                release_viewer_file_lock,
+                reload_document,
+            )
+
+            temp_dir = os.path.join(tempfile.gettempdir(), "3t_reader_decrypted")
+            os.makedirs(temp_dir, exist_ok=True)
+            view_temp = os.path.join(temp_dir, f"{uuid.uuid4().hex}.pdf")
+            shutil.copy2(read_path, view_temp)
+
+            page = current_viewer_page(window)
+            release_viewer_file_lock(window)
+            replace_file_with_retry(out, src, attempts=15)
+            try:
+                from app.local_server import LocalPDFJSServer
+                LocalPDFJSServer.get().invalidate_pdf_cache(src)
+            except Exception:
+                pass
+            reload_document(
+                window,
+                view_temp,
+                page=page,
+                display_path=src,
+                temp_path=view_temp,
+            )
         window.status.showMessage("Đã đặt mật khẩu PDF", 4000)
     except Exception as e:
         show_warning(window, "Lỗi đặt mật khẩu", str(e))
@@ -526,10 +557,28 @@ def remove_pdf_password(window):
             remove_path_quietly(out)
             return
 
-        replace_document_with_staged(
+        # TC34: viewer đang hiển thị bản temp giải mã (file gốc mã hóa) nên
+        # không thể soft-reload sang path khác — sau khi release lock, webview
+        # đang ở about:blank, reload_soft chạy JS trên trang trắng → màn hình
+        # đen. Phải hard-load lại file đã giải mã (load_pdf + retry-if-blank).
+        from app.actions._pdf_save import (
+            current_viewer_page,
+            release_viewer_file_lock,
+            reload_document,
+        )
+
+        page = current_viewer_page(window)
+        release_viewer_file_lock(window)
+        replace_file_with_retry(out, src, attempts=15)
+        try:
+            from app.local_server import LocalPDFJSServer
+            LocalPDFJSServer.get().invalidate_pdf_cache(src)
+        except Exception:
+            pass
+        reload_document(
             window,
-            out,
-            target_path=src,
+            src,
+            page=page,
             display_path=src,
             temp_path=None,
         )
@@ -689,9 +738,11 @@ def export_pages_to_images(window):
         return
     src = target_path or read_path
 
-    doc   = pdfium.PdfDocument(src)
-    total = len(doc)
-    doc.close()
+    from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+    with PDFIUM_LOCK:
+        doc   = pdfium.PdfDocument(src)
+        total = len(doc)
+        doc.close()
 
     try:
         cur_page = window.viewer.get_current_page()
@@ -728,31 +779,72 @@ def export_pages_to_images(window):
 
     window.status.showMessage("Đang xuất ảnh…", 0)
     try:
-        doc  = pdfium.PdfDocument(src)
+        # TC35: nhiều trang → ghi thẳng từng ảnh vào một file ZIP (writestr),
+        # không rải ảnh lẻ ra thư mục đích. Một trang → giữ hành vi cũ.
+        make_zip = len(page_list) > 1
+        zip_path = ""
+        if make_zip:
+            import zipfile
+            zip_path = os.path.join(out_dir, f"{base_name}_images.zip")
+            counter = 2
+            while os.path.exists(zip_path):
+                zip_path = os.path.join(out_dir, f"{base_name}_images_{counter}.zip")
+                counter += 1
+
         done = 0
-        for pg in page_list:
-            page    = doc[pg - 1]
-            width = float(page.get_width())
-            height = float(page.get_height())
-            area = max(1.0, width * height)
-            capped_scale = min(scale, (max_render_pixels / area) ** 0.5)
-            bitmap  = page.render(scale=max(0.25, capped_scale))
-            pil_img = bitmap.to_pil()
-            suffix   = f"_trang{pg:03d}.{p['ext']}"
-            out_path = os.path.join(out_dir, base_name + suffix)
-            pil_img.save(out_path)
-            page.close()
-            done += 1
-            window.status.showMessage(f"Đang xuất trang {pg}… ({done}/{len(page_list)})", 0)
-        doc.close()
+        result_path = ""
+        zf = None
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(src)
+            try:
+                if make_zip:
+                    import zipfile
+                    zf = zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED)
+                for pg in page_list:
+                    page = doc[pg - 1]
+                    try:
+                        width = float(page.get_width())
+                        height = float(page.get_height())
+                        area = max(1.0, width * height)
+                        capped_scale = min(scale, (max_render_pixels / area) ** 0.5)
+                        bitmap  = page.render(scale=max(0.25, capped_scale))
+                        pil_img = bitmap.to_pil()
+                        img_name = f"{base_name}_trang{pg:03d}.{p['ext']}"
+                        if zf is not None:
+                            import io
+                            buf = io.BytesIO()
+                            pil_img.save(buf, format=p["fmt"])
+                            zf.writestr(img_name, buf.getvalue())
+                        else:
+                            result_path = os.path.join(out_dir, img_name)
+                            pil_img.save(result_path)
+                    finally:
+                        page.close()
+                    done += 1
+                    window.status.showMessage(f"Đang xuất trang {pg}… ({done}/{len(page_list)})", 0)
+            finally:
+                doc.close()
+                if zf is not None:
+                    zf.close()
+        if make_zip:
+            result_path = zip_path
+
+        zip_note = f" (đã nén vào {os.path.basename(zip_path)})" if make_zip else ""
         window.status.showMessage(
-            f"Đã xuất {done} ảnh {p['fmt']} vào: {out_dir}", 6000
+            f"Đã xuất {done} ảnh {p['fmt']} vào: {out_dir}{zip_note}", 6000
         )
         import subprocess, sys
         if sys.platform == "darwin":
-            subprocess.Popen(["open", out_dir])
+            if result_path:
+                subprocess.Popen(["open", "-R", result_path])
+            else:
+                subprocess.Popen(["open", out_dir])
         elif sys.platform == "win32":
-            subprocess.Popen(["explorer", out_dir])
+            if result_path:
+                subprocess.Popen(["explorer", "/select,", os.path.normpath(result_path)])
+            else:
+                subprocess.Popen(["explorer", out_dir])
     except Exception as e:
         window.status.showMessage("", 0)
         show_warning(window, "Lỗi xuất ảnh", str(e))
@@ -784,19 +876,21 @@ def export_pdf_to_text(window):
 
     window.status.showMessage("Đang trích xuất văn bản…", 0)
     try:
-        doc   = pdfium.PdfDocument(src)
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
         lines = []
-        for i in range(len(doc)):
-            page     = doc[i]
-            textpage = page.get_textpage()
-            text     = textpage.get_text_range().strip()
-            textpage.close()
-            page.close()
-            if text:
-                lines.append(f"=== Trang {i + 1} ===")
-                lines.append(text)
-                lines.append("")
-        doc.close()
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(src)
+            for i in range(len(doc)):
+                page     = doc[i]
+                textpage = page.get_textpage()
+                text     = textpage.get_text_range().strip()
+                textpage.close()
+                page.close()
+                if text:
+                    lines.append(f"=== Trang {i + 1} ===")
+                    lines.append(text)
+                    lines.append("")
+            doc.close()
 
         with open(out_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))

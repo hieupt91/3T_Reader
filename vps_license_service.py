@@ -29,8 +29,30 @@ class LicenseService:
             }
             self._save()
 
-    def _expiry(self) -> str:
-        return (datetime.now(timezone.utc) + timedelta(days=settings.license_duration_days)).isoformat()
+    def _expiry_from(self, anchor: datetime) -> str:
+        return (anchor + timedelta(days=settings.license_duration_days)).isoformat()
+
+    @staticmethod
+    def _first_activation_anchor(record: LicenseRecord, now: datetime) -> datetime:
+        """Anchor for license expiry: the very first activation, never reset
+        by uninstall/re-activate (TC41)."""
+        stored = getattr(record, "first_activated_at", None)
+        if not stored:
+            # Backfill from any device payload issued before this field existed.
+            stored = min(
+                (
+                    str(p.get("issued_at"))
+                    for p in record.active_devices.values()
+                    if p.get("issued_at")
+                ),
+                default=None,
+            )
+        if stored:
+            try:
+                return datetime.fromisoformat(stored)
+            except ValueError:
+                pass
+        return now
 
     @staticmethod
     def _normalized_machine_name(machine_name: str | None) -> str:
@@ -89,14 +111,26 @@ class LicenseService:
                 "message": "Seat limit reached.",
             }
 
+        now = datetime.now(timezone.utc)
+        anchor = self._first_activation_anchor(record, now)
+        expires_at = self._expiry_from(anchor)
+        if self._is_expired(expires_at):
+            return {
+                "ok": False,
+                "message": "License expired.",
+                "expires_at": expires_at,
+            }
+        record.first_activated_at = anchor.isoformat()
+
         payload = {
             "license_key": license_key,
             "device_id": device_id,
             "platform": platform,
             "app_version": app_version,
             "machine_name": machine_name or "",
-            "issued_at": datetime.now(timezone.utc).isoformat(),
-            "expires_at": self._expiry(),
+            "issued_at": now.isoformat(),
+            "activated_at": anchor.isoformat(),
+            "expires_at": expires_at,
         }
         token = self.token_service.sign(payload)
         record.active_devices[device_id] = payload

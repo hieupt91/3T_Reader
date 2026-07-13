@@ -233,12 +233,13 @@ class VpsLicenseClient:
                 self._validate_server_background(token, cache)
             return offline
 
-        # Đối với token cũ (không phải Ed25519), KHÔNG block main thread.
-        # Trả về trạng thái từ cache ngay lập tức và gọi server ở background.
-        status = self._offline_status(cache)
-        if status.active:
-            self._validate_server_background(token, cache)
-        return status
+        # Token không xác minh được offline (không phải Ed25519 hoặc chữ ký hỏng).
+        # Cache là JSON người dùng sửa tay được nên KHÔNG được tin offline:
+        # bắt buộc xác thực với server. Offline/không xác thực được => chưa hợp lệ.
+        try:
+            return self._validate_server(token, cache)
+        except Exception:
+            return self._offline_status(cache)
 
     def _validate_server(self, token: str, cache: dict) -> LicenseStatus:
         resp = _post(
@@ -325,19 +326,11 @@ class VpsLicenseClient:
         self._clear_cache()
 
     def _offline_status(self, cache: dict) -> LicenseStatus:
-        expires_at = _parse_dt(cache.get("expires_at", ""))
-        grace_days = _DEFAULT_GRACE_DAYS
-        grace_until = (expires_at + timedelta(days=grace_days)) if expires_at else None
-
-        if grace_until and _utcnow() > grace_until:
-            return LicenseStatus(
-                active=False,
-                message="License het grace period - kiem tra ket noi voi may chu.",
-            )
+        # Không thể xác minh chữ ký offline => KHÔNG cấp quyền dựa trên cache
+        # (cache có thể bị sửa tay). Chỉ token Ed25519 hợp lệ (đã kiểm ở
+        # _verify_offline) mới được dùng offline. Ngoài ra buộc xác thực server.
+        del cache
         return LicenseStatus(
-            active=True,
-            plan_code=cache.get("plan_code", ""),
-            expires_at=expires_at,
-            offline_grace_until=grace_until,
-            message="Offline - se xac thuc lai khi co ket noi.",
+            active=False,
+            message="Khong the xac thuc license. Vui long ket noi internet de xac thuc lai.",
         )

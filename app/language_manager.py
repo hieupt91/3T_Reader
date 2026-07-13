@@ -32,8 +32,11 @@ LANGUAGE_LABELS = {
     "tg": "Тоҷикӣ", "uz": "Oʻzbekcha", "cy": "Cymraeg", "yi": "ייִדיש", "xh": "isiXhosa"
 }
 
+# Byte sequences that only occur when UTF-8 text was mis-decoded as Latin-1.
+# Deliberately limited to multi-char sequences — single chars like "Ã", "ì", "í"
+# appear in legitimate French/Italian/Vietnamese text.
 _MOJIBAKE_MARKERS = (
-    "Ã", "Â", "Ä", "Æ", "áº", "á»", "à¸", "à¹", "è¯", "ì", "í",
+    "áº", "á»", "à¸", "à¹", "è¯", "Ã¡", "Ã©", "Ã­", "Ã³", "Ãº", "Ã¢", "Ã´", "Ãª",
 )
 
 BUILTIN_TRANSLATIONS = {
@@ -68,6 +71,7 @@ BUILTIN_TRANSLATIONS = {
         "action.comment": "Ghi chú",
         "action.rotate_cw": "Xoay phải",
         "action.rotate_ccw": "Xoay trái",
+        "action.rotate_pages": "Xoay trang",
         "action.delete_page": "Xóa trang",
         "action.merge_pdf": "Ghép PDF",
         "action.extract_page": "Tách PDF",
@@ -153,6 +157,7 @@ BUILTIN_TRANSLATIONS = {
         "action.comment": "Add note",
         "action.rotate_cw": "Rotate right",
         "action.rotate_ccw": "Rotate left",
+        "action.rotate_pages": "Rotate pages",
         "action.delete_page": "Delete page",
         "action.merge_pdf": "Merge PDF",
         "action.extract_page": "Extract",
@@ -661,6 +666,9 @@ def _normalize_language_pack_payload(data, *, expected_code: str) -> dict[str, s
     if not isinstance(data, dict):
         return None
     strings = {str(k): str(v) for k, v in data.items()}
+    sample = "\n".join(strings.values())
+    if any(marker in sample for marker in _MOJIBAKE_MARKERS):
+        return None
     return strings
 
 

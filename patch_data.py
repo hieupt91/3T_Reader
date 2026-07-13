@@ -1,11 +1,12 @@
 import paramiko
 import json
+from vps_secret import vps_password
 
 def run():
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        client.connect('192.168.1.254', 2222, 'hieupt', 'Congnghe3t')
+        client.connect('192.168.1.254', 2222, 'hieupt', vps_password())
         
         target_file = "/home/hieupt/projects/3T_Reader/phase1-backend/data/license-api-state.json"
         

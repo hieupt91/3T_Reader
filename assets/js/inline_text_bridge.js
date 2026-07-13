@@ -72,13 +72,26 @@
         if (br) br.cancelEdit();
     };
 
-    /* update textarea font live when panel controls change */
-    window.__3TTextUpdateFont = function (size, colorHex, bold, underline) {
+    /* update textarea font live when panel controls change.
+       Accepts a payload object {size,color,bold,underline,italic,font_family}
+       (safe for font names with spaces/quotes) or legacy positional args. */
+    window.__3TTextUpdateFont = function (size, colorHex, bold, underline, italic, fontFamily) {
+        if (size && typeof size === 'object') {
+            var p = size;
+            colorHex   = p.color;
+            bold       = p.bold;
+            underline  = p.underline;
+            italic     = p.italic;
+            fontFamily = p.font_family;
+            size       = p.size;
+        }
         if (S.textarea) {
             S.textarea.style.fontSize       = size + 'px';
             S.textarea.style.color          = colorHex;
             S.textarea.style.fontWeight     = bold ? 'bold' : 'normal';
             S.textarea.style.textDecoration = underline ? 'underline' : 'none';
+            S.textarea.style.fontStyle      = italic ? 'italic' : 'normal';
+            if (fontFamily) S.textarea.style.fontFamily = fontFamily;
         }
     };
 
@@ -249,8 +262,10 @@
                 if (pf.text)      ta.value = pf.text;
                 if (pf.font_size) ta.style.fontSize = pf.font_size + 'px';
                 if (pf.color_hex) ta.style.color = pf.color_hex;
+                if (pf.font_family) ta.style.fontFamily = pf.font_family;
                 ta.style.fontWeight     = pf.bold ? 'bold' : 'normal';
                 ta.style.textDecoration = pf.underline ? 'underline' : 'none';
+                ta.style.fontStyle      = pf.italic ? 'italic' : 'normal';
                 ta.dispatchEvent(new Event('input'));
                 if (typeof pf.rotation === 'number')
                     window.__3TTextUpdateRotation(pf.rotation);

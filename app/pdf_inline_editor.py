@@ -12,6 +12,7 @@ Bridge strategy:
 from __future__ import annotations
 
 import base64
+import json
 import os
 
 from packages.qt_compat.QtCore import QObject, QEventLoop, Qt, pyqtSignal, pyqtSlot
@@ -418,12 +419,19 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
 
     # Panel font controls → update JS textarea styling live
     def _on_font(size, hex_color, bold, underline, italic, font_family):
-        b = "true" if bold else "false"
-        u = "true" if underline else "false"
-        i = "true" if italic else "false"
+        # JSON payload thay vì nội suy chuỗi: an toàn với font family có
+        # khoảng trắng/ký tự đặc biệt (TC31).
+        payload = json.dumps({
+            "size": int(size),
+            "color": str(hex_color or "#000000"),
+            "bold": bool(bold),
+            "underline": bool(underline),
+            "italic": bool(italic),
+            "font_family": str(font_family or "sans-serif"),
+        }, ensure_ascii=False)
         web_view.page().runJavaScript(
             f"typeof window.__3TTextUpdateFont === 'function' && "
-            f"window.__3TTextUpdateFont({size}, '{hex_color}', {b}, {u}, {i}, '{font_family}');"
+            f"window.__3TTextUpdateFont({payload});"
         )
     panel.font_changed.connect(_on_font)
 
@@ -503,6 +511,8 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
                 "color_hex": prefill.get("color_hex", "#000000"),
                 "bold":      bool(prefill.get("bold", False)),
                 "underline": bool(prefill.get("underline", False)),
+                "italic":    bool(prefill.get("italic", False)),
+                "font_family": prefill.get("font_family", "sans-serif"),
                 "rotation":  int(prefill.get("rotation", 0)),
             })
             web_view.page().runJavaScript(f"window.__3TTextPrefill = {pf_js};")

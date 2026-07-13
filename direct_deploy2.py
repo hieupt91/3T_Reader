@@ -2,6 +2,7 @@ import paramiko
 import os
 import json
 import hashlib
+from vps_secret import vps_password
 
 
 VERSION = "1.0.18"
@@ -21,7 +22,7 @@ def deploy():
     hostname = "192.168.1.254"
     port = 2222
     username = "hieupt"
-    password = "Congnghe3t"
+    password = vps_password()
     
     print(f"Connecting to {hostname}:{port} as {username}...")
     

@@ -1,6 +1,6 @@
 from packages.qt_compat.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QToolButton
 
-from app.actions.document import execute_search
+from app.actions.document import clear_search, execute_search
 from app.icon_utils import svg_icon
 
 
@@ -28,6 +28,10 @@ class SearchPanel(QFrame):
         window.search_input.returnPressed.connect(
             lambda: search_from_panel(window, find_previous=False, force_new=False)
         )
+        # TC28: xóa trắng ô tìm kiếm cũng phải xóa highlight ngay lập tức.
+        window.search_input.textChanged.connect(
+            lambda text: _on_search_text_changed(window, text)
+        )
         row.addWidget(window.search_input, 1)
 
         window.btn_search_prev = QToolButton()
@@ -47,6 +51,14 @@ class SearchPanel(QFrame):
             lambda: search_from_panel(window, find_previous=False, force_new=False)
         )
         row.addWidget(window.btn_search_next)
+
+        # TC28: quét và tô sáng (lưu thành nét vẽ thật) mọi từ khóa tìm được.
+        window.btn_search_mark_all = QToolButton()
+        window.btn_search_mark_all.setObjectName("SearchBtn")
+        window.btn_search_mark_all.setToolTip("Tô sáng tất cả kết quả tìm được trên tài liệu")
+        window.btn_search_mark_all.setIcon(svg_icon("highlight.svg", size=16, color="#facc15"))
+        window.btn_search_mark_all.clicked.connect(lambda: _mark_all_from_panel(window))
+        row.addWidget(window.btn_search_mark_all)
 
         window.btn_search_close = QToolButton()
         window.btn_search_close.setObjectName("SearchBtnClose")
@@ -93,6 +105,20 @@ def show_search_panel(window):
 
 def hide_search_panel(window):
     window.search_panel.hide()
+    # Clear PDF.js find highlights, otherwise matches stay painted on the page.
+    clear_search(window)
+
+
+def _mark_all_from_panel(window):
+    from app.actions.annotate import mark_all_search_hits
+    mark_all_search_hits(window)
+
+
+def _on_search_text_changed(window, text: str):
+    # Chỉ clear khi user xóa trắng ô sau khi đã có một lượt tìm (tránh spam
+    # JS mỗi lần show panel với ô trống).
+    if not (text or "").strip() and (window.search_query or ""):
+        clear_search(window)
 
 
 def search_from_panel(window, *, find_previous: bool, force_new: bool):

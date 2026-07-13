@@ -1,4 +1,5 @@
 import paramiko
+from vps_secret import vps_password
 
 def test_ssh():
     print("Setting up proxy command...")
@@ -14,7 +15,7 @@ def test_ssh():
         client.connect(
             hostname='ssh.3tcomputer.com',
             username='hieupt',
-            password='Congnghe3t',
+            password=vps_password(),
             sock=sock,
             timeout=15,
             banner_timeout=15

@@ -6,6 +6,7 @@ import secrets
 import smtplib
 import string
 from datetime import datetime, timezone
+from html import escape as _esc
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -84,7 +85,7 @@ def _email_customer(order: dict, license_key: str) -> bool:
     <h1 style="color:#fff;margin:0;font-size:1.4rem">🎉 Bản quyền 3T Reader</h1>
   </div>
   <div style="background:#f8fafc;padding:28px;border-radius:0 0 12px 12px;border:1px solid #e2e8f0">
-    <p>Xin chào <strong>{order['customer_name']}</strong>,</p>
+    <p>Xin chào <strong>{_esc(str(order['customer_name']))}</strong>,</p>
     <p style="margin:12px 0">Cảm ơn bạn đã mua <strong>{plan_name}</strong>. Dưới đây là key bản quyền của bạn:</p>
     <div style="background:#1e293b;border-radius:10px;padding:20px;text-align:center;margin:20px 0">
       <p style="color:#94a3b8;font-size:.8rem;margin:0 0 8px">LICENSE KEY</p>
@@ -94,7 +95,7 @@ def _email_customer(order: dict, license_key: str) -> bool:
       <p style="margin:4px 0">📋 <strong>Gói:</strong> {plan_name}</p>
       <p style="margin:4px 0">🖥️ <strong>Số máy sử dụng:</strong> <span style="color:#6366f1;font-weight:700">{device_text}</span> / 1 năm</p>
       <p style="margin:4px 0">💰 <strong>Tổng thanh toán:</strong> {total:,}đ</p>
-      <p style="margin:4px 0">📧 <strong>Mã đơn:</strong> {order['id']}</p>
+      <p style="margin:4px 0">📧 <strong>Mã đơn:</strong> {_esc(str(order['id']))}</p>
     </div>
     <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin:16px 0;font-size:.85rem;color:#92400e">
       ⚠️ Key này được kích hoạt tối đa <strong>{device_text}</strong>. Mỗi lần kích hoạt trên 1 máy sẽ tính 1 lượt.
@@ -118,9 +119,9 @@ def _email_admin(order: dict) -> bool:
 <div style="font-family:Arial,sans-serif;max-width:500px;margin:auto">
   <h2 style="color:#1e293b">📬 Đơn hàng mới – 3T Reader</h2>
   <table style="width:100%;border-collapse:collapse;font-size:.9rem">
-    <tr><td style="padding:8px;color:#64748b;width:130px">Mã đơn</td><td style="padding:8px;font-weight:600">{order['id']}</td></tr>
-    <tr style="background:#f8fafc"><td style="padding:8px;color:#64748b">Khách hàng</td><td style="padding:8px">{order['customer_name']}</td></tr>
-    <tr><td style="padding:8px;color:#64748b">Email</td><td style="padding:8px">{order['customer_email']}</td></tr>
+    <tr><td style="padding:8px;color:#64748b;width:130px">Mã đơn</td><td style="padding:8px;font-weight:600">{_esc(str(order['id']))}</td></tr>
+    <tr style="background:#f8fafc"><td style="padding:8px;color:#64748b">Khách hàng</td><td style="padding:8px">{_esc(str(order['customer_name']))}</td></tr>
+    <tr><td style="padding:8px;color:#64748b">Email</td><td style="padding:8px">{_esc(str(order['customer_email']))}</td></tr>
     <tr style="background:#f8fafc"><td style="padding:8px;color:#64748b">Gói</td><td style="padding:8px"><strong>{plan_name}</strong></td></tr>
     <tr><td style="padding:8px;color:#64748b">Số lượng máy</td><td style="padding:8px"><strong>{quantity} máy</strong></td></tr>
     <tr style="background:#f8fafc"><td style="padding:8px;color:#64748b">Tổng tiền</td><td style="padding:8px;color:#16a34a;font-weight:700">{total:,}đ</td></tr>

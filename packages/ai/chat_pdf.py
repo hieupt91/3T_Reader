@@ -96,7 +96,15 @@ class PDFChatSession:
 
     @staticmethod
     def _resolve_history_path(pdf_path: str) -> Path:
-        digest = _pdf_cache_digest(pdf_path)
+        # Lịch sử chat gắn với ĐƯỜNG DẪN tài liệu (ổn định), KHÔNG băm theo
+        # mtime/size như _pdf_cache_digest (dùng cho OCR cache). Nếu băm theo
+        # mtime, mỗi lần sửa/chú thích PDF (đổi mtime) là lịch sử chat lưu sang
+        # tên file khác -> mở lại chat thấy trống. Dùng đường dẫn resolved.
+        try:
+            key_src = str(Path(pdf_path).resolve())
+        except Exception:
+            key_src = str(pdf_path)
+        digest = hashlib.sha256(key_src.encode("utf-8", errors="ignore")).hexdigest()
         cache_root = Path(get_cache_dir()) / "ai_chat"
         cache_root.mkdir(parents=True, exist_ok=True)
         return cache_root / f"{digest}.json"
@@ -146,24 +154,26 @@ class PDFChatSession:
         if not text.strip():
             try:
                 import pypdfium2 as pdfium
+                from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
 
                 parts = []
-                doc = pdfium.PdfDocument(self.pdf_path)
-                try:
-                    for i in range(len(doc)):
-                        page = doc[i]
-                        textpage = None
-                        try:
-                            textpage = page.get_textpage()
-                            t = (textpage.get_text_range() or "").strip()
-                            if t:
-                                parts.append(f"[Trang {i+1}]\n{t}")
-                        finally:
-                            if textpage is not None:
-                                textpage.close()
-                            page.close()
-                finally:
-                    doc.close()
+                with PDFIUM_LOCK:
+                    doc = pdfium.PdfDocument(self.pdf_path)
+                    try:
+                        for i in range(len(doc)):
+                            page = doc[i]
+                            textpage = None
+                            try:
+                                textpage = page.get_textpage()
+                                t = (textpage.get_text_range() or "").strip()
+                                if t:
+                                    parts.append(f"[Trang {i+1}]\n{t}")
+                            finally:
+                                if textpage is not None:
+                                    textpage.close()
+                                page.close()
+                    finally:
+                        doc.close()
                 text = "\n\n".join(parts)
             except Exception as e:
                 text = f"[Không đọc được tài liệu: {e}]"

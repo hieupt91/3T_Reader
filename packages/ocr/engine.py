@@ -181,6 +181,23 @@ def runtime_status() -> OCRRuntimeStatus:
     )
 
 
+def _preprocess_for_ocr(pil_image, *, denoise: bool = False):
+    """Normalize an image before Tesseract: grayscale + contrast stretch,
+    optional median denoise for scans. Binarization is left to Tesseract's
+    internal Otsu, which handles anti-aliased renders better than a fixed
+    threshold."""
+    try:
+        from PIL import ImageFilter, ImageOps
+
+        img = pil_image.convert("L")
+        img = ImageOps.autocontrast(img, cutoff=1)
+        if denoise:
+            img = img.filter(ImageFilter.MedianFilter(size=3))
+        return img
+    except Exception:
+        return pil_image
+
+
 def ocr_pil_image(pil_image, page_num: int = 1, high_quality: bool = False) -> OCRResult:
     """
     Recognize text from a PIL Image.
@@ -214,6 +231,8 @@ def ocr_pil_image(pil_image, page_num: int = 1, high_quality: bool = False) -> O
             scale = 2.0
             pil_image = pil_image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
 
+        pil_image = _preprocess_for_ocr(pil_image, denoise=high_quality)
+
         text = pytesseract.image_to_string(pil_image, lang=lang, config=config)
         text = text.strip()
         word_count = len(text.split()) if text else 0
@@ -226,16 +245,116 @@ def ocr_pdf_page(pdf_path: str, page_num: int, high_quality: bool = False) -> OC
     """Render a PDF page and OCR it. page_num starts at 1."""
     try:
         import pypdfium2 as pdfium
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
 
-        doc = pdfium.PdfDocument(pdf_path)
-        try:
-            page = doc[page_num - 1]
-            scale = 3.0 if high_quality else 2.0
-            bitmap = page.render(scale=scale)
-            pil_img = bitmap.to_pil().convert("RGB")
-        finally:
-            doc.close()
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(pdf_path)
+            try:
+                page = doc[page_num - 1]
+                scale = 3.0 if high_quality else 2.0
+                bitmap = page.render(scale=scale)
+                pil_img = bitmap.to_pil().convert("RGB")
+            finally:
+                doc.close()
 
         return ocr_pil_image(pil_img, page_num=page_num, high_quality=False)
     except Exception as e:
         return OCRResult(text="", page=page_num, word_count=0, error=str(e))
+
+
+def page_has_text(pdf_path: str, page_num: int, *, min_chars: int = 3) -> bool:
+    """Quick check: does this page already have an extractable text layer?
+
+    Used to skip pages that are already searchable (born-digital or already
+    OCR'd) so auto-OCR never redoes work.
+    """
+    try:
+        import pypdfium2 as pdfium
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(pdf_path)
+            try:
+                page = doc[page_num - 1]
+                textpage = page.get_textpage()
+                try:
+                    text = textpage.get_text_range().strip()
+                finally:
+                    textpage.close()
+            finally:
+                doc.close()
+        return len(text) >= min_chars
+    except Exception:
+        # If we can't tell, don't block auto-OCR on this page.
+        return False
+
+
+def ocr_pdf_page_text_layer(pdf_path: str, page_num: int, *, scale: float = 2.0) -> bytes | None:
+    """Render one page and return a Tesseract *text-only* PDF page: a single
+    page containing only invisible, correctly-positioned text (no image),
+    sized in points to match the rendered scale.
+
+    Meant to be merged onto the original scanned page via
+    `merge_text_layer_into_pdf`, so search/highlight/edit-existing-text all
+    see a real text layer without altering the visible page image.
+    Returns None if OCR is unavailable or recognized no text.
+    """
+    cmd = _tesseract_cmd()
+    if not cmd:
+        return None
+    try:
+        import pypdfium2 as pdfium
+        import pytesseract
+        from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+
+        with PDFIUM_LOCK:
+            doc = pdfium.PdfDocument(pdf_path)
+            try:
+                page = doc[page_num - 1]
+                bitmap = page.render(scale=scale)
+                pil_image = bitmap.to_pil().convert("RGB")
+            finally:
+                doc.close()
+
+        pytesseract.pytesseract.tesseract_cmd = cmd
+        tessdata_dir = _tessdata_dir(cmd)
+        if tessdata_dir:
+            os.environ["TESSDATA_PREFIX"] = tessdata_dir
+
+        langs = get_installed_langs()
+        lang = "vie+eng" if "vie" in langs else "eng"
+        pil_image = _preprocess_for_ocr(pil_image)
+
+        # dpi tells Tesseract how many pixels-per-inch the render represents,
+        # so the emitted PDF page comes out at the *same physical size* (in
+        # points) as the original page — required for the overlay to align.
+        dpi = max(70, int(round(scale * 72)))
+        config = f"--oem 1 --psm 6 -c textonly_pdf=1 --dpi {dpi}"
+        pdf_bytes = pytesseract.image_to_pdf_or_hocr(
+            pil_image, lang=lang, config=config, extension="pdf"
+        )
+        return bytes(pdf_bytes)
+    except Exception:
+        return None
+
+
+def merge_text_layer_into_pdf(pdf, page_idx: int, text_layer_pdf_bytes: bytes) -> bool:
+    """Overlay a Tesseract text-only PDF page onto `pdf.pages[page_idx]`.
+
+    `pdf` is an already-open `pikepdf.Pdf`; caller is responsible for saving.
+    Returns False if the text-only page has no content worth merging.
+    """
+    import io
+
+    import pikepdf
+
+    with pikepdf.Pdf.open(io.BytesIO(text_layer_pdf_bytes)) as text_pdf:
+        if len(text_pdf.pages) == 0:
+            return False
+        text_page = text_pdf.pages[0]
+        target_page = pdf.pages[page_idx]
+        # Không truyền rect: mặc định pikepdf dùng trimbox/cropbox/mediabox
+        # của target_page — đúng ý muốn vì text-only PDF đã được sinh ra
+        # cùng kích thước điểm (points) với trang gốc (xem `dpi` ở trên).
+        target_page.add_overlay(text_page)
+    return True

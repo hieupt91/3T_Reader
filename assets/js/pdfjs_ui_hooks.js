@@ -29,7 +29,7 @@
     document.head.appendChild(style);
 
     // --- Install PDF.js event hooks (retried until eventBus is ready) ---
-    window.__3tFindState = -1;   // -1=unknown, 0=notFound, 1=found, 2=wrapped
+    window.__3tFindState = -1;   // PDF.js FindState: 0=FOUND, 1=NOT_FOUND, 2=WRAPPED, 3=PENDING
     window.__3tCurrentPage = 0;
 
     function readVisiblePage(app) {

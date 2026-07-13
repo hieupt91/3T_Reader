@@ -246,23 +246,103 @@ class AISummarizeDialog(QDialog):
             self._text_edit.setPlainText("Đang có một tác vụ AI khác đang chạy.")
             self._lbl_status.setText("Đang có tác vụ AI khác đang chạy.")
 
-    def _summarize_document(self, doc_type: str, extract_contract: bool):
-        from packages.ai.summarize import summarize_pdf, extract_contract_data
+    def _ocr_scan_text(self, max_pages: int = 20, char_budget: int = 6000) -> str:
+        """TC38: OCR ngầm file scan để lấy văn bản cho bước tóm tắt.
 
-        result = summarize_pdf(self._pdf_path, doc_type)
+        Chạy trong worker thread của start_dialog_task nên không block UI.
+        Dừng sớm khi đã đủ ký tự cho prompt tóm tắt (6000 chars).
+        """
+        from packages.ocr.engine import ocr_pdf_page
+
+        try:
+            import pypdfium2 as pdfium
+            from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+            with PDFIUM_LOCK:
+                doc = pdfium.PdfDocument(self._pdf_path)
+                try:
+                    total = len(doc)
+                finally:
+                    doc.close()
+        except Exception:
+            return ""
+
+        parts: list[str] = []
+        collected = 0
+        for page_num in range(1, min(total, max_pages) + 1):
+            try:
+                res = ocr_pdf_page(self._pdf_path, page_num)
+            except Exception:
+                continue
+            text = (getattr(res, "text", "") or "").strip()
+            if text:
+                parts.append(f"[Trang {page_num}]\n{text}")
+                collected += len(text)
+                if collected >= char_budget:
+                    break
+        return "\n\n".join(parts)
+
+    def _summarize_document(self, doc_type: str, extract_contract: bool):
+        from packages.ai.summarize import (
+            summarize_pdf, summarize_text, extract_contract_data, SummaryResult,
+        )
+
+        # --- TC38: file scan (không có text layer) → tự động OCR ngầm ---
+        ocr_text = ""
+        try:
+            import pdfplumber
+            sample_text = ""
+            with pdfplumber.open(self._pdf_path) as pdf_doc:
+                pages_to_check = min(len(pdf_doc.pages), 3)
+                for i in range(pages_to_check):
+                    sample_text += (pdf_doc.pages[i].extract_text() or "")
+            if len(sample_text.strip()) < 50:
+                from packages.ocr.engine import is_available as ocr_available
+                if not ocr_available():
+                    return SummaryResult(
+                        summary="",
+                        error=(
+                            "Tài liệu này có vẻ là bản scan (hình ảnh), "
+                            "không có văn bản trích xuất được.\n"
+                            "Máy chưa cài Tesseract OCR nên không thể tự động "
+                            "nhận dạng văn bản. Vui lòng cài OCR rồi thử lại "
+                            "(Menu → Công cụ → OCR tài liệu)."
+                        ),
+                    )
+                ocr_text = self._ocr_scan_text()
+                if len(ocr_text.strip()) < 50:
+                    return SummaryResult(
+                        summary="",
+                        error=(
+                            "Đã tự động chạy OCR nhưng không nhận dạng được "
+                            "văn bản trong tài liệu scan này."
+                        ),
+                    )
+        except Exception:
+            pass  # Let summarize_pdf handle other PDF read errors
+
+        if ocr_text:
+            text = ocr_text
+            if len(text) > 6000:
+                text = text[:6000] + "\n[... nội dung bị cắt bớt ...]"
+            result = summarize_text(text, doc_type)
+        else:
+            result = summarize_pdf(self._pdf_path, doc_type)
         if not result.success:
             return result
 
         if extract_contract and doc_type == "contract":
-            import pdfplumber
+            if ocr_text:
+                text = ocr_text
+            else:
+                import pdfplumber
 
-            with pdfplumber.open(self._pdf_path) as pdf_doc:
-                parts = []
-                for page in pdf_doc.pages:
-                    text = (page.extract_text() or "").strip()
-                    if text:
-                        parts.append(text)
-            text = "\n\n".join(parts)
+                with pdfplumber.open(self._pdf_path) as pdf_doc:
+                    parts = []
+                    for page in pdf_doc.pages:
+                        text = (page.extract_text() or "").strip()
+                        if text:
+                            parts.append(text)
+                text = "\n\n".join(parts)
             if len(text) > 6000:
                 text = text[:6000]
             contract_result = extract_contract_data(text)
