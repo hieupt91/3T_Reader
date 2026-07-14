@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from packages.qt_compat.QtCore import Qt
-from packages.qt_compat.QtGui import QTextCursor
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QPushButton, QFrame, QLineEdit, QSizePolicy, QApplication,
@@ -62,10 +61,35 @@ QPushButton#btn_clear {
 QPushButton#btn_clear:hover { background: #3A1A1A; border-color: #804040; }
 QFrame#divider { background: #2A2A4A; }
 """,
-            "user": '<div style="margin:8px 0;padding:10px 14px;background:#1E1E48;border-radius:8px;border-left:3px solid #6366f1;"><span style="color:#9090D0;font-size:11px;font-weight:600;">Bạn</span><br><span style="color:#E0E8FF;">{text}</span></div>',
-            "ai": '<div style="margin:8px 0;padding:10px 14px;background:#12122A;border-radius:8px;border-left:3px solid #4fc080;"><span style="color:#4fc080;font-size:11px;font-weight:600;">AI Assistant</span><br><span style="color:#C8D8F8;">{text}</span></div>',
-            "error": '<div style="margin:8px 0;padding:10px 14px;background:#2A1A1A;border-radius:8px;border-left:3px solid #E05050;"><span style="color:#E05050;font-size:11px;font-weight:600;">Lỗi</span><br><span style="color:#F08080;">{text}</span></div>',
-            "thinking": '<div style="margin:8px 0;padding:10px 14px;background:#12122A;border-radius:8px;border-left:3px solid #4fc080;"><span style="color:#4fc080;font-size:11px;font-weight:600;">AI Assistant</span><br><span style="color:#6070A0;font-style:italic;">AI đang trả lời…</span></div>',
+            "user": {
+                "bg": "#1E1E48",
+                "border": "#6366f1",
+                "header_color": "#9090D0",
+                "header": "Bạn",
+                "text_color": "#E0E8FF",
+            },
+            "ai": {
+                "bg": "#12122A",
+                "border": "#4fc080",
+                "header_color": "#4fc080",
+                "header": "AI Assistant",
+                "text_color": "#C8D8F8",
+            },
+            "error": {
+                "bg": "#2A1A1A",
+                "border": "#E05050",
+                "header_color": "#E05050",
+                "header": "Lỗi",
+                "text_color": "#F08080",
+            },
+            "thinking": {
+                "bg": "#12122A",
+                "border": "#4fc080",
+                "header_color": "#4fc080",
+                "header": "AI Assistant",
+                "text_color": "#6070A0",
+                "text": "<i>AI đang trả lời…</i>",
+            },
             "system": "#6070A0",
         }
     return {
@@ -116,15 +140,40 @@ QPushButton#btn_clear {
 QPushButton#btn_clear:hover { background: #FEE2E2; border-color: #F87171; }
 QFrame#divider { background: #E2E8F0; }
 """,
-        "user": '<div style="margin:8px 0;padding:10px 14px;background:#EEF2FF;border-radius:8px;border-left:3px solid #2563EB;"><span style="color:#1D4ED8;font-size:11px;font-weight:600;">Bạn</span><br><span style="color:#0F172A;">{text}</span></div>',
-        "ai": '<div style="margin:8px 0;padding:10px 14px;background:#F8FAFC;border-radius:8px;border-left:3px solid #059669;"><span style="color:#059669;font-size:11px;font-weight:600;">AI Assistant</span><br><span style="color:#0F172A;">{text}</span></div>',
-        "error": '<div style="margin:8px 0;padding:10px 14px;background:#FEF2F2;border-radius:8px;border-left:3px solid #DC2626;"><span style="color:#DC2626;font-size:11px;font-weight:600;">Lỗi</span><br><span style="color:#B91C1C;">{text}</span></div>',
-        "thinking": '<div style="margin:8px 0;padding:10px 14px;background:#F8FAFC;border-radius:8px;border-left:3px solid #059669;"><span style="color:#059669;font-size:11px;font-weight:600;">AI Assistant</span><br><span style="color:#64748B;font-style:italic;">AI đang trả lời…</span></div>',
+        "user": {
+            "bg": "#EEF2FF",
+            "border": "#2563EB",
+            "header_color": "#1D4ED8",
+            "header": "Bạn",
+            "text_color": "#0F172A",
+        },
+        "ai": {
+            "bg": "#F8FAFC",
+            "border": "#059669",
+            "header_color": "#059669",
+            "header": "AI Assistant",
+            "text_color": "#0F172A",
+        },
+        "error": {
+            "bg": "#FEF2F2",
+            "border": "#DC2626",
+            "header_color": "#DC2626",
+            "header": "Lỗi",
+            "text_color": "#B91C1C",
+        },
+        "thinking": {
+            "bg": "#F8FAFC",
+            "border": "#059669",
+            "header_color": "#059669",
+            "header": "AI Assistant",
+            "text_color": "#64748B",
+            "text": "<i>AI đang trả lời…</i>",
+        },
         "system": "#64748B",
     }
 
 class AIChatDialog(QDialog):
-    """Dialog chat với PDF — non-modal, giữ nguyên khi đọc."""
+    """Dialog chat với PDF - non-modal, giữ nguyên khi đọc."""
 
     def __init__(self, parent, pdf_path: str, history_identity_path: str | None = None):
         super().__init__(parent)
@@ -138,13 +187,17 @@ class AIChatDialog(QDialog):
         self._pdf_path = pdf_path
         self._history_identity_path = history_identity_path or pdf_path
         from packages.ai.chat_pdf import PDFChatSession
-        self._session = PDFChatSession(self._pdf_path, history_identity_path=self._history_identity_path)
+        self._session = PDFChatSession(self._pdf_path, max_history_messages=100, history_identity_path=self._history_identity_path)
         self._busy     = False
         self._request_seq = 0
         self._active_request_id = 0
         self._task_thread = None
         self._task_worker = None
-        self._thinking_start_pos: int | None = None
+        # Nguồn sự thật để render chat: danh sách (role, text) với role trong
+        # {"user","ai","error","thinking"}. Luôn setHtml lại từ list này — KHÔNG
+        # thao tác cursor theo vị trí ký tự (cách cũ xóa nhầm bong bóng user,
+        # dính tin nhắn, mất câu đầu — TC51).
+        self._messages: list[tuple[str, str]] = []
 
         self._build_ui()
         self._rebuild_chat()
@@ -168,6 +221,7 @@ class AIChatDialog(QDialog):
 
         self._btn_clear = QPushButton("Xóa lịch sử")
         self._btn_clear.setObjectName("btn_clear")
+        self._btn_clear.setAutoDefault(False)
         self._btn_clear.clicked.connect(self._on_clear)
         hdr.addWidget(self._btn_clear)
         root.addLayout(hdr)
@@ -202,6 +256,8 @@ class AIChatDialog(QDialog):
 
         self._btn_send = QPushButton("Gửi")
         self._btn_send.setObjectName("btn_send")
+        self._btn_send.setAutoDefault(True)
+        self._btn_send.setDefault(True)
         self._btn_send.clicked.connect(self._on_send)
         input_row.addWidget(self._btn_send)
         root.addLayout(input_row)
@@ -218,7 +274,10 @@ class AIChatDialog(QDialog):
         if enabled:
             flags |= Qt.WindowType.WindowStaysOnTopHint
         else:
-            flags &= ~Qt.WindowType.WindowStaysOnTopHint
+            # ~ trên enum flag của PySide6 chỉ đảo trong độ rộng enum -> làm rớt
+            # các bit cao như WindowCloseButtonHint (0x08000000), khiến nút đóng
+            # bị disable sau khi tắt luôn nổi (TC37). Đảo trên int đầy đủ.
+            flags &= ~int(Qt.WindowType.WindowStaysOnTopHint)
         was_visible = self.isVisible()
         self.setWindowFlags(flags)
         self._chat_area.setHtml(chat_html)
@@ -233,17 +292,71 @@ class AIChatDialog(QDialog):
                 self.raise_()
                 self.activateWindow()
 
-    def _append_html(self, html: str):
-        self._chat_area.append(html)
+    def _intro_html(self, note: str = "") -> str:
+        body = (
+            f"Đã tải tài liệu: <i>{self._escape(self._pdf_path)}</i><br>"
+            + (note or "Hãy đặt câu hỏi về nội dung tài liệu.")
+        )
+        return (
+            f'<div style="margin:6px 0 10px 0;color:{self._theme["system"]};'
+            f'font-size:11px;font-style:italic;">{body}</div>'
+        )
+
+    def _bubble_html(self, role: str, text: str) -> str:
+        """Một bong bóng chat. User nằm bên phải, AI/lỗi/đang-trả-lời bên trái.
+        Bỏ thẻ div, áp dụng background và styling trực tiếp lên thẻ td của bảng con.
+        Điều này đảm bảo QTextEdit sẽ bo khít (shrink-to-fit) một cách hoàn hảo nhất."""
+        style = self._theme[role]
+        bg = style["bg"]
+        border = style["border"]
+        hc = style["header_color"]
+        header = style["header"]
+        tc = style["text_color"]
+        
+        if role == "thinking":
+            content_text = style["text"]
+        else:
+            content_text = self._escape(text)
+
+        # Style inline cho thẻ td
+        td_style = f"background-color: {bg}; padding: 10px 14px; border-left: 3px solid {border}; border-radius: 8px;"
+        
+        inner_html = (
+            f'<td style="{td_style}">'
+            f'<span style="color:{hc}; font-size:11px; font-weight:600;">{header}</span><br>'
+            f'<span style="color:{tc};">{content_text}</span>'
+            f'</td>'
+        )
+            
+        if role == "user":
+            return (
+                '<table width="100%" border="0" cellspacing="0" cellpadding="0">'
+                '<tr><td align="right">'
+                '<table border="0" cellspacing="0" cellpadding="0" style="margin:4px 0 4px 60px;">'
+                f'<tr>{inner_html}</tr>'
+                '</table></td></tr></table>'
+            )
+        return (
+            '<table width="100%" border="0" cellspacing="0" cellpadding="0">'
+            '<tr><td align="left">'
+            '<table border="0" cellspacing="0" cellpadding="0" style="margin:4px 60px 4px 0;">'
+            f'<tr>{inner_html}</tr>'
+            '</table></td></tr></table>'
+        )
+
+    def _render(self, intro_note: str = "") -> None:
+        """Dựng lại toàn bộ khung chat từ self._messages rồi cuộn xuống đáy.
+        setHtml (không thao tác cursor) nên không bao giờ xóa nhầm tin nhắn."""
+        parts = []
+        if not self._messages or intro_note:
+            parts.append(self._intro_html(intro_note))
+        
+        for role, text in self._messages:
+            parts.append(self._bubble_html(role, text))
+            
+        self._chat_area.setHtml("".join(parts))
         sb = self._chat_area.verticalScrollBar()
         sb.setValue(sb.maximum())
-
-    def _append_system_msg(self, text: str):
-        html = (
-            f'<div style="margin:6px 0;color:{self._theme["system"]};font-size:11px;font-style:italic;">'
-            f'{text}</div>'
-        )
-        self._append_html(html)
 
     def _on_send(self):
         if self._busy:
@@ -254,24 +367,22 @@ class AIChatDialog(QDialog):
 
         from packages.ai.provider import is_ai_available
         if not is_ai_available():
-            self._append_html(
-                self._theme["error"].format(
-                    text="Chưa cấu hình API key AI. Vào Settings để cài đặt."
-                )
+            self._messages.append(
+                ("error", "Chưa cấu hình API key AI. Vào Settings để cài đặt.")
             )
+            self._render()
             return
 
         if self._session is None:
             from packages.ai.chat_pdf import PDFChatSession
-            self._session = PDFChatSession(self._pdf_path, history_identity_path=self._history_identity_path)
+            self._session = PDFChatSession(self._pdf_path, max_history_messages=100, history_identity_path=self._history_identity_path)
 
         self._input.clear()
-        self._append_html(self._theme["user"].format(text=self._escape(question)))
-        # Nhớ vị trí NGAY TRƯỚC bong bóng "đang trả lời" để lúc có kết quả
-        # thay đúng đoạn đó tại chỗ — không clear() + dựng lại toàn bộ khung
-        # chat (kiểu cũ làm mất cảm giác chat kiểu Messenger, giật khi cuộn).
-        self._thinking_start_pos = self._chat_area.document().characterCount() - 1
-        self._append_html(self._theme["thinking"])
+        # Hiện NGAY câu hỏi của người dùng + bong bóng "đang trả lời" trước khi
+        # gọi AI, để tin nhắn đầu tiên không bị "biến mất" (TC51).
+        self._messages.append(("user", question))
+        self._messages.append(("thinking", ""))
+        self._render()
 
         self._busy = True
         self._btn_send.setEnabled(False)
@@ -292,23 +403,15 @@ class AIChatDialog(QDialog):
         if not started:
             self._busy = False
             self._btn_send.setEnabled(True)
+            self._resolve_thinking("error", "Đang có một yêu cầu AI khác đang chạy.")
             self._lbl_status.setText("Đang có một yêu cầu AI khác đang chạy.")
 
-    def _replace_thinking_with(self, html: str) -> None:
-        """Thay bong bóng 'đang trả lời' bằng nội dung thật, CHỈ SỬA đúng
-        đoạn đó — không clear() + dựng lại toàn bộ khung chat. Giữ nguyên
-        mọi tin nhắn cũ đã hiện + vị trí cuộn (kiểu chat Messenger)."""
-        if self._thinking_start_pos is None:
-            self._append_html(html)
-            return
-        cursor = QTextCursor(self._chat_area.document())
-        cursor.setPosition(self._thinking_start_pos)
-        cursor.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
-        cursor.removeSelectedText()
-        cursor.insertHtml(html)
-        self._thinking_start_pos = None
-        sb = self._chat_area.verticalScrollBar()
-        sb.setValue(sb.maximum())
+    def _resolve_thinking(self, role: str, text: str) -> None:
+        """Thay bong bóng 'đang trả lời' cuối cùng bằng câu trả lời/ lỗi thật."""
+        if self._messages and self._messages[-1][0] == "thinking":
+            self._messages.pop()
+        self._messages.append((role, text))
+        self._render()
 
     def _run_request(self, request_id: int, session, question: str):
         try:
@@ -324,73 +427,55 @@ class AIChatDialog(QDialog):
         self._btn_send.setEnabled(True)
 
         if error_message:
-            self._replace_thinking_with(
-                self._theme["error"].format(text=self._escape(error_message))
-            )
+            self._resolve_thinking("error", error_message)
             self._lbl_status.setStyleSheet("color:#DC2626;font-size:11px")
             self._lbl_status.setText(f"Lỗi: {error_message}")
         elif result.success:
-            self._replace_thinking_with(
-                self._theme["ai"].format(text=self._escape(result.answer))
-            )
+            self._resolve_thinking("ai", result.answer)
             self._lbl_status.setStyleSheet("color:#059669;font-size:11px")
             self._lbl_status.setText("Sẵn sàng.")
         else:
-            self._replace_thinking_with(
-                self._theme["error"].format(text=self._escape(result.error or "Lỗi không xác định."))
-            )
+            self._resolve_thinking("error", result.error or "Lỗi không xác định.")
             self._lbl_status.setStyleSheet("color:#DC2626;font-size:11px")
             self._lbl_status.setText(f"Lỗi: {result.error}")
 
     def _on_runner_error(self, msg: str, _tb: str):
         self._busy = False
         self._btn_send.setEnabled(True)
-        self._replace_thinking_with(self._theme["error"].format(text=self._escape(msg)))
+        self._resolve_thinking("error", msg)
         self._lbl_status.setStyleSheet("color:#DC2626;font-size:11px")
         self._lbl_status.setText(f"Lỗi: {msg}")
 
-    def _rebuild_chat(self):
-        self._chat_area.clear()
-        self._append_system_msg(
-            f"Đã tải tài liệu: <i>{self._pdf_path}</i><br>"
-            "Hãy đặt câu hỏi về nội dung tài liệu."
-        )
+    def _rebuild_chat(self, intro_note: str = ""):
+        self._messages = []
         if self._session:
             for msg in self._session.history:
-                if msg.role == "user":
-                    self._append_html(
-                        self._theme["user"].format(text=self._escape(msg.content))
-                    )
-                else:
-                    self._append_html(
-                        self._theme["ai"].format(text=self._escape(msg.content))
-                    )
+                self._messages.append(
+                    ("user" if msg.role == "user" else "ai", msg.content)
+                )
+        self._render(intro_note)
 
     def _on_clear(self):
         if self._session:
             self._session.reset()
-        self._chat_area.clear()
+        self._messages = []
         self._lbl_status.setText("Sẵn sàng.")
         self._lbl_status.setStyleSheet("")
-        self._append_system_msg(
-            f"Đã tải tài liệu: <i>{self._pdf_path}</i><br>"
-            "Lịch sử đã được xóa. Hãy đặt câu hỏi mới."
-        )
+        self._render("Lịch sử đã được xóa. Hãy đặt câu hỏi mới.")
 
     def set_pdf(self, pdf_path: str, history_identity_path: str | None = None):
-        """Cập nhật khi PDF thay đổi — tạo session mới."""
+        """Cập nhật khi PDF thay đổi - tạo session mới."""
         identity_path = history_identity_path or pdf_path
         if pdf_path == self._pdf_path and identity_path == self._history_identity_path:
             return
         self._pdf_path = pdf_path
         self._history_identity_path = identity_path
         from packages.ai.chat_pdf import PDFChatSession
-        self._session = PDFChatSession(self._pdf_path, history_identity_path=self._history_identity_path)
+        self._session = PDFChatSession(self._pdf_path, max_history_messages=100, history_identity_path=self._history_identity_path)
         self._active_request_id = self._request_seq + 1
         self._request_seq = self._active_request_id
         self._busy = False
         self._btn_send.setEnabled(True)
-        self._chat_area.clear()
         self._lbl_status.setStyleSheet("")
         self._lbl_status.setText("Sẵn sàng.")
         self._rebuild_chat()

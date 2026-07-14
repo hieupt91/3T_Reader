@@ -426,8 +426,8 @@
                     clamped.bottom = spanRect.bottom;
                 }
             }
-            if (clamped.right - clamped.left < 1 || clamped.bottom - clamped.top < 1) {
-                return null;
+            if (clamped.right - clamped.left <= 0 || clamped.bottom - clamped.top <= 0) {
+                return rect; // Fallback to raw rect instead of dropping
             }
             return clamped;
         }
@@ -492,7 +492,7 @@
             var rects = range.getClientRects();
             for (var i = 0; i < rects.length; i++) {
                 var cr = rects[i];
-                if (!cr || cr.width < 2 || cr.height < 2) continue;
+                if (!cr || cr.width < 0.5 || cr.height < 0.5) continue;
                 var pageEl = pageForRect(cr) || fallbackPage;
                 if (!pageEl) continue;
                 var pageNumber = parseInt(pageEl.getAttribute('data-page-number') || '0', 10);

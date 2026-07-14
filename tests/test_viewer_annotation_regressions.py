@@ -66,7 +66,7 @@ def test_text_mark_toolbar_uses_pdfjs_selection_rects_without_prompt_or_search()
     assert '_do_selected_text_mark(window, "underline")' in underline_src
     assert '_do_selected_text_mark(window, "strikeout")' in strikeout_src
 
-    assert "_get_selection_page_rects_sync(window)" in selected_mark_src
+    assert "allow_text_search_fallback=False" in selected_mark_src
     assert "_search_text_on_page" not in selected_mark_src
     assert "QInputDialog" not in selected_mark_src
     assert "getText" not in selected_mark_src
@@ -103,6 +103,66 @@ def test_annotation_selection_falls_back_to_qt_selected_text(monkeypatch):
     assert payload["source"] == "qt_selected_text_search"
     assert payload["text"] == "Van phong Dang uy"
     assert payload["rects"] == [{"page_number": 3, "rect": [10.0, 18.4, 30.0, 41.6]}]
+
+
+def test_tc42_strict_selection_does_not_search_duplicate_text(monkeypatch):
+    from app.actions import annotate
+
+    class FakeLoop:
+        def __init__(self, _parent):
+            self._running = False
+
+        def isRunning(self):
+            return self._running
+
+        def quit(self):
+            self._running = False
+
+        def exec(self):
+            return 0
+
+    class FakeTimer:
+        @staticmethod
+        def singleShot(_timeout_ms, _callback):
+            return None
+
+    class FakePage:
+        def runJavaScript(self, _script, callback):
+            callback({"text": "sửa", "rects": []})
+
+        def selectedText(self):
+            return "sửa"
+
+    class FakeWebView:
+        def page(self):
+            return FakePage()
+
+    class Window:
+        current_path = "sample.pdf"
+
+        def _get_webview(self):
+            return FakeWebView()
+
+    monkeypatch.setattr(annotate, "QEventLoop", FakeLoop)
+    monkeypatch.setattr(annotate, "QTimer", FakeTimer)
+    monkeypatch.setattr(annotate, "_get_current_page", lambda _window: 1)
+    monkeypatch.setattr(
+        annotate,
+        "_search_text_on_page",
+        lambda _path, _page, _text: [(10, 20, 30, 40), (50, 20, 70, 40), (90, 20, 110, 40)],
+    )
+
+    strict_payload = annotate._get_selection_payload_sync(
+        Window(),
+        allow_text_search_fallback=False,
+    )
+    fallback_payload = annotate._get_selection_payload_sync(
+        Window(),
+        allow_text_search_fallback=True,
+    )
+
+    assert strict_payload == {"text": "sửa", "rects": []}
+    assert len(fallback_payload["rects"]) == 3
 
 
 def test_inline_edit_scripts_use_shared_bridge_not_private_webchannels():

@@ -527,3 +527,71 @@ Nếu team Mac chỉ nhớ 5 việc ưu tiên nhất, thì là:
 5. Recent file báo rõ khi file nguồn đã mất
 
 Phần còn lại đọc tiếp trong tài liệu này và các file tham chiếu liên quan.
+
+---
+
+## 9. Mẫu nhắn gửi team Mac
+
+Có thể gửi nguyên văn như sau:
+
+```md
+Team Mac,
+
+Mình đã push đầy đủ trạng thái mới nhất lên branch `piper-vps-sync`.
+
+Các commit cần lấy:
+- `db34e99` — release bump `1.0.25`
+- `7000c5c` — full Mac handoff guide
+- `66d97e4` — June + July delta handoff
+
+Nhờ team Mac pull branch mới nhất và đọc trước tiên:
+`docs/HANDOFF_MAC_FULL_2026-07-09.md`
+
+File này là entry point chính, đã tổng hợp:
+- nền tháng 06/2026
+- các handoff cũ ngày 07/07/2026
+- delta mới ngày 08-09/07/2026
+- các cụm shared behavior cần review/port
+- checklist triển khai
+- yêu cầu bám `QUY_TRINH_SUA_LOI.md`
+
+Sau đó đọc tiếp các file được dẫn trong tài liệu:
+- `docs/HANDOFF_MAC_BAO_MAT_2026-07.md`
+- `docs/PHASE7_MACOS_DEPLOYMENT_GUIDE.md`
+- `docs/PHASE1_MAC_HANDOVER.md`
+- `docs/HANDOFF_MAC_DELTA_2026-07-09.md`
+- `docs/2_DA_LAM.md`
+- `docs/TESTER_BUG_REPORT_TC27_TC41.md`
+
+Ưu tiên review/port theo thứ tự:
+1. PDFium shared behavior
+   - `PDFIUM_LOCK`
+   - `init_forms()` trước render/in
+   - caller OCR / summarize / semantic search / print / render
+
+2. Chat PDF / AI threading / history identity
+   - callback phải quay về main thread
+   - history không đổi identity khi file reload thành temp path
+   - không rebuild toàn bộ chat chỉ để thay bubble thinking
+
+3. Annotation / search behavior
+   - query 1 từ phải match được từ dính dấu câu
+   - underline / strikeout phải chạy được theo search query khi không có selection tay
+
+4. Recent file UX
+   - file recent bị xóa/di chuyển phải báo rõ “không tìm thấy tài liệu tại đường dẫn...”
+
+5. Print / OCR / scan parity
+   - preview/in file scan có dấu hoặc signature widget
+   - OCR/summarize/search trên file scan không crash hoặc lệch behavior
+
+6. Rotate / page ops parity
+   - nếu branch Mac có feature tương ứng thì review thêm `Rotate pages...` và save consistency sau edit/delete/rotate
+
+Nhờ team Mac phản hồi lại theo 3 nhóm:
+- mục nào Mac đã có sẵn
+- mục nào cần port
+- mục nào không áp dụng do khác kiến trúc
+
+Khi triển khai, bám đúng `QUY_TRINH_SUA_LOI.md`.
+```
