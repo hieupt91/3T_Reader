@@ -263,13 +263,63 @@ def fetch_available_piper_voices() -> list[PiperVoiceInfo]:
     return voices
 
 def preprocess_text_for_piper(text: str) -> str:
-    """Ép nhịp thở, chống hụt hơi cho Piper."""
+    """Chuẩn hoá văn bản PDF để Piper đọc tự nhiên: nối dòng gãy, gộp gạch nối,
+    ngắt câu/đoạn đúng nhịp, chống hụt hơi. Giữ dấu câu để tạo ngữ điệu."""
+    if not text:
+        return ""
+    BREAK = "\x00"  # mốc tạm cho chỗ CẦN dừng (đoạn / mục danh sách)
+
+    # 1) Chuẩn hoá xuống dòng. Gạch nối cuối dòng: GIỮ gạch nối (tiếng Việt không
+    #    tách chữ; giữ mã sản phẩm như "HS-SSD-WAVE" nguyên vẹn).
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r'(\w)-\n(\w)', r'\1-\2', text)
+
+    # 2) Ngắt ĐOẠN (>=1 dòng trống) → mốc dừng.
+    text = re.sub(r'\n[ \t]*\n+', BREAK, text)
+
+    # 3) Đầu mục danh sách nằm trên DÒNG RIÊNG → mốc dừng (đọc rõ từng ý).
+    #    Xử lý TRƯỚC khi nối dòng để không mất ngữ cảnh đầu dòng.
+    text = re.sub(r'\n[ \t]*[•·▪◦*\-–—][ \t]+', BREAK, text)              # gạch đầu dòng
+    text = re.sub(r'\n[ \t]*(\d{1,2}|[a-zA-Z])[.)][ \t]+', BREAK + r'\1, ', text)  # số/chữ
+
+    # 4) Xuống dòng đơn CÒN LẠI = wrap mềm do PDF → nối thành 1 dòng (không hết câu).
+    text = re.sub(r'\s*\n\s*', ' ', text)
+
+    # 5) Chuẩn hoá khoảng trắng + dấu câu.
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\s+([,;:!?])', r'\1', text)            # bỏ space trước dấu (trừ .)
+    text = re.sub(r'(?<!\d)\s+\.', '.', text)              # bỏ space trước . (không dính số)
+    text = re.sub(r'([;:])(?=\S)', r'\1 ', text)           # thêm space sau ; :
+    text = re.sub(r'(?<!\d),(?=\S)', ', ', text)           # space sau , (giữ 1,5 số thập phân)
+    # Tách câu dính liền: chỉ khi dấu câu theo sau bởi CHỮ HOA (đầu câu mới),
+    # KHÔNG tách "13.500.000" (dấu chấm phân cách hàng nghìn).
+    text = re.sub(r'([.!?])(?=[A-ZÀ-Ỹ])', r'\1 ', text)
+
+    # 6) Khôi phục mốc dừng: kết bằng dấu chấm (nếu chưa có) để Piper nghỉ lâu hơn,
+    #    tạo ngữ điệu giữa các đoạn/ý.
+    text = re.sub(BREAK + r'+', BREAK, text)
+    parts = []
+    for seg in text.split(BREAK):
+        seg = seg.strip()
+        if not seg:
+            continue
+        if seg[-1] not in '.!?:':
+            seg += '.'
+        parts.append(seg)
+    text = ' '.join(parts)
+
+    # 7) Câu quá dài không có dấu phẩy → chèn phẩy trước liên từ để có chỗ ngắt hơi.
     def _split_long_sentences(match):
         sentence = match.group(0)
         if len(sentence) > 150 and ',' not in sentence:
-            sentence = re.sub(r'\s+(và|hoặc|thì|là|mà|rằng)\s+', r', \1 ', sentence)
+            sentence = re.sub(r'\s+(và|hoặc|nhưng|thì|là|mà|rằng|nên|vì|do|để)\s+',
+                              r', \1 ', sentence)
         return sentence
     text = re.sub(r'[^.?!]+[.?!]', _split_long_sentences, text)
+
+    # 8) Dọn dấu câu lặp + khoảng trắng thừa.
+    text = re.sub(r'\s*([.,!?;:])\1+', r'\1', text)
+    text = re.sub(r'[ \t]+', ' ', text)
     return text.strip()
 
 def synthesize_audio_piper(text: str, model_path: str, output_wav_path: str, speed_val: int = 100) -> bool:
