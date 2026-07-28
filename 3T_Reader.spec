@@ -45,7 +45,7 @@ hiddenimports.extend(collect_submodules('core'))
 
 
 # Native PDF backends can require package-provided binaries/data at runtime.
-for _package in ('pypdfium2', 'pikepdf', 'pyhanko', 'pyhanko_certvalidator'):
+for _package in ('pypdfium2', 'pikepdf', 'pyhanko', 'pyhanko_certvalidator', 'keyring'):
     _merge_collected(_package)
 
 
