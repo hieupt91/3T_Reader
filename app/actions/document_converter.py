@@ -1027,13 +1027,24 @@ def _run_itax_installer_silent(window, installer_path: Path) -> bool:
         status = getattr(window, "status", None)
         if status is not None:
             status.showMessage("Đang cài iTaxViewer ở chế độ nền...", 5000)
-        progress = QProgressDialog("Đang cài iTaxViewer ở chế độ nền...", "", 0, 0, window)
+        # Trước đây không có nút Hủy và không giới hạn thời gian chờ - nếu bộ
+        # cài bên thứ 3 (không do 3T kiểm soát) treo vì bất kỳ lý do gì, dialog
+        # window-modal này khóa cả app vĩnh viễn, không có lối thoát nào trong
+        # app ngoài kill process qua Task Manager. Cho phép hủy (kill subprocess)
+        # thay vì đặt timeout cứng - tránh cắt ngang 1 lượt cài chạy chậm nhưng
+        # hợp lệ trên máy yếu.
+        progress = QProgressDialog("Đang cài iTaxViewer ở chế độ nền...", "Hủy", 0, 0, window)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setCancelButton(None)
         progress.show()
+        cancelled = False
         while proc.poll() is None:
             QApplication.processEvents()
+            if progress.wasCanceled() and not cancelled:
+                cancelled = True
+                proc.terminate()
         progress.close()
+        if cancelled:
+            return False
         return proc.returncode == 0
     except Exception as e:
         QMessageBox.warning(window, _t("common.error", "Lỗi"), str(e))
