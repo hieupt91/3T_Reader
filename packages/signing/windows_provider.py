@@ -8,6 +8,7 @@ import struct
 import subprocess
 import concurrent.futures
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -643,6 +644,17 @@ class WindowsPkcs11Provider:
         # paying for a synchronous PKCS11 probe (which, in a frozen build,
         # relaunches the whole packaged .exe once per candidate driver DLL).
         self._tokens_cache_ttl_seconds: float = 20.0
+        # get_signing_provider() (packages/signing/__init__.py) is a module-
+        # level singleton shared between the UI thread (check_token,
+        # sign_document*, UnsignedSignatureSetupDialog) and the background
+        # _TokenPresenceWorker QThread (app/window.py, polls every 15s) - both
+        # read/write _tokens_cache*. Without a lock, both can see the cache
+        # expired at once and run a full duplicate PKCS11 probe, or one can
+        # observe a half-updated cache. Plain Lock is safe here (unlike
+        # app/actions/_pdf_save.py's pdf_write_slot): list_tokens() below does
+        # no Qt event pumping, so there is no reentrancy path that could
+        # deadlock a thread on a lock it already holds.
+        self._tokens_lock = threading.Lock()
 
     def get_last_error(self) -> str:
         return self._last_error
@@ -657,62 +669,63 @@ class WindowsPkcs11Provider:
         return None
 
     def list_tokens(self, pin: str | None = None) -> list[TokenInfo]:
-        now = time.monotonic()
-        if now < self._tokens_cache_until:
-            self._last_error = self._tokens_cache_error
-            return list(self._tokens_cache)
+        with self._tokens_lock:
+            now = time.monotonic()
+            if now < self._tokens_cache_until:
+                self._last_error = self._tokens_cache_error
+                return list(self._tokens_cache)
 
-        self._last_error = ""
-        errors: list[str] = []
-        tokens: list[TokenInfo] = []
+            self._last_error = ""
+            errors: list[str] = []
+            tokens: list[TokenInfo] = []
 
-        paths = list(_candidate_paths())
-        valid_paths = []
-        for path in paths:
-            arch_ok, arch_error = _dll_arch_matches_process(path)
-            if not arch_ok:
-                _append_unique_error(errors, f"{os.path.basename(path)}: {arch_error}")
-            else:
-                valid_paths.append(path)
+            paths = list(_candidate_paths())
+            valid_paths = []
+            for path in paths:
+                arch_ok, arch_error = _dll_arch_matches_process(path)
+                if not arch_ok:
+                    _append_unique_error(errors, f"{os.path.basename(path)}: {arch_error}")
+                else:
+                    valid_paths.append(path)
 
-        def probe_path(path):
-            try:
-                return path, _probe_driver_tokens(path), None
-            except Exception as exc:
-                return path, None, exc
+            def probe_path(path):
+                try:
+                    return path, _probe_driver_tokens(path), None
+                except Exception as exc:
+                    return path, None, exc
 
-        if valid_paths:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(valid_paths)) as executor:
-                futures = [executor.submit(probe_path, p) for p in valid_paths]
-                for future in concurrent.futures.as_completed(futures):
-                    path, result, exc = future.result()
-                    name = os.path.basename(path)
-                    if exc:
-                        msg = str(exc).lower()
-                        if "error 126" in msg:
-                            _append_unique_error(errors, f"{name}: loi 126 (thieu DLL phu thuoc hoac sai x86/x64)")
-                        elif "not a valid win32" in msg or "bad exe format" in msg or "%1 is not a valid win32" in msg:
-                            _append_unique_error(errors, f"{name}: sai kien truc x86/x64 so voi Python/app dang chay")
-                        elif "module could not be found" in msg:
-                            _append_unique_error(errors, f"{name}: khong tim thay module")
+            if valid_paths:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(valid_paths)) as executor:
+                    futures = [executor.submit(probe_path, p) for p in valid_paths]
+                    for future in concurrent.futures.as_completed(futures):
+                        path, result, exc = future.result()
+                        name = os.path.basename(path)
+                        if exc:
+                            msg = str(exc).lower()
+                            if "error 126" in msg:
+                                _append_unique_error(errors, f"{name}: loi 126 (thieu DLL phu thuoc hoac sai x86/x64)")
+                            elif "not a valid win32" in msg or "bad exe format" in msg or "%1 is not a valid win32" in msg:
+                                _append_unique_error(errors, f"{name}: sai kien truc x86/x64 so voi Python/app dang chay")
+                            elif "module could not be found" in msg:
+                                _append_unique_error(errors, f"{name}: khong tim thay module")
+                            else:
+                                _append_unique_error(errors, f"{name}: {str(exc)[:120]}")
                         else:
-                            _append_unique_error(errors, f"{name}: {str(exc)[:120]}")
-                    else:
-                        token_payloads, detail = result
-                        if token_payloads:
-                            tokens.extend(_token_info_from_payload(path, payload) for payload in token_payloads)
-                        if detail:
-                            _append_unique_error(errors, f"{name}: {detail}")
+                            token_payloads, detail = result
+                            if token_payloads:
+                                tokens.extend(_token_info_from_payload(path, payload) for payload in token_payloads)
+                            if detail:
+                                _append_unique_error(errors, f"{name}: {detail}")
 
-        self._last_error = "" if tokens else (
-            "\n".join(errors[:8])
-            if errors
-            else "Khong tim thay thu vien PKCS#11 phu hop trong he thong."
-        )
-        self._tokens_cache = list(tokens)
-        self._tokens_cache_error = self._last_error
-        self._tokens_cache_until = now + self._tokens_cache_ttl_seconds
-        return tokens
+            self._last_error = "" if tokens else (
+                "\n".join(errors[:8])
+                if errors
+                else "Khong tim thay thu vien PKCS#11 phu hop trong he thong."
+            )
+            self._tokens_cache = list(tokens)
+            self._tokens_cache_error = self._last_error
+            self._tokens_cache_until = now + self._tokens_cache_ttl_seconds
+            return tokens
 
     def select_token(self, token_info: TokenInfo | None) -> None:
         self._selected_token = token_info
