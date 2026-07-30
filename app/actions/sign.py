@@ -37,6 +37,7 @@ from app.actions._guard import require_document
 from app.actions._pdf_save import (
     collect_active_pdf_temp_paths,
     make_staged_pdf_path,
+    pdf_write_slot,
     prune_stale_app_temp_files,
     replace_document_with_staged,
 )
@@ -1601,13 +1602,14 @@ def _sign_existing_signature_field_with_usb(window, report: dict, token_info) ->
             raise RuntimeError("File ký xong không hợp lệ (thiếu %PDF header).")
 
         if in_place_output:
-            replace_document_with_staged(
-                window,
-                actual_output_path,
-                target_path=window.current_path,
-                page=int(report.get("clicked_page") or 1),
-                soft_reload=True,
-            )
+            with pdf_write_slot(window.current_path):
+                replace_document_with_staged(
+                    window,
+                    actual_output_path,
+                    target_path=window.current_path,
+                    page=int(report.get("clicked_page") or 1),
+                    soft_reload=True,
+                )
             final_output_path = window.current_path
         else:
             final_output_path = output_path
@@ -1975,46 +1977,47 @@ def create_signature_field(window):
         return
 
     try:
-        output_path = make_staged_pdf_path(window.current_path, prefix=".3t_sigfields_", suffix=".pdf")
-        with open(window.current_path, "rb") as f:
-            writer = IncrementalPdfFileWriter(f, strict=False)
-            try:
-                used_names: set[str] = {
-                    str(name)
-                    for name, _value, _ref in fields.enumerate_sig_fields(writer)
-                    if name
-                }
-            except Exception:
-                used_names: set[str] = set()
+        with pdf_write_slot(window.current_path):
+            output_path = make_staged_pdf_path(window.current_path, prefix=".3t_sigfields_", suffix=".pdf")
+            with open(window.current_path, "rb") as f:
+                writer = IncrementalPdfFileWriter(f, strict=False)
+                try:
+                    used_names: set[str] = {
+                        str(name)
+                        for name, _value, _ref in fields.enumerate_sig_fields(writer)
+                        if name
+                    }
+                except Exception:
+                    used_names: set[str] = set()
 
-            def _unique_field_name(base: str) -> str:
-                candidate = base
-                idx = 2
-                while candidate in used_names:
-                    candidate = f"{base}_{idx}"
-                    idx += 1
-                used_names.add(candidate)
-                return candidate
+                def _unique_field_name(base: str) -> str:
+                    candidate = base
+                    idx = 2
+                    while candidate in used_names:
+                        candidate = f"{base}_{idx}"
+                        idx += 1
+                    used_names.add(candidate)
+                    return candidate
 
-            for item in placements:
-                field_name = _unique_field_name(item["field_name"])
-                fields.append_signature_field(
-                    writer,
-                    sig_field_spec=fields.SigFieldSpec(
-                        sig_field_name=field_name,
-                        box=item["box"],
-                        on_page=max(0, item["page_number"] - 1),
-                    ),
-                )
-            with open(output_path, "wb") as out:
-                writer.write(out)
+                for item in placements:
+                    field_name = _unique_field_name(item["field_name"])
+                    fields.append_signature_field(
+                        writer,
+                        sig_field_spec=fields.SigFieldSpec(
+                            sig_field_name=field_name,
+                            box=item["box"],
+                            on_page=max(0, item["page_number"] - 1),
+                        ),
+                    )
+                with open(output_path, "wb") as out:
+                    writer.write(out)
 
-        replace_document_with_staged(
-            window,
-            output_path,
-            target_path=window.current_path,
-            page=placements[-1]["page_number"],
-        )
+            replace_document_with_staged(
+                window,
+                output_path,
+                target_path=window.current_path,
+                page=placements[-1]["page_number"],
+            )
         _clear_signature_field_marks(window)
         window.status.showMessage(f"Đã tạo {len(placements)} ô ký số trên file đang mở", 3000)
     except Exception:
@@ -2123,13 +2126,14 @@ def sign_with_pfx(window):
 
         final_output_path = output_path
         if in_place_output:
-            replace_document_with_staged(
-                window,
-                actual_output_path,
-                target_path=window.current_path,
-                page=placement["page_number"],
-                soft_reload=True,
-            )
+            with pdf_write_slot(window.current_path):
+                replace_document_with_staged(
+                    window,
+                    actual_output_path,
+                    target_path=window.current_path,
+                    page=placement["page_number"],
+                    soft_reload=True,
+                )
             final_output_path = window.current_path
 
         validation = validate_signed_pdf_status(final_output_path)
@@ -2271,13 +2275,14 @@ def sign_document(window):
 
         final_output_path = output_path
         if in_place_output:
-            replace_document_with_staged(
-                window,
-                actual_output_path,
-                target_path=window.current_path,
-                page=placement["page_number"],
-                soft_reload=True,
-            )
+            with pdf_write_slot(window.current_path):
+                replace_document_with_staged(
+                    window,
+                    actual_output_path,
+                    target_path=window.current_path,
+                    page=placement["page_number"],
+                    soft_reload=True,
+                )
             final_output_path = window.current_path
 
         validation = validate_signed_pdf_status(final_output_path)
@@ -2530,25 +2535,26 @@ def sign_handwritten(window):
     try:
         from packages.pdf_engine import get_pdf_engine
 
-        out_path = make_staged_pdf_path(window.current_path, prefix=".3t_handwritten_", suffix=".pdf")
-        get_pdf_engine().rebuild_pdf_with_ops(
-            window.current_path,
-            out_path,
-            [{
-                "type": "image",
-                "page_number": page_no,
-                "box": box,
-                "image_path": sig_img_path,
-                "rotation": 0,
-            }],
-        )
+        with pdf_write_slot(window.current_path):
+            out_path = make_staged_pdf_path(window.current_path, prefix=".3t_handwritten_", suffix=".pdf")
+            get_pdf_engine().rebuild_pdf_with_ops(
+                window.current_path,
+                out_path,
+                [{
+                    "type": "image",
+                    "page_number": page_no,
+                    "box": box,
+                    "image_path": sig_img_path,
+                    "rotation": 0,
+                }],
+            )
 
-        replace_document_with_staged(
-            window,
-            out_path,
-            target_path=window.current_path,
-            page=page_no,
-        )
+            replace_document_with_staged(
+                window,
+                out_path,
+                target_path=window.current_path,
+                page=page_no,
+            )
         if hasattr(window, "status"):
             window.status.showMessage("Đã đặt chữ ký tay lên PDF", 3000)
     except Exception:

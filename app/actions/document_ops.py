@@ -16,6 +16,7 @@ from packages.qt_compat.QtGui import QColor
 from app.actions._guard import require_document
 from app.actions._pdf_save import (
     make_staged_pdf_path,
+    pdf_write_slot,
     remove_path_quietly,
     replace_file_with_retry,
     replace_document_with_staged,
@@ -289,50 +290,51 @@ def add_watermark(window):
         except Exception:
             pass
 
-        with pikepdf.open(src) as pdf:
-            total = len(pdf.pages)
-            target_pages = list(range(total)) if p["all_pages"] else [cur_page]
+        with pdf_write_slot(src):
+            with pikepdf.open(src) as pdf:
+                total = len(pdf.pages)
+                target_pages = list(range(total)) if p["all_pages"] else [cur_page]
 
-            # Render watermark (reportlab) + overlay (pikepdf) từng trang chạy
-            # đồng bộ trên UI thread - với file nhiều trang, không progress
-            # feedback nào khiến app trông như bị đơ. Pump Qt events qua 1
-            # QProgressDialog window-modal (chặn tương tác khác với cửa sổ
-            # chính trong lúc chạy, giống các progress dialog khác trong app)
-            # để UI vẫn phản hồi/vẽ lại được. Chỉ hiện khi >1 trang - trang
-            # đơn giữ nguyên hành vi cũ (không có dialog nào xuất hiện).
-            if len(target_pages) > 1:
-                progress_dlg = QProgressDialog(
-                    "Đang thêm watermark...", "Hủy", 0, len(target_pages), window
-                )
-                progress_dlg.setWindowTitle("Watermark")
-                progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
-                progress_dlg.setMinimumDuration(400)
+                # Render watermark (reportlab) + overlay (pikepdf) từng trang chạy
+                # đồng bộ trên UI thread - với file nhiều trang, không progress
+                # feedback nào khiến app trông như bị đơ. Pump Qt events qua 1
+                # QProgressDialog window-modal (chặn tương tác khác với cửa sổ
+                # chính trong lúc chạy, giống các progress dialog khác trong app)
+                # để UI vẫn phản hồi/vẽ lại được. Chỉ hiện khi >1 trang - trang
+                # đơn giữ nguyên hành vi cũ (không có dialog nào xuất hiện).
+                if len(target_pages) > 1:
+                    progress_dlg = QProgressDialog(
+                        "Đang thêm watermark...", "Hủy", 0, len(target_pages), window
+                    )
+                    progress_dlg.setWindowTitle("Watermark")
+                    progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
+                    progress_dlg.setMinimumDuration(400)
 
-            for idx, i in enumerate(target_pages):
-                if progress_dlg is not None:
-                    if progress_dlg.wasCanceled():
-                        window.status.showMessage("Đã hủy thêm watermark.", 3000)
-                        return
-                    progress_dlg.setValue(idx)
-                    QApplication.processEvents()
+                for idx, i in enumerate(target_pages):
+                    if progress_dlg is not None:
+                        if progress_dlg.wasCanceled():
+                            window.status.showMessage("Đã hủy thêm watermark.", 3000)
+                            return
+                        progress_dlg.setValue(idx)
+                        QApplication.processEvents()
 
-                page = pdf.pages[i]
-                mbox = page.mediabox
-                w = float(mbox[2]) - float(mbox[0])
-                h = float(mbox[3]) - float(mbox[1])
+                    page = pdf.pages[i]
+                    mbox = page.mediabox
+                    w = float(mbox[2]) - float(mbox[0])
+                    h = float(mbox[3]) - float(mbox[1])
 
-                wm_data = _watermark_page_bytes(
-                    w, h, p["text"], p["size"],
-                    p["color"], p["angle"], p["opacity"]
-                )
+                    wm_data = _watermark_page_bytes(
+                        w, h, p["text"], p["size"],
+                        p["color"], p["angle"], p["opacity"]
+                    )
 
-                with pikepdf.open(io.BytesIO(wm_data)) as wm_pdf:
-                    page.add_overlay(wm_pdf.pages[0])
-                _mark_watermark_added(page)
+                    with pikepdf.open(io.BytesIO(wm_data)) as wm_pdf:
+                        page.add_overlay(wm_pdf.pages[0])
+                    _mark_watermark_added(page)
 
-            pdf.save(out)
+                pdf.save(out)
 
-        replace_document_with_staged(window, out, target_path=src)
+            replace_document_with_staged(window, out, target_path=src)
         scope = "tất cả trang" if p["all_pages"] else "trang hiện tại"
         window.status.showMessage(f"Đã thêm watermark '{p['text']}' vào {scope}", 4000)
 
@@ -392,30 +394,31 @@ def remove_watermark(window):
             pass
 
         removed = 0
-        with pikepdf.open(src) as pdf:
-            total = len(pdf.pages)
-            target_pages = range(total) if scope == "Tất cả trang" else [cur_page]
+        with pdf_write_slot(src):
+            with pikepdf.open(src) as pdf:
+                total = len(pdf.pages)
+                target_pages = range(total) if scope == "Tất cả trang" else [cur_page]
 
-            for i in target_pages:
-                page = pdf.pages[i]
-                if _remove_last_overlay_draw(pdf, page):
-                    removed += 1
+                for i in target_pages:
+                    page = pdf.pages[i]
+                    if _remove_last_overlay_draw(pdf, page):
+                        removed += 1
 
-            if removed <= 0:
-                show_warning(
-                    window,
-                    "Không tìm thấy lớp watermark",
-                    "Không thấy lớp overlay có thể gỡ an toàn. "
-                    "Watermark cũ hoặc watermark từ phần mềm khác có thể đã được trộn vào nội dung gốc.",
-                )
-                return
+                if removed <= 0:
+                    show_warning(
+                        window,
+                        "Không tìm thấy lớp watermark",
+                        "Không thấy lớp overlay có thể gỡ an toàn. "
+                        "Watermark cũ hoặc watermark từ phần mềm khác có thể đã được trộn vào nội dung gốc.",
+                    )
+                    return
 
-            pdf.save(out)
+                pdf.save(out)
 
-        if os.path.abspath(str(read_path)) != os.path.abspath(str(src)):
-            replace_file_with_retry(out, src, window=window)
-        else:
-            replace_document_with_staged(window, out, target_path=src)
+            if os.path.abspath(str(read_path)) != os.path.abspath(str(src)):
+                replace_file_with_retry(out, src, window=window)
+            else:
+                replace_document_with_staged(window, out, target_path=src)
         window.status.showMessage(f"Đã xóa watermark trên {removed} trang", 4000)
 
     except Exception as e:
@@ -499,51 +502,52 @@ def set_pdf_password(window):
     out = _tmp_pdf()
 
     try:
-        with pikepdf.open(read_path) as doc:
-            doc.save(
-                out,
-                encryption=pikepdf.Encryption(
-                    owner=pw + "_owner",
-                    user=pw,
-                    R=6,
+        with pdf_write_slot(src):
+            with pikepdf.open(read_path) as doc:
+                doc.save(
+                    out,
+                    encryption=pikepdf.Encryption(
+                        owner=pw + "_owner",
+                        user=pw,
+                        R=6,
+                    )
                 )
-            )
-        if os.path.abspath(str(read_path)) != os.path.abspath(str(src)):
-            replace_file_with_retry(out, src, window=window)
-        else:
-            # The file on disk becomes encrypted, but the viewer/thumbnails
-            # cannot render an encrypted PDF. Keep a decrypted snapshot as the
-            # viewing temp (same layout as opening an encrypted file).
-            import shutil
-            import tempfile
-            import uuid
+            if os.path.abspath(str(read_path)) != os.path.abspath(str(src)):
+                replace_file_with_retry(out, src, window=window)
+            else:
+                # The file on disk becomes encrypted, but the viewer/thumbnails
+                # cannot render an encrypted PDF. Keep a decrypted snapshot as the
+                # viewing temp (same layout as opening an encrypted file).
+                import shutil
+                import tempfile
+                import uuid
 
-            from app.actions._pdf_save import (
-                current_viewer_page,
-                release_viewer_file_lock,
-                reload_document,
-            )
+                from app.actions._pdf_save import (
+                    current_viewer_page,
+                    release_viewer_file_lock,
+                    reload_document,
+                )
 
-            temp_dir = os.path.join(tempfile.gettempdir(), "3t_reader_decrypted")
-            os.makedirs(temp_dir, exist_ok=True)
-            view_temp = os.path.join(temp_dir, f"{uuid.uuid4().hex}.pdf")
-            shutil.copy2(read_path, view_temp)
+                temp_dir = os.path.join(tempfile.gettempdir(), "3t_reader_decrypted")
+                os.makedirs(temp_dir, exist_ok=True)
+                view_temp = os.path.join(temp_dir, f"{uuid.uuid4().hex}.pdf")
+                shutil.copy2(read_path, view_temp)
 
-            page = current_viewer_page(window)
-            release_viewer_file_lock(window)
-            replace_file_with_retry(out, src, attempts=15, window=window)
-            try:
-                from app.local_server import LocalPDFJSServer
-                LocalPDFJSServer.get().invalidate_pdf_cache(src)
-            except Exception:
-                pass
-            reload_document(
-                window,
-                view_temp,
-                page=page,
-                display_path=src,
-                temp_path=view_temp,
-            )
+                page = current_viewer_page(window)
+                release_viewer_file_lock(window)
+                replace_file_with_retry(out, src, attempts=15, window=window)
+                try:
+                    from app.local_server import LocalPDFJSServer
+                    LocalPDFJSServer.get().invalidate_pdf_cache(src)
+                except Exception:
+                    pass
+                reload_document(
+                    window,
+                    view_temp,
+                    page=page,
+                    display_path=src,
+                    temp_path=view_temp,
+                )
         window.status.showMessage("Đã đặt mật khẩu PDF", 4000)
     except Exception as e:
         show_warning(window, "Lỗi đặt mật khẩu", str(e))
@@ -575,39 +579,40 @@ def remove_pdf_password(window):
 
         _set_tmp_target(src)
         out = _tmp_pdf()
-        try:
-            with pikepdf.open(src, password=pw) as doc:
-                doc.save(out)
-        except pikepdf.PasswordError:
-            show_warning(window, "Sai mật khẩu", "Mật khẩu không đúng.")
-            remove_path_quietly(out)
-            return
+        with pdf_write_slot(src):
+            try:
+                with pikepdf.open(src, password=pw) as doc:
+                    doc.save(out)
+            except pikepdf.PasswordError:
+                show_warning(window, "Sai mật khẩu", "Mật khẩu không đúng.")
+                remove_path_quietly(out)
+                return
 
-        # TC34: viewer đang hiển thị bản temp giải mã (file gốc mã hóa) nên
-        # không thể soft-reload sang path khác — sau khi release lock, webview
-        # đang ở about:blank, reload_soft chạy JS trên trang trắng → màn hình
-        # đen. Phải hard-load lại file đã giải mã (load_pdf + retry-if-blank).
-        from app.actions._pdf_save import (
-            current_viewer_page,
-            release_viewer_file_lock,
-            reload_document,
-        )
+            # TC34: viewer đang hiển thị bản temp giải mã (file gốc mã hóa) nên
+            # không thể soft-reload sang path khác — sau khi release lock, webview
+            # đang ở about:blank, reload_soft chạy JS trên trang trắng → màn hình
+            # đen. Phải hard-load lại file đã giải mã (load_pdf + retry-if-blank).
+            from app.actions._pdf_save import (
+                current_viewer_page,
+                release_viewer_file_lock,
+                reload_document,
+            )
 
-        page = current_viewer_page(window)
-        release_viewer_file_lock(window)
-        replace_file_with_retry(out, src, attempts=15, window=window)
-        try:
-            from app.local_server import LocalPDFJSServer
-            LocalPDFJSServer.get().invalidate_pdf_cache(src)
-        except Exception:
-            pass
-        reload_document(
-            window,
-            src,
-            page=page,
-            display_path=src,
-            temp_path=None,
-        )
+            page = current_viewer_page(window)
+            release_viewer_file_lock(window)
+            replace_file_with_retry(out, src, attempts=15, window=window)
+            try:
+                from app.local_server import LocalPDFJSServer
+                LocalPDFJSServer.get().invalidate_pdf_cache(src)
+            except Exception:
+                pass
+            reload_document(
+                window,
+                src,
+                page=page,
+                display_path=src,
+                temp_path=None,
+            )
         window.status.showMessage("Đã xóa mật khẩu PDF", 4000)
     except Exception as e:
         show_warning(window, "Lỗi xóa mật khẩu", str(e))
@@ -633,16 +638,17 @@ def compress_pdf(window):
     try:
         import pikepdf
         orig_size = os.path.getsize(src)
-        with pikepdf.open(src) as doc:
-            doc.save(
-                out,
-                compress_streams=True,
-                recompress_flate=True,
-                object_stream_mode=pikepdf.ObjectStreamMode.generate,
-            )
+        with pdf_write_slot(src):
+            with pikepdf.open(src) as doc:
+                doc.save(
+                    out,
+                    compress_streams=True,
+                    recompress_flate=True,
+                    object_stream_mode=pikepdf.ObjectStreamMode.generate,
+                )
 
-        new_size = os.path.getsize(out)
-        replace_document_with_staged(window, out, target_path=src)
+            new_size = os.path.getsize(out)
+            replace_document_with_staged(window, out, target_path=src)
 
         saved = orig_size - new_size
         pct   = saved / orig_size * 100 if orig_size else 0
@@ -1077,30 +1083,31 @@ def add_page_numbers(window):
         font_size = 10
         margin    = 20
 
-        with pikepdf.open(src) as pdf:
-            for i, page in enumerate(pdf.pages):
-                num   = start_num + i
-                label = str(num)
+        with pdf_write_slot(src):
+            with pikepdf.open(src) as pdf:
+                for i, page in enumerate(pdf.pages):
+                    num   = start_num + i
+                    label = str(num)
 
-                mbox = page.mediabox
-                w = float(mbox[2]) - float(mbox[0])
-                h = float(mbox[3]) - float(mbox[1])
+                    mbox = page.mediabox
+                    w = float(mbox[2]) - float(mbox[0])
+                    h = float(mbox[3]) - float(mbox[1])
 
-                # Remove existing page numbers before adding new ones
-                while _remove_pagenums(pdf, page):
-                    pass
+                    # Remove existing page numbers before adding new ones
+                    while _remove_pagenums(pdf, page):
+                        pass
 
-                overlay_data = _page_number_overlay_bytes(
-                    w, h, label, font_size, margin, position
-                )
+                    overlay_data = _page_number_overlay_bytes(
+                        w, h, label, font_size, margin, position
+                    )
 
-                with pikepdf.open(io.BytesIO(overlay_data)) as ol_pdf:
-                    page.add_overlay(ol_pdf.pages[0])
-                _mark_pagenum_added(page)
+                    with pikepdf.open(io.BytesIO(overlay_data)) as ol_pdf:
+                        page.add_overlay(ol_pdf.pages[0])
+                    _mark_pagenum_added(page)
 
-            pdf.save(tmp)
+                pdf.save(tmp)
 
-        replace_document_with_staged(window, tmp, target_path=src, soft_reload=True)
+            replace_document_with_staged(window, tmp, target_path=src, soft_reload=True)
         window.status.showMessage("Đã thêm số trang vào tất cả các trang", 4000)
     except Exception as e:
         window.status.showMessage("", 0)
@@ -1127,18 +1134,19 @@ def remove_page_numbers(window):
     try:
         import pikepdf
         deleted = False
-        with pikepdf.open(src) as pdf:
-            for page in pdf.pages:
-                while _remove_pagenums(pdf, page):
-                    deleted = True
-            pdf.save(tmp)
+        with pdf_write_slot(src):
+            with pikepdf.open(src) as pdf:
+                for page in pdf.pages:
+                    while _remove_pagenums(pdf, page):
+                        deleted = True
+                pdf.save(tmp)
 
-        if deleted:
-            replace_document_with_staged(window, tmp, target_path=src, soft_reload=True)
-            window.status.showMessage("Đã xóa số trang thành công", 4000)
-        else:
-            remove_path_quietly(tmp)
-            window.status.showMessage("Không tìm thấy số trang nào để xóa", 4000)
+            if deleted:
+                replace_document_with_staged(window, tmp, target_path=src, soft_reload=True)
+                window.status.showMessage("Đã xóa số trang thành công", 4000)
+            else:
+                remove_path_quietly(tmp)
+                window.status.showMessage("Không tìm thấy số trang nào để xóa", 4000)
     except Exception as e:
         window.status.showMessage("", 0)
         show_warning(window, "Lỗi xóa số trang", str(e))

@@ -19,14 +19,13 @@ from packages.qt_compat.QtWidgets import (
 from app.actions._guard import require_document
 from app.actions._pdf_save import (
     make_staged_pdf_path,
+    pdf_write_slot,
     remove_path_quietly,
     replace_document_with_staged,
     replace_file_with_retry,
 )
 from app.dialogs import show_warning, show_info
 from app.webchannel import register_webchannel_object
-import threading
-_PDF_SAVE_LOCK = threading.Lock()
 
 
 NOTE_ICON_SIZE_PT = 18.0
@@ -171,9 +170,10 @@ class _AnnotationOpQueue(QObject):
         staged_path = ""
         try:
             import pikepdf
-            # Cùng khóa với luồng ghi nền (rotate) để không hai luồng cùng
-            # mở/save/replace một file PDF -> tránh hỏng file / mất dữ liệu.
-            with _PDF_SAVE_LOCK:
+            # Cùng "slot bận" với mọi luồng ghi PDF khác (rotate, xóa trang,
+            # ký số, lưu, watermark...) để không hai bên cùng mở/save/replace
+            # một file -> tránh mất dữ liệu 1 bên (xem pdf_write_slot).
+            with pdf_write_slot(requested_target):
                 with pikepdf.open(requested_target) as pdf:
                     for _path, op in same_target:
                         op(pdf)
@@ -1260,11 +1260,12 @@ class _NoteToolsBridge(QObject):
                 show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
                 return
             import pikepdf
-            with pikepdf.open(self._pdf_path) as pdf:
-                if not _delete_note_by_id(pdf, note_id=note_id):
-                    show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
-                    return
-                _save_pikepdf_in_place(pdf, self._pdf_path, window=self._window)
+            with pdf_write_slot(self._pdf_path):
+                with pikepdf.open(self._pdf_path) as pdf:
+                    if not _delete_note_by_id(pdf, note_id=note_id):
+                        show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
+                        return
+                    _save_pikepdf_in_place(pdf, self._pdf_path, window=self._window)
 
             tombstone = dict(note)
             tombstone["_deleted"] = True
@@ -1302,14 +1303,15 @@ class _NoteToolsBridge(QObject):
 
             import pikepdf
             deleted = 0
-            with pikepdf.open(self._pdf_path) as pdf:
-                deleted = _delete_annotations_by_prefix(pdf, str(mark_id))
-                extra_ids: list[str] = []
-                if find_mode and keyword:
-                    extra_ids = _delete_annotations_by_content(pdf, keyword)
-                    deleted += len(extra_ids)
-                if deleted:
-                    _save_pikepdf_in_place(pdf, self._pdf_path, window=self._window)
+            with pdf_write_slot(self._pdf_path):
+                with pikepdf.open(self._pdf_path) as pdf:
+                    deleted = _delete_annotations_by_prefix(pdf, str(mark_id))
+                    extra_ids: list[str] = []
+                    if find_mode and keyword:
+                        extra_ids = _delete_annotations_by_content(pdf, keyword)
+                        deleted += len(extra_ids)
+                    if deleted:
+                        _save_pikepdf_in_place(pdf, self._pdf_path, window=self._window)
             if find_mode and keyword:
                 for base in set(extra_ids):
                     _remove_overlay_mark(self._window, base)
@@ -1344,21 +1346,22 @@ class _NoteToolsBridge(QObject):
 
             import pikepdf
             deleted = 0
-            with pikepdf.open(self._pdf_path) as pdf:
-                if page_number <= len(pdf.pages):
-                    page = pdf.pages[page_number - 1]
-                    annots = page.get("/Annots", None)
-                    if annots is not None:
-                        for idx in range(len(annots) - 1, -1, -1):
-                            annot = annots[idx]
-                            if _annotation_subtype(annot) not in _MARK_SUBTYPE_STYLES:
-                                continue
-                            if not _annotation_id(annot).startswith("3t-mark-"):
-                                continue
-                            del annots[idx]
-                            deleted += 1
-                if deleted:
-                    _save_pikepdf_in_place(pdf, self._pdf_path, window=self._window)
+            with pdf_write_slot(self._pdf_path):
+                with pikepdf.open(self._pdf_path) as pdf:
+                    if page_number <= len(pdf.pages):
+                        page = pdf.pages[page_number - 1]
+                        annots = page.get("/Annots", None)
+                        if annots is not None:
+                            for idx in range(len(annots) - 1, -1, -1):
+                                annot = annots[idx]
+                                if _annotation_subtype(annot) not in _MARK_SUBTYPE_STYLES:
+                                    continue
+                                if not _annotation_id(annot).startswith("3t-mark-"):
+                                    continue
+                                del annots[idx]
+                                deleted += 1
+                    if deleted:
+                        _save_pikepdf_in_place(pdf, self._pdf_path, window=self._window)
 
             try:
                 getter = getattr(self._window, "_get_webview", None)
@@ -2682,7 +2685,7 @@ def _rotate_page(window, degrees: int):
 
     # 2. Ghi ngầm file PDF để không block UI và không reload làm chớp màn hình
     def _burn():
-        with _PDF_SAVE_LOCK:
+        with pdf_write_slot(path):
             import tempfile
             import shutil
             import os
@@ -2740,8 +2743,13 @@ def delete_current_page(window):
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
-            del pdf.pages[page_no - 1]
-            _save_pikepdf_reload(window, pdf, keep_page=False)
+            # Slot chỉ bọc đoạn ghi thật (không bọc lúc chờ user xác nhận ở
+            # trên) - giữ "bận" suốt thời gian dialog hỏi đang mở sẽ chặn
+            # autosave chú thích không cần thiết, có thể rất lâu nếu user
+            # chưa trả lời ngay.
+            with pdf_write_slot(path):
+                del pdf.pages[page_no - 1]
+                _save_pikepdf_reload(window, pdf, keep_page=False)
         if hasattr(window, "status"):
             window.status.showMessage(f"Đã xóa trang {page_no}", 2000)
     except Exception as e:
@@ -2763,10 +2771,11 @@ def merge_pdf(window):
         return
     try:
         import pikepdf
-        with pikepdf.open(path) as pdf:
-            with pikepdf.open(other_path) as other:
-                pdf.pages.extend(other.pages)
-            _save_pikepdf_reload(window, pdf, keep_page=False)
+        with pdf_write_slot(path):
+            with pikepdf.open(path) as pdf:
+                with pikepdf.open(other_path) as other:
+                    pdf.pages.extend(other.pages)
+                _save_pikepdf_reload(window, pdf, keep_page=False)
         if hasattr(window, "status"):
             window.status.showMessage(
                 f"Đã ghép PDF: {os.path.basename(other_path)}", 3000)

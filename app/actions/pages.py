@@ -9,7 +9,7 @@ from packages.qt_compat.QtWidgets import (
 )
 from packages.pdf_engine import get_pdf_engine
 from app.actions._guard import require_document
-from app.actions._pdf_save import make_staged_pdf_path, remove_path_quietly, replace_document_with_staged
+from app.actions._pdf_save import make_staged_pdf_path, pdf_write_slot, remove_path_quietly, replace_document_with_staged
 from app.dialogs import show_info, show_warning
 from app.actions.file import open_file
 
@@ -262,15 +262,16 @@ def delete_pages_action(window):
     tmp = make_staged_pdf_path(path)
     new_page = min(start, total - len(pages_to_del))
     try:
-        get_pdf_engine().delete_pages(path, tmp, pages_to_del)
-        if temp_converted:
-            from app.actions._pdf_save import reload_document
+        with pdf_write_slot(path):
+            get_pdf_engine().delete_pages(path, tmp, pages_to_del)
+            if temp_converted:
+                from app.actions._pdf_save import reload_document
 
-            state = window._active_state() if hasattr(window, "_active_state") else None
-            display_path = state.get("display_path") if state else path
-            reload_document(window, tmp, page=max(1, new_page), display_path=display_path, temp_path=tmp, soft_reload=False)
-        else:
-            replace_document_with_staged(window, tmp, target_path=path, page=max(1, new_page), soft_reload=False)
+                state = window._active_state() if hasattr(window, "_active_state") else None
+                display_path = state.get("display_path") if state else path
+                reload_document(window, tmp, page=max(1, new_page), display_path=display_path, temp_path=tmp, soft_reload=False)
+            else:
+                replace_document_with_staged(window, tmp, target_path=path, page=max(1, new_page), soft_reload=False)
     except Exception as e:
         remove_path_quietly(tmp)
         show_warning(window, "Lỗi xóa trang", str(e))
@@ -415,13 +416,13 @@ def rotate_pages_action(window):
 
     def _burn_rotation_in_background():
         import tempfile
-        from app.actions.annotate import _PDF_SAVE_LOCK
         tmp = make_staged_pdf_path(path)
         try:
             from app.actions._pdf_save import replace_file_with_retry
-            # Cùng khóa với luồng lưu chú thích và rotate đơn trang để không có
-            # hai luồng cùng ghi đè một file PDF (tránh hỏng file).
-            with _PDF_SAVE_LOCK:
+            # Cùng "slot bận" với mọi luồng ghi PDF khác (chú thích, rotate
+            # đơn trang, ký số, lưu, watermark...) để không hai bên cùng ghi
+            # đè một file (tránh mất dữ liệu 1 bên - xem pdf_write_slot).
+            with pdf_write_slot(path):
                 get_pdf_engine().rotate_pages(path, tmp, rotations)
                 replace_file_with_retry(tmp, path, attempts=12, window=window)
         except Exception as e:
@@ -660,22 +661,23 @@ def insert_blank_page(window, target_page_num: int):
         if not _flush_annotations_before_heavy_op(window, path, "chen trang trang"):
             return
             
-        with pikepdf.open(path) as pdf:
-            # We want to insert AFTER the target_page_num.
-            # In pikepdf, index is 0-based.
-            index_to_insert = target_page_num
-            
-            # Find the size of the current page to match it
-            current_page = pdf.pages[target_page_num - 1]
-            box = current_page.mediabox
-            width = float(box[2] - box[0])
-            height = float(box[3] - box[1])
-            
-            blank_doc = pikepdf.Pdf.new()
-            blank_doc.add_blank_page(page_size=(width, height))
-            pdf.pages.insert(index_to_insert, blank_doc.pages[0])
-            
-            _save_pikepdf_reload(window, pdf, keep_page=True)
+        with pdf_write_slot(path):
+            with pikepdf.open(path) as pdf:
+                # We want to insert AFTER the target_page_num.
+                # In pikepdf, index is 0-based.
+                index_to_insert = target_page_num
+
+                # Find the size of the current page to match it
+                current_page = pdf.pages[target_page_num - 1]
+                box = current_page.mediabox
+                width = float(box[2] - box[0])
+                height = float(box[3] - box[1])
+
+                blank_doc = pikepdf.Pdf.new()
+                blank_doc.add_blank_page(page_size=(width, height))
+                pdf.pages.insert(index_to_insert, blank_doc.pages[0])
+
+                _save_pikepdf_reload(window, pdf, keep_page=True)
             
         window.status.showMessage(f"Đã chèn trang trắng sau trang {target_page_num}", 4000)
     except Exception as e:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import tempfile
@@ -329,6 +330,46 @@ def wait_for_thumbnail_idle(window, target_path: str | None, *, timeout_s: float
     while _thumbnail_sidebar_is_loading(window, target_path) and time.monotonic() < deadline:
         _pump_qt_events()
         time.sleep(0.1)
+
+
+_active_pdf_writes: set[str] = set()
+
+
+@contextlib.contextmanager
+def pdf_write_slot(target_path: str | None, *, timeout_s: float = 20.0):
+    """Serialize the full read-modify-write sequence (open PDF, mutate,
+    save-to-staged, atomic replace) for a given file across every writer
+    (save/sign/OCR/pages/annotate/watermark...), so two writers never both
+    read the same on-disk state and silently lose one side's change
+    (last-replace-wins).
+
+    Deliberately NOT a threading.Lock: several writers already pump the Qt
+    event loop while they run (wait_for_thumbnail_idle above,
+    release_viewer_file_lock's processEvents in replace_document_with_staged)
+    - pumping can re-enter another writer for the SAME file on the SAME
+    thread (e.g. the debounced annotation-autosave QTimer firing while a
+    page-delete's write is still in flight). A plain Lock is not reentrant:
+    the outer call would deadlock the whole UI trying to wait on a lock it
+    already holds on that thread, with no other thread able to release it.
+    Polling + pumping events while "busy" instead means a reentrant call
+    just keeps waiting (bounded by timeout_s) without blocking the event
+    loop, so it always resolves - either the busy writer finishes and
+    releases the slot, or, in the extreme case, the wait times out and this
+    call proceeds anyway rather than hanging forever.
+    """
+    norm = _normalise_path(target_path) or target_path or ""
+    if not norm:
+        yield
+        return
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    while norm in _active_pdf_writes and time.monotonic() < deadline:
+        _pump_qt_events()
+        time.sleep(0.05)
+    _active_pdf_writes.add(norm)
+    try:
+        yield
+    finally:
+        _active_pdf_writes.discard(norm)
 
 
 def replace_file_with_retry(staged_path: str, target_path: str, *, attempts: int = 8, window=None) -> None:
