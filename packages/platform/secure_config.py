@@ -113,16 +113,59 @@ def is_sensitive(key: str) -> bool:
     return key in _SENSITIVE_KEYS
 
 
-def save_secure_config(config_path: str, data: dict) -> None:
-    """Write *data* to *config_path*, encrypting sensitive values.
+_CRED_MGR_USERNAME = "ai_config"
 
-    Non-sensitive values are stored as-is so the file remains partially
-    human-readable (provider choice, model names, URLs, etc.).
+
+def _save_sensitive_via_credential_manager(sensitive: dict) -> bool:
+    """Try storing *sensitive* in the OS credential store (Windows Credential
+    Manager, via the existing license_client helper). Returns False on
+    non-Windows or if the store is unavailable, so the caller can fall back
+    to the Fernet-in-file scheme below."""
+    try:
+        from packages.license_client.credential_manager import credential_manager_save
+
+        return credential_manager_save(sensitive, username=_CRED_MGR_USERNAME)
+    except Exception:
+        return False
+
+
+def _load_sensitive_via_credential_manager() -> dict:
+    try:
+        from packages.license_client.credential_manager import credential_manager_load
+
+        return credential_manager_load(username=_CRED_MGR_USERNAME) or {}
+    except Exception:
+        return {}
+
+
+def save_secure_config(config_path: str, data: dict) -> None:
+    """Write *data* to *config_path*.
+
+    Sensitive values (API keys) are stored via the OS credential store when
+    available (Windows Credential Manager) rather than Fernet-encrypted
+    inline in the file: the Fernet key here is derived from MachineGuid +
+    USERNAME, both readable by any process running as the same Windows user
+    without needing to know any actual secret, so it only protects against
+    "copy the file to another machine", not against another local process
+    reading it. Falls back to the previous Fernet-in-file scheme on
+    non-Windows or when the credential store is unavailable - existing
+    config files keep working unchanged (see load_secure_config below).
+
+    Non-sensitive values are always stored as-is in the file so it remains
+    partially human-readable (provider choice, model names, URLs, etc.).
     """
+    sensitive = {k: v for k, v in data.items() if is_sensitive(k) and v}
+    # Gọi kể cả khi sensitive rỗng (user vừa xoá hết API key) để ghi đè/dọn
+    # entry cũ trong credential store, tránh key cũ bị mồ côi ở đó.
+    via_cred_mgr = _save_sensitive_via_credential_manager(sensitive)
+
     out = {}
     for k, v in data.items():
         if is_sensitive(k) and v:
-            out[k] = {"__encrypted__": True, "value": encrypt_value(str(v))}
+            if via_cred_mgr:
+                out[k] = {"__credential_manager__": True}
+            else:
+                out[k] = {"__encrypted__": True, "value": encrypt_value(str(v))}
         else:
             out[k] = v
     with open(config_path, "w", encoding="utf-8") as f:
@@ -130,18 +173,24 @@ def save_secure_config(config_path: str, data: dict) -> None:
 
 
 def load_secure_config(config_path: str) -> dict:
-    """Read *config_path* and decrypt any encrypted values.
+    """Read *config_path*, resolving sensitive values from wherever they're
+    stored (credential store or Fernet-in-file, see save_secure_config).
 
-    Falls back gracefully: if a value cannot be decrypted (machine change,
-    corrupted data), it is set to an empty string.
+    Falls back gracefully: if a value cannot be decrypted/found (machine
+    change, corrupted data), it is set to an empty string.
     """
     if not os.path.exists(config_path):
         return {}
     with open(config_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
+    cred_mgr_values: dict | None = None
     out = {}
     for k, v in raw.items():
-        if isinstance(v, dict) and v.get("__encrypted__"):
+        if isinstance(v, dict) and v.get("__credential_manager__"):
+            if cred_mgr_values is None:
+                cred_mgr_values = _load_sensitive_via_credential_manager()
+            out[k] = cred_mgr_values.get(k, "")
+        elif isinstance(v, dict) and v.get("__encrypted__"):
             out[k] = decrypt_value(v.get("value", ""))
         else:
             out[k] = v
