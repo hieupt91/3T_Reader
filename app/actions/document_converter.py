@@ -24,6 +24,41 @@ def get_bin_dir() -> Path:
     from packages.platform import get_app_data_dir
     return Path(get_app_data_dir()) / "modules"
 
+
+def _sha256_file(path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _fetch_sha256_sidecar(url: str) -> str:
+    """Best-effort fetch of a `<url>.sha256` sidecar text file, if the server
+    publishes one (iTaxViewer is a 3rd-party installer - 3T Company can only
+    pin a checksum for it, not sign it like the app's own updates in
+    packages/updater/update_client.py). Returns a lowercase hex digest, or
+    "" if unavailable/malformed - callers must treat "" as "no check
+    possible" and proceed unchanged rather than blocking a valid download
+    just because the server hasn't published a sidecar yet."""
+    try:
+        from packages.net_utils import make_ssl_context
+
+        req = urllib.request.Request(url + ".sha256", headers={"User-Agent": "3T_Reader"})
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            urllib.request.HTTPSHandler(context=make_ssl_context()),
+        )
+        with opener.open(req, timeout=10) as resp:
+            text = resp.read(256).decode("utf-8", errors="ignore").strip()
+        digest = text.split()[0].lower() if text else ""
+        if len(digest) == 64 and all(c in "0123456789abcdef" for c in digest):
+            return digest
+    except Exception:
+        pass
+    return ""
+
 class DownloadThread(QThread):
     progress = pyqtSignal(int)
     finished_dl = pyqtSignal(bool, str)
@@ -1064,7 +1099,21 @@ def handle_xml_itax(window, file_path: str):
         if not success:
             QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.dl.fail", "Tải thất bại: ") + error_msg)
             return
-            
+
+        expected_sha256 = _fetch_sha256_sidecar(url.split("?")[0])
+        if expected_sha256 and _sha256_file(temp_exe).lower() != expected_sha256:
+            QMessageBox.warning(
+                window,
+                _t("common.error", "Lỗi"),
+                "Tệp iTaxViewer tải về không khớp checksum kỳ vọng từ máy chủ - đã hủy cài đặt để đảm bảo an toàn.",
+            )
+            temp_exe.unlink(missing_ok=True)
+            return
+        # expected_sha256 rỗng nghĩa là máy chủ chưa có sidecar .sha256 công
+        # bố cho bản iTaxViewer hiện tại - bỏ qua kiểm tra, giữ nguyên hành vi
+        # cũ (cài thẳng) thay vì chặn cài đặt hợp lệ vì thiếu 1 giá trị chưa
+        # được publish.
+
         if _run_itax_installer_silent(window, temp_exe):
             if not _open_xml_with_itaxviewer(window, file_path):
                 QMessageBox.warning(window, _t("common.error", "Lỗi"), "Đã cài iTaxViewer nhưng chưa tìm thấy iTaxViewer.exe để mở file XML.")
