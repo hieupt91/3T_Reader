@@ -635,7 +635,14 @@ class WindowsPkcs11Provider:
         self._tokens_cache: list[TokenInfo] = []
         self._tokens_cache_error: str = ""
         self._tokens_cache_until: float = 0.0
-        self._tokens_cache_ttl_seconds: float = 8.0
+        # PDFReaderApp._start_token_monitor() (app/window.py) already re-scans
+        # tokens on a background thread every 15s via is_token_present() ->
+        # list_tokens(). TTL must stay >= that interval so UI-thread callers
+        # (UnsignedSignatureSetupDialog, check_token, sign_document*) almost
+        # always hit the warm cache from that background scan instead of
+        # paying for a synchronous PKCS11 probe (which, in a frozen build,
+        # relaunches the whole packaged .exe once per candidate driver DLL).
+        self._tokens_cache_ttl_seconds: float = 20.0
 
     def get_last_error(self) -> str:
         return self._last_error
