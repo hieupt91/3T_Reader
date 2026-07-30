@@ -10,8 +10,11 @@ from packages.qt_compat.QtWidgets import (
     QPushButton, QProgressBar, QFrame, QFileDialog,
     QApplication, QSizePolicy, QComboBox
 )
+from styles.theme import is_dark
 
-_STYLE = """
+def _build_style(dark: bool) -> str:
+    if dark:
+        return """
 QDialog { background: #16162A; }
 QLabel#title { color: #E8EEFF; font-size: 15px; font-weight: 700; }
 QLabel#info  { color: #8080B0; font-size: 11px; }
@@ -49,6 +52,45 @@ QProgressBar {
 }
 QProgressBar::chunk { background: #6366f1; border-radius: 4px; }
 QFrame#divider { background: #2A2A4A; }
+"""
+    return """
+QDialog { background: #F8FAFF; }
+QLabel#title { color: #0F172A; font-size: 15px; font-weight: 700; }
+QLabel#info  { color: #64748B; font-size: 11px; }
+QLabel#warn  { color: #b45309; font-size: 11px; }
+QLabel#err   { color: #DC2626; font-size: 11px; }
+QTextEdit {
+    background: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 8px;
+    font-family: Arial, Tahoma, sans-serif;
+    font-size: 13px;
+    padding: 10px;
+    line-height: 1.5;
+}
+QPushButton {
+    background: #E2E8F0;
+    color: #334155;
+    border: 1px solid #CBD5E1;
+    border-radius: 7px;
+    padding: 8px 18px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QPushButton:hover { background: #CBD5E1; border-color: #94A3B8; }
+QPushButton:disabled { color: #94A3B8; border-color: #E2E8F0; }
+QPushButton#btn_copy {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #3b6fd4,stop:1 #5b4fd4);
+    color: white; border: none;
+}
+QPushButton#btn_copy:hover { background: #4b7fe4; }
+QProgressBar {
+    background: #FFFFFF; border: 1px solid #CBD5E1;
+    border-radius: 5px; height: 8px; text-align: center;
+}
+QProgressBar::chunk { background: #6366f1; border-radius: 4px; }
+QFrame#divider { background: #E2E8F0; }
 """
 
 
@@ -101,7 +143,7 @@ class OCRDialog(QDialog):
         self.setModal(modal)
         self.setWindowModality(Qt.WindowModality.ApplicationModal if modal else Qt.WindowModality.NonModal)
         self.resize(680, 560)
-        self.setStyleSheet(_STYLE)
+        self.setStyleSheet(_build_style(is_dark()))
 
         self._pdf_path = pdf_path
         self._pages = pages
@@ -130,7 +172,10 @@ class OCRDialog(QDialog):
         self._font_combo = QComboBox()
         self._font_combo.addItems(["Arial", "Times New Roman", "Calibri", "Tahoma", "Segoe UI", "Cambria", "Consolas", "Verdana", "Courier New", "Comic Sans MS"])
         self._font_combo.setFixedWidth(120)
-        self._font_combo.setStyleSheet("QComboBox { background: #1E1E38; color: #B0B8E0; border: 1px solid #3A3A60; border-radius: 4px; padding: 2px 8px; }")
+        if is_dark():
+            self._font_combo.setStyleSheet("QComboBox { background: #1E1E38; color: #B0B8E0; border: 1px solid #3A3A60; border-radius: 4px; padding: 2px 8px; }")
+        else:
+            self._font_combo.setStyleSheet("QComboBox { background: #E2E8F0; color: #334155; border: 1px solid #CBD5E1; border-radius: 4px; padding: 2px 8px; }")
         self._font_combo.currentTextChanged.connect(self._change_font)
         hdr.addWidget(self._font_combo)
 
@@ -231,7 +276,7 @@ class OCRDialog(QDialog):
         self._lbl_info.setText(
             f"✓ Hoàn thành {total} trang — ~{words} từ nhận dạng được"
         )
-        self._lbl_info.setStyleSheet("color:#4fc080;font-size:11px")
+        self._lbl_info.setStyleSheet(f"color:{'#4fc080' if is_dark() else '#15803D'};font-size:11px")
         self._progress.setValue(len(self._pages))
         self._text_edit.setPlainText(full_text or "(Không tìm thấy văn bản)")
         self._btn_cancel.setText("Đóng")
@@ -240,7 +285,7 @@ class OCRDialog(QDialog):
 
     def _on_error(self, msg: str):
         self._lbl_info.setText(f"Lỗi: {msg}")
-        self._lbl_info.setStyleSheet("color:#E05050;font-size:11px")
+        self._lbl_info.setStyleSheet(f"color:{'#E05050' if is_dark() else '#DC2626'};font-size:11px")
         self._btn_cancel.setText("Đóng")
 
     def closeEvent(self, event):

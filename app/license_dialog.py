@@ -11,11 +11,14 @@ from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QFrame, QApplication,
 )
+from styles.theme import is_dark
 
 
 # ── stylesheet ──────────────────────────────────────────────────────────────
 
-_STYLE = """
+def _build_style(dark: bool) -> str:
+    if dark:
+        return """
 QDialog {
     background: #16162A;
 }
@@ -110,6 +113,101 @@ QLabel#status_info { color: #8080B0; font-size: 12px; }
 QFrame#divider { background: #2A2A4A; }
 QFrame#or_line { background: #2A2A4A; }
 """
+    return """
+QDialog {
+    background: #F8FAFF;
+}
+QLabel#title {
+    color: #0F172A;
+    font-size: 18px;
+    font-weight: 700;
+}
+QLabel#subtitle {
+    color: #64748B;
+    font-size: 12px;
+}
+QLabel#field_label {
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+}
+QLabel#trial_info {
+    color: #b45309;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(245,158,11,0.12);
+    border: 1px solid rgba(245,158,11,0.35);
+    border-radius: 6px;
+    padding: 6px 12px;
+}
+QLabel#trial_expired {
+    color: #DC2626;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(220,38,38,0.08);
+    border: 1px solid rgba(220,38,38,0.3);
+    border-radius: 6px;
+    padding: 6px 12px;
+}
+QLabel#or_label {
+    color: #94A3B8;
+    font-size: 11px;
+    font-weight: 600;
+}
+QLineEdit {
+    background: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-family: monospace;
+    letter-spacing: 1px;
+}
+QLineEdit:focus {
+    border-color: #FF6600;
+}
+QPushButton#btn_activate {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+        stop:0 #FF7700, stop:1 #FF4400);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 28px;
+    font-size: 13px;
+    font-weight: 700;
+}
+QPushButton#btn_activate:hover { background: #FF9900; }
+QPushButton#btn_activate:pressed { background: #DD4400; }
+QPushButton#btn_activate:disabled { background: #E2E8F0; color: #94A3B8; }
+QPushButton#btn_trial {
+    background: transparent;
+    color: #b45309;
+    border: 1px solid rgba(245,158,11,0.5);
+    border-radius: 8px;
+    padding: 9px 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QPushButton#btn_trial:hover {
+    background: rgba(245,158,11,0.12);
+    border-color: #f59e0b;
+}
+QPushButton#btn_quit {
+    background: transparent;
+    color: #475569;
+    border: 1px solid #CBD5E1;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 13px;
+}
+QPushButton#btn_quit:hover { color: #DC2626; border-color: #DC2626; }
+QLabel#status_ok  { color: #15803D; font-size: 12px; }
+QLabel#status_err { color: #DC2626; font-size: 12px; }
+QLabel#status_info { color: #64748B; font-size: 12px; }
+QFrame#divider { background: #E2E8F0; }
+QFrame#or_line { background: #E2E8F0; }
+"""
 
 
 # ── dialog ───────────────────────────────────────────────────────────────────
@@ -128,7 +226,7 @@ class LicenseActivationDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Kích hoạt / Nâng cấp 3T Reader")
         self.setModal(True)
-        self.setStyleSheet(_STYLE)
+        self.setStyleSheet(_build_style(is_dark()))
         self.setWindowFlags(
             Qt.WindowType.Dialog |
             Qt.WindowType.CustomizeWindowHint |
@@ -346,9 +444,11 @@ class LicenseActivationDialog(QDialog):
         self._status.setText(text)
         obj = {"ok": "status_ok", "err": "status_err"}.get(level, "status_info")
         self._status.setObjectName(obj)
-        self._status.setStyleSheet(
-            {"ok": "color:#4fc080;", "err": "color:#E05050;"}.get(level, "color:#8080B0;")
-        )
+        if is_dark():
+            colors = {"ok": "color:#4fc080;", "err": "color:#E05050;"}
+        else:
+            colors = {"ok": "color:#15803D;", "err": "color:#DC2626;"}
+        self._status.setStyleSheet(colors.get(level, "color:#8080B0;" if is_dark() else "color:#64748B;"))
 
     def was_activated(self) -> bool:
         return self._activated
