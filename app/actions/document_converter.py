@@ -1043,16 +1043,24 @@ def handle_xml_itax(window, file_path: str):
             
         thread.finished_dl.connect(on_finished)
         thread.start()
-        
+
+        cancelled = False
         while thread.isRunning():
             QApplication.processEvents()
-            if progress_dlg.wasCanceled():
-                thread.terminate()
-                return
-                
+            if progress_dlg.wasCanceled() and not cancelled:
+                cancelled = True
+                thread.cancel()
+
         thread.wait()
         QApplication.processEvents()
-                
+
+        if cancelled:
+            try:
+                temp_exe.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+
         if not success:
             QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.dl.fail", "Tải thất bại: ") + error_msg)
             return
