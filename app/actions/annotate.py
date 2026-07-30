@@ -2350,16 +2350,7 @@ def _fallback_selection_payload_from_text(window, text: str) -> dict:
     }
 
 
-def _get_selection_payload_sync(window, *, timeout_ms: int = 350, allow_text_search_fallback: bool = True):
-    """Read the current PDF.js selection payload synchronously for modal flows."""
-    try:
-        getter = getattr(window, "_get_webview", None)
-        web_view = getter() if callable(getter) else None
-    except Exception:
-        web_view = None
-    if web_view is None:
-        return "", {}
-
+def _read_selection_payload_once(window, web_view, timeout_ms: int) -> dict:
     holder = {"payload": None}
     loop = QEventLoop(window)
 
@@ -2373,8 +2364,53 @@ def _get_selection_payload_sync(window, *, timeout_ms: int = 350, allow_text_sea
         QTimer.singleShot(timeout_ms, lambda: loop.quit() if loop.isRunning() else None)
         loop.exec()
     except Exception:
-        holder["payload"] = {}
-    payload = holder.get("payload") or {}
+        return {}
+    return holder.get("payload") or {}
+
+
+def _wait_ms_pumped(window, delay_ms: int) -> None:
+    """Block for delay_ms while keeping the Qt event loop pumped (unlike
+    time.sleep, which would freeze the UI on the main thread)."""
+    loop = QEventLoop(window)
+    QTimer.singleShot(max(0, delay_ms), loop.quit)
+    loop.exec()
+
+
+def _get_selection_payload_sync(
+    window,
+    *,
+    timeout_ms: int = 350,
+    allow_text_search_fallback: bool = True,
+    geometry_retries: int = 2,
+    geometry_retry_delay_ms: int = 120,
+):
+    """Read the current PDF.js selection payload synchronously for modal flows."""
+    try:
+        getter = getattr(window, "_get_webview", None)
+        web_view = getter() if callable(getter) else None
+    except Exception:
+        web_view = None
+    if web_view is None:
+        return "", {}
+
+    payload = _read_selection_payload_once(window, web_view, timeout_ms)
+    # PDF.js selection geometry (getClientRects()/page viewport lookup) can
+    # briefly lag the browser selection itself settling - text is already
+    # available via getSelection().toString() but rects come back empty for
+    # a moment. Retry the JS read a few times with a short pumped delay
+    # before giving up, instead of immediately surfacing "chưa lấy được tọa
+    # độ" to the user. Deliberately NOT falling back to page-text search here
+    # (that previously picked the wrong occurrence of duplicate text - TC42).
+    attempt = 0
+    while (
+        not _payload_has_selection_rects(payload)
+        and str(payload.get("text") or "").strip()
+        and attempt < geometry_retries
+    ):
+        _wait_ms_pumped(window, geometry_retry_delay_ms)
+        payload = _read_selection_payload_once(window, web_view, min(timeout_ms, 300))
+        attempt += 1
+
     if _payload_has_selection_rects(payload):
         return payload
 
