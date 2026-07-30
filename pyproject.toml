@@ -1,7 +1,10 @@
 [project]
 name = "3t-reader"
-# Version is kept in sync with app/version.py (single source of truth).
-version = "1.0.25"
+# app/version.py is the single source of truth (3T_Reader.spec reads it
+# directly via exec() at build time; nothing in this codebase reads the
+# version field below). Update this manually alongside app/version.py when
+# bumping releases - nothing enforces the two staying in sync automatically.
+version = "1.0.27"
 description = "3T Reader desktop foundation for Windows and macOS"
 requires-python = ">=3.11"
 readme = "README.md"
