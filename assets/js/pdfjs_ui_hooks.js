@@ -347,7 +347,9 @@
         var text = sel ? String(sel.toString() || '') : '';
         var app = window.PDFViewerApplication;
         var viewer = app && app.pdfViewer;
-        if (!sel || sel.rangeCount <= 0 || !viewer) return { text: text, rects: [] };
+        if (!sel || sel.rangeCount <= 0 || !viewer) {
+            return { text: text, rects: [] };
+        }
 
         function pageViewFor(pageNumber) {
             return viewer.getPageView ? viewer.getPageView(pageNumber - 1) : (viewer._pages && viewer._pages[pageNumber - 1]);
@@ -456,14 +458,22 @@
             var range = sel.getRangeAt(r);
             var fallbackPage = pageForNode(range.commonAncestorContainer) || pageForNode(range.startContainer);
             var rects = range.getClientRects();
+            if (!rects || rects.length === 0) {
+                var br = range.getBoundingClientRect();
+                if (br && br.width > 0 && br.height > 0) {
+                    rects = [br];
+                }
+            }
             for (var i = 0; i < rects.length; i++) {
                 var cr = rects[i];
                 if (!cr || cr.width < 0.5 || cr.height < 0.5) continue;
                 var pageEl = pageForRect(cr) || fallbackPage;
                 if (!pageEl) continue;
                 var pageNumber = parseInt(pageEl.getAttribute('data-page-number') || '0', 10);
-                var pageView = pageNumber ? pageViewFor(pageNumber) : null;
-                if (!pageView || !pageView.viewport) continue;
+                if (!pageNumber) continue;
+                var pageView = pageViewFor(pageNumber);
+                if (!pageView) continue;
+                if (!pageView.viewport) continue;
                 var refined = clampSelectionRectToText(cr, pageEl);
                 if (!refined) continue;
                 pushPdfRect(out, pageNumber, pageView, pageEl, refined);
@@ -475,7 +485,19 @@
     function updateSelectionCache() {
         try {
             var payload = collectSelectionPayload();
-            if (payload && (payload.text || (payload.rects && payload.rects.length > 0))) {
+            if (!payload) return;
+            if (payload.rects && payload.rects.length > 0) {
+                payload.timestamp = Date.now();
+                window.__3tLastSelectionPayload = payload;
+                return;
+            }
+            if (!payload.text) return;
+            // Text nhưng chưa có rects: đừng đè cache rect-tốt còn hạn (cùng text).
+            var cached = window.__3tLastSelectionPayload;
+            var cachedGood = cached && cached.rects && cached.rects.length > 0 &&
+                Date.now() - (cached.timestamp || 0) < 60000 &&
+                (!cached.text || cached.text === payload.text);
+            if (!cachedGood) {
                 payload.timestamp = Date.now();
                 window.__3tLastSelectionPayload = payload;
             }
@@ -484,7 +506,8 @@
 
     window.__3tReadSelectionPayload = function (freshOnly) {
         var payload = collectSelectionPayload();
-        if (payload && (payload.text || (payload.rects && payload.rects.length > 0))) {
+        // Chỉ payload CÓ RECTS mới dùng được để chú thích. Nếu có rects thì cache lại.
+        if (payload && payload.rects && payload.rects.length > 0) {
             payload.timestamp = Date.now();
             window.__3tLastSelectionPayload = payload;
             return payload;
@@ -492,10 +515,17 @@
         if (freshOnly) {
             return payload || { text: '', rects: [] };
         }
+        // Read mới mất geometry (vd: text layer của vùng chọn bị PDF.js ảo hoá sau
+        // khi cuộn đi) nhưng getSelection().toString() vẫn còn chữ -> rects rỗng.
+        // Khôi phục rects đã chụp lúc bôi đen (còn <60s, text vẫn khớp).
         var cached = window.__3tLastSelectionPayload;
-        if (cached && (cached.text || (cached.rects && cached.rects.length > 0)) && Date.now() - (cached.timestamp || 0) < 60000) {
+        var cachedOk = cached && cached.rects && cached.rects.length > 0 &&
+            Date.now() - (cached.timestamp || 0) < 60000 &&
+            (!payload || !payload.text || !cached.text || cached.text.trim() === payload.text.trim() || payload.text.trim() === '');
+        if (cachedOk) {
             return cached;
         }
+        // Không có rects ở đâu cả: KHÔNG clobber cache tốt bằng payload text rỗng-rects.
         return payload || { text: '', rects: [] };
     };
 
@@ -647,7 +677,17 @@
             }, { passive: true });
         }
         function clear3TOverlays() {
-            window.__3tLastSelectionPayload = null;
+            // __3tLastSelectionPayload KHÔNG xóa ở đây nữa: nó chỉ chứa text +
+            // tọa độ PDF đã quy đổi (viewport.convertToPdfPoint), không tham
+            // chiếu DOM/PageView nào nên vẫn hợp lệ sau khi trang render lại.
+            // pagesinit bắn ra cả khi reload_soft() ngầm (auto-OCR hoàn tất 1
+            // trang, autosave chú thích) - xóa cache ở đây khiến vùng đang bôi
+            // đen bị mất tọa độ dự phòng đúng lúc user thao tác, dù
+            // getSelection() cũng rỗng do click ra ngoài webview mất focus.
+            // Việc xóa cache khi mở SANG FILE PDF KHÁC vẫn cần thiết (tránh
+            // dùng nhầm tọa độ của file cũ) - xử lý riêng ở documentinit qua
+            // clear3TSelectionCache(), không gộp vào đây vì pagesinit còn bắn
+            // cho cả trường hợp reload_soft() nói trên.
             window.__3tSignatureTargets = null;
             window.__3tSignatureTargetsPromise = null;
             document.querySelectorAll('.reader-pdf-sigfield-marker').forEach(function(el) { el.remove(); });
@@ -665,7 +705,11 @@
                 state.dragMode = null;
             }
         }
+        function clear3TSelectionCache() {
+            window.__3tLastSelectionPayload = null;
+        }
         app.eventBus.on('documentinit', clear3TOverlays);
+        app.eventBus.on('documentinit', clear3TSelectionCache);
         app.eventBus.on('pagesinit', clear3TOverlays);
     }
     
