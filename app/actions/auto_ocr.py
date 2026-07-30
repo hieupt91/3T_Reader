@@ -29,7 +29,7 @@ from app.actions.annotate import _queue_annotation_op, _schedule_annotation_undo
 
 class _AutoOcrWorker(QObject):
     pageDone = pyqtSignal(str, int, bytes)
-    finished = pyqtSignal(str, int)
+    finished = pyqtSignal(str, int, list)  # (pdf_path, done_count, failed_pages)
 
     def __init__(self, pdf_path: str, page_order: list[int]):
         super().__init__()
@@ -43,8 +43,10 @@ class _AutoOcrWorker(QObject):
     @pyqtSlot()
     def run(self) -> None:
         from packages.ocr.engine import ocr_pdf_page_text_layer, page_has_text
+        from packages.audit import log_action, ACT_OCR
 
         done_count = 0
+        failed_pages: list[int] = []
         for page_num in self._page_order:
             if self._cancelled:
                 break
@@ -55,9 +57,15 @@ class _AutoOcrWorker(QObject):
                 if pdf_bytes:
                     done_count += 1
                     self.pageDone.emit(self._pdf_path, page_num, pdf_bytes)
-            except Exception:
+            except Exception as exc:
+                # Trước đây lỗi từng trang bị nuốt im lặng (except: continue) -
+                # người dùng không có cách nào biết 1 phần tài liệu chưa được
+                # OCR. Ghi vào audit log (xem qua "Nhật ký hoạt động") và báo
+                # số trang lỗi cho _on_auto_ocr_finished hiển thị.
+                failed_pages.append(page_num)
+                log_action(ACT_OCR, self._pdf_path, f"auto-ocr trang {page_num} loi: {exc}")
                 continue
-        self.finished.emit(self._pdf_path, done_count)
+        self.finished.emit(self._pdf_path, done_count, failed_pages)
 
 
 class _AutoOcrRelay(QObject):
@@ -82,10 +90,10 @@ class _AutoOcrRelay(QObject):
     def onPageDone(self, path: str, page_num: int, data: bytes) -> None:
         _on_auto_ocr_page_done(self._window, path, page_num, data)
 
-    @pyqtSlot(str, int)
-    def onFinished(self, path: str, count: int) -> None:
+    @pyqtSlot(str, int, list)
+    def onFinished(self, path: str, count: int, failed_pages: list) -> None:
         _auto_ocr_registry(self._window).pop(self._abs_path, None)
-        _on_auto_ocr_finished(self._window, path, count)
+        _on_auto_ocr_finished(self._window, path, count, failed_pages)
 
 
 def _auto_ocr_registry(window) -> dict:
@@ -187,15 +195,23 @@ def _on_auto_ocr_page_done(
     _schedule_annotation_undo_flush(window, pdf_path, delay_ms=600)
 
 
-def _on_auto_ocr_finished(window, pdf_path: str, ocr_page_count: int) -> None:
-    if ocr_page_count > 0 and hasattr(window, "status"):
-        current_path = getattr(window, "current_path", None)
-        if current_path and os.path.abspath(current_path) == os.path.abspath(pdf_path):
-            window.status.showMessage(
-                f"Đã nhận diện văn bản cho {ocr_page_count} trang scan — "
-                f"có thể tìm kiếm/bôi đen/sửa text trên các trang này.",
-                5000,
-            )
+def _on_auto_ocr_finished(window, pdf_path: str, ocr_page_count: int, failed_pages: list | None = None) -> None:
+    failed_pages = failed_pages or []
+    if not (ocr_page_count > 0 or failed_pages) or not hasattr(window, "status"):
+        return
+    current_path = getattr(window, "current_path", None)
+    if not (current_path and os.path.abspath(current_path) == os.path.abspath(pdf_path)):
+        return
+
+    parts = []
+    if ocr_page_count > 0:
+        parts.append(
+            f"Đã nhận diện văn bản cho {ocr_page_count} trang scan — "
+            f"có thể tìm kiếm/bôi đen/sửa text trên các trang này."
+        )
+    if failed_pages:
+        parts.append(f"Không nhận diện được {len(failed_pages)} trang (xem Nhật ký hoạt động).")
+    window.status.showMessage(" ".join(parts), 6000)
 
 
 def stop_auto_ocr_for_document(window, pdf_path: str | None) -> None:
