@@ -8,7 +8,7 @@ from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QDialogButtonBox, QSpinBox, QSlider,
     QComboBox, QCheckBox, QFileDialog, QInputDialog,
-    QColorDialog, QMessageBox,
+    QColorDialog, QMessageBox, QProgressDialog, QApplication,
 )
 from packages.qt_compat.QtCore import Qt
 from packages.qt_compat.QtGui import QColor
@@ -279,6 +279,7 @@ def add_watermark(window):
     _set_tmp_target(src)
     out = _tmp_pdf()
 
+    progress_dlg = None
     try:
         import pikepdf
 
@@ -290,9 +291,31 @@ def add_watermark(window):
 
         with pikepdf.open(src) as pdf:
             total = len(pdf.pages)
-            target_pages = range(total) if p["all_pages"] else [cur_page]
+            target_pages = list(range(total)) if p["all_pages"] else [cur_page]
 
-            for i in target_pages:
+            # Render watermark (reportlab) + overlay (pikepdf) từng trang chạy
+            # đồng bộ trên UI thread - với file nhiều trang, không progress
+            # feedback nào khiến app trông như bị đơ. Pump Qt events qua 1
+            # QProgressDialog window-modal (chặn tương tác khác với cửa sổ
+            # chính trong lúc chạy, giống các progress dialog khác trong app)
+            # để UI vẫn phản hồi/vẽ lại được. Chỉ hiện khi >1 trang - trang
+            # đơn giữ nguyên hành vi cũ (không có dialog nào xuất hiện).
+            if len(target_pages) > 1:
+                progress_dlg = QProgressDialog(
+                    "Đang thêm watermark...", "Hủy", 0, len(target_pages), window
+                )
+                progress_dlg.setWindowTitle("Watermark")
+                progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
+                progress_dlg.setMinimumDuration(400)
+
+            for idx, i in enumerate(target_pages):
+                if progress_dlg is not None:
+                    if progress_dlg.wasCanceled():
+                        window.status.showMessage("Đã hủy thêm watermark.", 3000)
+                        return
+                    progress_dlg.setValue(idx)
+                    QApplication.processEvents()
+
                 page = pdf.pages[i]
                 mbox = page.mediabox
                 w = float(mbox[2]) - float(mbox[0])
@@ -316,6 +339,9 @@ def add_watermark(window):
     except Exception as e:
         show_warning(window, "Lỗi watermark", str(e))
         remove_path_quietly(out)
+    finally:
+        if progress_dlg is not None:
+            progress_dlg.close()
 
 
 @require_document(show_message=True)
