@@ -5,6 +5,18 @@
 
 Đây là báo cáo triage — mỗi mục có đủ file:line + nguyên nhân để người sửa không cần điều tra lại từ đầu. Thứ tự: crash trước, hiệu năng sau, cosmetic cuối.
 
+## Trạng thái xử lý (2026-07-30)
+
+| Mục | Trạng thái | Commit |
+|---|---|---|
+| A1 - ghi đè file lúc thumbnail render | ✅ Đã sửa | `ab8818f` |
+| A2 - `QThread.terminate()` | ✅ Đã sửa | `75ead6b` |
+| A3 - libshiboken object đã xoá | ⏭️ Bỏ qua có chủ đích — không xác nhận được điểm gọi thật, không suy đoán sửa. Có 1 nghi vấn cụ thể ghi lại trong mục A3 (`app/actions/piper_tts_manager.py:411`, nút Đóng không disable lúc đang tải) nhưng chưa tái hiện được crash để khẳng định | — |
+| B1/B2 - PKCS11 scan đồng bộ | ✅ Đã sửa (tăng cache TTL khớp chu kỳ quét nền, không đổi luồng UI) | `6cd087f` |
+| B3 - khởi động app | ℹ️ Không phải bug, không sửa (kiến trúc QWebEngineView) | — |
+| B4 - outline lớn khi mở file | ✅ Đã sửa (đọc outline nền) | `425a6d3` |
+| D1 - icon Details view | ✅ Đã sửa | `b453882` |
+
 ---
 
 ## A. Lỗi gây crash ứng dụng ("văng ứng dụng")
