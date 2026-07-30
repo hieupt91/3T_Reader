@@ -206,7 +206,7 @@ def test_background_rotate_uses_atomic_replace_not_shutil_move():
     annotate_src = inspect.getsource(annotate._rotate_page)
     pages_src = inspect.getsource(pages.rotate_pages_action)
 
-    assert "replace_file_with_retry(tmp, path, attempts=12)" in annotate_src
+    assert "replace_file_with_retry(tmp, path, attempts=12, window=window)" in annotate_src
     assert "shutil.move(tmp, path)" not in annotate_src
-    assert "replace_file_with_retry(tmp, path, attempts=12)" in pages_src
+    assert "replace_file_with_retry(tmp, path, attempts=12, window=window)" in pages_src
     assert "shutil.move(tmp, path)" not in pages_src

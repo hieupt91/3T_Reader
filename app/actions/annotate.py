@@ -179,7 +179,7 @@ class _AnnotationOpQueue(QObject):
                         op(pdf)
                     staged_path = make_staged_pdf_path(requested_target)
                     pdf.save(staged_path)
-                replace_file_with_retry(staged_path, requested_target, attempts=3)
+                replace_file_with_retry(staged_path, requested_target, attempts=3, window=self._window)
             try:
                 from app.local_server import LocalPDFJSServer
                 LocalPDFJSServer.get().invalidate_pdf_cache(requested_target)
@@ -352,7 +352,7 @@ def _schedule_annotation_undo_flush(window, target_path: str, *, delay_ms: int =
     QTimer.singleShot(max(0, int(delay_ms)), _run)
 
 
-def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str) -> None:
+def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str, window=None) -> None:
     import pikepdf
     staged_path = ""
     try:
@@ -362,7 +362,7 @@ def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str) -> None:
             pdf.close()
         except Exception:
             pass
-        replace_file_with_retry(staged_path, target_path, attempts=8)
+        replace_file_with_retry(staged_path, target_path, attempts=8, window=window)
         try:
             from app.local_server import LocalPDFJSServer
             LocalPDFJSServer.get().invalidate_pdf_cache(target_path)
@@ -1264,7 +1264,7 @@ class _NoteToolsBridge(QObject):
                 if not _delete_note_by_id(pdf, note_id=note_id):
                     show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
                     return
-                _save_pikepdf_in_place(pdf, self._pdf_path)
+                _save_pikepdf_in_place(pdf, self._pdf_path, window=self._window)
 
             tombstone = dict(note)
             tombstone["_deleted"] = True
@@ -1309,7 +1309,7 @@ class _NoteToolsBridge(QObject):
                     extra_ids = _delete_annotations_by_content(pdf, keyword)
                     deleted += len(extra_ids)
                 if deleted:
-                    _save_pikepdf_in_place(pdf, self._pdf_path)
+                    _save_pikepdf_in_place(pdf, self._pdf_path, window=self._window)
             if find_mode and keyword:
                 for base in set(extra_ids):
                     _remove_overlay_mark(self._window, base)
@@ -1358,7 +1358,7 @@ class _NoteToolsBridge(QObject):
                             del annots[idx]
                             deleted += 1
                 if deleted:
-                    _save_pikepdf_in_place(pdf, self._pdf_path)
+                    _save_pikepdf_in_place(pdf, self._pdf_path, window=self._window)
 
             try:
                 getter = getattr(self._window, "_get_webview", None)
@@ -2698,7 +2698,7 @@ def _rotate_page(window, degrees: int):
                         current_rot = 0
                     page["/Rotate"] = (current_rot + degrees) % 360
                     pdf.save(tmp)
-                replace_file_with_retry(tmp, path, attempts=12)
+                replace_file_with_retry(tmp, path, attempts=12, window=window)
             except Exception as e:
                 remove_path_quietly(tmp)
                 try:

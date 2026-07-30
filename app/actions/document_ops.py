@@ -387,7 +387,7 @@ def remove_watermark(window):
             pdf.save(out)
 
         if os.path.abspath(str(read_path)) != os.path.abspath(str(src)):
-            replace_file_with_retry(out, src)
+            replace_file_with_retry(out, src, window=window)
         else:
             replace_document_with_staged(window, out, target_path=src)
         window.status.showMessage(f"Đã xóa watermark trên {removed} trang", 4000)
@@ -483,7 +483,7 @@ def set_pdf_password(window):
                 )
             )
         if os.path.abspath(str(read_path)) != os.path.abspath(str(src)):
-            replace_file_with_retry(out, src)
+            replace_file_with_retry(out, src, window=window)
         else:
             # The file on disk becomes encrypted, but the viewer/thumbnails
             # cannot render an encrypted PDF. Keep a decrypted snapshot as the
@@ -505,7 +505,7 @@ def set_pdf_password(window):
 
             page = current_viewer_page(window)
             release_viewer_file_lock(window)
-            replace_file_with_retry(out, src, attempts=15)
+            replace_file_with_retry(out, src, attempts=15, window=window)
             try:
                 from app.local_server import LocalPDFJSServer
                 LocalPDFJSServer.get().invalidate_pdf_cache(src)
@@ -569,7 +569,7 @@ def remove_pdf_password(window):
 
         page = current_viewer_page(window)
         release_viewer_file_lock(window)
-        replace_file_with_retry(out, src, attempts=15)
+        replace_file_with_retry(out, src, attempts=15, window=window)
         try:
             from app.local_server import LocalPDFJSServer
             LocalPDFJSServer.get().invalidate_pdf_cache(src)

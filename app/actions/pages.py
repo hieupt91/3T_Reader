@@ -423,7 +423,7 @@ def rotate_pages_action(window):
             # hai luồng cùng ghi đè một file PDF (tránh hỏng file).
             with _PDF_SAVE_LOCK:
                 get_pdf_engine().rotate_pages(path, tmp, rotations)
-                replace_file_with_retry(tmp, path, attempts=12)
+                replace_file_with_retry(tmp, path, attempts=12, window=window)
         except Exception as e:
             remove_path_quietly(tmp)
             try:

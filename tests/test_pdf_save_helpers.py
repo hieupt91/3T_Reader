@@ -275,7 +275,7 @@ def test_document_ops_password_and_pagenum_regressions_are_guarded_in_source():
 
     assert "_document_read_and_target_paths(window)" in set_password_src
     assert "with pikepdf.open(read_path) as doc:" in set_password_src
-    assert "replace_file_with_retry(out, src)" in set_password_src
+    assert "replace_file_with_retry(out, src, window=window)" in set_password_src
 
     assert "_document_read_and_target_paths(window)" in compress_src
     assert "os.path.abspath(str(read_path)) != os.path.abspath(str(target_path))" in compress_src

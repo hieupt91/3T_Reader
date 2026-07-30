@@ -2004,7 +2004,7 @@ def save_edits(window, *, reload_viewer: bool = True) -> bool:
         return False
 
     try:
-        atomic_copy_file(working, save_path)
+        atomic_copy_file(working, save_path, window=window)
     except Exception as e:
         show_warning(window, "Lỗi ghi file", str(e))
         return False
@@ -2067,7 +2067,7 @@ def save_edits_as(window):
             return
 
     try:
-        atomic_copy_file(src, save_path)
+        atomic_copy_file(src, save_path, window=window)
     except Exception as e:
         show_warning(window, "Lỗi ghi file", str(e))
         return

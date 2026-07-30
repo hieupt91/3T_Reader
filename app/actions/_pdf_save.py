@@ -242,11 +242,11 @@ def make_staged_pdf_path(target_path: str, *, prefix: str = ".3t_stage_", suffix
     return staged_path
 
 
-def atomic_copy_file(source_path: str, target_path: str) -> None:
+def atomic_copy_file(source_path: str, target_path: str, *, window=None) -> None:
     staged_path = make_staged_pdf_path(target_path)
     try:
         shutil.copy2(source_path, staged_path)
-        replace_file_with_retry(staged_path, target_path)
+        replace_file_with_retry(staged_path, target_path, window=window)
     except Exception:
         remove_path_quietly(staged_path)
         raise
@@ -304,7 +304,35 @@ def release_viewer_file_lock(window) -> None:
         pass
 
 
-def replace_file_with_retry(staged_path: str, target_path: str, *, attempts: int = 8) -> None:
+def _thumbnail_sidebar_is_loading(window, target_path: str) -> bool:
+    sidebar = getattr(window, "sidebar", None)
+    is_loading = getattr(sidebar, "is_loading", None)
+    try:
+        return bool(callable(is_loading) and is_loading(target_path))
+    except Exception:
+        return False
+
+
+def wait_for_thumbnail_idle(window, target_path: str | None, *, timeout_s: float = 6.0) -> None:
+    """Block until ThumbnailSidebar is done rendering `target_path` (or `timeout_s` elapses).
+
+    pypdfium2 can hard-crash the whole process (native access violation, not a
+    catchable Python exception) if a document's file on disk is replaced while
+    ThumbnailLoader (app/sidebar.py) still holds a document handle open on it.
+    Every path that overwrites the currently-open PDF funnels through
+    replace_file_with_retry/replace_document_with_staged, so this is called
+    from there rather than at each call site.
+    """
+    if window is None or not target_path:
+        return
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    while _thumbnail_sidebar_is_loading(window, target_path) and time.monotonic() < deadline:
+        _pump_qt_events()
+        time.sleep(0.1)
+
+
+def replace_file_with_retry(staged_path: str, target_path: str, *, attempts: int = 8, window=None) -> None:
+    wait_for_thumbnail_idle(window, target_path)
     last_error = None
     for attempt in range(max(1, attempts)):
         try:
@@ -374,6 +402,8 @@ def replace_document_with_staged(
     resolved_target = target_path or window.current_path
     if not resolved_target:
         raise ValueError("Missing target PDF path.")
+
+    wait_for_thumbnail_idle(window, resolved_target)
 
     target_page = page if page is not None else (current_viewer_page(window) if keep_page else 1)
     
