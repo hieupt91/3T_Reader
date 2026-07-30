@@ -32,6 +32,17 @@ class DownloadThread(QThread):
         super().__init__()
         self.url = url
         self.dest_path = dest_path
+        self._cancelled = False
+
+    def cancel(self):
+        """Ask run() to stop between chunks instead of force-killing the thread.
+
+        QThread.terminate() kills the thread at whatever instruction it happens
+        to be executing (including mid network I/O), which can leave process
+        state corrupted or crash outright. Cooperative cancellation checked
+        between reads is the safe alternative.
+        """
+        self._cancelled = True
 
     def run(self):
         try:
@@ -47,6 +58,9 @@ class DownloadThread(QThread):
                 total = int(resp.headers.get("Content-Length", 0))
                 downloaded = 0
                 while True:
+                    if self._cancelled:
+                        self.finished_dl.emit(False, "cancelled")
+                        return
                     chunk = resp.read(65536)
                     if not chunk:
                         break
@@ -87,14 +101,22 @@ def download_and_extract_libreoffice(window) -> bool:
     thread.finished_dl.connect(on_finished)
     thread.start()
     
+    cancelled = False
     while thread.isRunning():
         QApplication.processEvents()
-        if progress_dlg.wasCanceled():
-            thread.terminate()
-            return False
-            
+        if progress_dlg.wasCanceled() and not cancelled:
+            cancelled = True
+            thread.cancel()
+
     thread.wait()
     QApplication.processEvents()
+
+    if cancelled:
+        try:
+            Path(temp_zip).unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
             
     if not success:
         QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.dl.fail", "Tải thất bại: ") + error_msg)
