@@ -34,6 +34,8 @@ dependencies = [
 ai = [
   "anthropic>=0.25.0",
   "openai>=1.30.0",
+  "huggingface_hub>=0.25.0",
+  "google-genai>=0.1.0",
 ]
 legacy-pymupdf = [
   "PyMuPDF==1.27.2.2",

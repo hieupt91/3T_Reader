@@ -53,6 +53,16 @@ hiddenimports.extend(collect_submodules('core'))
 for _package in ('pypdfium2', 'pikepdf', 'pyhanko', 'pyhanko_certvalidator', 'keyring'):
     _merge_collected(_package)
 
+# google.genai (Gemini) and huggingface_hub (HuggingFace) are optional AI
+# providers imported directly by packages/ai/provider.py. A plain string in
+# hiddenimports above is not enough for them in this project's full
+# dependency graph (verified empirically: reproduced with a real PyInstaller
+# build against main.py - neither ends up in dist/*/_internal despite being
+# listed there) - collect_all() walks their real submodules/metadata the
+# same way already relied on for the packages above.
+for _package in ('google.genai', 'huggingface_hub'):
+    _merge_collected(_package)
+
 
 a = Analysis(
     ['main.py'],
