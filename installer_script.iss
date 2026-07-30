@@ -109,6 +109,7 @@ Filename: "{app}\{#MyAppExeName}"; \
   WorkingDir: "{app}"; \
   Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; \
   Flags: nowait postinstall skipifsilent
+Filename: "{sys}\ie4uinit.exe"; Parameters: "-ClearIconCache"; Flags: runhidden
 Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; Flags: runhidden
 
 [UninstallDelete]
