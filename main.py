@@ -153,6 +153,13 @@ if __name__ == "__main__":
         app.setFont(QFont(_ui_font, 10))
     app.setApplicationName(APP_NAME)
 
+    if _platform.system() == "Windows":
+        try:
+            from packages.platform.pdf_association import refresh_pdf_icon_if_default_changed
+            refresh_pdf_icon_if_default_changed()
+        except Exception:
+            pass
+
     from app.icon_utils import app_logo_icon
     app.setWindowIcon(app_logo_icon(256))
 
