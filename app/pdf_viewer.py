@@ -423,7 +423,25 @@ class PDFViewerWidget(QtWidgets.QWidget):
                 }}
                 
                 document.body.appendChild(freezeDiv);
-                
+
+                // reload_soft() có thể bị kích hoạt ngầm (auto-OCR xong 1
+                // trang, autosave chú thích) trong khi user đang giữ 1 vùng
+                // bôi đen sắp dùng để tô sáng/gạch chân/gạch ngang. app.open()
+                // bên dưới phá huỷ và dựng lại text-layer DOM của mọi trang ->
+                // Range của selection cũ trỏ vào node đã gỡ, getClientRects()
+                // trả rỗng dù getSelection().toString() vẫn còn chữ. Hoãn bước
+                // phá huỷ DOM tới khi selection rỗng (tối đa 4s để không treo
+                // vô thời hạn nếu user cứ giữ nguyên vùng chọn khi đọc).
+                function __3tSelectionActive() {{
+                    try {{
+                        var sel = window.getSelection();
+                        if (!sel || sel.rangeCount === 0 || !sel.toString()) return false;
+                        var node = sel.getRangeAt(0).commonAncestorContainer;
+                        var el = node.nodeType === 1 ? node : node.parentElement;
+                        return !!(el && el.closest && el.closest('.page'));
+                    }} catch (_) {{ return false; }}
+                }}
+                function __3tStartReload() {{
                 fetch({json.dumps(pdf_url)}, {{ cache: 'no-store' }}).then(function(res) {{
                     if (!res || !res.ok) {{
                         throw new Error('HTTP ' + (res ? res.status : '0'));
@@ -458,7 +476,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
                     app.pdfViewer.eventBus.on('pagerendered', onRender);
                     
                     setTimeout(removeFreeze, 2500);
-                }}).catch(function(e) {{ 
+                }}).catch(function(e) {{
                     console.error('Soft reload error, fallback to hard reload:', e);
                     if (freezeDiv.parentNode) freezeDiv.parentNode.removeChild(freezeDiv);
                     var fallbackUrl = {json.dumps(fallback_viewer_url)};
@@ -466,6 +484,14 @@ class PDFViewerWidget(QtWidgets.QWidget):
                         window.location.replace(fallbackUrl);
                     }}
                 }});
+                }}
+                (function __3tWaitThenReload(deadline) {{
+                    if (!__3tSelectionActive() || Date.now() > deadline) {{
+                        __3tStartReload();
+                        return;
+                    }}
+                    setTimeout(function() {{ __3tWaitThenReload(deadline); }}, 250);
+                }})(Date.now() + 4000);
             }}
         }})();
         """

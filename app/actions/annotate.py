@@ -2234,17 +2234,32 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
 
 
 _GET_SELECTION_RECTS_JS = r"""(function() {
+    // Trả JSON string, KHÔNG trả object JS trực tiếp: cầu nối tự động
+    // JS-object -> QVariant -> Python dict của QWebEnginePage.runJavaScript()
+    // đã quan sát thấy âm thầm làm rỗng payload trong thực tế (callback vẫn
+    // chạy, không exception, nhưng Python nhận về {} dù JS chắc chắn trả
+    // đủ text+rects - xác nhận qua console trực tiếp). Đi qua JSON string +
+    // json.loads() ở Python tránh hẳn lớp marshaling không đáng tin đó.
+    var result;
     try {
         if (typeof window.__3tReadSelectionPayload === 'function') {
-            return window.__3tReadSelectionPayload();
-        }
-        var raw = window.__3tLastSelectionPayload;
-        if (raw && raw.rects && raw.rects.length > 0 && Date.now() - (raw.timestamp || 0) < 15000) {
-            return raw;
+            result = window.__3tReadSelectionPayload();
+        } else {
+            var raw = window.__3tLastSelectionPayload;
+            if (raw && raw.rects && raw.rects.length > 0 && Date.now() - (raw.timestamp || 0) < 15000) {
+                result = raw;
+            }
         }
     } catch (_err) {}
-    var sel = window.getSelection ? window.getSelection() : null;
-    return { text: sel ? String(sel.toString() || '') : '', rects: [] };
+    if (!result) {
+        var sel = window.getSelection ? window.getSelection() : null;
+        result = { text: sel ? String(sel.toString() || '') : '', rects: [] };
+    }
+    try {
+        return JSON.stringify(result);
+    } catch (_err2) {
+        return JSON.stringify({ text: '', rects: [] });
+    }
 })()"""
 
 
@@ -2365,7 +2380,16 @@ def _read_selection_payload_once(window, web_view, timeout_ms: int) -> dict:
         loop.exec()
     except Exception:
         return {}
-    return holder.get("payload") or {}
+    raw = holder.get("payload")
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        result = json.loads(raw)
+    except Exception:
+        return {}
+    return result if isinstance(result, dict) else {}
 
 
 def _wait_ms_pumped(window, delay_ms: int) -> None:
