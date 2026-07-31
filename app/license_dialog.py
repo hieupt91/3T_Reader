@@ -264,7 +264,9 @@ class LicenseActivationDialog(QDialog):
             elif not ti.get("started"):
                 extra_h = 80  # nút dùng thử + divider
 
-        self.setFixedSize(480, 340 + extra_h)
+        # setMinimumSize (không setFixedSize): giữ kích thước mặc định như cũ
+        # nhưng cho phép dialog giãn cao hơn nếu nội dung lỗi dài bị tràn (M2).
+        self.setMinimumSize(480, 340 + extra_h)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 24)

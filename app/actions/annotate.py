@@ -13,7 +13,6 @@ from packages.qt_compat.QtCore import QObject, QEventLoop, QTimer, pyqtSlot
 from packages.qt_compat.QtWidgets import (
     QFileDialog,
     QInputDialog,
-    QLineEdit,
     QMessageBox,
 )
 from app.actions._guard import require_document
@@ -24,7 +23,7 @@ from app.actions._pdf_save import (
     replace_document_with_staged,
     replace_file_with_retry,
 )
-from app.dialogs import show_warning, show_info
+from app.dialogs import show_warning
 from app.webchannel import register_webchannel_object
 
 
@@ -2814,98 +2813,6 @@ def delete_current_page(window):
             window.status.showMessage(f"Đã xóa trang {page_no}", 2000)
     except Exception as e:
         show_warning(window, "Lỗi xóa trang", str(e))
-
-
-# ── Merge PDF ─────────────────────────────────────────────────────────────────
-
-@require_document(show_message=True)
-def merge_pdf(window):
-    """Append another PDF to the current document."""
-    other_path, _ = QFileDialog.getOpenFileName(
-        window, "Chọn PDF cần ghép vào cuối", "", "PDF Files (*.pdf)"
-    )
-    if not other_path:
-        return
-    path = window.current_path
-    if not _flush_annotations_before_heavy_op(window, path, "ghep PDF"):
-        return
-    try:
-        import pikepdf
-        with pdf_write_slot(path):
-            with pikepdf.open(path) as pdf:
-                with pikepdf.open(other_path) as other:
-                    pdf.pages.extend(other.pages)
-                _save_pikepdf_reload(window, pdf, keep_page=False)
-        if hasattr(window, "status"):
-            window.status.showMessage(
-                f"Đã ghép PDF: {os.path.basename(other_path)}", 3000)
-    except Exception as e:
-        show_warning(window, "Lỗi ghép PDF", str(e))
-
-
-# ── Extract pages ─────────────────────────────────────────────────────────────
-
-@require_document(show_message=True)
-def extract_pages(window):
-    """Extract a range of pages to a new PDF file."""
-    path = window.current_path
-    import pikepdf
-    with pikepdf.open(path) as _tmp:
-        total = len(_tmp.pages)
-
-    range_text, ok = QInputDialog.getText(
-        window, "Trích xuất trang",
-        f"Nhập trang cần trích (VD: 1-3,5,7-9). Tổng: {total} trang:",
-        QLineEdit.EchoMode.Normal,
-    )
-    if not ok or not range_text.strip():
-        return
-
-    pages = _parse_page_range(range_text, total)
-    if not pages:
-        show_warning(window, "Lỗi", "Dải trang không hợp lệ.")
-        return
-
-    out_path, _ = QFileDialog.getSaveFileName(
-        window, "Lưu trang trích xuất", "", "PDF Files (*.pdf)"
-    )
-    if not out_path:
-        return
-
-    try:
-        import pikepdf
-        dst = pikepdf.Pdf.new()
-        with pikepdf.open(path) as src:
-            for p in pages:
-                dst.pages.append(src.pages[p - 1])
-        dst.save(out_path)
-        dst.close()
-        show_info(window, "Trích xuất thành công",
-            f"Đã lưu {len(pages)} trang vào:\n{out_path}")
-    except Exception as e:
-        show_warning(window, "Lỗi trích xuất", str(e))
-
-
-def _parse_page_range(text: str, max_page: int) -> list[int]:
-    pages = []
-    for part in text.replace(" ", "").split(","):
-        if "-" in part:
-            a, _, b = part.partition("-")
-            try:
-                start, end = max(1, int(a)), min(max_page, int(b))
-                if start > end:
-                    start, end = end, start
-                pages.extend(range(start, end + 1))
-            except ValueError:
-                pass
-        else:
-            try:
-                p = int(part)
-                if 1 <= p <= max_page:
-                    pages.append(p)
-            except ValueError:
-                pass
-    return sorted(set(pages))
 
 
 # ── Underline / Strikeout ─────────────────────────────────────────────────────
