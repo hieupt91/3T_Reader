@@ -2688,6 +2688,14 @@ def _rotate_page(window, degrees: int):
     page_no = _get_current_page(window)
     if not _flush_annotations_before_heavy_op(window, path, "xoay trang"):
         return
+    # Nếu đang có phiên "Sửa PDF" (chèn text/ảnh/rect) chưa lưu, phải flush
+    # xuống đĩa trước khi ghi /Rotate trực tiếp bằng pikepdf bên dưới - nếu
+    # không, working_file/toạ độ của edit session còn dở sẽ lệch so với
+    # trang vừa xoay (rotate_pages_action ở pages.py đã làm đúng bước này,
+    # đường ghi riêng ở đây trước đó thiếu).
+    from app.actions.pages import _auto_commit_edit_state
+    if not _auto_commit_edit_state(window):
+        return
 
     # 1. Visual feedback tức thì bằng CSS Transform
     js_code = f"""
