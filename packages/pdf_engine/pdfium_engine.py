@@ -286,7 +286,9 @@ def _build_overlay_pdf(width: float, height: float, ops: list[dict]) -> bytes:
             if not text:
                 continue
             font_size = float(op.get("font_size", 12))
-            font_name = _resolve_reportlab_font(bool(op.get("bold")), str(op.get("font_family", "")))
+            font_name = _resolve_reportlab_font(
+                bool(op.get("bold")), str(op.get("font_family", "")), bool(op.get("italic"))
+            )
             color = _rgb_tuple(op.get("font_color", (0, 0, 0)))
             baseline = op.get("baseline")
             if baseline and not rotation:
@@ -417,19 +419,26 @@ def _rgb_tuple(value) -> tuple[float, float, float]:
     return tuple(max(0.0, min(1.0, float(v))) for v in (r, g, b))
 
 
-def _resolve_reportlab_font(bold: bool = False, family: str = "") -> str:
+def _resolve_reportlab_font(bold: bool = False, family: str = "", italic: bool = False) -> str:
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
-    fallback = "Helvetica-Bold" if bold else "Helvetica"
+    if bold and italic:
+        fallback = "Helvetica-BoldOblique"
+    elif italic:
+        fallback = "Helvetica-Oblique"
+    elif bold:
+        fallback = "Helvetica-Bold"
+    else:
+        fallback = "Helvetica"
     try:
         import hashlib
         from packages.platform.fonts import get_vietnamese_font_path
-        font_path = get_vietnamese_font_path(bold=bold, family=family)
+        font_path = get_vietnamese_font_path(bold=bold, italic=italic, family=family)
         if not font_path:
             return fallback
         suffix = hashlib.md5(font_path.encode("utf-8")).hexdigest()[:8]
-        font_name = f"ThreeTUnicode{'Bold' if bold else ''}_{suffix}"
+        font_name = f"ThreeTUnicode{'Bold' if bold else ''}{'Italic' if italic else ''}_{suffix}"
         if font_name not in pdfmetrics.getRegisteredFontNames():
             pdfmetrics.registerFont(TTFont(font_name, font_path))
         return font_name

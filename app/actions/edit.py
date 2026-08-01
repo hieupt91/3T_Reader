@@ -2402,6 +2402,9 @@ def _find_pdf_span(base_path: str, page_num: int, pick_box: tuple[float, float, 
                                 (color_int & 0xFF) / 255.0,
                             ),
                             "bold": False if is_ocr_placeholder_font else ("bold" in font_name.lower()),
+                            "italic": False if is_ocr_placeholder_font else (
+                                "italic" in font_name.lower() or "oblique" in font_name.lower()
+                            ),
                             "is_ocr_placeholder_font": is_ocr_placeholder_font,
                         }
                         best_score = score
@@ -2756,6 +2759,12 @@ def edit_existing_text(window):
         except Exception:
             return False
 
+    def _parse_italic(styles: dict) -> bool:
+        try:
+            return str(styles.get("fontStyle", "")).lower() in {"italic", "oblique"}
+        except Exception:
+            return False
+
     def _expanded_text_box(left: float, bottom: float, right: float, top: float, text: str, font_size: float, base_path: str, page_num: int):
         estimated_width = max(right - left, len(text) * font_size * 0.62)
         new_right = left + estimated_width
@@ -2786,12 +2795,16 @@ def edit_existing_text(window):
         font_size = _parse_font_size(styles)
         color = _parse_color(styles)
         is_bold = _parse_bold(styles)
+        is_italic = _parse_italic(styles)
         font_family = str(styles.get("fontFamily", "sans-serif"))
 
         new_text, ok = QInputDialog.getText(
             window,
             "Sửa text",
-            f"Text gốc: {old_text}\nNhập text thay thế (để trống để xóa):",
+            f"Text gốc: {old_text}\nNhập text thay thế (để trống để xóa):\n"
+            "(Lưu ý: text cũ chỉ bị che đi, không bị xoá khỏi file PDF - "
+            "vẫn có thể bôi đen/copy được nếu không dùng đúng công cụ Xoá trắng "
+            "cho mục đích bảo mật.)",
             text=old_text
         )
 
@@ -2806,6 +2819,21 @@ def edit_existing_text(window):
         if not base_snapshot or not os.path.exists(base_snapshot):
             return
 
+        # base_snapshot chỉ chụp 1 LẦN lúc bắt đầu session, không cập nhật
+        # lại sau mỗi lần sửa. Nếu user sửa lại đúng chỗ/gần chỗ vừa sửa
+        # trong CÙNG session, tra cứu font/màu/nền từ base_snapshot sẽ lấy
+        # nhầm dữ liệu của CHỮ GỐC BAN ĐẦU (đã bị thay/che), không phải chữ
+        # đang thật sự hiển thị - với trang scan còn tệ hơn: miếng vá nền
+        # có thể dán ngược lại 1 phần chữ gốc đã bị che trước đó lên trên.
+        # working_file (đã build lại sau lần sửa gần nhất) mới phản ánh
+        # đúng trạng thái trang NGAY LÚC NÀY. Vùng chưa từng bị sửa thì nội
+        # dung ở working_file và base_snapshot giống hệt nhau nên không đổi
+        # hành vi cho trường hợp phổ biến (sửa các chỗ không chồng nhau).
+        working_file = state.get("working_file")
+        metadata_source = base_snapshot
+        if state.get("ops") and working_file and os.path.exists(working_file):
+            metadata_source = working_file
+
         x0, x1 = float(left), float(right)
         y0, y1 = float(bottom), float(top)
         left, right = min(x0, x1), max(x0, x1)
@@ -2816,13 +2844,13 @@ def edit_existing_text(window):
         insert_box = (left, bottom, right, top)
         redact_box = (left, bottom, right, top)
         redact_padding = 2.0 if use_span_box else 0.0
-        span_info = _find_pdf_span(base_snapshot, int(pageNum), redact_box)
+        span_info = _find_pdf_span(metadata_source, int(pageNum), redact_box)
 
         # Loại trang quyết định CÁCH lấy vị trí + màu (xem
         # docs/SUA_TEXT_GOC_SCAN_IMPLEMENTATION_PLAN.md).
         is_scan_page = (
             bool(span_info and span_info.get("is_ocr_placeholder_font"))
-            or _page_is_scan_text(base_snapshot, int(pageNum))
+            or _page_is_scan_text(metadata_source, int(pageNum))
         )
 
         scan_baseline_y = None
@@ -2848,7 +2876,7 @@ def edit_existing_text(window):
                 scan_baseline_y = bottom + font_size * 0.08
             # Màu chữ: đọc pixel mực THẬT — text OCR vô hình luôn báo màu đen
             # (color=0) vô nghĩa nên KHÔNG dùng span_info["font_color"].
-            ink = _sample_text_ink_color(base_snapshot, int(pageNum), redact_box)
+            ink = _sample_text_ink_color(metadata_source, int(pageNum), redact_box)
             color = ink if ink is not None else (0.0, 0.0, 0.0)
             # Font family / bold: không đoán từ dữ liệu OCR — giữ mặc định an
             # toàn (font từ styles JS). ponytail: thêm heuristic bold nếu cần.
@@ -2872,6 +2900,7 @@ def edit_existing_text(window):
             font_size = span_info["font_size"]
             color = span_info["font_color"]
             is_bold = span_info["bold"]
+            is_italic = span_info.get("italic", False)
             font_family = span_info["font_family"] or font_family
 
         text_value = str(new_text).strip()
@@ -2888,12 +2917,20 @@ def edit_existing_text(window):
                 redact_box[2] + patch_pad,
                 redact_box[3] + patch_pad,
             )
-            patch_info = _build_scan_patch(base_snapshot, int(pageNum), patch_source_box)
+            patch_info = _build_scan_patch(metadata_source, int(pageNum), patch_source_box)
             if patch_info is None:
                 # Không vá được bằng ảnh → lùi về tô màu nền lấy mẫu.
-                sampled = _sample_background_color(base_snapshot, int(pageNum), redact_box)
+                sampled = _sample_background_color(metadata_source, int(pageNum), redact_box)
                 if sampled:
                     fill_color = sampled
+        else:
+            # Trang vector (PDF thường / convert Word-Excel) trước đây luôn
+            # tô trắng tinh (1,1,1) bất kể nền thật - lộ hẳn 1 mảng trắng
+            # trên trang có ô/đoạn tô màu (bảng Excel, letterhead, highlight
+            # Word...). Lấy mẫu màu nền thật giống hệt cách đã làm cho scan.
+            sampled = _sample_background_color(metadata_source, int(pageNum), redact_box)
+            if sampled:
+                fill_color = sampled
 
         if patch_info is not None:
             patch_path, patch_data_url, patch_box = patch_info
@@ -2926,6 +2963,7 @@ def edit_existing_text(window):
                 "font_color": color,
                 "font_family": font_family,
                 "bold": is_bold,
+                "italic": is_italic,
                 "underline": False,
                 "rotation": 0,
                 "is_existing_edit": True,
@@ -3003,27 +3041,41 @@ def edit_existing_text(window):
             if loop.isRunning():
                 loop.quit()
 
+        # Trả JSON string, KHÔNG trả object JS trực tiếp: QWebEnginePage.runJavaScript()
+        # marshal object JS -> QVariant -> Python dict không đáng tin - callback vẫn
+        # chạy, không exception, nhưng payload âm thầm bị rỗng hoá dù JS trả đủ dữ
+        # liệu (đã xác nhận + sửa cùng lỗi này ở annotate.py::_GET_SELECTION_RECTS_JS).
         js = """(function() {
             function hasRects(payload) {
                 return payload && payload.rects && payload.rects.length > 0;
             }
+            var result = { text: '', rects: [] };
             try {
                 if (typeof window.__3tReadSelectionPayload === 'function') {
                     var live = window.__3tReadSelectionPayload(true);
-                    if (hasRects(live)) return live;
+                    if (hasRects(live)) result = live;
                 }
             } catch (_err) {}
+            if (!hasRects(result)) {
+                try {
+                    var cached = window.__3tLastSelectionPayload;
+                    // Clicking the ribbon button clears the DOM selection, so this
+                    // cache is the main path; keep it valid long enough for the
+                    // user to reach the button (TC30).
+                    if (hasRects(cached) && Date.now() - (cached.timestamp || 0) < 30000) {
+                        result = cached;
+                    }
+                } catch (_err2) {}
+            }
+            if (!hasRects(result)) {
+                var sel = window.getSelection ? window.getSelection() : null;
+                result = { text: sel ? String(sel.toString() || '') : '', rects: [] };
+            }
             try {
-                var cached = window.__3tLastSelectionPayload;
-                // Clicking the ribbon button clears the DOM selection, so this
-                // cache is the main path; keep it valid long enough for the
-                // user to reach the button (TC30).
-                if (hasRects(cached) && Date.now() - (cached.timestamp || 0) < 30000) {
-                    return cached;
-                }
-            } catch (_err2) {}
-            var sel = window.getSelection ? window.getSelection() : null;
-            return { text: sel ? String(sel.toString() || '') : '', rects: [] };
+                return JSON.stringify(result);
+            } catch (_err3) {
+                return JSON.stringify({ text: '', rects: [] });
+            }
         })()"""
         try:
             web_view.page().runJavaScript(js, _done)
@@ -3031,7 +3083,16 @@ def edit_existing_text(window):
             loop.exec()
         except Exception:
             return {}
-        return holder.get("payload") or {}
+        raw = holder.get("payload")
+        if not raw:
+            return {}
+        if isinstance(raw, dict):
+            return raw
+        try:
+            result = json.loads(raw)
+        except Exception:
+            return {}
+        return result if isinstance(result, dict) else {}
 
     def edit_from_selection():
         from app.actions.annotate import (
