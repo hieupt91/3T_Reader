@@ -56,12 +56,17 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 
 ---
 
-## 🟡 LỖI NHỎ MỚI PHÁT HIỆN (chưa sửa) — dialog chọn vùng bị nhầm nhãn "Ký số"
+## ✅ ĐÃ SỬA — dialog chọn vùng "Vẽ tự do" bị nhầm nhãn "Ký số"
 
-- **Hiện tượng**: khi dùng "Vẽ tự do" (và nhiều khả năng cả Chèn ảnh, Ghi chú không có vùng bôi đen, Xóa trắng — cùng cơ chế), sau khi xác nhận nội dung, app hiện hộp thoại tên **"Chọn vị trí ký"** với nội dung "Giữ chuột và kéo trực tiếp trên PDF để **vẽ vùng chữ ký**" — chữ này chỉ đúng cho tính năng Ký số, không đúng cho Vẽ/Chèn ảnh/Ghi chú.
-- **Không phải lỗi chức năng** — đã xác nhận: nếu làm đúng theo hướng dẫn (kéo vùng trên trang), nội dung (nét vẽ) vẫn được chèn đúng vị trí sau khi lưu. Chỉ là **nhãn/chữ hiển thị sai**, có thể khiến người dùng tưởng nhầm đang được yêu cầu ký số.
-- **Nguyên nhân xác nhận qua đọc code**: `_pick_pdf_area()` (`app/actions/edit.py:683`) — hàm dùng chung để "chọn 1 vùng trên trang PDF" cho nhiều tính năng (vẽ, chèn ảnh, ghi chú, xóa trắng...) — tái sử dụng hạ tầng (`_get_web_view`, `_setup_webchannel`, `_teardown_webchannel`) từ `app/actions/sign.py`, và dòng chữ hint "Chọn vị trí ký" / "vẽ vùng chữ ký" đang bị hard-code cố định trong `sign.py` thay vì nhận tham số theo từng tính năng gọi tới.
-- **Chưa sửa** — cần đọc kỹ thêm cách `_pick_pdf_area` truyền/không truyền message xuống dialog trước khi sửa, để thêm tham số message theo đúng ngữ cảnh gọi (vẽ/ảnh/ghi chú/ký) mà không phá tính năng ký số đang chạy đúng.
+- **Hiện tượng**: dùng "Vẽ tự do" → vẽ xong → app hiện hộp thoại **"Chọn vị trí ký"** / "Giữ chuột và kéo trực tiếp trên PDF để **vẽ vùng chữ ký**" — chữ này chỉ đúng cho tính năng Ký số.
+- **Không phải lỗi chức năng** — nội dung (nét vẽ) vẫn chèn đúng vị trí, chỉ sai nhãn hiển thị, dễ gây hiểu lầm đang được yêu cầu ký số.
+- **Nguyên nhân đúng (đã sửa lại kết luận ban đầu — lần đầu tôi chỉ nhầm sang `_pick_pdf_area`, đọc kỹ lại mới ra đúng chỗ)**: `app/actions/free_draw.py:41` gọi thẳng `_pick_signature_placement()` (`app/actions/sign.py`) — hàm vốn chỉ dùng cho 5 luồng ký số thật (Ký PFX, Ký token, Ký hàng loạt...) — để chọn vùng đặt hình vẽ trên trang, dùng chung `SignaturePickPrompt` với tiêu đề/hướng dẫn hard-code cứng cho ký số.
+- **Đã sửa**: thêm 2 tham số tùy chọn `prompt_title`/`prompt_instruction` vào `SignaturePickPrompt.__init__` và `_pick_signature_placement()` (mặc định giữ nguyên chữ ký số y hệt cũ — 5 nơi gọi thật cho Ký số không đổi 1 dòng nào). `free_draw.py` truyền riêng: `"Chọn vị trí chèn"` / `"Giữ chuột và kéo trực tiếp trên PDF để đặt vùng chèn hình vẽ."`.
+- **Phạm vi ảnh hưởng**: chỉ đổi chữ hiển thị cho đúng 1 luồng gọi (Vẽ tự do). 5 luồng Ký số thật (`sign.py` dòng 1938, 2044, 2199, 2524, 2828) không truyền tham số mới nên giữ nguyên hành vi/chữ hiển thị cũ 100%.
+- **Đã kiểm tra**:
+  - `pytest tests/` toàn bộ: 328 pass / 3 fail — đúng baseline (1 fail phát sinh lúc đầu là do process rác từ crash test trước đó chiếm khóa single-instance, đã xác nhận không liên quan code sửa — kill process xong chạy lại sạch).
+  - Test trực tiếp trên app thật: Vẽ tự do → dialog hiện đúng "Chọn vị trí chèn" (không còn "chữ ký") → hoàn tất đặt vùng → `Ctrl+S` → render lại bằng pypdfium2 xác nhận nét vẽ vẫn chèn đúng vị trí như trước khi sửa.
+- **Chưa commit** (mặc định theo `sualoint.md`/`FIX_RULES.md`).
 
 ---
 

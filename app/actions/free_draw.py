@@ -38,7 +38,12 @@ def draw_on_pdf(window):
     except Exception:
         data_url = ""
 
-    placement = _pick_signature_placement(window, sig_image_url=data_url)
+    placement = _pick_signature_placement(
+        window,
+        sig_image_url=data_url,
+        prompt_title="Chọn vị trí chèn",
+        prompt_instruction="Giữ chuột và kéo trực tiếp trên PDF để đặt vùng chèn hình vẽ.",
+    )
 
     if hasattr(window, "status"):
         window.status.showMessage("", 0)

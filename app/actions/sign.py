@@ -1341,9 +1341,10 @@ class SignaturePlacementDialog(QDialog):
 
 
 class SignaturePickPrompt(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, window_title: str = "Chọn vị trí ký",
+                 instruction: str = "Giữ chuột và kéo trực tiếp trên PDF để vẽ vùng chữ ký."):
         super().__init__(parent)
-        self.setWindowTitle("Chọn vị trí ký")
+        self.setWindowTitle(window_title)
         self.setWindowFlags(
             self.windowFlags()
             | Qt.WindowType.Tool
@@ -1353,7 +1354,7 @@ class SignaturePickPrompt(QDialog):
 
         root = QVBoxLayout(self)
 
-        title = QLabel("Giữ chuột và kéo trực tiếp trên PDF để vẽ vùng chữ ký.")
+        title = QLabel(instruction)
         title.setWordWrap(True)
         root.addWidget(title)
 
@@ -1810,12 +1811,14 @@ def _clamp_box(page_width: float, page_height: float, center_x: float, center_y:
     return (left, bottom, left + box_width, bottom + box_height)
 
 
-def _pick_signature_placement(window, *, sig_image_url: str = "", sig_text_html: str = ""):
+def _pick_signature_placement(window, *, sig_image_url: str = "", sig_text_html: str = "",
+                               prompt_title: str = "Chọn vị trí ký",
+                               prompt_instruction: str = "Giữ chuột và kéo trực tiếp trên PDF để vẽ vùng chữ ký."):
     web_view = _get_web_view(window)
     if web_view is None:
         return None
 
-    prompt = SignaturePickPrompt(window)
+    prompt = SignaturePickPrompt(window, window_title=prompt_title, instruction=prompt_instruction)
     bridge = SignaturePickBridge(prompt)
     channel = _setup_webchannel(web_view, prompt, "sigPickBridge", bridge)
     prompt._sig_pick_bridge = bridge
