@@ -112,15 +112,15 @@ def check_and_prompt_update(parent_window):
 
         from packages.qt_compat.QtWidgets import QMessageBox
         from packages.qt_compat.QtCore import QTimer
+        from app.dialogs import ask_yes_no
 
         def _show_dialog():
-            reply = QMessageBox.question(
+            reply = ask_yes_no(
                 parent_window,
                 "Co ban cap nhat moi",
                 f"Phien ban moi: {latest_version}\n"
                 f"Phien ban hien tai: {APP_VERSION}\n\n"
                 "Ban co muon cap nhat ngay khong?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if reply == QMessageBox.StandardButton.Yes:
                 _download_and_run(info, parent_window)

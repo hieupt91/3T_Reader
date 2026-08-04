@@ -23,7 +23,7 @@ from app.actions._pdf_save import (
     replace_document_with_staged,
     replace_file_with_retry,
 )
-from app.dialogs import show_warning
+from app.dialogs import show_warning, ask_yes_no
 from app.webchannel import register_webchannel_object
 
 
@@ -2825,11 +2825,10 @@ def delete_current_page(window):
                 show_warning(window, "Không thể xóa",
                     "Tài liệu chỉ có 1 trang, không thể xóa.")
                 return
-            reply = QMessageBox.question(
+            reply = ask_yes_no(
                 window, "Xóa trang",
                 f"Xóa trang {page_no}/{total}? Thao tác không thể hoàn tác.",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
+                default_no=True,
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return

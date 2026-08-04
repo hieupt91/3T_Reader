@@ -10,7 +10,7 @@ from packages.qt_compat.QtWidgets import (
 from packages.pdf_engine import get_pdf_engine
 from app.actions._guard import require_document
 from app.actions._pdf_save import make_staged_pdf_path, pdf_write_slot, remove_path_quietly, replace_document_with_staged
-from app.dialogs import show_info, show_warning
+from app.dialogs import show_info, show_warning, ask_yes_no
 from app.actions.file import open_file
 
 
@@ -167,10 +167,9 @@ def watermark_document(window):
         show_warning(window, "Lỗi watermark", str(e))
         return
 
-    if QMessageBox.question(
+    if ask_yes_no(
         window, "Mở file mới?",
         f"Đã tạo:\n{out_path}\n\nMở file này không?",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
     ) == QMessageBox.StandardButton.Yes:
         open_file(window, out_path)
     else:
@@ -250,10 +249,10 @@ def delete_pages_action(window):
         show_warning(window, "Không thể xóa", "Không thể xóa tất cả các trang.")
         return
 
-    confirm = QMessageBox.question(
+    confirm = ask_yes_no(
         window, "Xác nhận xóa",
         f"Xóa trang {start}–{end} ({len(pages_to_del)} trang)?\nThao tác này không thể hoàn tác.",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        default_no=True,
     )
     if confirm != QMessageBox.StandardButton.Yes:
         return
@@ -473,10 +472,9 @@ def merge_pdfs_action(window):
         return
 
     total_files = len(all_paths)
-    if QMessageBox.question(
+    if ask_yes_no(
         window, "Mở file đã gộp?",
         f"Đã gộp {total_files} file thành:\n{os.path.basename(out_path)}\n\nMở không?",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
     ) == QMessageBox.StandardButton.Yes:
         open_file(window, out_path)
     else:

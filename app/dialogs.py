@@ -4,6 +4,7 @@ from packages.qt_compat.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -106,3 +107,25 @@ def show_info(parent, title: str, message: str):
 
 def show_error(parent, title: str, message: str):
     _show_dialog(parent, title, message, "error")
+
+
+def ask_yes_no(parent, title: str, message: str, *, default_no: bool = False):
+    """QMessageBox.question() với nhãn nút "Có"/"Không" tiếng Việt thay vì
+    "Yes"/"No" mặc định của Qt - bản dịch qtbase cài kèm không phủ nhãn
+    StandardButton này nên vẫn hiện tiếng Anh dù app đã cài QTranslator vi_VN.
+    Trả về đúng QMessageBox.StandardButton.Yes/No như QMessageBox.question()
+    gốc để giữ nguyên mọi chỗ gọi đang so sánh reply == /!= StandardButton.Yes."""
+    box = QMessageBox(
+        QMessageBox.Icon.Question,
+        title,
+        message,
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        parent,
+    )
+    box.button(QMessageBox.StandardButton.Yes).setText("Có")
+    box.button(QMessageBox.StandardButton.No).setText("Không")
+    box.setDefaultButton(
+        QMessageBox.StandardButton.No if default_no else QMessageBox.StandardButton.Yes
+    )
+    box.exec()
+    return box.standardButton(box.clickedButton())

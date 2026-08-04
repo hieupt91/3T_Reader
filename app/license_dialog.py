@@ -507,18 +507,17 @@ def require_plan(window, feature_name: str, allowed_plans: list[str]) -> bool:
         return True
         
     from packages.qt_compat.QtWidgets import QMessageBox
+    from app.dialogs import ask_yes_no
     if "personal" in allowed_plans:
         req = "Cá Nhân"
     else:
         req = "Doanh Nghiệp"
-        
-    reply = QMessageBox.question(
+
+    reply = ask_yes_no(
         window,
         "Nâng cấp tính năng",
         f"Tính năng {feature_name} yêu cầu gói {req} hoặc cao hơn.\n\n"
         "Bạn có muốn nhập mã Nâng cấp Bản quyền ngay bây giờ không?",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        QMessageBox.StandardButton.Yes
     )
     if reply == QMessageBox.StandardButton.Yes:
         open_license_dialog(window)

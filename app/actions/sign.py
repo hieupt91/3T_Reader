@@ -41,7 +41,7 @@ from app.actions._pdf_save import (
     prune_stale_app_temp_files,
     replace_document_with_staged,
 )
-from app.dialogs import show_warning, show_info
+from app.dialogs import show_warning, show_info, ask_yes_no
 from app.signature_templates import find_signature_template, list_signature_templates
 
 
@@ -81,12 +81,11 @@ def _cleanup_signature_preview(window, web_view=None):
 
 
 def _confirm_signature_selection(window) -> bool:
-    reply = QMessageBox.question(
+    reply = ask_yes_no(
         window,
         "Xác nhận vị trí ký",
         "Bạn có đồng ý ký văn bản này tại vị trí đã chọn không?\n\n"
-        "Chọn No nếu muốn kéo lại vùng ký.",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        "Chọn Không nếu muốn kéo lại vùng ký.",
     )
     return reply == QMessageBox.StandardButton.Yes
 
@@ -1626,14 +1625,13 @@ def _sign_existing_signature_field_with_usb(window, report: dict, token_info) ->
                 f"File đã được cập nhật tại:\n{final_output_path}",
             )
         else:
-            reply = QMessageBox.question(
+            reply = ask_yes_no(
                 window,
                 "Ký ô ký thành công",
                 "Ký ô ký thành công!\n\n"
                 f"Trạng thái: {validation_line}\n\n"
                 f"File lưu tại:\n{final_output_path}\n\n"
                 "Mở file đã ký ngay?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if reply == QMessageBox.StandardButton.Yes:
                 _refresh_document_view(
@@ -1966,11 +1964,10 @@ def create_signature_field(window):
         )
         _set_signature_field_marks(window, placements)
 
-        reply = QMessageBox.question(
+        reply = ask_yes_no(
             window,
             "Thêm ô ký",
             "Đã ghi nhận ô ký tạm.\n\nBạn có muốn đặt thêm ô ký khác trên tài liệu này không?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             break
@@ -2151,14 +2148,13 @@ def sign_with_pfx(window):
                 f"File đã được cập nhật tại:\n{final_output_path}",
             )
         else:
-            reply = QMessageBox.question(
+            reply = ask_yes_no(
                 window,
                 "Ký từ file chứng thư thành công",
                 "Ký từ file chứng thư thành công!\n\n"
                 f"Trạng thái: {validation_line}\n\n"
                 f"File lưu tại:\n{final_output_path}\n\n"
                 "Mở file đã ký ngay?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if reply == QMessageBox.StandardButton.Yes:
                 _refresh_document_view(window, final_output_path, page_number=placement["page_number"])
@@ -2300,14 +2296,13 @@ def sign_document(window):
                 f"File đã được cập nhật tại:\n{final_output_path}",
             )
         else:
-            reply = QMessageBox.question(
+            reply = ask_yes_no(
                 window,
                 "Ký số thành công",
                 "Ký số thành công!\n\n"
                 f"Trạng thái: {validation_line}\n\n"
                 f"File lưu tại:\n{final_output_path}\n\n"
                 "Mở file đã ký ngay?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.Yes:
                 _refresh_document_view(window, final_output_path, page_number=placement["page_number"])

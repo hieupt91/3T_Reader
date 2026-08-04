@@ -9,6 +9,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 from packages.qt_compat.QtWidgets import QMessageBox, QProgressDialog, QApplication
+from app.dialogs import ask_yes_no
 from packages.qt_compat.QtCore import Qt, QThread, pyqtSignal, QUrl
 from packages.qt_compat.QtGui import QDesktopServices
 
@@ -892,11 +893,10 @@ def convert_office_to_pdf(window, file_path: str) -> str:
     # 1. Check for LibreOffice
     lo_bin = get_libreoffice_bin()
     if not lo_bin:
-        ans = QMessageBox.question(
-            window, 
+        ans = ask_yes_no(
+            window,
             _t("doc.lo.missing", "Thiếu Bộ Xử Lý"),
             _t("doc.lo.prompt", "Để đọc file Word/Excel chính xác 100%, ứng dụng cần tải thêm Module LibreOffice (~150MB).\n\nBạn có muốn tải và cài đặt tự động không?"),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if ans == QMessageBox.StandardButton.Yes:
             if download_and_extract_libreoffice(window):
@@ -1058,11 +1058,10 @@ def handle_xml_itax(window, file_path: str):
     if _open_xml_with_itaxviewer(window, file_path):
         return
 
-    ans = QMessageBox.question(
+    ans = ask_yes_no(
         window,
         _t("doc.itax.title", "File Thuế XML"),
         _t("doc.itax.prompt", "Để đọc định dạng XML đặc thù của Thuế, bạn cần cài đặt phần mềm iTaxViewer.\n\nBạn có muốn tải bản cài đặt chuẩn từ máy chủ 3T Reader không?"),
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
     )
     if ans == QMessageBox.StandardButton.Yes:
         import time

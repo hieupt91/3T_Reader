@@ -451,10 +451,10 @@ def open_ai_settings(window):
     def _reset_all():
         from packages.qt_compat.QtWidgets import QMessageBox
         from packages.platform import get_app_data_dir
-        reply = QMessageBox.question(dlg, "Xoá cấu hình AI",
+        from app.dialogs import ask_yes_no
+        reply = ask_yes_no(dlg, "Xoá cấu hình AI",
             "Xoá toàn bộ API key và cấu hình AI đã lưu trên máy này?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No)
+            default_no=True)
         if reply != QMessageBox.StandardButton.Yes: return
         try:
             cfg = os.path.join(get_app_data_dir(), "ai_config.json")
