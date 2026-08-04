@@ -54,7 +54,8 @@ def write_remote(sftp: paramiko.SFTPClient, path: str, content: str) -> None:
 
 def main() -> int:
     ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.load_system_host_keys()
+    ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
     ssh.connect(
         HOST,
         port=PORT,

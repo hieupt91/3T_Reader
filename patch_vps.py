@@ -3,7 +3,8 @@ from vps_secret import vps_password
 
 def run():
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
     try:
         client.connect('192.168.1.254', 2222, 'hieupt', vps_password())
         
