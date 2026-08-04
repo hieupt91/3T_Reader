@@ -27,6 +27,9 @@ class FileStateStore:
                     license_key=payload["license_key"],
                     customer_name=payload["customer_name"],
                     seat_limit=int(payload["seat_limit"]),
+                    plan=payload.get("plan", "") or ("enterprise" if payload["license_key"].startswith("3TR-E-") else ("basic" if payload["license_key"].startswith("3TR-B-") else "personal")),
+                    first_activated_at=payload.get("first_activated_at", "") or "",
+                    customer_email=payload.get("customer_email", "") or "",
                 )
                 record.active_devices = dict(payload.get("active_devices", {}))
                 record.revoked_devices = set(payload.get("revoked_devices", []))
@@ -41,6 +44,9 @@ class FileStateStore:
                         "license_key": record.license_key,
                         "customer_name": record.customer_name,
                         "seat_limit": record.seat_limit,
+                        "plan": getattr(record, "plan", "personal"),
+                        "first_activated_at": getattr(record, "first_activated_at", "") or "",
+                        "customer_email": getattr(record, "customer_email", "") or "",
                         "active_devices": record.active_devices,
                         "revoked_devices": sorted(record.revoked_devices),
                     }

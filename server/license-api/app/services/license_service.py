@@ -29,8 +29,55 @@ class LicenseService:
             }
             self._save()
 
-    def _expiry(self) -> str:
-        return (datetime.now(timezone.utc) + timedelta(days=settings.license_duration_days)).isoformat()
+    def _expiry_from(self, anchor: datetime) -> str:
+        return (anchor + timedelta(days=settings.license_duration_days)).isoformat()
+
+    @staticmethod
+    def _first_activation_anchor(record: LicenseRecord, now: datetime) -> datetime:
+        """Anchor hạn dùng vào lần kích hoạt ĐẦU TIÊN của license, không bị
+        reset khi gỡ cài đặt / cập nhật app / nhập lại key (TC41)."""
+        stored = getattr(record, "first_activated_at", None)
+        if not stored:
+            # Backfill cho license đã có active_devices từ trước khi field này tồn tại.
+            stored = min(
+                (
+                    str(p.get("issued_at"))
+                    for p in record.active_devices.values()
+                    if p.get("issued_at")
+                ),
+                default=None,
+            )
+        if stored:
+            try:
+                return datetime.fromisoformat(stored)
+            except ValueError:
+                pass
+        return now
+
+    @staticmethod
+    def _normalized_machine_name(machine_name: str | None) -> str:
+        return str(machine_name or "").strip().lower()
+
+    def _find_reusable_device_id(
+        self,
+        record: LicenseRecord,
+        *,
+        device_id: str,
+        platform: str,
+        machine_name: str | None,
+    ) -> str | None:
+        normalized_name = self._normalized_machine_name(machine_name)
+        normalized_platform = str(platform or "").strip().lower()
+        if not normalized_name:
+            return None
+        for existing_device_id, payload in record.active_devices.items():
+            if existing_device_id == device_id:
+                return existing_device_id
+            existing_name = self._normalized_machine_name(payload.get("machine_name"))
+            existing_platform = str(payload.get("platform") or "").strip().lower()
+            if existing_name == normalized_name and existing_platform == normalized_platform:
+                return existing_device_id
+        return None
 
     def activate(self, license_key: str, device_id: str, platform: str, app_version: str, machine_name: str | None) -> dict:
         record = self.licenses.get(license_key)
@@ -46,11 +93,34 @@ class LicenseService:
                 "message": "This device is revoked.",
             }
 
+        reusable_device_id = self._find_reusable_device_id(
+            record,
+            device_id=device_id,
+            platform=platform,
+            machine_name=machine_name,
+        )
+
+        if reusable_device_id and reusable_device_id != device_id:
+            existing_payload = dict(record.active_devices.pop(reusable_device_id))
+            existing_payload["device_id"] = device_id
+            record.active_devices[device_id] = existing_payload
+
         if device_id not in record.active_devices and len(record.active_devices) >= record.seat_limit:
             return {
                 "ok": False,
                 "message": "Seat limit reached.",
             }
+
+        now = datetime.now(timezone.utc)
+        anchor = self._first_activation_anchor(record, now)
+        expires_at = self._expiry_from(anchor)
+        if self._is_expired(expires_at):
+            return {
+                "ok": False,
+                "message": "License expired.",
+                "expires_at": expires_at,
+            }
+        record.first_activated_at = anchor.isoformat()
 
         payload = {
             "license_key": license_key,
@@ -58,11 +128,13 @@ class LicenseService:
             "platform": platform,
             "app_version": app_version,
             "machine_name": machine_name or "",
-            "issued_at": datetime.now(timezone.utc).isoformat(),
-            "expires_at": self._expiry(),
+            "issued_at": now.isoformat(),
+            "activated_at": anchor.isoformat(),
+            "expires_at": expires_at,
         }
         token = self.token_service.sign(payload)
         record.active_devices[device_id] = payload
+        record.revoked_devices.discard(device_id)
         self._save()
         return {
             "ok": True,
@@ -72,6 +144,7 @@ class LicenseService:
             "device_id": device_id,
             "expires_at": payload["expires_at"],
             "seat_limit": record.seat_limit,
+            "plan": getattr(record, "plan", "personal"),
         }
 
     def validate(self, token: str, device_id: str) -> dict:
@@ -83,12 +156,19 @@ class LicenseService:
             return {"ok": False, "message": "Device mismatch."}
         if self._is_expired(payload.get("expires_at", "")):
             return {"ok": False, "message": "Token expired.", "expires_at": payload.get("expires_at")}
+        license_key = payload.get("license_key")
+        record = self.licenses.get(license_key) if license_key else None
+        # Chặn thiết bị đã bị thu hồi: nếu không, token đã ký vẫn hợp lệ tới khi
+        # hết hạn dù admin đã revoke -> thu hồi thành vô nghĩa.
+        if record is not None and device_id in record.revoked_devices:
+            return {"ok": False, "message": "This device is revoked."}
         return {
             "ok": True,
             "message": "Valid.",
-            "license_key": payload.get("license_key"),
+            "license_key": license_key,
             "device_id": device_id,
             "expires_at": payload.get("expires_at"),
+            "plan": getattr(record, "plan", "personal") if record else "free",
         }
 
     def heartbeat(self, token: str, device_id: str) -> dict:
@@ -98,7 +178,7 @@ class LicenseService:
         validation["message"] = "Heartbeat ok."
         return validation
 
-    def deactivate(self, token: str, device_id: str) -> dict:
+    def deactivate(self, token: str, device_id: str, reason: str | None = None) -> dict:
         try:
             payload = self.token_service.verify(token)
         except ValueError:
@@ -108,7 +188,10 @@ class LicenseService:
         if record is None:
             return {"ok": False, "message": "Unknown license key."}
         record.active_devices.pop(device_id, None)
-        record.revoked_devices.add(device_id)
+        if str(reason or "").strip().lower() not in {"user_requested", "app_reinstall", "app_uninstall"}:
+            record.revoked_devices.add(device_id)
+        else:
+            record.revoked_devices.discard(device_id)
         self._save()
         return {"ok": True, "message": "Deactivated."}
 

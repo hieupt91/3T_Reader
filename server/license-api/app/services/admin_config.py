@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -46,25 +46,56 @@ class AdminConfig:
     def get_password(self) -> str:
         return self._load().get("password", _DEFAULT_PASSWORD)
 
-    def set_password(self, new_password: str) -> None:
+    def set_password(self, new_password: str, *, forced: bool = False) -> None:
         data = self._load()
         data.pop("password", None)
         data["password_hash"] = hash_password(new_password)
+        data["must_change_password"] = forced
         self._save(data)
 
     def reset_password(self) -> str:
         alphabet = string.ascii_letters + string.digits
         new_password = "".join(secrets.choice(alphabet) for _ in range(12))
-        self.set_password(new_password)
+        self.set_password(new_password, forced=True)
         return new_password
+
+    def must_change_password(self) -> bool:
+        return bool(self._load().get("must_change_password", False))
+
+    def get_2fa_secret(self) -> str | None:
+        return self._load().get("totp_secret")
+
+    def is_2fa_enabled(self) -> bool:
+        return bool(self._load().get("totp_enabled", False))
+
+    def set_2fa_secret(self, secret: str) -> None:
+        data = self._load()
+        data["totp_secret"] = secret
+        data["totp_enabled"] = False
+        self._save(data)
+
+    def enable_2fa(self) -> None:
+        data = self._load()
+        data["totp_enabled"] = True
+        self._save(data)
+
+    def disable_2fa(self) -> None:
+        data = self._load()
+        data.pop("totp_secret", None)
+        data["totp_enabled"] = False
+        self._save(data)
 
     def get_update_config(self) -> dict:
         data = self._load()
         return data.get("update", {
             "mac_version": "",
             "mac_url": "",
+            "mac_sha256": "",
             "win_version": "",
             "win_url": "",
+            "win_sha256": "",
+            "portable_url": "",
+            "portable_sha256": "",
             "release_notes": "",
             "mandatory": False,
         })
@@ -72,7 +103,29 @@ class AdminConfig:
     def set_update_config(self, cfg: dict) -> None:
         data = self._load()
         current = data.get("update", {})
-        allowed = ("mac_version", "mac_url", "mac_sha256", "win_version", "win_url", "win_sha256", "release_notes", "mandatory", "prices")
+        allowed = (
+            "mac_version",
+            "mac_url",
+            "mac_sha256",
+            "win_version",
+            "win_url",
+            "win_sha256",
+            "portable_url",
+            "portable_sha256",
+            "release_notes",
+            "mandatory",
+            "prices",
+            "payment",
+            "promo_codes",
+            "plan_content",
+            "seo_title",
+            "seo_description",
+            "seo_keywords",
+            "seo_og_image",
+            "social_zalo",
+            "social_facebook",
+            "social_telegram",
+        )
         current.update({k: v for k, v in cfg.items() if k in allowed})
         data["update"] = current
         self._save(data)

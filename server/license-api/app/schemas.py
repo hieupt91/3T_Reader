@@ -20,6 +20,7 @@ class ActivateResponse(BaseModel):
     expires_at: str
     grace_days: int
     seat_limit: int
+    plan: str = "personal"
 
 
 class ValidateRequest(BaseModel):
@@ -34,6 +35,7 @@ class ValidateResponse(BaseModel):
     device_id: str | None = None
     expires_at: str | None = None
     grace_days: int | None = None
+    plan: str = "free"
 
 
 class HeartbeatRequest(BaseModel):
@@ -44,6 +46,7 @@ class HeartbeatRequest(BaseModel):
 class HeartbeatResponse(BaseModel):
     ok: bool
     message: str
+    plan: str = 'free'
 
 
 class DeactivateRequest(BaseModel):
@@ -60,11 +63,15 @@ class DeactivateResponse(BaseModel):
 class UpdateCheckResponse(BaseModel):
     platform: str
     current_version: str
+    version: str = ""
     latest_version: str
     download_url: str
     sha256: str = ""
+    portable_url: str = ""
+    portable_sha256: str = ""
     mandatory: bool = False
     release_notes: str = ""
+    signature: str = ""
 
 
 class ReleaseManifestResponse(BaseModel):
@@ -72,5 +79,7 @@ class ReleaseManifestResponse(BaseModel):
     version: str
     download_url: str
     sha256: str = ""
+    portable_url: str = ""
+    portable_sha256: str = ""
     release_notes: str = ""
     signature: str = ""

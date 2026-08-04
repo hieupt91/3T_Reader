@@ -5,7 +5,7 @@ import os
 import secrets
 import smtplib
 import string
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -199,6 +199,8 @@ class OrderStore:
             license_key=license_key,
             customer_name=order["customer_name"],
             seat_limit=quantity,
+            plan=plan,
+            customer_email=order.get("customer_email", ""),
         )
         license_service.licenses[license_key] = record
         license_service._save()
