@@ -2905,6 +2905,39 @@ def edit_existing_text(window):
 
         text_value = str(new_text).strip()
 
+        # PDF không tự dàn lại dòng: nếu chữ thay thế ước tính rộng hơn vùng
+        # đã bôi đen ở cỡ chữ gốc, ưu tiên CO CỠ CHỮ lại cho vừa đúng vùng đã
+        # chọn (giữ sàn tối thiểu 55% để còn đọc được) thay vì mở rộng vùng
+        # che theo chiều ngang - mở rộng vùng che nghĩa là đè/xoá luôn 1 phần
+        # nội dung NGAY SAU đó mà người dùng không hề chọn để sửa. Chỉ khi co
+        # tới sàn vẫn không đủ chỗ (chữ thay thế quá dài) mới nới thêm vùng
+        # che ra ngoài như phương án cuối, kèm đệm an toàn để mép vùng che
+        # không cắt ngang giữa 1 ký tự liền sau (đã đo thực nghiệm: hệ số
+        # ước lượng bề rộng trung bình có thể hụt vài điểm PDF với chuỗi toàn
+        # chữ hoa, hụt cộng dồn theo độ dài chuỗi).
+        if text_value:
+            insert_left, insert_bottom, insert_right, insert_top = insert_box
+            available_width = max(1.0, insert_right - insert_left)
+            estimated_width = max(1.0, len(text_value) * font_size * 0.62)
+            if estimated_width > available_width:
+                shrink_ratio = max(0.55, available_width / estimated_width)
+                font_size = font_size * shrink_ratio
+
+            exp_left, exp_bottom, exp_right, exp_top = _expanded_text_box(
+                insert_left, insert_bottom, insert_right, insert_top,
+                text_value, font_size, base_snapshot, int(pageNum),
+            )
+            insert_box = (exp_left, exp_bottom, exp_right, exp_top)
+            if (exp_right - exp_left) > available_width + 0.5:
+                safety_margin = max(2.0, font_size * 0.15) + len(text_value) * font_size * 0.03
+                r_left, r_bottom, r_right, r_top = redact_box
+                redact_box = (
+                    min(r_left, exp_left),
+                    min(r_bottom, exp_bottom),
+                    max(r_right, exp_right + safety_margin),
+                    max(r_top, exp_top),
+                )
+
         # Trang scan: che chữ cũ bằng MIẾNG VÁ ẢNH lấy từ chính nền trang —
         # tô màu phẳng kiểu gì cũng lộ vệt trên nền scan có vân/nhiễu.
         patch_info = None
