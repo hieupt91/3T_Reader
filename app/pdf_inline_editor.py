@@ -490,7 +490,14 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
         if loop.isRunning(): loop.quit()
 
     def _ready(page):
-        panel.show(); panel.raise_(); panel.activateWindow()
+        # KHÔNG gọi panel.activateWindow(): panel là 1 top-level window
+        # riêng (Qt.Tool), tự activate ngay sau khi JS vừa focus() ô nhập
+        # text trên trang sẽ cướp lại OS-level keyboard focus từ webview về
+        # panel - user gõ ngay sau khi click đặt vị trí sẽ không ra ký tự
+        # nào, phải click thêm 1 lần nữa vào ô mới gõ được. show()+raise_()
+        # vẫn đủ để panel hiện & nổi lên trên, nút bấm trong panel vẫn dùng
+        # chuột bình thường không cần activateWindow() trước.
+        panel.show(); panel.raise_()
         panel._emit_font()
         _on_rotation(panel.get_rotation())
 
@@ -597,7 +604,10 @@ def run_inline_image(window, image_path: str) -> dict | None:
         if loop.isRunning(): loop.quit()
 
     def _ready(page):
-        panel.show(); panel.raise_(); panel.activateWindow()
+        # Xem chú thích ở _ready() của run_inline_text() - không activateWindow()
+        # để tránh cướp keyboard focus khỏi webview (Enter/Esc xác nhận/hủy
+        # trên trang cũng đi qua JS keydown listener, cùng phụ thuộc focus).
+        panel.show(); panel.raise_()
         _on_rotation(panel.get_rotation())
 
     bridge.ready.connect(_ready)
