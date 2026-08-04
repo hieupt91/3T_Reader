@@ -6,8 +6,8 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 
 **Đã test kỹ, có bằng chứng thực nghiệm khách quan**: Tab "Tệp & Xem", Xoay trang, Gạch dưới, Gạch ngang, Tô sáng, Ghi chú, Đọc sách (TTS), Lưu, hàng đợi tự-lưu chú thích, **toàn bộ nhóm Trang** (Xóa trang/Ghép PDF/Tách PDF/Số trang/Xóa số trang), **toàn bộ nhóm Bảo mật & Xuất** (Watermark/Xóa watermark/Đặt mật khẩu/Xóa mật khẩu/Nén PDF/Xuất Word/Xuất Excel/Xuất Ảnh/Xuất Văn bản), **Auto-OCR** (tự động khi mở file scan), **AI Tóm tắt + Chat PDF** (gọi API Google Gemini thật, có key sẵn trên máy).
 **Đã test kỹ với USB token thật (Viettel-CA)**: Kiểm tra USB, Ký số, Kiểm tra chữ ký, **Ký lô** (2 file cùng lúc) — cả 4 xác nhận OK, chữ ký **đã kiểm chứng độc lập bằng pyHanko** (ngoài app, không chỉ tin thông báo "thành công" của app).
-**Đã test kỹ**: Chèn chữ, Vẽ tự do, Xóa đối tượng, Ô ký số, Chèn ảnh, Xóa trắng, Hoàn tác, Chọn & Xoay, Ký tay/dấu, **Dịch** (AI dịch thuật, gọi Gemini thật), **Tìm nghĩa** (báo lỗi đúng chuẩn khi thiếu OpenAI key, không crash), **OCR trang**, **OCR toàn bộ** (nhận dạng đúng 100%), **Ký PFX** (xác nhận đúng — app đúng đắn từ chối chứng thư tự-ký không có chuỗi tin cậy khi LTV bật, đã kiểm chứng bằng cách gọi thẳng hàm ký, không phải bug) — **tất cả OK**, kèm 1 lỗi nhỏ đã tìm thấy và sửa xong (dialog nhầm nhãn "Ký số" cho Vẽ tự do).
-**Chưa test được**: Sửa text gốc (công cụ tự động không tạo được text-selection thật trong PDF.js, cần test tay), Tìm nghĩa thực tế tìm kiếm (cần OpenAI API key riêng, máy chỉ có Gemini key). Đây **không phải "OK"**, chỉ là chưa có bằng chứng trực tiếp.
+**Đã test kỹ**: Chèn chữ, Vẽ tự do, Xóa đối tượng, Ô ký số, Chèn ảnh, Xóa trắng, Hoàn tác, Chọn & Xoay, Ký tay/dấu, **Dịch** (AI dịch thuật, gọi Gemini thật), **Tìm nghĩa** (báo lỗi đúng chuẩn khi thiếu OpenAI key, không crash), **OCR trang**, **OCR toàn bộ** (nhận dạng đúng 100%), **Ký PFX** (xác nhận đúng — app đúng đắn từ chối chứng thư tự-ký không có chuỗi tin cậy khi LTV bật, đã kiểm chứng bằng cách gọi thẳng hàm ký, không phải bug), **Sửa text gốc** (dùng cổng debug từ xa của QtWebEngine — CDP — để tạo text-selection thật trong PDF.js, xem chi tiết bên dưới) — **tất cả OK**, kèm 1 lỗi nhỏ đã tìm thấy và sửa xong (dialog nhầm nhãn "Ký số" cho Vẽ tự do).
+**Chưa test được**: chỉ còn Tìm nghĩa thực tế tìm kiếm (cần OpenAI API key riêng, máy chỉ có Gemini key — không có cách nào khác để test nếu không có key thật).
 
 ---
 
@@ -64,6 +64,7 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 | **OCR toàn bộ** (nút thủ công) | Bấm "OCR tài liệu" trên file 3 trang | "Hoàn thành 3 trang — ~36 từ nhận dạng được", 100% tiến độ, nội dung khớp đúng cả 3 trang |
 | **Ký PFX** | Tạo chứng thư tự-ký (self-signed) bằng `cryptography` để test độc lập, không đụng token thật → chọn vị trí → chọn file PFX → nhập mật khẩu → xác nhận | GUI báo lỗi "Ký từ file chứng thư thất bại" — **đã xác minh đây là hành vi ĐÚNG**: gọi thẳng hàm ký (`sign_pdf_with_pkcs12`) với đúng `enable_ltv=True` (cấu hình LTV thật đang bật trên máy) cho ra **chính xác cùng lỗi** `InvalidCertificateError: certificate ... is self-signed` — app đúng đắn từ chối chứng thư không có chuỗi tin cậy khi LTV bật (bảo mật đúng). Gọi lại với `enable_ltv=False` thì ký thành công, file hợp lệ (có `/AcroForm`) — xác nhận cơ chế ký PFX hoạt động đúng |
 | **Ký lô** | Tạo 2 file PDF trong 1 thư mục → "Ký lô" → chọn vị trí trên file đang mở → chọn thư mục nguồn → chọn thư mục đích → nhập PIN token thật | "Ký số hàng loạt thành công 2 tài liệu!" — **cả 2 file kiểm chứng độc lập bằng pyHanko**: `intact=True, valid=True` |
+| **Sửa text gốc** | pywinauto không mô phỏng được thao tác kéo-chọn text thật trong PDF.js → chuyển sang bật `QTWEBENGINE_REMOTE_DEBUGGING`, dùng Chrome DevTools Protocol (thư viện `websockets`) gọi `Runtime.evaluate` tạo **DOM Selection/Range thật** trên `.textLayer span` (giống hệt user kéo chuột thật) → bấm "Sửa text gốc" | Dialog "Sửa text" nhận đúng "Text gốc: original text" → nhập text thay thế → `Ctrl+S` → render lại xác nhận text đã đổi đúng. *Lưu ý nhỏ (không phải bug)*: vùng che chữ cũ tính theo độ rộng chữ cũ — nếu chữ thay thế dài/ngắn hơn nhiều, phần chữ mới có thể chồng nhẹ lên chữ còn lại phía sau (giới hạn tự nhiên vì PDF không tự dàn lại dòng — đúng như cảnh báo có sẵn ngay trong dialog) |
 
 ---
 
@@ -113,24 +114,22 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 
 | Nhóm | Tính năng | Lý do chưa test |
 |---|---|---|
-| Chú thích | Sửa text gốc | Cần bôi đen text thật trong PDF.js — công cụ UI Automation không tạo được text-selection thật (đã thử 2 cách khác nhau, đều bị "Chưa chọn văn bản") |
-| AI | Tìm nghĩa (bước tìm kiếm thực tế) | Đã xác nhận báo lỗi đúng khi thiếu OpenAI key; chưa test được bước tìm kiếm thật vì máy chỉ có Gemini key, không có OpenAI key |
+| AI | Tìm nghĩa (bước tìm kiếm thực tế) | Đã xác nhận báo lỗi đúng khi thiếu OpenAI key; chưa test được bước tìm kiếm thật vì máy chỉ có Gemini key, không có OpenAI key — **cần bạn cung cấp key**, không có cách nào khác để tự test |
 
 ---
 
 ## Đề xuất bước tiếp theo
 
-1. Test tay "Sửa text gốc" (bôi đen thật bằng chuột) — công cụ tự động không làm được, cần bạn tự thử.
-2. Nếu muốn test đầy đủ Tìm nghĩa, cần thêm OpenAI API key vào Cài đặt AI.
-3. Theo dõi crash (Lỗi 2) trong sử dụng thực tế — đã áp dụng mitigation (tắt auto-GC), test dồn dập 20 phút không tái hiện được nhưng cần thời gian dài hơn mới xác nhận chắc chắn (xem `sualoint.md`).
-4. Toàn bộ việc sửa lỗi tiếp theo vẫn tuân thủ `sualoint.md` (đọc kỹ trước khi sửa, sửa đúng trọng tâm, rà soát tránh xung đột code, test trước rồi mới commit).
+1. Nếu muốn test đầy đủ Tìm nghĩa, cần thêm OpenAI API key vào Cài đặt AI — đây là mục **duy nhất** còn lại, thật sự cần hành động từ bạn.
+2. Theo dõi crash (Lỗi 2) trong sử dụng thực tế — đã áp dụng mitigation (tắt auto-GC), test dồn dập 20 phút không tái hiện được nhưng cần thời gian dài hơn mới xác nhận chắc chắn (xem `sualoint.md`).
+3. Toàn bộ việc sửa lỗi tiếp theo vẫn tuân thủ `sualoint.md` (đọc kỹ trước khi sửa, sửa đúng trọng tâm, rà soát tránh xung đột code, test trước rồi mới commit).
 
 ---
 
 ## Tổng kết phiên QA 2026-08-04
 
-Đã test **gần như toàn bộ** tính năng của 3T Reader trực tiếp trên app thật (không đọc code suy đoán), qua nhiều vòng:
-- **~45 tính năng xác nhận OK** trải khắp 6 tab ribbon (Tệp & Xem, Chú thích, Trang, Bảo mật & Xuất, OCR & AI, Ký số) — gồm cả toàn bộ nhóm Ký số (USB token thật + Ký PFX + Ký lô), đã kiểm chứng độc lập bằng pyHanko cho mọi trường hợp ký.
+Đã test **toàn bộ tính năng có thể tự test được** của 3T Reader trực tiếp trên app thật (không đọc code suy đoán), qua nhiều vòng:
+- **~46 tính năng xác nhận OK** trải khắp 6 tab ribbon (Tệp & Xem, Chú thích, Trang, Bảo mật & Xuất, OCR & AI, Ký số) — gồm cả toàn bộ nhóm Ký số (USB token thật + Ký PFX + Ký lô, kiểm chứng độc lập bằng pyHanko) và Sửa text gốc (dùng Chrome DevTools Protocol để tạo text-selection thật khi UI Automation thông thường không làm được).
 - **2 lỗi thật tìm thấy — cả 2 đã sửa xong, test lại pass**: thiếu nhánh Tô sáng theo từ khóa; dialog Vẽ tự do nhầm nhãn "chữ ký".
 - **1 vấn đề ổn định đã điều tra sâu + áp dụng mitigation**: crash `Qt6Core.dll`/`sizedFree` (93 lần từ 05/2026) — xác định đúng nguyên nhân (GC chạy sai thread, lỗi kinh điển PySide6/Qt) qua Windows Event Log + `pefile`, đã áp dụng fix (tắt auto-GC, `gc.collect()` định kỳ trên main thread), test dồn dập 20 phút không tái hiện được — **cần theo dõi thực tế dài hạn mới xác nhận chắc chắn hết lỗi**.
-- **Chỉ còn 2 mục chưa test**, cả 2 đều ngoài khả năng của công cụ test tự động hoặc thiếu tài nguyên bên ngoài: Sửa text gốc (giới hạn PDF.js text-selection qua automation), Tìm nghĩa thật (thiếu OpenAI key).
+- **Chỉ còn đúng 1 mục chưa test**: Tìm nghĩa thật — bắt buộc cần OpenAI API key của bạn, không có cách nào tự làm được (không thể tạo/đoán API key người khác).
