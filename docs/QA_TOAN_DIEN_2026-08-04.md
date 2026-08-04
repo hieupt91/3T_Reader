@@ -6,8 +6,8 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 
 **Đã test kỹ, có bằng chứng thực nghiệm khách quan**: Tab "Tệp & Xem", Xoay trang, Gạch dưới, Gạch ngang, Tô sáng, Ghi chú, Đọc sách (TTS), Lưu, hàng đợi tự-lưu chú thích, **toàn bộ nhóm Trang** (Xóa trang/Ghép PDF/Tách PDF/Số trang/Xóa số trang), **toàn bộ nhóm Bảo mật & Xuất** (Watermark/Xóa watermark/Đặt mật khẩu/Xóa mật khẩu/Nén PDF/Xuất Word/Xuất Excel/Xuất Ảnh/Xuất Văn bản), **Auto-OCR** (tự động khi mở file scan), **AI Tóm tắt + Chat PDF** (gọi API Google Gemini thật, có key sẵn trên máy).
 **Đã test kỹ với USB token thật (Viettel-CA)**: Kiểm tra USB, Ký số, Kiểm tra chữ ký — cả 3 xác nhận OK, chữ ký **đã kiểm chứng độc lập bằng pyHanko** (ngoài app, không chỉ tin thông báo "thành công" của app).
-**Đã test kỹ**: Chèn chữ, Vẽ tự do, Xóa đối tượng, Ô ký số, Chèn ảnh, Xóa trắng, Hoàn tác, Chọn & Xoay, Ký tay/dấu — **tất cả OK**, kèm 1 lỗi nhỏ đã tìm thấy và sửa xong (dialog nhầm nhãn "Ký số" cho Vẽ tự do).
-**Chưa test được**: Sửa text gốc (công cụ tự động không tạo được text-selection thật trong PDF.js, cần test tay), Dịch/Tìm nghĩa (AI — cùng hạ tầng với Tóm tắt/Chat đã OK), Ký PFX/Ký lô (cần file PFX test riêng hoặc nhiều file cùng lúc, chưa chuẩn bị được). Đây **không phải "OK"**, chỉ là chưa có bằng chứng trực tiếp.
+**Đã test kỹ**: Chèn chữ, Vẽ tự do, Xóa đối tượng, Ô ký số, Chèn ảnh, Xóa trắng, Hoàn tác, Chọn & Xoay, Ký tay/dấu, **Dịch** (AI dịch thuật, gọi Gemini thật), **Tìm nghĩa** (báo lỗi đúng chuẩn khi thiếu OpenAI key, không crash), **OCR trang** (nhận dạng đúng 100%) — **tất cả OK**, kèm 1 lỗi nhỏ đã tìm thấy và sửa xong (dialog nhầm nhãn "Ký số" cho Vẽ tự do).
+**Chưa test được**: Sửa text gốc (công cụ tự động không tạo được text-selection thật trong PDF.js, cần test tay), OCR toàn bộ (cùng engine với OCR trang/Auto-OCR đã OK, chưa tự bấm riêng), Ký PFX/Ký lô (cần file PFX test riêng hoặc nhiều file cùng lúc), Tìm nghĩa thực tế tìm kiếm (cần OpenAI API key riêng, máy chỉ có Gemini key). Đây **không phải "OK"**, chỉ là chưa có bằng chứng trực tiếp.
 
 ---
 
@@ -58,6 +58,9 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 | **Hoàn tác** | Chèn text mới (chưa lưu) → bấm Hoàn tác | Text vừa chèn biến mất đúng, không ảnh hưởng các object đã lưu trước đó |
 | **Chọn & Xoay** | Chèn text mới → bật chế độ → click vào text | Hiện đúng bộ nút thao tác (di chuyển/xoay/sửa/xóa) trên object vừa chọn |
 | **Ký tay/dấu** | Chọn "Vẽ tay" → vẽ nét trên canvas → đặt lên PDF → kéo vùng đặt → xác nhận → `Ctrl+S` | Nét chữ ký lưu đúng vị trí (render lại xác nhận). Đây là **con dấu hình ảnh**, không phải chữ ký số mật mã (không tạo `/AcroForm` — đã xác nhận qua pikepdf) — khác với "Ký số"/"Ô ký số" |
+| **Dịch (AI)** | Nhập "Hello world, this is a test." → chọn "Tiếng Việt" → "Dịch ngay" (gọi Gemini thật) | Tự nhận diện đúng nguồn (English), dịch đúng: "Chào thế giới, đây là một bài kiểm tra." |
+| **Tìm nghĩa (Semantic Search)** | Bấm "Xây dựng Index" khi máy chỉ có Gemini key (không có OpenAI key) | Báo lỗi đúng, rõ ràng: "Semantic search cần OPENAI_API_KEY. Vào menu AI → Cài đặt AI để nhập key." — không crash, không treo |
+| **OCR trang** (nút thủ công) | Bấm "OCR trang" trên file có text thật | "Hoàn thành 1 trang — ~22 từ nhận dạng được", nội dung OCR khớp 100% văn bản gốc |
 
 ---
 
@@ -108,8 +111,8 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 | Nhóm | Tính năng | Lý do chưa test |
 |---|---|---|
 | Chú thích | Sửa text gốc | Cần bôi đen text thật trong PDF.js — công cụ UI Automation không tạo được text-selection thật (đã thử 2 cách khác nhau, đều bị "Chưa chọn văn bản") |
-| OCR | OCR trang / OCR toàn bộ (nút bấm thủ công) | Auto-OCR (chạy nền tự động) đã xác nhận OK; nút bấm thủ công gọi cùng engine nên rủi ro thấp nhưng chưa tự tay bấm |
-| AI | Dịch, Tìm nghĩa | Tóm tắt + Chat PDF (cùng hạ tầng AI provider) đã xác nhận OK; 2 mục này chưa tự tay bấm |
+| OCR | OCR toàn bộ (nút bấm thủ công) | OCR trang + Auto-OCR (cùng engine) đã xác nhận OK; chưa tự bấm riêng nút này |
+| AI | Tìm nghĩa (bước tìm kiếm thực tế) | Đã xác nhận báo lỗi đúng khi thiếu OpenAI key; chưa test được bước tìm kiếm thật vì máy chỉ có Gemini key, không có OpenAI key |
 | Ký số | Ký PFX, Ký lô | Kiểm tra USB/Ký số/Kiểm tra chữ ký/Ô ký/Ký tay-dấu đã test OK với token thật; 2 mục còn lại cần file PFX test riêng hoặc nhiều file cùng lúc |
 
 ---
@@ -117,6 +120,17 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 ## Đề xuất bước tiếp theo
 
 1. Test tay "Sửa text gốc" (bôi đen thật bằng chuột) — công cụ tự động không làm được, cần bạn tự thử.
-2. Test nốt Dịch/Tìm nghĩa, nút OCR thủ công (rủi ro thấp).
+2. Test nốt nút "OCR toàn bộ" (rủi ro thấp, cùng engine đã xác nhận OK).
 3. Ký PFX/Ký lô cần file PFX/P12 test riêng hoặc chuẩn bị nhiều file để test hàng loạt.
-4. Toàn bộ việc sửa lỗi tiếp theo vẫn tuân thủ `sualoint.md` (đọc kỹ trước khi sửa, sửa đúng trọng tâm, rà soát tránh xung đột code, test trước rồi mới commit).
+4. Nếu muốn test đầy đủ Tìm nghĩa, cần thêm OpenAI API key vào Cài đặt AI.
+5. Toàn bộ việc sửa lỗi tiếp theo vẫn tuân thủ `sualoint.md` (đọc kỹ trước khi sửa, sửa đúng trọng tâm, rà soát tránh xung đột code, test trước rồi mới commit).
+
+---
+
+## Tổng kết phiên QA 2026-08-04
+
+Đã test **gần như toàn bộ** tính năng của 3T Reader trực tiếp trên app thật (không đọc code suy đoán), qua nhiều vòng:
+- **~40 tính năng xác nhận OK** trải khắp 6 tab ribbon (Tệp & Xem, Chú thích, Trang, Bảo mật & Xuất, OCR & AI, Ký số), bao gồm cả ký số thật với USB token Viettel-CA của công ty (đã kiểm chứng độc lập bằng pyHanko).
+- **2 lỗi thật tìm thấy — cả 2 đã sửa xong, test lại pass**: thiếu nhánh Tô sáng theo từ khóa; dialog Vẽ tự do nhầm nhãn "chữ ký".
+- **1 vấn đề ổn định chưa giải quyết**: app thỉnh thoảng crash khi thao tác dồn dập (`sualoint.md` Lỗi 2) — cần công cụ debug tầng hệ điều hành (WinDbg) mới điều tra tiếp được, ngoài khả năng xử lý trong phiên hiện tại.
+- **Còn lại rất ít, đều có lý do rõ ràng**: Sửa text gốc (giới hạn công cụ test), OCR toàn bộ (cùng engine đã OK), Ký PFX/Ký lô (thiếu file test), Tìm nghĩa thật (thiếu OpenAI key).
