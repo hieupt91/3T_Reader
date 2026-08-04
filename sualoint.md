@@ -213,3 +213,126 @@ Không có `cdb.exe`/WinDbg, nhưng Windows tự ghi chi tiết crash native và
 - **Lỗi 0 (chú thích tự lưu báo sai khi chỉ đọc)** — đã sửa (`app/actions/annotate.py`, `app/actions/auto_ocr.py`, `app/window.py`), đã test pass, **sẵn sàng để bạn test lại trên app thật**.
 - **Lỗi 1 (xoay trang)** — không phải bug, không có code nào thay đổi.
 - **Lỗi 2 (crash)** — đã thử áp dụng mitigation (tắt auto-GC + gc.collect định kỳ trên main thread), test dồn dập 20 phút không tái hiện được crash, nhưng **cần theo dõi thực tế lâu dài mới xác nhận chắc chắn** — chưa thể coi là "đã sửa xong" theo đúng nghĩa.
+
+---
+
+## Lỗi 3: "Sửa text gốc" — chữ thay thế chồng lấn mất khả năng đọc khi dài hơn vùng che
+
+**Nguồn phát hiện**: `docs/QA_UX_FINAL_REVIEW_2026-08-04.md`, mục UX #1 (vòng rà soát QA/UX cuối cùng).
+
+**Trạng thái: ĐÃ SỬA, đã test kỹ qua 4 vòng lặp trên app thật — sẵn sàng để bạn test lại.**
+
+### Hiện tượng gốc
+
+Dùng "Sửa text gốc" thay "original text" (13 ký tự) bằng "REPLACEDFINAL" (14 ký tự, chỉ dài hơn 1 ký tự) — chữ mới đè lên phần văn bản còn lại phía sau ("edited later."), tạo dòng chữ chồng lẫn **không đọc được**: "REPLACEDfdMAledited".
+
+### Nguyên nhân (đọc code xác nhận, `app/actions/edit.py`, hàm `on_click` trong `edit_text_object`)
+
+Hàm `_expanded_text_box()` (có sẵn từ trước) đã tính toán mở rộng vùng ĐẶT chữ mới (`text_box`/`insert_box`) theo đúng bề rộng ước tính của chữ thay thế — nhưng vùng CHE chữ cũ (`redact_box` tô màu nền cho trang vector, hoặc miếng vá ảnh `patch_box` cho trang scan) **không được mở rộng theo**, vẫn giữ nguyên kích thước của vùng bôi đen gốc. Kết quả: phần chữ mới vượt ra ngoài vùng che sẽ đè trực tiếp lên nội dung cũ chưa bị xoá ở phía sau, chưa kể chữ cũ đó cũng chưa được che nên vẫn hiển thị — 2 lớp chữ chồng lên nhau.
+
+### Đã thử 3 hướng, chọn hướng an toàn nhất sau khi test thực nghiệm phát hiện tác dụng phụ
+
+1. **Hướng 1 (bỏ)**: mở rộng `redact_box` khớp đúng `text_box` đã tính — hết chồng chữ nhưng còn sót 1 vệt glyph vỡ ở đúng mép do công thức ước lượng bề rộng (`len(text)*font_size*0.62`) hụt so với bề rộng thật của chuỗi toàn chữ hoa (đo thực nghiệm: "REPLACEDFINAL" 14pt ước lượng 112.84pt, thật 115.14pt).
+2. **Hướng 2 (bỏ)**: thêm khoảng đệm an toàn tỉ lệ theo độ dài chuỗi vào mép phải vùng che — hết vệt glyph vỡ, NHƯNG mở rộng đủ lớn để che đúng bắt đầu **ăn lấn vào nội dung liền sau mà người dùng không hề chọn để sửa** (test cho thấy chữ "e" đầu từ "edited" bị xoá mất, thành "dited") — tuy nhìn "sạch" hơn nhưng thực chất **làm mất nội dung không được yêu cầu sửa**, một dạng lỗi nghiêm trọng hơn (âm thầm sai lệch nội dung) so với lỗi chồng chữ (lộ liễu, dễ nhận ra ngay).
+3. **Hướng 3 (ĐÃ CHỌN, đúng như đề xuất ban đầu trong `QA_UX_FINAL_REVIEW`)**: PDF không tự dàn lại dòng, nên **ưu tiên co cỡ chữ thay thế lại cho vừa đúng vùng đã bôi đen** (giữ sàn tối thiểu 55% cỡ chữ gốc để còn đọc được) thay vì mở rộng vùng che. Chỉ khi co tới sàn vẫn không đủ chỗ (chữ thay thế quá dài) mới cho phép mở rộng vùng che ra ngoài như phương án cuối (kèm đệm an toàn của Hướng 2) — trường hợp này chấp nhận đè nhẹ lên nội dung liền sau vì không còn lựa chọn nào khác để tránh chồng chữ hoàn toàn không đọc được.
+
+### Đã sửa
+
+`app/actions/edit.py`, trong `on_click()` (hàm lồng bên trong `edit_text_object`), thêm logic ngay sau khi có `text_value`, TRƯỚC khi build `patch_info`/tô màu nền: so `available_width` (bề rộng vùng đã chọn, đo thật) với `estimated_width` (bề rộng ước tính của chữ thay thế) — nếu vượt, co `font_size` theo tỉ lệ (sàn 55%); sau đó mới gọi `_expanded_text_box()` như cũ; nếu ngay cả ở sàn vẫn không đủ chỗ, mới mở rộng `redact_box` kèm đệm an toàn.
+
+### Phạm vi ảnh hưởng
+
+Chỉ đổi hành vi khi chữ thay thế **rộng hơn** vùng đã chọn ở cỡ chữ gốc (trường hợp phổ biến gây chồng chữ). Không đổi gì khi chữ thay thế vừa đủ hoặc ngắn hơn (đường `if estimated_width > available_width` không kích hoạt — đã unit-test riêng bằng `reportlab.pdfmetrics.stringWidth` xác nhận trường hợp "new" ngắn giữ nguyên `font_size`, không co).
+
+### Đã kiểm tra
+
+- `pytest tests/`: baseline xác nhận lại bằng `git stash` là **5 fail / 326 pass** (2 fail nhiều hơn con số "328/3" ghi trước đó trong file này — đã xác nhận cả 5 đều **pre-existing, không liên quan gì đến sửa lần này**, tái hiện y hệt cả khi stash code fix). Sau khi sửa: đúng **5 fail / 326 pass**, không có fail mới.
+- Test trực tiếp trên app thật, 4 vòng lặp (mỗi vòng: launch app mới, dùng CDP tạo text-selection thật trên `.textLayer span`, bấm "Sửa text gốc", nhập "REPLACEDFINAL" thay "original text", `Ctrl+S`, render lại bằng `pypdfium2` ở cả độ phóng đại thường và 6-12x để soi kỹ):
+  - Vòng 1 (chưa sửa): chồng chữ không đọc được — xác nhận đúng bug report.
+  - Vòng 2 (Hướng 1): còn 1 vệt glyph vỡ ở mép.
+  - Vòng 3 (Hướng 2): vệt glyph hết nhưng mất chữ "e" của "edited" → "dited" — phát hiện tác dụng phụ, loại bỏ hướng này.
+  - Vòng 4 (Hướng 3 - bản cuối): render đúng nguyên vẹn **"This is REPLACEDFINAL to be edited later."** — không mất chữ, không chồng lấn, chỉ đổi cỡ chữ vùng thay thế (nhỏ hơn chữ xung quanh, chấp nhận được vì ưu tiên đúng nội dung).
+- Sau khi sửa xong, đã **test thêm với 1 file PDF thật rất lớn** (743MB, 336 trang, scan ảnh) — `C:\Users\HieuPC\Downloads\1 Dao giao sinh tu ky thu - in (1).pdf` — mở file, nhảy trang 1→336→150→50→300, bật thumbnail sidebar (336 thumbnail), mở `Ctrl+F` tìm kiếm — **không crash, không treo, `app_log.txt` sạch không có dòng lỗi mới nào trong suốt phiên**, memory tăng dần hợp lý theo số trang đã cache (570MB→751MB) rồi đóng app sạch sẽ.
+
+**Còn 1 vấn đề nhỏ KHÔNG thuộc phạm vi lỗi này, phát hiện phụ trong lúc test (chưa sửa)**: có 1 vệt gạch ngang nhỏ (artifact) xuất hiện ổn định ở cùng 1 vị trí bên dưới chữ thay thế trong TẤT CẢ các lần test (kể cả trước khi sửa lỗi chồng chữ) — nghi là phần đuôi (descender) của ký tự "g" trong "original" (chữ cũ) chưa được che hết theo chiều dọc. Không liên quan đến lỗi chồng chữ theo chiều ngang đang xử lý ở đây, chỉ nhìn thấy khi phóng to 6-12 lần, không ảnh hưởng khi đọc ở độ phóng đại thường. Ghi nhận lại để xử lý riêng nếu cần, không sửa lan man trong lần này.
+
+**Chưa commit** (mặc định theo quy tắc ở đầu file).
+
+---
+
+## Lỗi 4: "Xóa watermark" không dọn tài nguyên ảnh cũ, làm phình file
+
+**Nguồn phát hiện**: `docs/QA_HEAVY_FILE_2026-08-04.md`, mục "Vấn đề phát hiện #2" (test với file 743MB/336 trang).
+
+**Trạng thái: ĐÃ SỬA, đã test qua app thật.**
+
+### Nguyên nhân
+
+`remove_watermark()` (`app/actions/document_ops.py`) chỉ gỡ lệnh **vẽ** overlay khỏi content stream của trang (`_remove_last_overlay_draw`) — object ảnh watermark vẫn còn nguyên trong `/Resources/XObject` của trang dù không còn được vẽ ra, vì không có bước dọn (garbage-collect) nào sau đó. `pdf.save()` của pikepdf vẫn ghi xuống mọi object còn "sống" trong đồ thị object, kể cả object không còn được tham chiếu từ content stream nào.
+
+### Đã sửa
+
+Thêm `page.remove_unreferenced_resources()` (API có sẵn của pikepdf) ngay sau khi `_remove_last_overlay_draw()` xóa thành công, trong vòng lặp của `remove_watermark()`. Hàm này dọn sạch mọi entry trong `/Resources` không còn được content stream hiện tại tham chiếu tới.
+
+### Đã kiểm tra
+
+- Thực nghiệm độc lập bằng pikepdf (tạo XObject giả, xóa content stream, so sánh kích thước output có/không gọi `remove_unreferenced_resources()`): xác nhận API thực sự khiến `pdf.save()` bỏ hẳn object không dùng, không chỉ orphan trong bộ nhớ.
+- `pytest tests/`: 326 pass / 5 fail — đúng baseline (đã xác nhận qua `git stash` 5 fail này pre-existing, không liên quan sửa lần này).
+- Test trực tiếp trên app thật (file 5 trang): Watermark (167,525 byte) → Xóa watermark → còn 2,995 byte (gần bằng dung lượng gốc trước khi thêm), `pikepdf` xác nhận `/Resources/XObject` của trang = `None` (sạch hoàn toàn).
+
+**Chưa commit.**
+
+---
+
+## Lỗi 5: Nút "Yes"/"No" tiếng Anh trong nhiều dialog xác nhận
+
+**Nguồn phát hiện**: `docs/QA_UX_FINAL_REVIEW_2026-08-04.md` UX#3 + củng cố thêm ở `docs/QA_HEAVY_FILE_2026-08-04.md` #3.
+
+**Trạng thái: ĐÃ SỬA toàn bộ, đã test qua app thật + pytest.**
+
+### Nguyên nhân
+
+`QMessageBox.question()` dùng `QMessageBox.StandardButton.Yes/No` mặc định — bản dịch `qtbase_vi.qm` cài kèm không phủ nhãn nút chuẩn này, nên dù app đã cài `QTranslator` cho `vi_VN` (`main.py`), nút vẫn hiện "Yes"/"No" tiếng Anh trong khi toàn bộ nội dung dialog là tiếng Việt.
+
+### Đã rà soát toàn bộ codebase (không chỉ 1-2 chỗ đã báo)
+
+Grep `QMessageBox.question(` ra đúng **17 chỗ gọi**, trải trong 10 file: `document_ops.py` (Xóa watermark), `sign.py` (5 chỗ: xác nhận vị trí ký, 3 dialog "ký thành công → mở file?", thêm ô ký), `annotate.py` (Xóa trang), `pages.py` (3 chỗ: mở file mới/xác nhận xóa trang/mở file đã gộp), `license_dialog.py` (nâng cấp tính năng), `document_converter.py` (2 chỗ: tải LibreOffice, tải iTaxViewer), `ai_actions.py` (xoá cấu hình AI), `ocr.py` (2 chỗ: cảnh báo tài liệu dài, cả 2 hàm riêng), `updater.py` (có bản cập nhật mới), `signature_pad.py` (xóa mẫu chữ ký).
+
+### Đã sửa
+
+Thêm hàm dùng chung `ask_yes_no(parent, title, message, *, default_no=False)` vào `app/dialogs.py` (cạnh `show_warning`/`show_info`/`show_error` đã có sẵn) — dựng `QMessageBox` thủ công, gán `.setText("Có")`/`.setText("Không")` cho 2 nút chuẩn, vẫn trả về đúng `QMessageBox.StandardButton.Yes/No` như `QMessageBox.question()` gốc để **không phải sửa bất kỳ dòng nào đang so sánh `reply == /!= StandardButton.Yes`** ở 17 nơi gọi — chỉ đổi cách tạo dialog. Thay toàn bộ 17 lời gọi `QMessageBox.question(...)` bằng `ask_yes_no(...)`. Nhân tiện sửa 1 câu trong `sign.py` từng nhắc thẳng tên nút cũ ("Chọn No nếu muốn kéo lại vùng ký") thành "Chọn Không..." cho khớp nhãn mới.
+
+### Đã kiểm tra
+
+- `pytest tests/`: 326 pass / 5 fail — đúng baseline, không có fail mới phát sinh từ việc đổi 17 chỗ gọi.
+- Test trực tiếp trên app thật: dialog "Xóa watermark" hiện đúng nút "Có"/"Không" tiếng Việt (chụp màn hình xác nhận).
+- Đã kiểm tra kỹ từng chỗ gọi để giữ đúng `default_no` (nút mặc định) như code gốc: `Xóa trang`, `Xóa cấu hình AI`, `Xóa mẫu chữ ký` giữ mặc định là "Không" (an toàn cho thao tác phá hủy); các dialog còn lại giữ mặc định "Có" hoặc không set (theo đúng hành vi gốc).
+
+**Chưa commit.**
+
+---
+
+## Lỗi 6: "Chèn chữ" không tự focus khung nhập text sau khi tạo
+
+**Nguồn phát hiện**: `docs/QA_UX_FINAL_REVIEW_2026-08-04.md` UX#2.
+
+**Trạng thái: ĐÃ SỬA, đã test qua app thật với thao tác chuột thật (không chỉ UI Automation).**
+
+### Điều tra
+
+Ban đầu nghi ngờ JS thiếu `.focus()` — đọc code (`assets/js/inline_text_bridge.js`) thấy **đã có sẵn** `ta.focus()` đúng chỗ (dòng 275, ngay sau khi tạo textarea). Test lại bằng click chuột thật (Windows API `mouse_event`, không qua UI Automation, để loại trừ khả năng đây chỉ là hạn chế công cụ test) — **vẫn tái hiện đúng lỗi**: gõ "HELLO" ngay sau khi click đặt vị trí không vào được ô nhập (chụp màn hình xác nhận ô vẫn hiện placeholder "Gõ văn bản…").
+
+### Nguyên nhân thật (đọc kỹ `app/pdf_inline_editor.py`)
+
+Panel điều khiển font/cỡ chữ (`InlineEditPanel`) là 1 top-level window riêng (`Qt.WindowType.Tool`), KHÔNG hiện sẵn khi bắt đầu chế độ chèn chữ — nó chỉ được `.show()` lần đầu bên trong callback `_ready()`, được gọi khi JS báo `reportReady` qua WebChannel **NGAY SAU** khi JS vừa `ta.focus()` xong. Callback đó gọi `panel.show(); panel.raise_(); panel.activateWindow()` — `activateWindow()` yêu cầu hệ điều hành cấp OS-level keyboard focus cho panel, cướp lại đúng focus mà JS vừa đặt vào ô nhập trong QWebEngineView 1 nhịp trước đó. Vì 2 window (panel và QWebEngineView) là 2 top-level window OS riêng biệt, ai activate sau cùng thắng.
+
+### Đã sửa
+
+Bỏ `panel.activateWindow()` ở cả 2 chỗ gọi giống hệt nhau trong `app/pdf_inline_editor.py` (`run_inline_text()` dòng ~493 và `run_inline_image()` dòng ~600) — giữ nguyên `panel.show(); panel.raise_()` để panel vẫn hiện & nổi lên trên, các nút/control trong panel vẫn thao tác bằng chuột bình thường (không cần activate trước). Sửa cả 2 chỗ vì cùng 1 pattern lỗi hệt nhau (`run_inline_image` tuy không cần gõ phím ngay nhưng Enter/Esc xác nhận/hủy trên trang cũng qua JS keydown listener, cùng phụ thuộc OS focus).
+
+### Đã kiểm tra
+
+- `pytest tests/`: 326 pass / 5 fail — đúng baseline.
+- Test trực tiếp trên app thật, **click chuột thật qua Windows API** (không phải UI Automation invoke) vào trang PDF ngay sau khi bấm "Chèn chữ", gõ "HELLO" ngay lập tức: TRƯỚC khi sửa → ô trống (chỉ hiện placeholder); SAU khi sửa → "HELLO" vào đúng ô ngay lần click đầu tiên, không cần click thêm lần 2 (2 ảnh chụp màn hình đối chiếu).
+
+**Chưa commit.**
