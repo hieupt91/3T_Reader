@@ -5,7 +5,8 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 **Bài học quan trọng rút ra giữa phiên (đọc trước khi tin bất kỳ mục "LỖI" nào)**: pywinauto (cả `click_input()` lẫn liệt kê `app.windows()`/`Desktop.windows()`) **2 lần báo sai** trong phiên này — "Gạch ngang" và sau đó "Ghi chú"/"Đọc sách" đều bị báo là lỗi (không hiện dialog) trong khi **chụp màn hình thật cho thấy dialog hiện đúng, đẹp, đầy đủ**. Nguyên nhân: công cụ UI Automation dùng để test không phát hiện được 1 số cửa sổ dialog của app này một cách đáng tin cậy — đây là hạn chế của phương pháp test, không phải lỗi của app. Vì vậy **mọi kết luận "LỖI" trong báo cáo này đều đã được xác nhận lại bằng ít nhất 1 trong 2 cách**: (a) đọc trực tiếp file PDF bằng pikepdf sau thao tác (khách quan tuyệt đối, không qua UI Automation), hoặc (b) chụp màn hình thật.
 
 **Đã test kỹ, có bằng chứng thực nghiệm khách quan**: Tab "Tệp & Xem", Xoay trang, Gạch dưới, Gạch ngang, Tô sáng, Ghi chú, Đọc sách (TTS), Lưu, hàng đợi tự-lưu chú thích, **toàn bộ nhóm Trang** (Xóa trang/Ghép PDF/Tách PDF/Số trang/Xóa số trang), **toàn bộ nhóm Bảo mật & Xuất** (Watermark/Xóa watermark/Đặt mật khẩu/Xóa mật khẩu/Nén PDF/Xuất Word/Xuất Excel/Xuất Ảnh/Xuất Văn bản), **Auto-OCR** (tự động khi mở file scan), **AI Tóm tắt + Chat PDF** (gọi API Google Gemini thật, có key sẵn trên máy).
-**Chưa kịp test trực tiếp trong phiên này**: Chèn chữ/ảnh/vẽ/xóa trắng/sửa text gốc/chọn-xoay/xóa đối tượng/hoàn tác (cần thao tác kéo/click tọa độ trên canvas PDF), Dịch/Tìm nghĩa (AI — cùng hạ tầng với Tóm tắt/Chat đã OK, khả năng cao cũng ổn nhưng chưa tự tay bấm), Ký số (USB token/PFX). Đây **không phải "OK"**, chỉ là chưa có bằng chứng trực tiếp.
+**Đã test kỹ với USB token thật (Viettel-CA)**: Kiểm tra USB, Ký số, Kiểm tra chữ ký — cả 3 xác nhận OK, chữ ký **đã kiểm chứng độc lập bằng pyHanko** (ngoài app, không chỉ tin thông báo "thành công" của app).
+**Chưa kịp test trực tiếp trong phiên này**: Chèn chữ/ảnh/vẽ/xóa trắng/sửa text gốc/chọn-xoay/xóa đối tượng/hoàn tác (cần thao tác kéo/click tọa độ trên canvas PDF), Dịch/Tìm nghĩa (AI — cùng hạ tầng với Tóm tắt/Chat đã OK), Ký PFX/Ký lô/Ô ký/Ký tay-dấu (chưa có file PFX test, và không muốn lạm dụng token thật của công ty thêm). Đây **không phải "OK"**, chỉ là chưa có bằng chứng trực tiếp.
 
 ---
 
@@ -44,6 +45,9 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 | **Auto-OCR** | Mở file PDF dạng ảnh scan (không có text layer) | Text layer tự động được nhúng vào file sau vài giây (không cần bấm gì) — xác nhận qua pdfplumber |
 | **AI Tóm tắt** | Dialog "Tóm tắt tài liệu" → bấm Tóm tắt (gọi Google Gemini API thật) | Trả về tóm tắt đúng, phân tích đúng nội dung + tự nhận diện lỗi OCR trong văn bản |
 | **AI Chat PDF** | Gõ câu hỏi "Khach hang ten gi" → Gửi (gọi API thật) | Trả lời đúng "Khách hàng tên là Nguyen VanA." khớp nội dung tài liệu |
+| **Kiểm tra USB (ký số)** | Cắm USB token Viettel-CA thật → bấm "Kiểm tra USB" | Nhận diện đúng: công ty, MST, serial token, serial chứng thư, driver |
+| **Ký số** (chữ ký số thật) | Chọn vị trí ký trên trang → xác nhận → thông tin chữ ký → lưu file → **không bị hỏi PIN** (đã cache sẵn) | "Ký số thành công!" — **đã kiểm chứng lại bằng pyHanko độc lập ngoài app**: `intact=True, valid=True`, đúng cert công ty (CN="CÔNG TY TNHH ĐẦU TƯ CÔNG NGHỆ VÀ XÂY LẮP 3T") |
+| **Kiểm tra chữ ký** | Mở file vừa ký → bấm "Kiểm tra" | Hiện đúng "Hợp lệ chữ ký", đầy đủ thông tin chứng thư (nhà cung cấp Viettel-CA, hiệu lực, "Đã sửa đổi tài liệu: Không") |
 
 ---
 
@@ -82,7 +86,7 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 | Chú thích | Chèn chữ, Chèn ảnh, Vẽ tự do, Xóa trắng, Sửa text gốc, Chọn & Xoay, Xóa đối tượng, Hoàn tác | Cần thao tác kéo/click trực tiếp trên canvas PDF (tọa độ pixel) — phức tạp hơn, cần lượt test riêng |
 | OCR | OCR trang / OCR toàn bộ (nút bấm thủ công) | Auto-OCR (chạy nền tự động) đã xác nhận OK; nút bấm thủ công gọi cùng engine nên rủi ro thấp nhưng chưa tự tay bấm |
 | AI | Dịch, Tìm nghĩa | Tóm tắt + Chat PDF (cùng hạ tầng AI provider) đã xác nhận OK; 2 mục này chưa tự tay bấm |
-| Ký số | USB token, Ký số, Ký PFX, Ký lô, Ô ký, Ký tay/dấu, Kiểm tra chữ ký | Cần USB token PKCS#11 thật hoặc file PFX/P12 thật — không có sẵn trong môi trường test |
+| Ký số | Ký PFX, Ký lô, Ô ký, Ký tay/dấu | Kiểm tra USB/Ký số/Kiểm tra chữ ký đã test OK với token thật; 4 mục còn lại cần file PFX test riêng hoặc không muốn lạm dụng token thật thêm |
 
 ---
 
