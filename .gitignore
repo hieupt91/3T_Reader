@@ -38,3 +38,6 @@ skills-lock.json
 .env
 .env.*
 !.env.example
+admin-config.json
+admin-config-update.json
+pass.txt
