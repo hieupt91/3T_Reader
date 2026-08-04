@@ -262,6 +262,15 @@ class VpsLicenseClient:
             offline = self._verify_offline(cache)
             return offline if offline is not None else self._offline_status(cache)
 
+    def get_cached_credentials(self) -> tuple[str, str] | None:
+        """Trả (token, device_id) V1 đã activate, dùng cho module transfer/
+        (companion pairing) — không đổi hành vi license hiện có."""
+        cache = self._load_cache()
+        token = cache.get("token")
+        if not token:
+            return None
+        return token, cache.get("device_id", self._device_id)
+
     def deactivate(self) -> None:
         cache = self._load_cache()
         token = cache.get("token")
