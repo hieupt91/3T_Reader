@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 
+from .passwords import hash_password, needs_rehash, verify_password
+
 
 class StaffService:
     def __init__(self, path: str):
@@ -52,7 +54,7 @@ class StaffService:
         if username in data["staff"]:
             raise ValueError(f"Tên đăng nhập '{username}' đã tồn tại")
         data["staff"][username] = {
-            "password": password,
+            "password_hash": hash_password(password),
             "permissions": permissions,
             "created_at": datetime.now(tz=timezone.utc).isoformat(),
         }
@@ -60,6 +62,7 @@ class StaffService:
         return {"username": username, "permissions": permissions}
 
     def update_permissions(self, username: str, permissions: list[str]) -> None:
+        username = username.strip().lower()
         data = self._load()
         if username not in data["staff"]:
             raise KeyError(f"Nhân viên '{username}' không tồn tại")
@@ -68,6 +71,7 @@ class StaffService:
         self._save(data)
 
     def delete_staff(self, username: str) -> None:
+        username = username.strip().lower()
         data = self._load()
         if username not in data["staff"]:
             raise KeyError(f"Nhân viên '{username}' không tồn tại")
@@ -75,8 +79,16 @@ class StaffService:
         self._save(data)
 
     def authenticate(self, username: str, password: str) -> bool:
+        username = username.strip().lower()
         data = self._load()
-        info = data["staff"].get(username.strip().lower())
+        info = data["staff"].get(username)
         if not info:
             return False
-        return info.get("password") == password
+        stored = info.get("password_hash") or info.get("password", "")
+        ok = verify_password(password, stored)
+        if ok and needs_rehash(stored):
+            info.pop("password", None)
+            info["password_hash"] = hash_password(password)
+            data["staff"][username] = info
+            self._save(data)
+        return ok

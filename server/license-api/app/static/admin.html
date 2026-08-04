@@ -132,6 +132,41 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .btn-staff-del:hover{background:rgba(239,68,68,.25)}
 .staff-empty{text-align:center;padding:24px;color:var(--muted);font-size:.85rem}
 
+
+/* SETTINGS TAB */
+.nav-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:24px}
+.nav-tab{background:transparent;border:none;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--muted);padding:10px 20px;font-size:.88rem;font-weight:600;cursor:pointer;transition:.2s;font-family:inherit}
+.nav-tab.active{color:#818cf8;border-bottom-color:#818cf8}
+.nav-tab:hover:not(.active){color:var(--text)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.settings-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px}
+.settings-card h3{font-size:.95rem;font-weight:600;margin-bottom:18px}
+.settings-card .form-group{margin-bottom:14px}
+.settings-card .form-group label{font-size:.78rem}
+.settings-card input,.settings-card textarea,.settings-card select{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:10px 13px;border-radius:8px;font-size:.88rem;font-family:inherit;outline:none;transition:.2s}
+.settings-card input:focus,.settings-card textarea:focus{border-color:var(--indigo);box-shadow:0 0 0 3px rgba(99,102,241,.15)}
+.settings-card textarea{resize:vertical;min-height:80px}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0}
+.toggle-label{font-size:.87rem;font-weight:500}
+.toggle-desc{font-size:.76rem;color:var(--muted);margin-top:2px}
+.toggle-switch{position:relative;width:42px;height:24px;flex-shrink:0}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;inset:0;background:#374151;border-radius:24px;transition:.3s}
+.toggle-slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
+.toggle-switch input:checked+.toggle-slider{background:var(--indigo)}
+.toggle-switch input:checked+.toggle-slider:before{transform:translateX(18px)}
+.btn-save-settings{background:linear-gradient(135deg,var(--blue),var(--indigo));color:#fff;border:none;padding:11px 28px;border-radius:8px;font-size:.92rem;font-weight:600;cursor:pointer;font-family:inherit;transition:.2s;margin-top:6px}
+.btn-save-settings:hover{opacity:.9}
+.settings-msg{font-size:.83rem;margin-top:10px;display:none;padding:8px 12px;border-radius:6px}
+.settings-msg.ok{color:#34d399;background:rgba(34,197,94,.1)}
+.settings-msg.err{color:var(--red);background:rgba(239,68,68,.1)}
+.plan-price-row{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.plan-price-row label{min-width:130px;font-size:.84rem;color:#94a3b8}
+.plan-price-row input{flex:1;padding:8px 12px;font-size:.87rem}
+@media(max-width:700px){.settings-grid{grid-template-columns:1fr}}
+
 @media(max-width:600px){
   header{padding:0 14px}
   main{padding:16px}
@@ -283,6 +318,14 @@ tr:hover td{background:rgba(255,255,255,.02)}
     </div>
   </header>
   <main>
+
+    <!-- Nav tabs -->
+    <div class="nav-tabs" id="navTabs" style="display:none">
+      <button class="nav-tab active" onclick="switchTab('orders',this)">📋 Đơn hàng</button>
+      <button class="nav-tab" onclick="switchTab('settings',this)">⚙️ Cài đặt</button>
+      <button class="nav-tab" onclick="switchTab('licenses',this)">🔑 License</button>
+    </div>
+    <div id="tabOrders" class="tab-panel active">
     <div class="stats">
       <div class="stat pending">
         <div class="stat-val" id="sCntPending">–</div>
@@ -331,6 +374,136 @@ tr:hover td{background:rgba(255,255,255,.02)}
       </table>
       <div class="empty" id="tblEmpty" style="display:none">Không có đơn hàng nào</div>
     </div>
+
+    </div><!-- /tabOrders -->
+
+    <!-- SETTINGS TAB -->
+    <div id="tabSettings" class="tab-panel">
+      <div class="settings-grid">
+        <div class="settings-card">
+          <h3>🍎 Cập nhật macOS</h3>
+          <div class="form-group"><label>Phiên bản Mac mới nhất</label>
+            <input type="text" id="cfgMacVersion" placeholder="1.0.1"></div>
+          <div class="form-group"><label>URL tải DMG</label>
+            <input type="text" id="cfgMacUrl" placeholder="https://reader.3tcomputer.com/downloads/3TReader-1.0.1-mac.dmg"></div>
+        </div>
+        <div class="settings-card">
+          <h3>🪟 Cập nhật Windows</h3>
+          <div class="form-group"><label>Phiên bản Win mới nhất</label>
+            <input type="text" id="cfgWinVersion" placeholder="1.0.1"></div>
+          <div class="form-group"><label>URL tải EXE</label>
+            <input type="text" id="cfgWinUrl" placeholder="https://reader.3tcomputer.com/downloads/3TReader-1.0.1-win.exe"></div>
+        </div>
+      </div>
+
+      <div class="settings-card" style="margin-top:20px">
+        <h3>📝 Nội dung cập nhật &amp; Tuỳ chọn</h3>
+        <div class="form-group"><label>Release notes (hiển thị trong app)</label>
+          <textarea id="cfgNotes" placeholder="- Sửa lỗi highlight PDF&#10;- Thêm OCR tiếng Việt"></textarea></div>
+        <div class="toggle-row">
+          <div><div class="toggle-label">Bắt buộc cập nhật</div>
+               <div class="toggle-desc">App không cho dùng tiếp nếu chưa cập nhật</div></div>
+          <label class="toggle-switch"><input type="checkbox" id="cfgMandatory"><span class="toggle-slider"></span></label>
+        </div>
+      </div>
+
+      <div class="settings-card" style="margin-top:20px">
+        <h3>💰 Giá từng gói (VND)</h3>
+        <div class="plan-price-row"><label>Gói Cơ Bản (basic)</label>
+          <input type="number" id="priceBasic" placeholder="300000" min="0"></div>
+        <div class="plan-price-row"><label>Gói Cá Nhân (personal)</label>
+          <input type="number" id="pricePersonal" placeholder="500000" min="0"></div>
+        <div class="plan-price-row"><label>Gói Doanh Nghiệp (enterprise)</label>
+          <input type="number" id="priceEnterprise" placeholder="800000" min="0"></div>
+      </div>
+
+      <!-- Upload release -->
+      <div class="settings-card" style="margin-top:20px">
+        <h3>🚀 Phát hành bản cập nhật mới</h3>
+        <p style="font-size:.83rem;color:var(--muted);margin-bottom:16px">Upload file DMG/EXE — server tự lưu, tự cập nhật URL và phiên bản.</p>
+        <div class="settings-grid" style="gap:16px">
+          <div>
+            <div class="form-group"><label>Nền tảng</label>
+              <select id="upPlatform" onchange="updateUploadHint()">
+                <option value="mac">macOS (DMG)</option>
+                <option value="win">Windows (EXE)</option>
+              </select></div>
+            <div class="form-group"><label>Phiên bản</label>
+              <input type="text" id="upVersion" placeholder="1.0.1"></div>
+          </div>
+          <div>
+            <div class="form-group" style="height:100%">
+              <label>File cài đặt</label>
+              <div id="dropZone" onclick="document.getElementById('upFile').click()"
+                style="border:2px dashed var(--border);border-radius:10px;padding:24px;text-align:center;cursor:pointer;transition:.2s;min-height:90px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px"
+                ondragover="event.preventDefault();this.style.borderColor='#818cf8'"
+                ondragleave="this.style.borderColor=''"
+                ondrop="handleDrop(event)">
+                <span style="font-size:1.6rem">📁</span>
+                <span style="font-size:.83rem;color:var(--muted)" id="dropLabel">Kéo thả file hoặc click để chọn</span>
+                <span style="font-size:.75rem;color:var(--muted)" id="dropHint">Định dạng: .dmg</span>
+              </div>
+              <input type="file" id="upFile" style="display:none" onchange="fileSelected(this)">
+            </div>
+          </div>
+        </div>
+        <!-- Progress bar -->
+        <div id="uploadProgressWrap" style="display:none;margin-top:14px">
+          <div style="background:var(--bg2);border-radius:8px;height:8px;overflow:hidden">
+            <div id="uploadProgressBar" style="height:100%;background:linear-gradient(90deg,var(--blue),var(--indigo));width:0%;transition:width .3s"></div>
+          </div>
+          <div style="font-size:.8rem;color:var(--muted);margin-top:6px" id="uploadProgressText">Đang upload...</div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;margin-top:16px;flex-wrap:wrap">
+          <button class="btn-save-settings" onclick="doUploadRelease()" id="btnUpload">⬆️ Upload &amp; Phát hành</button>
+          <div class="settings-msg ok" id="uploadOk"></div>
+          <div class="settings-msg err" id="uploadErr"></div>
+        </div>
+      </div>
+
+      <!-- Manual save + test -->
+      <div style="margin-top:20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <button class="btn-save-settings" onclick="saveAllSettings()">💾 Lưu thủ công</button>
+        <div class="settings-msg ok" id="settingsOk">✓ Đã lưu thành công!</div>
+        <div class="settings-msg err" id="settingsErr"></div>
+      </div>
+
+      <div class="settings-card" style="margin-top:20px">
+        <h3>🧪 Test API kiểm tra cập nhật</h3>
+        <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+          <button class="btn-cleanup" onclick="testUpdate('mac')" style="border-color:var(--blue);color:var(--blue)">Test Mac</button>
+          <button class="btn-cleanup" onclick="testUpdate('win')" style="border-color:var(--green);color:var(--green)">Test Win</button>
+        </div>
+        <pre id="testUpdateResult" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:.78rem;color:#94a3b8;white-space:pre-wrap;min-height:60px">Nhấn Test Mac / Test Win...</pre>
+      </div>
+    </div>
+
+    <!-- LICENSES TAB -->
+    <div id="tabLicenses" class="tab-panel">
+      <div class="settings-card">
+        <h3>🔑 License đã cấp</h3>
+        <div class="table-wrap" style="margin-top:12px">
+          <div class="loading" id="licLoading">Đang tải...</div>
+          <table id="licTable" style="display:none">
+            <thead><tr><th>License Key</th><th>Khách hàng</th><th>Gói</th><th>Thiết bị dùng / Tối đa</th></tr></thead>
+            <tbody id="licBody"></tbody>
+          </table>
+          <div class="empty" id="licEmpty" style="display:none">Chưa có license nào.</div>
+        </div>
+      </div>
+      <div class="settings-card" style="margin-top:20px">
+        <h3>💻 Thiết bị đang hoạt động</h3>
+        <div class="table-wrap" style="margin-top:12px">
+          <div class="loading" id="devLoading">Đang tải...</div>
+          <table id="devTable" style="display:none">
+            <thead><tr><th>License Key</th><th>Device ID</th><th>Platform</th><th>Phiên bản app</th></tr></thead>
+            <tbody id="devBody"></tbody>
+          </table>
+          <div class="empty" id="devEmpty" style="display:none">Chưa có thiết bị.</div>
+        </div>
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -474,6 +647,7 @@ function showAdmin() {
   if (role === 'admin') {
     hdrInfo.textContent = 'Admin';
     hdrInfo.className = 'hdr-badge';
+    document.getElementById('navTabs').style.display = 'flex';
     document.getElementById('btnChpw').style.display = 'inline-flex';
     document.getElementById('btnStaffMgmt').style.display = 'inline-flex';
   } else {
@@ -799,6 +973,250 @@ async function deleteStaff(username) {
   });
   if (res.ok) await loadStaff();
   else alert('Không thể xóa nhân viên.');
+}
+
+
+// ─── Tab switching ────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  var id = 'tab' + name.charAt(0).toUpperCase() + name.slice(1);
+  document.getElementById(id).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'settings') loadUpdateConfig();
+  if (name === 'licenses') loadLicensesTab();
+}
+
+// ─── Update config ────────────────────────────────────────────
+async function loadUpdateConfig() {
+  try {
+    const res = await fetch('/api/admin/update-config', { headers: { Authorization: 'Bearer ' + token } });
+    if (!res.ok) return;
+    const d = await res.json();
+    document.getElementById('cfgMacVersion').value  = d.mac_version   || '';
+    document.getElementById('cfgMacUrl').value      = d.mac_url       || '';
+    document.getElementById('cfgWinVersion').value  = d.win_version   || '';
+    document.getElementById('cfgWinUrl').value      = d.win_url       || '';
+    document.getElementById('cfgNotes').value       = d.release_notes || '';
+    document.getElementById('cfgMandatory').checked = !!d.mandatory;
+    var prices = d.prices || {};
+    document.getElementById('priceBasic').value      = prices.basic      || '';
+    document.getElementById('pricePersonal').value   = prices.personal   || '';
+    document.getElementById('priceEnterprise').value = prices.enterprise || '';
+  } catch(e) { console.error(e); }
+}
+
+async function saveAllSettings() {
+  var ok  = document.getElementById('settingsOk');
+  var err = document.getElementById('settingsErr');
+  ok.style.display = 'none'; err.style.display = 'none';
+  var payload = {
+    mac_version:   document.getElementById('cfgMacVersion').value.trim(),
+    mac_url:       document.getElementById('cfgMacUrl').value.trim(),
+    win_version:   document.getElementById('cfgWinVersion').value.trim(),
+    win_url:       document.getElementById('cfgWinUrl').value.trim(),
+    release_notes: document.getElementById('cfgNotes').value.trim(),
+    mandatory:     document.getElementById('cfgMandatory').checked,
+    prices: {
+      basic:      parseInt(document.getElementById('priceBasic').value)      || 300000,
+      personal:   parseInt(document.getElementById('pricePersonal').value)   || 500000,
+      enterprise: parseInt(document.getElementById('priceEnterprise').value) || 800000,
+    }
+  };
+  try {
+    const res = await fetch('/api/admin/update-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      ok.style.display = 'block';
+      setTimeout(function(){ ok.style.display='none'; }, 4000);
+    } else {
+      var d = await res.json().catch(function(){ return {}; });
+      err.textContent = 'Lỗi: ' + (d.detail || 'Không lưu được');
+      err.style.display = 'block';
+    }
+  } catch(e) {
+    err.textContent = 'Lỗi kết nối: ' + e.message;
+    err.style.display = 'block';
+  }
+}
+
+async function testUpdate(platform) {
+  var el = document.getElementById('testUpdateResult');
+  el.textContent = 'Đang gọi API...';
+  try {
+    const res = await fetch('/api/v1/update/check?platform=' + platform + '&current_version=0.0.0');
+    var d = await res.json();
+    el.textContent = JSON.stringify(d, null, 2);
+  } catch(e) { el.textContent = 'Lỗi: ' + e.message; }
+}
+
+// ─── Licenses & Devices ───────────────────────────────────────
+async function loadLicensesTab() {
+  loadLicenses(); loadDevices();
+}
+async function loadLicenses() {
+  var ld = document.getElementById('licLoading'),
+      tb = document.getElementById('licTable'),
+      em = document.getElementById('licEmpty');
+  ld.textContent = 'Đang tải...'; ld.style.display='block'; tb.style.display='none'; em.style.display='none';
+  try {
+    const res = await fetch('/api/admin/licenses', { headers: { Authorization: 'Bearer ' + token } });
+    if (!res.ok) { ld.textContent='Lỗi tải dữ liệu.'; return; }
+    var data = await res.json(); var items = data.items || [];
+    ld.style.display='none';
+    if (!items.length) { em.style.display='block'; return; }
+    tb.style.display='table';
+    document.getElementById('licBody').innerHTML = items.map(function(l){ return '<tr>' +
+      '<td><code style="font-size:.74rem;color:#818cf8">' + esc(l.license_key) + '</code></td>' +
+      '<td>' + esc(l.customer_name||'–') + '</td>' +
+      '<td>' + esc(l.plan||'–') + '</td>' +
+      '<td><span style="color:var(--green);font-weight:600">' + (l.active_devices||0) + '</span> / ' + (l.seat_limit||1) + '</td>' +
+    '</tr>'; }).join('');
+  } catch { ld.textContent='Lỗi kết nối.'; }
+}
+async function loadDevices() {
+  var ld = document.getElementById('devLoading'),
+      tb = document.getElementById('devTable'),
+      em = document.getElementById('devEmpty');
+  ld.textContent = 'Đang tải...'; ld.style.display='block'; tb.style.display='none'; em.style.display='none';
+  try {
+    const res = await fetch('/api/admin/devices', { headers: { Authorization: 'Bearer ' + token } });
+    if (!res.ok) { ld.textContent='Lỗi tải dữ liệu.'; return; }
+    var data = await res.json(); var items = data.items || [];
+    ld.style.display='none';
+    if (!items.length) { em.style.display='block'; return; }
+    tb.style.display='table';
+    document.getElementById('devBody').innerHTML = items.map(function(d){ return '<tr>' +
+      '<td><code style="font-size:.73rem;color:#818cf8">' + esc(d.license_key) + '</code></td>' +
+      '<td><code style="font-size:.73rem;color:var(--muted)">' + esc(d.device_id) + '</code></td>' +
+      '<td>' + esc(d.platform||'–') + '</td>' +
+      '<td>' + esc(d.app_version||'–') + '</td>' +
+    '</tr>'; }).join('');
+  } catch { ld.textContent='Lỗi kết nối.'; }
+}
+
+
+// ─── Upload release ────────────────────────────────────────────
+var _selectedFile = null;
+
+function updateUploadHint() {
+  var plat = document.getElementById('upPlatform').value;
+  document.getElementById('dropHint').textContent = 'Định dạng: ' + (plat === 'mac' ? '.dmg' : '.exe');
+}
+
+function fileSelected(input) {
+  if (input.files && input.files[0]) {
+    _selectedFile = input.files[0];
+    document.getElementById('dropLabel').textContent = _selectedFile.name;
+    document.getElementById('dropZone').style.borderColor = '#818cf8';
+    // Auto-detect platform from filename
+    var name = _selectedFile.name.toLowerCase();
+    if (name.endsWith('.dmg')) document.getElementById('upPlatform').value = 'mac';
+    else if (name.endsWith('.exe')) document.getElementById('upPlatform').value = 'win';
+    updateUploadHint();
+    // Auto-extract version from filename e.g. 3TReader-1.0.1-mac.dmg
+    var m = name.match(/[_-](\d+\.\d+[\.\d]*)[_-]/);
+    if (m && !document.getElementById('upVersion').value)
+      document.getElementById('upVersion').value = m[1];
+  }
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').style.borderColor = '';
+  var files = e.dataTransfer.files;
+  if (files && files[0]) {
+    document.getElementById('upFile').files = files;
+    fileSelected(document.getElementById('upFile'));
+    // For drag-drop, manually set the file
+    _selectedFile = files[0];
+    document.getElementById('dropLabel').textContent = _selectedFile.name;
+    var name = _selectedFile.name.toLowerCase();
+    if (name.endsWith('.dmg')) document.getElementById('upPlatform').value = 'mac';
+    else if (name.endsWith('.exe')) document.getElementById('upPlatform').value = 'win';
+    updateUploadHint();
+    var m = name.match(/[_-](\d+\.\d+[\.\d]*)[_-]/);
+    if (m && !document.getElementById('upVersion').value)
+      document.getElementById('upVersion').value = m[1];
+  }
+}
+
+async function doUploadRelease() {
+  var okEl  = document.getElementById('uploadOk');
+  var errEl = document.getElementById('uploadErr');
+  okEl.style.display = 'none'; errEl.style.display = 'none';
+
+  if (!_selectedFile) { errEl.textContent='Chưa chọn file!'; errEl.style.display='block'; return; }
+  var version = document.getElementById('upVersion').value.trim();
+  if (!version) { errEl.textContent='Nhập phiên bản trước (vd: 1.0.1)'; errEl.style.display='block'; return; }
+  var platform = document.getElementById('upPlatform').value;
+
+  // Show progress
+  var pw = document.getElementById('uploadProgressWrap');
+  var pb = document.getElementById('uploadProgressBar');
+  var pt = document.getElementById('uploadProgressText');
+  pw.style.display = 'block'; pb.style.width = '0%';
+  document.getElementById('btnUpload').disabled = true;
+
+  var formData = new FormData();
+  formData.append('file', _selectedFile);
+  formData.append('platform', platform);
+  formData.append('version', version);
+
+  try {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/admin/upload-release');
+    xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.upload.onprogress = function(e) {
+      if (e.lengthComputable) {
+        var pct = Math.round(e.loaded / e.total * 100);
+        pb.style.width = pct + '%';
+        pt.textContent = 'Đang upload... ' + pct + '%  (' + (e.loaded/1024/1024).toFixed(1) + ' MB / ' + (e.total/1024/1024).toFixed(1) + ' MB)';
+      }
+    };
+    xhr.onload = function() {
+      document.getElementById('btnUpload').disabled = false;
+      if (xhr.status === 200) {
+        var d = JSON.parse(xhr.responseText);
+        pb.style.width = '100%';
+        pt.textContent = 'Xong! ' + (d.size/1024/1024).toFixed(1) + ' MB';
+        okEl.textContent = '✓ Đã upload & phát hành v' + d.version + ' → ' + d.download_url;
+        okEl.style.display = 'block';
+        // Auto-fill fields
+        if (platform === 'mac') {
+          document.getElementById('cfgMacVersion').value = version;
+          document.getElementById('cfgMacUrl').value = d.download_url;
+        } else {
+          document.getElementById('cfgWinVersion').value = version;
+          document.getElementById('cfgWinUrl').value = d.download_url;
+        }
+        _selectedFile = null;
+        document.getElementById('dropLabel').textContent = 'Kéo thả file hoặc click để chọn';
+        document.getElementById('dropZone').style.borderColor = '';
+        setTimeout(function(){ pw.style.display='none'; pb.style.width='0%'; okEl.style.display='none'; }, 6000);
+      } else {
+        var err = JSON.parse(xhr.responseText || '{}');
+        errEl.textContent = 'Lỗi upload: ' + (err.detail || xhr.status);
+        errEl.style.display = 'block';
+        pw.style.display = 'none';
+      }
+    };
+    xhr.onerror = function() {
+      document.getElementById('btnUpload').disabled = false;
+      errEl.textContent = 'Lỗi kết nối khi upload.';
+      errEl.style.display = 'block';
+      pw.style.display = 'none';
+    };
+    xhr.send(formData);
+  } catch(e) {
+    document.getElementById('btnUpload').disabled = false;
+    errEl.textContent = 'Lỗi: ' + e.message;
+    errEl.style.display = 'block';
+    pw.style.display = 'none';
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────

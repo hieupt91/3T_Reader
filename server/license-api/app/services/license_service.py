@@ -75,7 +75,10 @@ class LicenseService:
         }
 
     def validate(self, token: str, device_id: str) -> dict:
-        payload = self.token_service.verify(token)
+        try:
+            payload = self.token_service.verify(token)
+        except ValueError:
+            return {"ok": False, "message": "Invalid token."}
         if payload.get("device_id") != device_id:
             return {"ok": False, "message": "Device mismatch."}
         if self._is_expired(payload.get("expires_at", "")):
@@ -96,7 +99,10 @@ class LicenseService:
         return validation
 
     def deactivate(self, token: str, device_id: str) -> dict:
-        payload = self.token_service.verify(token)
+        try:
+            payload = self.token_service.verify(token)
+        except ValueError:
+            return {"ok": False, "message": "Invalid token."}
         license_key = payload.get("license_key")
         record = self.licenses.get(license_key)
         if record is None:
