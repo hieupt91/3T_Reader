@@ -21,7 +21,7 @@ from app.actions._pdf_save import (
     replace_file_with_retry,
     replace_document_with_staged,
 )
-from app.dialogs import show_warning, show_info
+from app.dialogs import show_warning, show_info, ask_yes_no
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
@@ -349,14 +349,13 @@ def add_watermark(window):
 @require_document(show_message=True)
 def remove_watermark(window):
     """Remove the last overlay content stream, matching watermarks created by this app."""
-    reply = QMessageBox.question(
+    reply = ask_yes_no(
         window,
         "Xóa watermark",
         "Tính năng này chỉ gỡ lớp overlay cuối cùng trên trang.\n\n"
         "Cách này phù hợp với watermark vừa được 3T Reader thêm vào. "
         "Nếu PDF gốc có lớp nội dung đặc biệt, hãy lưu bản sao trước khi tiếp tục.\n\n"
         "Tiếp tục xóa watermark?",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
     )
     if reply != QMessageBox.StandardButton.Yes:
         return
@@ -403,6 +402,15 @@ def remove_watermark(window):
                     page = pdf.pages[i]
                     if _remove_last_overlay_draw(pdf, page):
                         removed += 1
+                        # Gỡ lệnh vẽ overlay khỏi content stream không tự xoá
+                        # luôn ảnh watermark khỏi /Resources - object ảnh vẫn
+                        # còn trong file dù không còn được vẽ ra, làm file
+                        # phình to dần nếu lặp lại thêm/xóa watermark nhiều
+                        # lần. remove_unreferenced_resources() dọn sạch mọi
+                        # entry trong /Resources không còn được content stream
+                        # tham chiếu tới (đã đo thực nghiệm: pdf.save() sau đó
+                        # thực sự bỏ luôn object không còn tham chiếu).
+                        page.remove_unreferenced_resources()
 
                 if removed <= 0:
                     show_warning(
