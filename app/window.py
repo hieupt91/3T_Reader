@@ -310,6 +310,7 @@ class PDFReaderApp(QMainWindow):
         self._connect_signals()
         self._apply_language_texts()
         self._start_token_monitor()
+        self._start_gc_timer()
         self._apply_toolbar_prefs()
         QTimer.singleShot(15_000, self._auto_check_update)
         # Khôi phục AI API key đã lưu (nếu có) nhưng defer lại 500ms để không block UI khi khởi động
@@ -3673,6 +3674,16 @@ class PDFReaderApp(QMainWindow):
     # ------------------------------------------------------------------ #
     #  USB token monitor                                                   #
     # ------------------------------------------------------------------ #
+
+    def _start_gc_timer(self):
+        """Chủ động gc.collect() định kỳ trên đúng main/GUI thread — bù lại
+        việc gc tự động đã bị tắt ở main.py (xem comment ở đó). Không đặt
+        khoảng thời gian quá ngắn để tránh tốn CPU vô ích."""
+        timer = QTimer(self)
+        timer.setInterval(10_000)
+        timer.timeout.connect(gc.collect)
+        timer.start()
+        self._gc_timer = timer
 
     def _start_token_monitor(self):
         """Theo dõi USB token trong nền mà không khóa luồng UI."""

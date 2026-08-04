@@ -186,10 +186,30 @@ Không có `cdb.exe`/WinDbg, nhưng Windows tự ghi chi tiết crash native và
 
 **Đã tự kiểm tra thêm 1 bước**: đọc diff đầy đủ của `bcf90a2` — `gc.collect()` chủ động chỉ được gọi tại **thời điểm đóng tab** (`app/window.py`, +15 dòng). Crash #1 của tôi hôm nay xảy ra lúc **mở thêm file mới vào cửa sổ đang có tab khác tải thumbnail** — không phải lúc đóng tab — nên **rất có thể nằm ngoài phạm vi fix `bcf90a2` che phủ**. Đây là gợi ý cụ thể nhất cho hướng sửa tiếp: cân nhắc áp dụng cơ chế dọn dẹp GC/thread tương tự cho luồng **mở tab mới** (không chỉ đóng tab), đặc biệt khi có `ThumbnailLoader` của tab khác đang chạy nền tại thời điểm đó — khớp đúng với comment cảnh báo đã có sẵn trong `app/actions/auto_ocr.py` (dòng ~172) về rủi ro access-violation khi `ThumbnailLoader` cũ chưa kịp dừng lúc file bị thay đổi.
 
-**Lưu ý quan trọng**: đây là suy luận có căn cứ mạnh (khớp thời gian, khớp hàm, khớp comment cảnh báo có sẵn), nhưng **chưa phải bằng chứng chứng minh 100%** — chưa có debugger đọc được stack trace thật tại đúng thời điểm ghi đè bộ nhớ. Không nên sửa code dựa hoàn toàn vào suy luận này mà không tái hiện + xác nhận thêm, theo đúng nguyên tắc "không đoán bừa" đã đặt ra.
+**Lưu ý quan trọng**: đây là suy luận có căn cứ mạnh (khớp thời gian, khớp hàm, khớp comment cảnh báo có sẵn), nhưng **chưa phải bằng chứng chứng minh 100%** — chưa có debugger đọc được stack trace thật tại đúng thời điểm ghi đè bộ nhớ.
+
+### ĐÃ THỬ ÁP DỤNG MITIGATION (2026-08-04, theo quyết định của bạn) — chưa phải bằng chứng 100% đã hết, cần theo dõi thêm
+
+**Đã tìm thêm bằng chứng ngoài cộng đồng** (WebSearch) xác nhận đây đúng là lỗi kinh điển đã biết của PyQt/PySide trên Windows: CPython cyclic GC có thể tự chạy trên **bất kỳ thread nào** khi ngưỡng phân bổ bị vượt; nếu đúng lúc đó nó hủy 1 object Qt từ thread không phải chủ sở hữu, việc đó không an toàn với Qt → hỏng heap. Có hẳn 1 package cộng đồng (`qtpygc`) chuyên vá lỗi này bằng cách: tắt auto-GC, tự `gc.collect()` định kỳ CHỈ từ main/GUI thread. PySide6 6.11 (đúng bản project đang dùng) có thêm cơ chế "defer deletion" (PYSIDE-3288) nhưng đó là cho việc XÓA QObject cụ thể — crash của mình lại nằm trong `sizedFree` (giải phóng bộ nhớ container chung), nên khả năng cao KHÔNG được PYSIDE-3288 che phủ hết.
+
+**Đã áp dụng đúng pattern `qtpygc`** (không cài package ngoài, không phát sinh license mới — chỉ dùng module `gc` chuẩn của Python):
+- `main.py`: thêm `gc.disable()` ngay sau `_install_crash_logging()`, trước khi tạo `QApplication` — tắt hẳn việc GC tự kích hoạt ngẫu nhiên trên bất kỳ thread nào.
+- `app/window.py`: thêm `PDFReaderApp._start_gc_timer()` — 1 `QTimer` chạy trên main thread, gọi `gc.collect()` mỗi 10 giây, gọi trong `__init__` cạnh `_start_token_monitor()`. Các lời gọi `gc.collect()` thủ công có sẵn (lúc đóng tab, lúc in) vẫn giữ nguyên, không đổi gì — giờ chỉ là thêm 1 lớp bảo hiểm định kỳ.
+
+**Phạm vi ảnh hưởng**: thay đổi hành vi quản lý bộ nhớ của TOÀN BỘ app (không phải 1 tính năng riêng lẻ) — đây là lý do đã hỏi ý kiến bạn trước khi làm thay vì tự quyết.
+
+**Đã kiểm tra**:
+- `pytest tests/` toàn bộ: 328 pass / 3 fail — đúng baseline, không đổi.
+- Test trên app thật: mở app bình thường, không lỗi khi khởi động với `gc.disable()`.
+- **Test dồn dập lại đúng 3 kịch bản đã từng crash trong phiên hôm nay**: (1) forward 15 lần mở file dồn dập vào cửa sổ đang tải thumbnail (5 vòng × 3 file liên tiếp), (2) bấm dồn dập 10 lần `Ctrl+]` xoay trang liên tiếp, (3) tổ hợp UI Automation click liên tục — **0 crash trong `app_log.txt`, 0 crash trong Windows Event Log** suốt ~20 phút test liên tục.
+- RAM ổn định trong phạm vi hợp lý cho số tab đã mở (344MB → 606MB sau khi mở nhiều tab, không thấy tăng bất thường/không kiểm soát).
+
+**Chưa commit** (mặc định theo `sualoint.md`/`FIX_RULES.md`) — đây là thay đổi ảnh hưởng rộng, nên để bạn xem qua trước khi quyết định commit.
+
+**QUAN TRỌNG — giới hạn của kết quả test này**: crash gốc vốn đã HIẾM (93 lần trải trong 2.5 tháng, không phải crash mỗi lần thao tác) — 20 phút không crash là **tín hiệu tốt, không phải bằng chứng đã hết lỗi**. Cần theo dõi thực tế qua nhiều ngày/tuần sử dụng thật mới kết luận chắc chắn được. Nếu crash `sizedFree`/`0x8001010d` tái diễn sau khi đã áp dụng fix này, ghi tiếp vào bảng theo dõi bên trên — lúc đó mới đủ cơ sở kết luận fix có tác dụng hay không.
 
 ### Tổng kết những gì sẵn sàng để bạn test
 
 - **Lỗi 0 (chú thích tự lưu báo sai khi chỉ đọc)** — đã sửa (`app/actions/annotate.py`, `app/actions/auto_ocr.py`, `app/window.py`), đã test pass, **sẵn sàng để bạn test lại trên app thật**.
 - **Lỗi 1 (xoay trang)** — không phải bug, không có code nào thay đổi.
-- **Lỗi 2 (crash)** — chưa sửa được, không đủ công cụ chẩn đoán trong phạm vi phiên này.
+- **Lỗi 2 (crash)** — đã thử áp dụng mitigation (tắt auto-GC + gc.collect định kỳ trên main thread), test dồn dập 20 phút không tái hiện được crash, nhưng **cần theo dõi thực tế lâu dài mới xác nhận chắc chắn** — chưa thể coi là "đã sửa xong" theo đúng nghĩa.
