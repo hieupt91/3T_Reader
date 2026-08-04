@@ -149,6 +149,7 @@ Từ nay, mỗi lần crash "Fatal Python error: Aborted" / "Windows fatal excep
 | 2026-08-04 ~12:09 | Forward mở file mới vào cửa sổ đang có tài liệu 5 trang, có thể đang tải thumbnail | Có — "Windows fatal exception: access violation" |
 | 2026-08-04 ~12:32 | Vừa gửi Ctrl+] xoay trang xong | Có — "Fatal Python error: Aborted" |
 | 2026-08-04 ~13:0x | Tiến trình ngoài (pikepdf) đọc file trong lúc app có thể đang ghi ngầm sau rotate | **Không** — kể cả bật `all_threads=True` cũng không ghi được gì |
+| 2026-08-04 ~15:3x | Vừa tạo Ô ký số (Sig field) → Ctrl+S lưu → click liên tục qua UI Automation ngay sau | Có — nhiều dòng "code 0x8001010d" (không tử vong) rồi cuối cùng "Fatal Python error: Aborted" (tử vong). File đã lưu đúng trước khi crash, không mất dữ liệu (đã xác nhận field Signature lưu đúng vào AcroForm) |
 
 ### Tổng kết những gì sẵn sàng để bạn test
 

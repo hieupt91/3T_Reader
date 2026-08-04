@@ -6,7 +6,8 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 
 **Đã test kỹ, có bằng chứng thực nghiệm khách quan**: Tab "Tệp & Xem", Xoay trang, Gạch dưới, Gạch ngang, Tô sáng, Ghi chú, Đọc sách (TTS), Lưu, hàng đợi tự-lưu chú thích, **toàn bộ nhóm Trang** (Xóa trang/Ghép PDF/Tách PDF/Số trang/Xóa số trang), **toàn bộ nhóm Bảo mật & Xuất** (Watermark/Xóa watermark/Đặt mật khẩu/Xóa mật khẩu/Nén PDF/Xuất Word/Xuất Excel/Xuất Ảnh/Xuất Văn bản), **Auto-OCR** (tự động khi mở file scan), **AI Tóm tắt + Chat PDF** (gọi API Google Gemini thật, có key sẵn trên máy).
 **Đã test kỹ với USB token thật (Viettel-CA)**: Kiểm tra USB, Ký số, Kiểm tra chữ ký — cả 3 xác nhận OK, chữ ký **đã kiểm chứng độc lập bằng pyHanko** (ngoài app, không chỉ tin thông báo "thành công" của app).
-**Chưa kịp test trực tiếp trong phiên này**: Chèn chữ/ảnh/vẽ/xóa trắng/sửa text gốc/chọn-xoay/xóa đối tượng/hoàn tác (cần thao tác kéo/click tọa độ trên canvas PDF), Dịch/Tìm nghĩa (AI — cùng hạ tầng với Tóm tắt/Chat đã OK), Ký PFX/Ký lô/Ô ký/Ký tay-dấu (chưa có file PFX test, và không muốn lạm dụng token thật của công ty thêm). Đây **không phải "OK"**, chỉ là chưa có bằng chứng trực tiếp.
+**Đã test kỹ**: Chèn chữ, Vẽ tự do, Xóa đối tượng, Ô ký số (dùng token thật, PIN do bạn cung cấp) — tất cả OK, kèm 1 phát hiện lỗi mới (mislabel dialog, xem mục lỗi #4).
+**Chưa kịp test trực tiếp trong phiên này**: Chèn ảnh, Xóa trắng (thử 1 lần chưa xác nhận được, cần thử lại), Sửa text gốc, Chọn & Xoay, Hoàn tác, Dịch/Tìm nghĩa (AI — cùng hạ tầng với Tóm tắt/Chat đã OK), Ký PFX/Ký lô/Ký tay-dấu (chưa có file PFX test, và không muốn lạm dụng token thật của công ty thêm). Đây **không phải "OK"**, chỉ là chưa có bằng chứng trực tiếp.
 
 ---
 
@@ -48,6 +49,19 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 | **Kiểm tra USB (ký số)** | Cắm USB token Viettel-CA thật → bấm "Kiểm tra USB" | Nhận diện đúng: công ty, MST, serial token, serial chứng thư, driver |
 | **Ký số** (chữ ký số thật) | Chọn vị trí ký trên trang → xác nhận → thông tin chữ ký → lưu file → **không bị hỏi PIN** (đã cache sẵn) | "Ký số thành công!" — **đã kiểm chứng lại bằng pyHanko độc lập ngoài app**: `intact=True, valid=True`, đúng cert công ty (CN="CÔNG TY TNHH ĐẦU TƯ CÔNG NGHỆ VÀ XÂY LẮP 3T") |
 | **Kiểm tra chữ ký** | Mở file vừa ký → bấm "Kiểm tra" | Hiện đúng "Hợp lệ chữ ký", đầy đủ thông tin chứng thư (nhà cung cấp Viettel-CA, hiệu lực, "Đã sửa đổi tài liệu: Không") |
+| **Chèn chữ** | Click trang → gõ text → "Chèn vào PDF" → `Ctrl+S` | Text hiện đúng vị trí sau khi lưu (render lại bằng pypdfium2 xác nhận) — lưu ý: chỉ ghi xuống đĩa sau khi lưu tường minh, đúng thiết kế phiên "Sửa PDF" |
+| **Vẽ tự do** | Vẽ nét trên canvas popup → "Chèn vào PDF" → kéo vùng đặt trên trang → `Ctrl+S` | Nét vẽ hiện đúng trên trang sau khi lưu (render xác nhận) |
+| **Xóa đối tượng** | Bấm nút khi không có đối tượng nào vừa chèn trong phiên hiện tại | Đúng cảnh báo "Chưa có text/ảnh nào được chèn để xóa" (vì object đã lưu ở phiên trước, không còn trong danh sách xóa-được của phiên hiện tại — đúng thiết kế) |
+| **Ô ký số** | Kéo vùng trên trang → đặt tên field → xác nhận → `Ctrl+S` | pikepdf xác nhận đúng: `AcroForm` có 1 field `/FT=/Sig`, tên khớp `Signature_qa_full_1` |
+
+---
+
+## 🟡 LỖI NHỎ MỚI PHÁT HIỆN (chưa sửa) — dialog chọn vùng bị nhầm nhãn "Ký số"
+
+- **Hiện tượng**: khi dùng "Vẽ tự do" (và nhiều khả năng cả Chèn ảnh, Ghi chú không có vùng bôi đen, Xóa trắng — cùng cơ chế), sau khi xác nhận nội dung, app hiện hộp thoại tên **"Chọn vị trí ký"** với nội dung "Giữ chuột và kéo trực tiếp trên PDF để **vẽ vùng chữ ký**" — chữ này chỉ đúng cho tính năng Ký số, không đúng cho Vẽ/Chèn ảnh/Ghi chú.
+- **Không phải lỗi chức năng** — đã xác nhận: nếu làm đúng theo hướng dẫn (kéo vùng trên trang), nội dung (nét vẽ) vẫn được chèn đúng vị trí sau khi lưu. Chỉ là **nhãn/chữ hiển thị sai**, có thể khiến người dùng tưởng nhầm đang được yêu cầu ký số.
+- **Nguyên nhân xác nhận qua đọc code**: `_pick_pdf_area()` (`app/actions/edit.py:683`) — hàm dùng chung để "chọn 1 vùng trên trang PDF" cho nhiều tính năng (vẽ, chèn ảnh, ghi chú, xóa trắng...) — tái sử dụng hạ tầng (`_get_web_view`, `_setup_webchannel`, `_teardown_webchannel`) từ `app/actions/sign.py`, và dòng chữ hint "Chọn vị trí ký" / "vẽ vùng chữ ký" đang bị hard-code cố định trong `sign.py` thay vì nhận tham số theo từng tính năng gọi tới.
+- **Chưa sửa** — cần đọc kỹ thêm cách `_pick_pdf_area` truyền/không truyền message xuống dialog trước khi sửa, để thêm tham số message theo đúng ngữ cảnh gọi (vẽ/ảnh/ghi chú/ký) mà không phá tính năng ký số đang chạy đúng.
 
 ---
 
@@ -83,16 +97,17 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 
 | Nhóm | Tính năng | Lý do chưa test |
 |---|---|---|
-| Chú thích | Chèn chữ, Chèn ảnh, Vẽ tự do, Xóa trắng, Sửa text gốc, Chọn & Xoay, Xóa đối tượng, Hoàn tác | Cần thao tác kéo/click trực tiếp trên canvas PDF (tọa độ pixel) — phức tạp hơn, cần lượt test riêng |
+| Chú thích | Chèn ảnh, Xóa trắng (thử 1 lần chưa rõ kết quả), Sửa text gốc, Chọn & Xoay, Hoàn tác | Xóa trắng cần thử lại với tọa độ kéo chuẩn hơn; còn lại chưa kịp trong phiên |
 | OCR | OCR trang / OCR toàn bộ (nút bấm thủ công) | Auto-OCR (chạy nền tự động) đã xác nhận OK; nút bấm thủ công gọi cùng engine nên rủi ro thấp nhưng chưa tự tay bấm |
 | AI | Dịch, Tìm nghĩa | Tóm tắt + Chat PDF (cùng hạ tầng AI provider) đã xác nhận OK; 2 mục này chưa tự tay bấm |
-| Ký số | Ký PFX, Ký lô, Ô ký, Ký tay/dấu | Kiểm tra USB/Ký số/Kiểm tra chữ ký đã test OK với token thật; 4 mục còn lại cần file PFX test riêng hoặc không muốn lạm dụng token thật thêm |
+| Ký số | Ký PFX, Ký lô, Ký tay/dấu | Kiểm tra USB/Ký số/Kiểm tra chữ ký/Ô ký đã test OK với token thật; 3 mục còn lại cần file PFX test riêng hoặc không muốn lạm dụng token thật thêm |
 
 ---
 
 ## Đề xuất bước tiếp theo
 
-1. Test nốt nhóm Chú thích còn lại (Chèn chữ/ảnh/vẽ/xóa trắng/sửa text gốc/chọn-xoay/xóa đối tượng/hoàn tác) — cần thao tác canvas, ưu tiên vì đây là nhóm tính năng lõi hay dùng nhất.
-2. Test nhanh Dịch/Tìm nghĩa + nút OCR thủ công (rủi ro thấp, chỉ cần xác nhận cho chắc).
-3. Ký số cần bạn cung cấp USB token thật hoặc file PFX/P12 test mới làm được.
-4. Toàn bộ việc sửa lỗi tiếp theo vẫn tuân thủ `sualoint.md` (đọc kỹ trước khi sửa, sửa đúng trọng tâm, rà soát tránh xung đột code, test trước rồi mới commit).
+1. Sửa lỗi nhãn "Chọn vị trí ký" bị dùng sai cho Vẽ/Chèn ảnh/Ghi chú (mục 🟡 ở trên) — rủi ro thấp, chỉ đổi text hiển thị.
+2. Thử lại Xóa trắng với tọa độ kéo rõ ràng hơn (lần thử vừa rồi không kết luận được).
+3. Test nốt Chèn ảnh, Sửa text gốc, Chọn & Xoay, Hoàn tác, Dịch/Tìm nghĩa, nút OCR thủ công.
+4. Ký PFX/Ký lô/Ký tay-dấu cần file PFX/P12 test riêng, hoặc dùng thêm token thật nếu bạn đồng ý.
+5. Toàn bộ việc sửa lỗi tiếp theo vẫn tuân thủ `sualoint.md` (đọc kỹ trước khi sửa, sửa đúng trọng tâm, rà soát tránh xung đột code, test trước rồi mới commit).
