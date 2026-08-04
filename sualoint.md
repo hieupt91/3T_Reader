@@ -151,6 +151,43 @@ Từ nay, mỗi lần crash "Fatal Python error: Aborted" / "Windows fatal excep
 | 2026-08-04 ~13:0x | Tiến trình ngoài (pikepdf) đọc file trong lúc app có thể đang ghi ngầm sau rotate | **Không** — kể cả bật `all_threads=True` cũng không ghi được gì |
 | 2026-08-04 ~15:3x | Vừa tạo Ô ký số (Sig field) → Ctrl+S lưu → click liên tục qua UI Automation ngay sau | Có — nhiều dòng "code 0x8001010d" (không tử vong) rồi cuối cùng "Fatal Python error: Aborted" (tử vong). File đã lưu đúng trước khi crash, không mất dữ liệu (đã xác nhận field Signature lưu đúng vào AcroForm) |
 
+### ĐÀO SÂU (2026-08-04, buổi chiều) — TÌM RA NGUỒN GỐC CHÍNH XÁC qua Windows Event Log, không cần WinDbg
+
+Không có `cdb.exe`/WinDbg, nhưng Windows tự ghi chi tiết crash native vào **Event Viewer → Application log** (Event ID 1000, "Windows Error Reporting") mà không cần cài thêm gì. Đọc bằng PowerShell (`Get-WinEvent -FilterHashtable @{LogName='Application'; Id=1000}`) ra thông tin mà `app_log.txt` không có được.
+
+**Kết quả — đây là phát hiện quan trọng nhất trong toàn bộ quá trình điều tra:**
+
+1. **Không phải lỗi mới, không phải do tôi test** — cùng 1 chữ ký crash xuất hiện **93 lần**, trải dài từ **22/05/2026 đến hôm nay 04/08/2026** (>2.5 tháng), qua **3 môi trường Python khác nhau** (`.venv`, `.venv313`, `miniconda3`) và **2 phiên bản Qt6Core.dll** (6.11.0.0 và 6.11.1.0). Đỉnh điểm 08-13/06/2026 (65 lần trong chưa đầy 1 tuần), sau đó thưa dần (1-3 lần/ngày có crash) nhưng chưa bao giờ hết hẳn.
+2. **Luôn crash tại đúng 1 chỗ**: `Exception code: 0xc0000409` (STATUS_STACK_BUFFER_OVERRUN / Windows `__fastfail`), `Faulting module: Qt6Core.dll`, `Fault offset: 0x1cf68` — **giống hệt nhau ở mọi lần**, không lệch 1 byte.
+3. **Đã xác định được tên hàm bị crash** bằng cách đọc bảng export của `Qt6Core.dll` (`pefile`, không cần WinDbg): offset `0x1cf68` nằm ngay sau hàm `QtPrivate::sizedFree(void*, unsigned __int64)` (bắt đầu tại `0x1cf10`) và trước `qBadAlloc` (tại `0x1cf80`) — tức **crash xảy ra bên trong `QtPrivate::sizedFree`, hàm giải phóng bộ nhớ nội bộ của Qt** (dùng bởi các container như QString/QList/QByteArray).
+4. **Ý nghĩa kỹ thuật**: crash bên trong 1 hàm `free()` với mã lỗi "stack buffer overrun/fastfail" gần như chắc chắn là **heap corruption bị phát hiện muộn** — tức có chỗ khác trong chương trình ghi đè ra ngoài vùng nhớ đã cấp phát (buffer overrun/use-after-free/double-free), Windows Heap chỉ phát hiện ra khi Qt gọi free() ở đây, không phải lỗi nằm ở chính dòng code này.
+5. **Khớp với nghi vấn đã có sẵn trong code** — comment ở `main.py` (dòng cài faulthandler) đã ghi rõ: *"all_threads=True sẽ khiến SIGSEGV ở QThread (do PySide6 GC race condition) lan ra"* — tức đội ngũ trước đây **đã từng nghi ngờ đúng loại lỗi này** (race điều kiện giữa Python garbage collector và vòng đời object C++ của Qt/PySide6), chỉ chưa có bằng chứng cụ thể để xác nhận. Phát hiện hôm nay (`sizedFree` + heap corruption) **khớp hoàn toàn** với giả thuyết GC-race đó.
+
+**Kết luận: đây rất có khả năng là lỗi trong chính PySide6/Qt (hoặc phần tương tác giữa Python GC và Qt C++ object lifecycle), không phải lỗi trong code Python của 3T Reader.** Không có dòng code nào của app xuất hiện trong toàn bộ chuỗi lỗi — không có Python traceback ở bất kỳ lần crash nào trong 93 lần.
+
+**Đề xuất hướng xử lý tiếp theo (ngoài khả năng "sửa code app" thông thường)**:
+1. Tìm trên trình theo dõi lỗi chính thức của Qt (`bugreports.qt.io`) và PySide (`bugreports.qt.io/projects/PYSIDE` hoặc `github.com/pyside/pyside-setup`) với từ khóa `sizedFree`, `0xc0000409`, hoặc mô tả "Qt6Core crash on Windows during accessibility/GC" — khả năng cao đã có người báo lỗi tương tự với PySide6 6.11.x trên Windows.
+2. Thử đổi phiên bản PySide6 (lên bản mới hơn nếu có, hoặc xuống 1 bản LTS trước đó) — vì lỗi giữ nguyên qua 6.11.0.0 → 6.11.1.0 (bản vá nhỏ không đổi được), có thể cần đổi bản lớn hơn mới né được đúng đoạn code lỗi.
+3. Nếu muốn điều tra tới cùng: cần **Application Verifier** (`verifier.exe`, có sẵn trong Windows, không cần cài thêm) bật chế độ "page heap" cho `python.exe` để bắt lỗi ngay tại chỗ ghi đè bộ nhớ (thay vì muộn tại `sizedFree`) — nhưng vẫn cần WinDbg hoặc debugger tương đương để đọc kết quả, việc này vượt phạm vi phiên làm việc hiện tại.
+4. Việc thưa dần từ giữa tháng 6 (có thể trùng với 1 fix nào đó đã làm trước đây) gợi ý: rà lại lịch sử commit quanh 13-19/06/2026 xem có thay đổi nào liên quan tới quản lý vòng đời QObject/QThread không — nếu có, hướng đó đã đúng nhưng chưa triệt để.
+
+**→ Đã rà `git log`, tìm được đúng 3 commit khớp hoàn toàn với mốc thời gian crash giảm mạnh (từ 8-18 lần/ngày xuống 0-3 lần/ngày, tất cả đúng ngày 16/06/2026):**
+
+| Commit | Ngày giờ | Nội dung |
+|---|---|---|
+| `5406a2c` | 2026-06-16 08:49 | fix: rotation crash by converting Signature widgets to Stamps |
+| `2db47ca` | 2026-06-16 09:47 | fix: resolve rapid rotation crash and instant thumbnail preview aspect ratio |
+| `bcf90a2` | 2026-06-16 14:25 | perf: implement aggressive garbage collection and QWebEngine profile cache clearing on tab close to prevent memory leaks |
+| `bf2c762` | 2026-06-19 13:53 | fix: resolve QUnifiedTimer segmentation fault on dialog close by gracefully stopping background thread |
+
+**Đây gần như chắc chắn chính là các fix đã dập phần lớn (nhưng không phải toàn bộ) nguồn gây crash `sizedFree`** — 3/4 commit nhắm đúng vào "rotation crash" + "Signature widget" + "GC", khớp 100% với giả thuyết heap-corruption-do-GC-race ở trên. **Rất đáng chú ý**: cả 3 lần tôi tự tái hiện crash hôm nay đều xảy ra ngay sau đúng nhóm thao tác này — (1) forward mở file lúc đang tải thumbnail, (2) ngay sau `Ctrl+]` xoay trang, (3) ngay sau khi tạo Ô ký số — tức **phần "đuôi" chưa dập hết của đúng nhóm lỗi rotation/signature/thumbnail mà đội đã từng sửa dở**, không phải lỗi mới hoàn toàn.
+
+**Khuyến nghị cụ thể nhất**: đọc lại kỹ nội dung đầy đủ 4 commit trên (đặc biệt `2db47ca` và `bcf90a2`) để hiểu chính xác cơ chế GC/thread-lifecycle đã áp dụng, rồi tìm xem còn code path rotation/signature/thumbnail nào KHÔNG đi qua cơ chế dọn dẹp đó không — nhiều khả năng chính là chỗ còn sót.
+
+**Đã tự kiểm tra thêm 1 bước**: đọc diff đầy đủ của `bcf90a2` — `gc.collect()` chủ động chỉ được gọi tại **thời điểm đóng tab** (`app/window.py`, +15 dòng). Crash #1 của tôi hôm nay xảy ra lúc **mở thêm file mới vào cửa sổ đang có tab khác tải thumbnail** — không phải lúc đóng tab — nên **rất có thể nằm ngoài phạm vi fix `bcf90a2` che phủ**. Đây là gợi ý cụ thể nhất cho hướng sửa tiếp: cân nhắc áp dụng cơ chế dọn dẹp GC/thread tương tự cho luồng **mở tab mới** (không chỉ đóng tab), đặc biệt khi có `ThumbnailLoader` của tab khác đang chạy nền tại thời điểm đó — khớp đúng với comment cảnh báo đã có sẵn trong `app/actions/auto_ocr.py` (dòng ~172) về rủi ro access-violation khi `ThumbnailLoader` cũ chưa kịp dừng lúc file bị thay đổi.
+
+**Lưu ý quan trọng**: đây là suy luận có căn cứ mạnh (khớp thời gian, khớp hàm, khớp comment cảnh báo có sẵn), nhưng **chưa phải bằng chứng chứng minh 100%** — chưa có debugger đọc được stack trace thật tại đúng thời điểm ghi đè bộ nhớ. Không nên sửa code dựa hoàn toàn vào suy luận này mà không tái hiện + xác nhận thêm, theo đúng nguyên tắc "không đoán bừa" đã đặt ra.
+
 ### Tổng kết những gì sẵn sàng để bạn test
 
 - **Lỗi 0 (chú thích tự lưu báo sai khi chỉ đọc)** — đã sửa (`app/actions/annotate.py`, `app/actions/auto_ocr.py`, `app/window.py`), đã test pass, **sẵn sàng để bạn test lại trên app thật**.
