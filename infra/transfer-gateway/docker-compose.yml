@@ -1,0 +1,43 @@
+services:
+  transfer-gateway:
+    build:
+      context: ../../server/transfer-gateway
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      TRANSFER_ENV: production
+      TRANSFER_DATABASE_URL: postgresql+asyncpg://transfer:${TRANSFER_DB_PASSWORD}@transfer-db:5432/transfer_gateway
+      TRANSFER_REDIS_URL: redis://transfer-redis:6379/0
+      TRANSFER_LICENSE_API_INTERNAL_URL: http://license-api:8000
+    networks:
+      - default
+      - backend_default
+    ports:
+      - "127.0.0.1:8001:8001"
+    depends_on:
+      - transfer-db
+      - transfer-redis
+
+  transfer-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: transfer
+      POSTGRES_PASSWORD: ${TRANSFER_DB_PASSWORD}
+      POSTGRES_DB: transfer_gateway
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+
+  transfer-redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - ./data/redis:/data
+
+networks:
+  default:
+  backend_default:
+    external: true
