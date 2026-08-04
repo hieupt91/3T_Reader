@@ -2422,15 +2422,22 @@ class PDFReaderApp(QMainWindow):
                 flush_all = getattr(queue, "flush_all", None)
                 ok = flush_all(target_path) if callable(flush_all) else queue.flush()
                 if not ok:
-                    QMessageBox.warning(
-                        self,
-                        "Chưa lưu xong chú thích",
-                        "Một số thay đổi chú thích chưa lưu xong. Vui lòng đợi vài giây rồi đóng tab lại.",
-                    )
-                    return False
+                    if has_pending_annotations(self, target_path, user_only=True):
+                        QMessageBox.warning(
+                            self,
+                            "Chưa lưu xong chú thích",
+                            "Một số thay đổi chú thích chưa lưu xong. Vui lòng đợi vài giây rồi đóng tab lại.",
+                        )
+                        return False
+                    # Chỉ còn OCR nền chưa ghi kịp, không phải chú thích người
+                    # dùng — không chặn đóng tab, OCR sẽ tự chạy lại lần sau.
+                    drop_ocr_pending = getattr(queue, "drop_ocr_pending", None)
+                    if callable(drop_ocr_pending):
+                        drop_ocr_pending(target_path)
             except Exception as exc:
-                QMessageBox.warning(self, "Chưa lưu xong chú thích", str(exc))
-                return False
+                if has_pending_annotations(self, target_path, user_only=True):
+                    QMessageBox.warning(self, "Chưa lưu xong chú thích", str(exc))
+                    return False
         edit_state = state.get("_pdf_edit_state") if state else None
         if self._has_unsaved_changes(state) and edit_state and edit_state.get("ops"):
             title = self.tab_widget.tabText(index) or "tài liệu"
@@ -3626,19 +3633,26 @@ class PDFReaderApp(QMainWindow):
                 flush_all = getattr(queue, "flush_all", None)
                 ok = flush_all() if callable(flush_all) else queue.flush()
                 if not ok:
+                    if has_pending_annotations(self, user_only=True):
+                        self._closing = False
+                        QMessageBox.warning(
+                            self,
+                            "Chưa lưu xong chú thích",
+                            "Một số thay đổi chú thích chưa lưu xong. Vui lòng đợi vài giây rồi thoát lại.",
+                        )
+                        event.ignore()
+                        return
+                    # Chỉ còn OCR nền chưa ghi kịp, không phải chú thích người
+                    # dùng — không chặn thoát app, OCR sẽ tự chạy lại lần sau.
+                    drop_ocr_pending = getattr(queue, "drop_ocr_pending", None)
+                    if callable(drop_ocr_pending):
+                        drop_ocr_pending()
+            except Exception as exc:
+                if has_pending_annotations(self, user_only=True):
                     self._closing = False
-                    QMessageBox.warning(
-                        self,
-                        "Chưa lưu xong chú thích",
-                        "Một số thay đổi chú thích chưa lưu xong. Vui lòng đợi vài giây rồi thoát lại.",
-                    )
+                    QMessageBox.warning(self, "Chưa lưu xong chú thích", str(exc))
                     event.ignore()
                     return
-            except Exception as exc:
-                self._closing = False
-                QMessageBox.warning(self, "Chưa lưu xong chú thích", str(exc))
-                event.ignore()
-                return
 
         for idx in range(self.tab_widget.count() - 1, -1, -1):
             if not self._close_tab(idx):

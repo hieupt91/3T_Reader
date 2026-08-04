@@ -96,16 +96,17 @@ class _AnnotationOpQueue(QObject):
     def __init__(self, window):
         super().__init__(window)
         self._window = window
-        self._pending: list[tuple[str, object]] = []
+        self._pending: list[tuple[str, object, bool]] = []
         self._flushing = False
         self._flushing_target: str | None = None
+        self._flushing_has_user = False
         self._last_error = ""
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.flush)
 
-    def enqueue(self, target_path: str, op, *, delay_ms: int = 350) -> None:
-        self._pending.append((os.path.abspath(target_path), op))
+    def enqueue(self, target_path: str, op, *, delay_ms: int = 350, is_user_edit: bool = True) -> None:
+        self._pending.append((os.path.abspath(target_path), op, is_user_edit))
         self._last_error = ""
         
         from packages.qt_compat.QtCore import QSettings
@@ -123,7 +124,7 @@ class _AnnotationOpQueue(QObject):
         if target_path is None:
             return len(self._pending)
         target_path = os.path.abspath(target_path)
-        return sum(1 for path, _op in self._pending if path == target_path)
+        return sum(1 for path, _op, _is_user in self._pending if path == target_path)
 
     def is_flushing(self, target_path: str | None = None) -> bool:
         if not self._flushing:
@@ -135,13 +136,31 @@ class _AnnotationOpQueue(QObject):
     def last_error(self) -> str:
         return self._last_error
 
-    def has_pending(self, target_path: str | None = None) -> bool:
+    def has_pending(self, target_path: str | None = None, *, user_only: bool = False) -> bool:
+        """user_only=True bỏ qua các thay đổi do auto-OCR nền tạo ra (không phải
+        chú thích người dùng thao tác) — dùng khi quyết định có chặn đóng
+        tab/app hay không, để không báo "chưa lưu chú thích" oan cho OCR nền."""
         if self.is_flushing(target_path):
+            if not user_only or self._flushing_has_user:
+                return True
+        norm_target = os.path.abspath(target_path) if target_path else None
+        for path, _op, is_user in self._pending:
+            if norm_target is not None and path != norm_target:
+                continue
+            if user_only and not is_user:
+                continue
             return True
-        if target_path is None:
-            return bool(self._pending)
-        target_path = os.path.abspath(target_path)
-        return any(path == target_path for path, _op in self._pending)
+        return False
+
+    def drop_ocr_pending(self, target_path: str | None = None) -> None:
+        """Bỏ các thay đổi auto-OCR chưa ghi kịp (giữ nguyên chú thích người
+        dùng thật) — gọi khi đóng tab/app mà OCR nền ghi thất bại, vì mất
+        text-layer OCR chỉ cần chạy lại lần mở sau, không phải mất dữ liệu."""
+        norm_target = os.path.abspath(target_path) if target_path else None
+        self._pending = [
+            item for item in self._pending
+            if item[2] or (norm_target is not None and item[0] != norm_target)
+        ]
 
     def flush(self, target_path: str | None = None) -> bool:
         if self._flushing:
@@ -151,8 +170,8 @@ class _AnnotationOpQueue(QObject):
         if not self._pending:
             return True
         requested_target = os.path.abspath(target_path) if target_path else self._pending[0][0]
-        same_target: list[tuple[str, object]] = []
-        rest: list[tuple[str, object]] = []
+        same_target: list[tuple[str, object, bool]] = []
+        rest: list[tuple[str, object, bool]] = []
         for item in self._pending:
             if item[0] == requested_target:
                 same_target.append(item)
@@ -165,6 +184,7 @@ class _AnnotationOpQueue(QObject):
         self._pending = rest
         self._flushing = True
         self._flushing_target = requested_target
+        self._flushing_has_user = any(is_user for _path, _op, is_user in same_target)
 
         staged_path = ""
         try:
@@ -174,7 +194,7 @@ class _AnnotationOpQueue(QObject):
             # một file -> tránh mất dữ liệu 1 bên (xem pdf_write_slot).
             with pdf_write_slot(requested_target):
                 with pikepdf.open(requested_target) as pdf:
-                    for _path, op in same_target:
+                    for _path, op, _is_user in same_target:
                         op(pdf)
                     staged_path = make_staged_pdf_path(requested_target)
                     pdf.save(staged_path)
@@ -198,6 +218,7 @@ class _AnnotationOpQueue(QObject):
         finally:
             self._flushing = False
             self._flushing_target = None
+            self._flushing_has_user = False
 
         if self._pending:
             self._timer.start(50)
@@ -221,8 +242,8 @@ def _annotation_queue(window) -> _AnnotationOpQueue:
     return queue
 
 
-def _queue_annotation_op(window, target_path: str, op, *, delay_ms: int = 350) -> None:
-    _annotation_queue(window).enqueue(target_path, op, delay_ms=delay_ms)
+def _queue_annotation_op(window, target_path: str, op, *, delay_ms: int = 350, is_user_edit: bool = True) -> None:
+    _annotation_queue(window).enqueue(target_path, op, delay_ms=delay_ms, is_user_edit=is_user_edit)
 
 
 def _annotation_undo_stack(window) -> list:
@@ -255,13 +276,13 @@ def _flush_annotation_queue(window, target_path: str | None = None) -> bool:
     return bool(queue.flush())
 
 
-def has_pending_annotations(window, target_path: str | None = None) -> bool:
+def has_pending_annotations(window, target_path: str | None = None, *, user_only: bool = False) -> bool:
     queue = getattr(window, "_annotation_op_queue", None)
     if queue is None:
         return False
     has_pending = getattr(queue, "has_pending", None)
     if callable(has_pending):
-        return bool(has_pending(target_path))
+        return bool(has_pending(target_path, user_only=user_only))
     return False
 
 
@@ -2490,6 +2511,8 @@ def highlight_text(window):
     """Highlight the current PDF.js text selection."""
     if _mark_mode_is_find(window):
         _mark_keyword_from_selection(window, "highlight")
+        return
+    if _mark_search_keyword_when_no_selection(window, "highlight"):
         return
     _do_selected_text_mark(window, "highlight")
 

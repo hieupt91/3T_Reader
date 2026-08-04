@@ -189,7 +189,7 @@ def _on_auto_ocr_page_done(
         if 0 <= page_idx < len(pdf.pages):
             merge_text_layer_into_pdf(pdf, page_idx, data)
 
-    _queue_annotation_op(window, pdf_path, _op, delay_ms=400)
+    _queue_annotation_op(window, pdf_path, _op, delay_ms=400, is_user_edit=False)
     # Gom nhiều trang hoàn tất liên tiếp thành một lần lưu + soft reload duy
     # nhất (tái dùng cơ chế debounce sẵn có của undo chú thích).
     _schedule_annotation_undo_flush(window, pdf_path, delay_ms=600)
