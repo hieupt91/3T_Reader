@@ -4,8 +4,8 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 
 **Bài học quan trọng rút ra giữa phiên (đọc trước khi tin bất kỳ mục "LỖI" nào)**: pywinauto (cả `click_input()` lẫn liệt kê `app.windows()`/`Desktop.windows()`) **2 lần báo sai** trong phiên này — "Gạch ngang" và sau đó "Ghi chú"/"Đọc sách" đều bị báo là lỗi (không hiện dialog) trong khi **chụp màn hình thật cho thấy dialog hiện đúng, đẹp, đầy đủ**. Nguyên nhân: công cụ UI Automation dùng để test không phát hiện được 1 số cửa sổ dialog của app này một cách đáng tin cậy — đây là hạn chế của phương pháp test, không phải lỗi của app. Vì vậy **mọi kết luận "LỖI" trong báo cáo này đều đã được xác nhận lại bằng ít nhất 1 trong 2 cách**: (a) đọc trực tiếp file PDF bằng pikepdf sau thao tác (khách quan tuyệt đối, không qua UI Automation), hoặc (b) chụp màn hình thật.
 
-**Đã test kỹ, có bằng chứng thực nghiệm khách quan**: Tab "Tệp & Xem" (nav/zoom/thumbnail/theme/fullscreen/tìm kiếm), Xoay trang, Gạch dưới, Gạch ngang, Tô sáng, Ghi chú, Đọc sách (TTS), Lưu, hàng đợi tự-lưu chú thích.
-**Chưa kịp test trực tiếp trong phiên này**: Chèn chữ/ảnh/vẽ/xóa trắng/sửa text gốc/chọn-xoay/xóa đối tượng/hoàn tác, Xóa trang/Ghép/Tách/Số trang, Watermark/mật khẩu/nén, Xuất Word/Excel/Ảnh/Văn bản, OCR, AI, Ký số — lý do cụ thể ghi ở bảng cuối file. Đây **không phải "OK"**, chỉ là chưa có bằng chứng.
+**Đã test kỹ, có bằng chứng thực nghiệm khách quan**: Tab "Tệp & Xem", Xoay trang, Gạch dưới, Gạch ngang, Tô sáng, Ghi chú, Đọc sách (TTS), Lưu, hàng đợi tự-lưu chú thích, **toàn bộ nhóm Trang** (Xóa trang/Ghép PDF/Tách PDF/Số trang/Xóa số trang), **toàn bộ nhóm Bảo mật & Xuất** (Watermark/Xóa watermark/Đặt mật khẩu/Xóa mật khẩu/Nén PDF/Xuất Word/Xuất Excel/Xuất Ảnh/Xuất Văn bản), **Auto-OCR** (tự động khi mở file scan), **AI Tóm tắt + Chat PDF** (gọi API Google Gemini thật, có key sẵn trên máy).
+**Chưa kịp test trực tiếp trong phiên này**: Chèn chữ/ảnh/vẽ/xóa trắng/sửa text gốc/chọn-xoay/xóa đối tượng/hoàn tác (cần thao tác kéo/click tọa độ trên canvas PDF), Dịch/Tìm nghĩa (AI — cùng hạ tầng với Tóm tắt/Chat đã OK, khả năng cao cũng ổn nhưng chưa tự tay bấm), Ký số (USB token/PFX). Đây **không phải "OK"**, chỉ là chưa có bằng chứng trực tiếp.
 
 ---
 
@@ -27,6 +27,23 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 | **Đọc sách (TTS)** | Bấm nút "Đọc sách" → **chụp màn hình thật** | Dialog "Đọc sách bằng AI (TTS)" hiện đầy đủ (Phạm vi/Chế độ/Ngôn ngữ/Giọng đọc/Tốc độ/nút Phát), Piper TTS báo "đã sẵn sàng" |
 | Lưu (`Ctrl+S`) | Gửi phím tắt | Không lỗi, không crash |
 | Hàng đợi tự-lưu chú thích | Xem `sualoint.md` mục "chú thích tự lưu báo sai" | Đã sửa, đã test pass |
+| **Xóa trang** | Bấm nút → hộp thoại "Xóa trang 1/4?" → Yes | Đọc lại pikepdf: 4→3 trang đúng |
+| **Số trang** | Bấm nút → chọn vị trí → số bắt đầu → OK | Render trang: số "1" hiện đúng giữa-dưới trang |
+| **Xóa số trang** | Bấm nút | Render lại: số trang biến mất sạch |
+| **Ghép PDF** | Chọn file phụ qua file picker thật → chọn nơi lưu → "Mở file đã gộp?" | pikepdf: 3+1 = 4 trang đúng |
+| **Tách PDF** | Dialog Tách PDF → preset "Mỗi trang 1 file" → chọn thư mục lưu thật | 3 file `_p1/_p2/_p3.pdf` tạo đúng |
+| **Watermark** | Dialog nhập text "BẢN NHÁP" → OK | Chữ watermark hiện đúng, xoay đúng góc trên trang (chụp màn hình xác nhận) |
+| **Xóa watermark** | Yes → chọn phạm vi "Tất cả trang" → OK | Watermark biến mất sạch (chụp màn hình xác nhận) |
+| **Đặt mật khẩu** | Dialog nhập + xác nhận mật khẩu → OK | pikepdf: file đúng yêu cầu mật khẩu, mở đúng bằng mật khẩu vừa đặt |
+| **Xóa mật khẩu** | Dialog nhập mật khẩu hiện tại → OK | pikepdf: file mở được không cần mật khẩu nữa |
+| **Nén PDF** | Bấm nút (không có dialog, đúng thiết kế) | File vẫn hợp lệ, đọc lại đúng số trang |
+| **Xuất Văn bản** | Native save dialog → Enter | File `.txt` đúng nội dung từng trang |
+| **Xuất Word** | Dialog chọn chế độ chuyển đổi → "Xuất file" → save dialog | `.docx` mở bằng python-docx, nội dung khớp 100% |
+| **Xuất Excel** | Save dialog | `.xlsx` mở bằng openpyxl, nội dung khớp 100%, đúng số sheet = số trang |
+| **Xuất Ảnh** | Dialog chọn định dạng/DPI → OK → chọn thư mục | Zip chứa đúng 3 PNG hợp lệ, 1 file/trang |
+| **Auto-OCR** | Mở file PDF dạng ảnh scan (không có text layer) | Text layer tự động được nhúng vào file sau vài giây (không cần bấm gì) — xác nhận qua pdfplumber |
+| **AI Tóm tắt** | Dialog "Tóm tắt tài liệu" → bấm Tóm tắt (gọi Google Gemini API thật) | Trả về tóm tắt đúng, phân tích đúng nội dung + tự nhận diện lỗi OCR trong văn bản |
+| **AI Chat PDF** | Gõ câu hỏi "Khach hang ten gi" → Gửi (gọi API thật) | Trả lời đúng "Khách hàng tên là Nguyen VanA." khớp nội dung tài liệu |
 
 ---
 
@@ -62,18 +79,16 @@ Test trực tiếp trên app thật đang chạy (không đọc code suy đoán)
 
 | Nhóm | Tính năng | Lý do chưa test |
 |---|---|---|
-| Chú thích | Chèn chữ, Chèn ảnh, Vẽ tự do, Xóa trắng, Sửa text gốc, Chọn & Xoay, Xóa đối tượng, Hoàn tác | Cần thao tác kéo/click trực tiếp trên canvas PDF (tọa độ pixel) — phức tạp hơn, chưa kịp trong phiên này |
-| Trang | Xóa trang, Ghép PDF, Tách PDF, Số trang, Xóa số trang | Chưa kịp trong phiên này |
-| Bảo mật & Xuất | Watermark, Xóa watermark, Đặt/xóa mật khẩu, Nén PDF, Xuất Word/Excel/Ảnh/Văn bản | Đã đọc code (`document_ops.py`), không thấy bug rõ ràng như kiểu Highlight — nhưng **chưa test sống trên app thật**, không tính là "OK" |
-| OCR | OCR trang, OCR toàn bộ | Chưa kịp; cần file scan thật (ảnh, không phải PDF có text sẵn) để test có ý nghĩa |
-| AI | Chat PDF, Tóm tắt, Dịch, Tìm nghĩa, Cài đặt AI | Cần API key AI thật đã cấu hình — chưa xác nhận máy này có key hay chưa |
-| Ký số | USB token, Ký số, Ký PFX, Ký lô, Ô ký, Ký tay/dấu, Kiểm tra chữ ký | Cần USB token PKCS#11 thật hoặc file PFX/P12 thật — không có sẵn |
+| Chú thích | Chèn chữ, Chèn ảnh, Vẽ tự do, Xóa trắng, Sửa text gốc, Chọn & Xoay, Xóa đối tượng, Hoàn tác | Cần thao tác kéo/click trực tiếp trên canvas PDF (tọa độ pixel) — phức tạp hơn, cần lượt test riêng |
+| OCR | OCR trang / OCR toàn bộ (nút bấm thủ công) | Auto-OCR (chạy nền tự động) đã xác nhận OK; nút bấm thủ công gọi cùng engine nên rủi ro thấp nhưng chưa tự tay bấm |
+| AI | Dịch, Tìm nghĩa | Tóm tắt + Chat PDF (cùng hạ tầng AI provider) đã xác nhận OK; 2 mục này chưa tự tay bấm |
+| Ký số | USB token, Ký số, Ký PFX, Ký lô, Ô ký, Ký tay/dấu, Kiểm tra chữ ký | Cần USB token PKCS#11 thật hoặc file PFX/P12 thật — không có sẵn trong môi trường test |
 
 ---
 
 ## Đề xuất bước tiếp theo
 
-1. Test nốt nhóm Trang (Xóa trang/Ghép/Tách/Số trang) và Bảo mật & Xuất — ưu tiên vì không cần thiết bị đặc thù, dùng phím tắt/click + **luôn chụp màn hình xác nhận** theo bài học ở trên.
-2. Test OCR với 1 file scan ảnh thật.
-3. AI/Ký số cần bạn xác nhận đã có API key / USB token / file PFX test hay chưa trước khi test được.
+1. Test nốt nhóm Chú thích còn lại (Chèn chữ/ảnh/vẽ/xóa trắng/sửa text gốc/chọn-xoay/xóa đối tượng/hoàn tác) — cần thao tác canvas, ưu tiên vì đây là nhóm tính năng lõi hay dùng nhất.
+2. Test nhanh Dịch/Tìm nghĩa + nút OCR thủ công (rủi ro thấp, chỉ cần xác nhận cho chắc).
+3. Ký số cần bạn cung cấp USB token thật hoặc file PFX/P12 test mới làm được.
 4. Toàn bộ việc sửa lỗi tiếp theo vẫn tuân thủ `sualoint.md` (đọc kỹ trước khi sửa, sửa đúng trọng tâm, rà soát tránh xung đột code, test trước rồi mới commit).
