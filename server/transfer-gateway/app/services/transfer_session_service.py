@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..config import settings
+from ..models import Device, TransferSession
+
+
+async def create_session(db: AsyncSession, sender: Device, auth_mode: str, file_name: str, file_size: int) -> dict:
+    if auth_mode != "business_key":
+        # public_premium cần verify App Store Server API — chưa implement (Phase 3).
+        raise HTTPException(status_code=501, detail="auth_mode 'public_premium' chưa được hỗ trợ.")
+
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(seconds=settings.transfer_ticket_ttl_seconds)
+    manifest = {"file_name": file_name[:255], "file_size": max(0, int(file_size))} if file_name else None
+
+    session = TransferSession(
+        sender_device_id=sender.device_id,
+        auth_mode=auth_mode,
+        file_manifest_meta=manifest,
+        expires_at=expires_at,
+    )
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+
+    return {
+        "transfer_session_id": str(session.transfer_session_id),
+        "expires_at": expires_at,
+    }
+
+
+async def join_session(db: AsyncSession, receiver: Device, transfer_session_id: uuid.UUID) -> dict:
+    session = (
+        await db.execute(
+            select(TransferSession).where(TransferSession.transfer_session_id == transfer_session_id)
+        )
+    ).scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phiên truyền.")
+
+    now = datetime.now(timezone.utc)
+    if now > session.expires_at:
+        session.status = "expired"
+        await db.commit()
+        raise HTTPException(status_code=410, detail="Phiên truyền đã hết hạn.")
+
+    if session.status not in ("created", "signaling"):
+        raise HTTPException(status_code=410, detail="Phiên truyền không còn nhận thiết bị mới.")
+
+    sender = (
+        await db.execute(select(Device).where(Device.device_id == session.sender_device_id))
+    ).scalar_one_or_none()
+    if sender is None or sender.license_id != receiver.license_id:
+        raise HTTPException(status_code=403, detail="Thiết bị không thuộc cùng key doanh nghiệp.")
+
+    if session.receiver_device_id is not None and session.receiver_device_id != receiver.device_id:
+        raise HTTPException(status_code=409, detail="Phiên truyền đã có thiết bị nhận khác.")
+
+    session.receiver_device_id = receiver.device_id
+    session.status = "signaling"
+    await db.commit()
+
+    return {
+        "transfer_session_id": str(session.transfer_session_id),
+        "sender_device_id": str(session.sender_device_id),
+        "status": session.status,
+    }
+
+
+async def complete_session(
+    db: AsyncSession, device: Device, transfer_session_id: uuid.UUID, status: str
+) -> dict:
+    if status not in ("completed", "failed"):
+        raise HTTPException(status_code=400, detail="status phải là completed hoặc failed.")
+
+    session = (
+        await db.execute(
+            select(TransferSession).where(TransferSession.transfer_session_id == transfer_session_id)
+        )
+    ).scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phiên truyền.")
+    if device.device_id not in (session.sender_device_id, session.receiver_device_id):
+        raise HTTPException(status_code=403, detail="Thiết bị không thuộc phiên truyền này.")
+
+    session.status = status
+    await db.commit()
+    return {"ok": True, "status": session.status}
+
+
+async def get_session_participants(db: AsyncSession, transfer_session_id: uuid.UUID) -> TransferSession | None:
+    return (
+        await db.execute(
+            select(TransferSession).where(TransferSession.transfer_session_id == transfer_session_id)
+        )
+    ).scalar_one_or_none()

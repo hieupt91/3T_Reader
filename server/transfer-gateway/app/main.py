@@ -4,11 +4,11 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
-from .db import get_db, init_db
+from .db import SessionLocal, get_db, init_db
 from .models import Device
 from .schemas import (
     CompanionSessionClaimRequest,
@@ -16,9 +16,15 @@ from .schemas import (
     CompanionSessionCreateResponse,
     DeviceListItem,
     DeviceRevokeResponse,
+    TransferSessionCompleteRequest,
+    TransferSessionCompleteResponse,
+    TransferSessionCreateRequest,
+    TransferSessionCreateResponse,
+    TransferSessionJoinResponse,
 )
-from .services import audit_service, pairing_service
-from .services.device_service import get_device, resolve_desktop_device
+from .services import audit_service, pairing_service, transfer_session_service
+from .services.device_service import get_device, resolve_companion_device, resolve_desktop_device
+from .services.signaling import SignalingError, signaling_relay, validate_message
 
 _RATE_BUCKETS: dict[tuple[str, str], list[float]] = {}
 
@@ -61,6 +67,34 @@ async def desktop_auth(
         raise HTTPException(status_code=401, detail="Thiếu header X-Device-Id.")
     v1_token = authorization.split(" ", 1)[1].strip()
     return await resolve_desktop_device(db, v1_token, x_device_id)
+
+
+async def any_device_auth(
+    db: AsyncSession = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_device_id: str | None = Header(default=None),
+) -> Device:
+    """Desktop (token V1 + X-Device-Id) hoặc companion đã pairing (token V2,
+    4 phần dạng body.sig.ed2.key_id) — dùng cho transfer-sessions vì cả hai
+    loại thiết bị đều có thể là bên gửi/nhận PDF."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Thiếu Authorization: Bearer <token>.")
+    token = authorization.split(" ", 1)[1].strip()
+
+    if token.count(".") == 3 and token.split(".")[2] == "ed2":
+        return await resolve_companion_device(db, token)
+
+    if not x_device_id:
+        raise HTTPException(status_code=401, detail="Thiếu header X-Device-Id (token desktop V1).")
+    return await resolve_desktop_device(db, token, x_device_id)
+
+
+async def ws_any_device_auth(db: AsyncSession, token: str, v1_device_id: str | None) -> Device:
+    if token.count(".") == 3 and token.split(".")[2] == "ed2":
+        return await resolve_companion_device(db, token)
+    if not v1_device_id:
+        raise HTTPException(status_code=401, detail="Thiếu device_id cho token desktop V1.")
+    return await resolve_desktop_device(db, token, v1_device_id)
 
 
 @asynccontextmanager
@@ -180,3 +214,100 @@ async def revoke_device(
         db, event_type="revoke", result="ok", correlation_id=str(uuid.uuid4()), device_id=target.device_id
     )
     return DeviceRevokeResponse(ok=True, device_id=str(target.device_id), revoked_at=target.revoked_at)
+
+
+# ── Phase 2: transfer-sessions (P2P PDF, chỉ signaling — không có file bytes) ──
+
+
+@app.post(
+    "/api/v2/transfer-sessions",
+    response_model=TransferSessionCreateResponse,
+    dependencies=[Depends(rate_dep("transfer_create", 20, 60))],
+)
+async def create_transfer_session(
+    req: TransferSessionCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    device: Device = Depends(any_device_auth),
+) -> TransferSessionCreateResponse:
+    correlation_id = str(uuid.uuid4())
+    try:
+        result = await transfer_session_service.create_session(
+            db, device, req.auth_mode, req.file_name, req.file_size
+        )
+    except HTTPException as exc:
+        await audit_service.record(
+            db, event_type="transfer_start", result="error", correlation_id=correlation_id,
+            device_id=device.device_id,
+        )
+        raise exc
+    await audit_service.record(
+        db, event_type="transfer_start", result="ok", correlation_id=correlation_id, device_id=device.device_id
+    )
+    return TransferSessionCreateResponse(**result)
+
+
+@app.post(
+    "/api/v2/transfer-sessions/{transfer_session_id}/join",
+    response_model=TransferSessionJoinResponse,
+    dependencies=[Depends(rate_dep("transfer_join", 20, 60))],
+)
+async def join_transfer_session(
+    transfer_session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    device: Device = Depends(any_device_auth),
+) -> TransferSessionJoinResponse:
+    result = await transfer_session_service.join_session(db, device, transfer_session_id)
+    return TransferSessionJoinResponse(**result)
+
+
+@app.post(
+    "/api/v2/transfer-sessions/{transfer_session_id}/complete",
+    response_model=TransferSessionCompleteResponse,
+)
+async def complete_transfer_session(
+    transfer_session_id: uuid.UUID,
+    req: TransferSessionCompleteRequest,
+    db: AsyncSession = Depends(get_db),
+    device: Device = Depends(any_device_auth),
+) -> TransferSessionCompleteResponse:
+    correlation_id = str(uuid.uuid4())
+    result = await transfer_session_service.complete_session(db, device, transfer_session_id, req.status)
+    await audit_service.record(
+        db, event_type=f"transfer_{req.status}", result="ok", correlation_id=correlation_id,
+        device_id=device.device_id,
+    )
+    return TransferSessionCompleteResponse(**result)
+
+
+@app.websocket("/api/v2/transfer-sessions/{transfer_session_id}/signal")
+async def transfer_session_signal(websocket: WebSocket, transfer_session_id: uuid.UUID) -> None:
+    token = websocket.query_params.get("token", "")
+    v1_device_id = websocket.query_params.get("device_id")
+
+    async with SessionLocal() as db:
+        try:
+            device = await ws_any_device_auth(db, token, v1_device_id)
+        except HTTPException:
+            await websocket.close(code=4401)
+            return
+
+        session = await transfer_session_service.get_session_participants(db, transfer_session_id)
+        if session is None or device.device_id not in (session.sender_device_id, session.receiver_device_id):
+            await websocket.close(code=4403)
+            return
+
+    await websocket.accept()
+    await signaling_relay.register(transfer_session_id, device.device_id, websocket)
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                message = validate_message(raw)
+            except SignalingError as exc:
+                await websocket.send_json({"type": "control", "error": str(exc)})
+                continue
+            await signaling_relay.relay(transfer_session_id, device.device_id, message)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        signaling_relay.unregister(transfer_session_id, device.device_id)

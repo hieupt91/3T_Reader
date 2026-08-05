@@ -102,3 +102,26 @@ async def get_device(db: AsyncSession, device_id: uuid.UUID) -> Device | None:
     return (
         await db.execute(select(Device).where(Device.device_id == device_id))
     ).scalar_one_or_none()
+
+
+async def resolve_companion_device(db: AsyncSession, v2_token: str) -> Device:
+    """Xác thực device_token V2 (companion iPhone/iPad đã claim ở pairing) và
+    trả về Device tương ứng. Khác resolve_desktop_device (cầu nối V1) — đây
+    xác thực trực tiếp bằng token V2 tự ký, không cần gọi license-api."""
+    from .token_service_v2 import TokenV2Error, token_service_v2
+
+    try:
+        payload = token_service_v2.verify(v2_token)
+    except TokenV2Error as exc:
+        raise HTTPException(status_code=401, detail=f"Token V2 không hợp lệ: {exc}") from exc
+
+    device_id = payload.get("device_id")
+    if not device_id:
+        raise HTTPException(status_code=401, detail="Token V2 thiếu device_id.")
+
+    device_row = await get_device(db, uuid.UUID(device_id))
+    if device_row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy thiết bị.")
+    if device_row.revoked_at is not None:
+        raise HTTPException(status_code=403, detail="Thiết bị đã bị thu hồi.")
+    return device_row
