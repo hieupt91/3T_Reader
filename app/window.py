@@ -343,6 +343,10 @@ class PDFReaderApp(QMainWindow):
         from app.license_dialog import open_license_dialog
         open_license_dialog(self)
 
+    def _open_transfer_pairing_dialog(self):
+        from app.transfer_pairing_dialog import TransferPairingDialog
+        TransferPairingDialog(self).exec()
+
     def _ocr_current_page(self):
         from app.actions.ocr import ocr_current_page
         ocr_current_page(self)
@@ -2089,6 +2093,12 @@ class PDFReaderApp(QMainWindow):
         act_activate = menu_license.addAction("🔑  Kích hoạt / Nhập key...")
         act_activate.setShortcut(QKeySequence("Ctrl+Shift+L"))
         act_activate.triggered.connect(lambda: self._open_license_dialog())
+
+        # Companion pairing (key doanh nghiệp 3TR-E) - Phase 1 POC theo
+        # SPEC_TRANSFER_GATEWAY_V2.md. Dialog tự báo lỗi rõ ràng nếu chưa có
+        # key 3TR-E hoặc transfer-gateway chưa cấu hình, không cần gate trước.
+        act_transfer_devices = menu_license.addAction("📱  Thiết bị ScanDoc...")
+        act_transfer_devices.triggered.connect(lambda: self._open_transfer_pairing_dialog())
 
         self.menu_help = top_menu("menu_help", self._t("menu.help", "Trợ giúp"))
         menu_help = self.menu_help
