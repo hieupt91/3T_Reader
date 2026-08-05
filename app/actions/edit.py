@@ -2905,7 +2905,16 @@ def edit_existing_text(window):
                 insert_box = redact_box
             else:
                 _span_left, span_bottom, _span_right, span_top = span_info["box"]
-                tight_bottom = max(bottom, span_bottom)
+                # Vùng bôi đen của user (từ DOM Selection/text-layer PDF.js)
+                # thường tính theo line-height, không ôm sát tới đúng đáy
+                # glyph có đuôi chữ (g/y/p/q/j...) - lấy max(bottom, span_bottom)
+                # thẳng tay sẽ cắt cụt đuôi chữ khi vá/che. Cho phép mép dưới
+                # lấn xuống thêm tối đa ~1/4 cỡ chữ (độ sâu đuôi chữ La-tinh
+                # điển hình) trước khi giới hạn theo span - vẫn giữ chặn span
+                # match sai lệch quá xa (an toàn như cũ ngoài khoảng đệm này).
+                _span_font_size = float(span_info.get("font_size", 12) or 12)
+                descender_allowance = _span_font_size * 0.25
+                tight_bottom = max(bottom - descender_allowance, span_bottom)
                 tight_top = min(top, span_top)
                 if tight_top - tight_bottom >= 0.5:
                     bottom, top = tight_bottom, tight_top
