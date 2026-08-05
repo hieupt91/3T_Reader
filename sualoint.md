@@ -335,4 +335,29 @@ Bỏ `panel.activateWindow()` ở cả 2 chỗ gọi giống hệt nhau trong `a
 - `pytest tests/`: 326 pass / 5 fail — đúng baseline.
 - Test trực tiếp trên app thật, **click chuột thật qua Windows API** (không phải UI Automation invoke) vào trang PDF ngay sau khi bấm "Chèn chữ", gõ "HELLO" ngay lập tức: TRƯỚC khi sửa → ô trống (chỉ hiện placeholder); SAU khi sửa → "HELLO" vào đúng ô ngay lần click đầu tiên, không cần click thêm lần 2 (2 ảnh chụp màn hình đối chiếu).
 
-**Chưa commit.**
+**Đã commit** (`0c4d9d8`).
+
+---
+
+## Lỗi 7: Vệt đuôi chữ (descender) bị cắt cụt trong "Sửa text gốc"
+
+**Trạng thái: ĐÃ SỬA.** Xem chi tiết đầy đủ ở commit `c68761b` — cho phép mép dưới vùng che lấn xuống thêm tối đa 1/4 cỡ chữ trước khi giới hạn theo span thật (`tight_bottom = max(bottom - descender_allowance, span_bottom)` thay vì `max(bottom, span_bottom)`). Test lại đúng kịch bản cũ (chữ "g" trong "original"): vệt biến mất hoàn toàn. `pytest`: 328 pass / 4 fail (baseline). **Đã commit.**
+
+---
+
+## Xác nhận lại 2 mục "chưa đủ căn cứ kết luận" từ `QA_UX_FINAL_REVIEW_2026-08-04.md`
+
+### "Xóa đối tượng" (UX#4) — XÁC NHẬN HOẠT ĐỘNG ĐÚNG, không phải bug
+
+Test lại trong **1 phiên pywinauto liên tục, không ngắt kết nối** (khác với lần trước dùng 2 script rời rạc): Chèn chữ ("DELMETEXT") bằng click chuột thật → "Chèn vào PDF" (chưa lưu) → bấm "Xóa obj" (ribbon đổi màu đúng, nút "Hủy" nổi lên đúng) → click chuột thật trực tiếp vào text vừa chèn → **text biến mất đúng, mode thoát sạch, không lỗi**. Xác nhận nghi vấn trước đó đúng là do phương pháp test (mất kết nối pywinauto giữa 2 script làm rớt trạng thái "đang chờ chọn"), không phải bug app.
+
+### Nền đen thoáng qua sau đổi theme (Vấn đề #1, `QA_HEAVY_FILE_2026-08-04.md`) — KHÔNG TÁI HIỆN ĐƯỢC
+
+Đã thử: đổi theme tối→sáng liên tục 6 lần dồn dập, cuộn qua nhiều trang tới vùng phân cách giữa trang, chụp màn hình **ngay lập tức không delay** sau mỗi lần đổi theme (đúng thời điểm nghi có bug) — **không tái hiện được** hiện tượng nền đen ở bất kỳ lần thử nào, nền luôn đúng màu theo theme hiện tại. Giữ nguyên kết luận cũ: chưa đủ căn cứ để coi là bug thật, có thể là hiện tượng ngẫu nhiên/hiếm gặp phụ thuộc timing. Không có gì để sửa.
+
+---
+
+## Còn lại duy nhất chưa test được (không phải do né tránh)
+
+- **Tìm nghĩa** (semantic search — bước tìm kiếm thực tế): cần OpenAI API key của user, máy chỉ có Gemini key.
+- OCR toàn bộ + Xuất Word/Excel/Ảnh cho file rất nhiều trang: lần test trước dùng sai môi trường Python (thiếu `pytesseract`), cần chạy lại bằng đúng `.venv` của project.
