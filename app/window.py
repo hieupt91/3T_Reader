@@ -342,6 +342,25 @@ class PDFReaderApp(QMainWindow):
         from app.license_dialog import open_license_dialog
         open_license_dialog(self)
 
+    def _open_transfer_pairing_dialog(self):
+        from packages.license_client import get_license_client
+        from packages.qt_compat.QtWidgets import QMessageBox
+
+        status = get_license_client().validate_cached()
+        plan_code = (status.plan_code or "").upper()
+        if not status.active or not plan_code.startswith("3TR-E"):
+            QMessageBox.information(
+                self,
+                "Thiết bị ScanDoc",
+                "Tính năng này dành cho key doanh nghiệp (3TR-E).\n"
+                "Vui lòng kích hoạt key 3TR-E trước khi thêm thiết bị companion.",
+            )
+            return
+
+        from app.transfer_pairing_dialog import TransferPairingDialog
+        dlg = TransferPairingDialog(self)
+        dlg.exec()
+
     def _ocr_current_page(self):
         from app.actions.ocr import ocr_current_page
         ocr_current_page(self)
@@ -2088,6 +2107,9 @@ class PDFReaderApp(QMainWindow):
         act_activate = menu_license.addAction("🔑  Kích hoạt / Nhập key...")
         act_activate.setShortcut(QKeySequence("Ctrl+Shift+L"))
         act_activate.triggered.connect(lambda: self._open_license_dialog())
+
+        act_transfer_devices = menu_license.addAction("📱  Thiết bị ScanDoc...")
+        act_transfer_devices.triggered.connect(lambda: self._open_transfer_pairing_dialog())
 
         self.menu_help = top_menu("menu_help", self._t("menu.help", "Trợ giúp"))
         menu_help = self.menu_help
