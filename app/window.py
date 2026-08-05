@@ -344,8 +344,28 @@ class PDFReaderApp(QMainWindow):
         open_license_dialog(self)
 
     def _open_transfer_pairing_dialog(self):
+        from packages.license_client import get_license_client
+        from packages.qt_compat.QtWidgets import QMessageBox
+
+        status = get_license_client().validate_cached()
+        # plan_code có thể là dạng key ("3TR-E-XXXX...") hoặc tên chuẩn hóa
+        # ("enterprise") tuỳ nguồn - dùng đúng logic license_dialog.py đã
+        # kiểm chứng (dòng ~494) để nhận diện cả 2 dạng, tránh chặn nhầm
+        # user có key 3TR-E hợp lệ nhưng plan_code trả về "enterprise".
+        plan_code = (status.plan_code or "").lower().strip()
+        is_enterprise = plan_code.startswith("3tr-e") or "enterprise" in plan_code
+        if not status.active or not is_enterprise:
+            QMessageBox.information(
+                self,
+                "Thiết bị ScanDoc",
+                "Tính năng này dành cho key doanh nghiệp (3TR-E).\n"
+                "Vui lòng kích hoạt key 3TR-E trước khi thêm thiết bị companion.",
+            )
+            return
+
         from app.transfer_pairing_dialog import TransferPairingDialog
-        TransferPairingDialog(self).exec()
+        dlg = TransferPairingDialog(self)
+        dlg.exec()
 
     def _ocr_current_page(self):
         from app.actions.ocr import ocr_current_page
@@ -2094,9 +2114,9 @@ class PDFReaderApp(QMainWindow):
         act_activate.setShortcut(QKeySequence("Ctrl+Shift+L"))
         act_activate.triggered.connect(lambda: self._open_license_dialog())
 
-        # Companion pairing (key doanh nghiệp 3TR-E) - Phase 1 POC theo
-        # SPEC_TRANSFER_GATEWAY_V2.md. Dialog tự báo lỗi rõ ràng nếu chưa có
-        # key 3TR-E hoặc transfer-gateway chưa cấu hình, không cần gate trước.
+        # Companion pairing (key doanh nghiệp 3TR-E) - Phase 1 theo
+        # SPEC_TRANSFER_GATEWAY_V2.md. _open_transfer_pairing_dialog() tự
+        # kiểm tra active key 3TR-E trước khi mở dialog.
         act_transfer_devices = menu_license.addAction("📱  Thiết bị ScanDoc...")
         act_transfer_devices.triggered.connect(lambda: self._open_transfer_pairing_dialog())
 
