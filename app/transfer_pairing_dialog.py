@@ -4,10 +4,32 @@ import threading
 
 from packages.qt_compat.QtCore import Qt, QTimer
 from packages.qt_compat import pyqtSignal as Signal
+from packages.qt_compat.QtGui import QImage, QPixmap
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFrame, QListWidget, QListWidgetItem, QWidget,
 )
+
+
+def _render_qr_pixmap(payload: str, *, box_size: int = 176) -> QPixmap | None:
+    """Render `payload` (chuỗi qr_payload từ server) thành QPixmap vuông
+    trắng-đen. Trả None nếu thư viện `qrcode` chưa cài hoặc render lỗi -
+    dialog vẫn dùng được đầy đủ chỉ bằng mã chữ, QR chỉ là tiện ích thêm."""
+    try:
+        import qrcode
+
+        qr = qrcode.QRCode(border=2)
+        qr.add_data(payload)
+        qr.make(fit=True)
+        pil_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+        pil_img = pil_img.resize((box_size, box_size))
+        qimage = QImage(
+            pil_img.tobytes("raw", "RGB"), pil_img.width, pil_img.height,
+            pil_img.width * 3, QImage.Format.Format_RGB888,
+        )
+        return QPixmap.fromImage(qimage)
+    except Exception:
+        return None
 
 
 _STYLE = """
@@ -19,6 +41,10 @@ QLabel#code_display {
     font-family: monospace; letter-spacing: 4px;
     background: #1E1E38; border: 1px solid #3A3A60; border-radius: 8px;
     padding: 14px;
+}
+QLabel#qr_display {
+    background: #FFFFFF; border: 1px solid #3A3A60; border-radius: 8px;
+    padding: 10px;
 }
 QLabel#countdown { color: #8080B0; font-size: 12px; }
 QLabel#device_name { color: #E8EEFF; font-size: 13px; font-weight: 600; }
@@ -88,6 +114,12 @@ class TransferPairingDialog(QDialog):
         subtitle.setObjectName("subtitle")
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
+
+        self._qr_label = QLabel("")
+        self._qr_label.setObjectName("qr_display")
+        self._qr_label.setAlignment(Qt.AlignCenter)
+        self._qr_label.hide()
+        layout.addWidget(self._qr_label)
 
         self._code_label = QLabel("")
         self._code_label.setObjectName("code_display")
@@ -165,6 +197,15 @@ class TransferPairingDialog(QDialog):
         code = result.get("code", "")
         self._code_label.setText(code)
         self._code_label.show()
+
+        qr_payload = result.get("qr_payload", "")
+        pixmap = _render_qr_pixmap(qr_payload) if qr_payload else None
+        if pixmap is not None:
+            self._qr_label.setPixmap(pixmap)
+            self._qr_label.show()
+        else:
+            self._qr_label.hide()
+
         self._seconds_left = _PAIRING_TTL_SECONDS
         self._countdown_label.show()
         self._tick_countdown()
@@ -180,6 +221,7 @@ class TransferPairingDialog(QDialog):
         if self._seconds_left <= 0:
             self._countdown_timer.stop()
             self._code_label.hide()
+            self._qr_label.hide()
             self._countdown_label.hide()
             self._refresh_devices()
             return
