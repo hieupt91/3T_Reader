@@ -16,6 +16,7 @@ pdfplumber==0.11.9
 openpyxl==3.1.5
 pyttsx3==2.90
 numpy>=1.24.0
+qrcode==8.2
 
 # Platform-specific dependencies (TIEU_CHUAN_DONG_BO_WIN_MAC)
 pywin32==306 ; sys_platform == 'win32'
