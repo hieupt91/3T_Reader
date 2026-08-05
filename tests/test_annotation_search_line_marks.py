@@ -39,7 +39,7 @@ def test_underline_and_strikeout_can_use_current_search_query_without_selection(
         search_input = SearchInput()
         search_query = ""
 
-    monkeypatch.setattr(annotate, "_get_selection_page_rects_sync", lambda _window: ("", {}))
+    monkeypatch.setattr(annotate, "_get_selection_page_rects_sync", lambda _window, **_kwargs: ("", {}))
     monkeypatch.setattr(
         annotate,
         "_mark_keyword_everywhere",

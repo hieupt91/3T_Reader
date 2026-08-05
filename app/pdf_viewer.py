@@ -314,6 +314,10 @@ class PDFViewerWidget(QtWidgets.QWidget):
                 var app = window.PDFViewerApplication;
                 var currentScroll = app.pdfViewer.container.scrollTop;
                 var currentLeft = app.pdfViewer.container.scrollLeft;
+                // Tỉ lệ cuộn (chống bị clamp khi layout chưa dựng xong sau reload):
+                // layout trước/sau khi sửa GIỐNG nhau nên tỉ lệ khôi phục chuẩn.
+                var _sh0 = app.pdfViewer.container.scrollHeight || 1;
+                var currentFrac = currentScroll / _sh0;
                 window.__3tSignatureTargets = null;
                 window.__3tSignatureTargetsPromise = null;
                 document.querySelectorAll('.__3t-signature-hitbox').forEach(function(el) {{ el.remove(); }});
@@ -451,14 +455,21 @@ class PDFViewerWidget(QtWidgets.QWidget):
                     return app.open({{ data: new Uint8Array(ab), url: '{pdf_url}', originalUrl: '{pdf_url}' }});
                 }}).then(function() {{
                     var container = app.pdfViewer.container;
-                    container.scrollTop = currentScroll;
-                    container.scrollLeft = currentLeft;
-                    try {{
-                        if ({int(self._current_page)} > 0) {{
-                            app.pdfViewer.currentPageNumber = {int(self._current_page)};
+                    // Sửa TẠI CHỖ = cùng tài liệu, layout không đổi → CHỈ khôi phục
+                    // đúng vị trí cuộn cũ. KHÔNG set currentPageNumber (nó ép cuộn về
+                    // đầu trang = nguyên nhân nhảy trang khi sửa).
+                    function restoreScroll() {{
+                        // Ưu tiên vị trí tuyệt đối; nếu layout chưa dựng đủ chiều cao
+                        // (scrollTop bị clamp) thì dùng tỉ lệ để định vị đúng chỗ.
+                        container.scrollTop = currentScroll;
+                        container.scrollLeft = currentLeft;
+                        var sh = container.scrollHeight || 1;
+                        if (currentScroll > 0 && Math.abs(container.scrollTop - currentScroll) > 2) {{
+                            container.scrollTop = Math.round(currentFrac * sh);
                         }}
-                    }} catch (_) {{}}
-                    
+                    }}
+                    restoreScroll();
+
                     function removeFreeze() {{
                         if (freezeDiv.parentNode) {{
                             freezeDiv.style.transition = 'opacity 0.2s ease-out';
@@ -468,14 +479,32 @@ class PDFViewerWidget(QtWidgets.QWidget):
                             }}, 200);
                         }}
                     }}
-                    
+
+                    // Layout dựng dần khi từng trang render → tái áp vị trí lặp lại
+                    // trong thời gian ngắn, nếu không màn hình nhảy về đầu.
+                    var _restoreCount = 0;
+                    var _restoreTimer = setInterval(function() {{
+                        restoreScroll();
+                        _restoreCount++;
+                        if (_restoreCount > 12) clearInterval(_restoreTimer);  // ~600ms
+                    }}, 50);
+                    // Gỡ lớp phủ NGAY khi trang đầu render xong (thường ~150-300ms)
+                    // — giữ phủ lâu cố định gây cảm giác lag sau mỗi thao tác.
                     function onRender() {{
                         app.pdfViewer.eventBus.off('pagerendered', onRender);
-                        setTimeout(removeFreeze, 150);
+                        restoreScroll();
+                        setTimeout(function() {{ restoreScroll(); removeFreeze(); }}, 80);
                     }}
                     app.pdfViewer.eventBus.on('pagerendered', onRender);
-                    
-                    setTimeout(removeFreeze, 2500);
+                    try {{ app.pdfViewer.eventBus.on('pagesloaded', restoreScroll); }} catch (_) {{}}
+
+                    // Fallback nếu pagerendered không tới.
+                    setTimeout(function() {{
+                        app.pdfViewer.eventBus.off('pagerendered', onRender);
+                        clearInterval(_restoreTimer);
+                        restoreScroll();
+                        removeFreeze();
+                    }}, 900);
                 }}).catch(function(e) {{
                     console.error('Soft reload error, fallback to hard reload:', e);
                     if (freezeDiv.parentNode) freezeDiv.parentNode.removeChild(freezeDiv);
@@ -519,48 +548,67 @@ class PDFViewerWidget(QtWidgets.QWidget):
                     var pageView = app.pdfViewer.getPageView ? app.pdfViewer.getPageView(op.page_number - 1) : null;
                     if (!pageView) pageView = app.pdfViewer._pages ? app.pdfViewer._pages[op.page_number - 1] : null;
                     if (!pageView || !pageView.viewport) return;
-                    
+
                     var vp = pageView.viewport;
                     var coords = vp.convertToViewportRectangle([op.box[0], op.box[1], op.box[2], op.box[3]]);
                     var bx = Math.min(coords[0], coords[2]);
                     var by = Math.min(coords[1], coords[3]);
                     var bw = Math.abs(coords[2] - coords[0]);
                     var bh = Math.abs(coords[3] - coords[1]);
-                    
+
                     var canvas = pageEl.querySelector('canvas') || pageEl;
                     var cr = canvas.getBoundingClientRect();
                     var pr = pageEl.getBoundingClientRect();
                     bx += (cr.left - pr.left);
                     by += (cr.top - pr.top);
-                    
+
+                    // px trên 1 điểm PDF — suy TRỰC TIẾP từ tỉ lệ hộp (đúng mọi zoom),
+                    // không dùng hằng số 1.333 (gây chữ to sai).
+                    var boxHpt = Math.max(0.1, (op.box[3] - op.box[1]));
+                    var pxPerPt = bh / boxHpt;
+
                     var ov = document.createElement('div');
                     ov.className = '__3t-op-overlay';
                     if (op.id !== undefined && op.id !== null) ov.setAttribute('data-op-id', String(op.id));
                     var pad = 0;
                     ov.style.cssText = 'position:absolute;left:'+(bx-pad)+'px;top:'+(by-pad)+'px;width:'+(bw+2*pad)+'px;height:'+(bh+2*pad)+'px;z-index:40;pointer-events:none;transform-origin:'+(pad+bw/2)+'px '+(pad+bh/2)+'px;';
                     if (op.rotation) ov.style.transform = 'rotate('+op.rotation+'deg)';
-                    
+
+                    // Sửa text gốc: vẽ HỘP TRẮNG che chữ cũ NGAY trên overlay để không
+                    // phải reload lại PDF (reload = nhấp nháy + nhảy trang).
+                    if (op.type === 'text' && op.is_existing_edit && op.redact_box) {{
+                        var rco = vp.convertToViewportRectangle([op.redact_box[0], op.redact_box[1], op.redact_box[2], op.redact_box[3]]);
+                        var rx = Math.min(rco[0], rco[2]) + (cr.left - pr.left);
+                        var ry = Math.min(rco[1], rco[3]) + (cr.top - pr.top);
+                        var rw = Math.abs(rco[2] - rco[0]);
+                        var rh = Math.abs(rco[3] - rco[1]);
+                        var cover = document.createElement('div');
+                        cover.className = '__3t-op-overlay';
+                        if (op.id !== undefined && op.id !== null) cover.setAttribute('data-op-id', String(op.id));
+                        cover.style.cssText = 'position:absolute;left:'+rx+'px;top:'+ry+'px;width:'+rw+'px;height:'+rh+'px;z-index:39;pointer-events:none;background:#ffffff;';
+                        pageEl.appendChild(cover);
+                    }}
+
                     if (op.type === 'rect') {{
                         ov.style.background = '#ffffff';
                     }} else if (op.type === 'text') {{
-                        ov.style.display = 'flex';
-                        ov.style.alignItems = 'flex-start';
-                        ov.style.justifyContent = 'flex-start';
                         var txt = document.createElement('div');
                         txt.textContent = op.text || '';
                         var c = op.font_color || [0,0,0];
                         var r = Math.round(c[0]*255), g = Math.round(c[1]*255), b = Math.round(c[2]*255);
                         var fontFam = op.font_family || 'sans-serif';
-                        var colorCss = op.is_existing_edit ? 'color:transparent;' : 'color:rgb('+r+','+g+','+b+');';
-                        txt.style.cssText = 'width:100%;height:100%;display:flex;align-items:flex-start;justify-content:flex-start;'
-                            + colorCss
+                        // Chữ sửa giờ hiện MÀU THẬT (không reload nữa). Canh đáy để trùng
+                        // baseline chữ gốc.
+                        var alignV = op.is_existing_edit ? 'flex-end' : 'flex-start';
+                        txt.style.cssText = 'width:100%;height:100%;display:flex;align-items:'+alignV+';justify-content:flex-start;'
+                            + 'color:rgb('+r+','+g+','+b+');'
                             + 'font-weight:'+(op.bold?'bold':'normal')+';'
                             + 'text-decoration:'+(op.underline?'underline':'none')+';'
                             + 'font-style:'+(op.italic?'italic':'normal')+';'
-                            + 'font-family:'+fontFam+';white-space:pre-wrap;overflow:hidden;';
-                        var fs = (op.font_size || 14) * (vp.scale || 1.0) * 1.333;
+                            + 'font-family:'+fontFam+';white-space:pre;overflow:visible;line-height:1;';
+                        // Cỡ chữ khớp PDF: font_size(pt) * pxPerPt
+                        var fs = (op.font_size || 14) * pxPerPt;
                         txt.style.fontSize = fs + 'px';
-                        txt.style.lineHeight = '1.15';
                         ov.appendChild(txt);
                     }} else if (op.type === 'image' && op.image_path) {{
                         var img = document.createElement('img');
@@ -585,9 +633,13 @@ class PDFViewerWidget(QtWidgets.QWidget):
         """
         self._web_view.page().runJavaScript(js)
 
-    def save_pdf(self):
+    def save_pdf(self) -> bool:
+        """The PDF.js viewer does not own persistence; app actions save documents."""
         if not self._path:
             self.error_occurred.emit("Chưa mở tệp PDF.")
+        else:
+            self.error_occurred.emit("Viewer không lưu trực tiếp. Hãy dùng lệnh Lưu của ứng dụng.")
+        return False
 
     def goto_page(self, page: int):
         self._current_page = max(1, min(int(page), max(1, self._page_count)))

@@ -287,7 +287,10 @@ def _build_overlay_pdf(width: float, height: float, ops: list[dict]) -> bytes:
                 continue
             font_size = float(op.get("font_size", 12))
             font_name = _resolve_reportlab_font(
-                bool(op.get("bold")), str(op.get("font_family", "")), bool(op.get("italic"))
+                bool(op.get("bold")),
+                str(op.get("font_family", "")),
+                italic=bool(op.get("italic")),
+                serif=op.get("font_serif"),
             )
             color = _rgb_tuple(op.get("font_color", (0, 0, 0)))
             baseline = op.get("baseline")
@@ -419,7 +422,8 @@ def _rgb_tuple(value) -> tuple[float, float, float]:
     return tuple(max(0.0, min(1.0, float(v))) for v in (r, g, b))
 
 
-def _resolve_reportlab_font(bold: bool = False, family: str = "", italic: bool = False) -> str:
+def _resolve_reportlab_font(bold: bool = False, family: str = "", italic: bool = False,
+                            serif: bool | None = None) -> str:
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
@@ -434,7 +438,7 @@ def _resolve_reportlab_font(bold: bool = False, family: str = "", italic: bool =
     try:
         import hashlib
         from packages.platform.fonts import get_vietnamese_font_path
-        font_path = get_vietnamese_font_path(bold=bold, italic=italic, family=family)
+        font_path = get_vietnamese_font_path(bold=bold, italic=italic, family=family, serif=serif)
         if not font_path:
             return fallback
         suffix = hashlib.md5(font_path.encode("utf-8")).hexdigest()[:8]

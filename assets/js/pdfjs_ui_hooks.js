@@ -453,6 +453,40 @@
             out.push({ page_number: pageNumber, rect: pdfRect });
         }
 
+        // Style của span neo (span text đầu tiên chạm selection) — để chế độ bôi
+        // đen lấy đúng font/cỡ/màu/đậm/nghiêng/gạch chân như chế độ click, thay
+        // vì truyền styles rỗng rồi rơi về mặc định sai.
+        function anchorSpanStyle() {
+            try {
+                var a = sel.anchorNode;
+                var el = a && (a.nodeType === 1 ? a : a.parentElement);
+                var span = el && el.closest ? el.closest('.textLayer span') : null;
+                if (!span) {
+                    var fn = sel.focusNode;
+                    var fel = fn && (fn.nodeType === 1 ? fn : fn.parentElement);
+                    span = fel && fel.closest ? fel.closest('.textLayer span') : null;
+                }
+                if (!span) return null;
+                var st = window.getComputedStyle(span);
+                var pv = null, pnEl = span.closest('.page');
+                if (pnEl) {
+                    var pn = parseInt(pnEl.getAttribute('data-page-number') || '0', 10);
+                    pv = pn ? pageViewFor(pn) : null;
+                }
+                var fsPx = parseFloat(st.fontSize) || 16;
+                var vpScale = pv && pv.viewport ? Number(pv.viewport.scale || 1) : 1;
+                return {
+                    fontSizePt: fsPx / Math.max(0.01, vpScale),
+                    fontFamily: st.fontFamily,
+                    color: st.color,
+                    fontWeight: st.fontWeight,
+                    fontStyle: st.fontStyle,
+                    textDecoration: st.textDecorationLine || st.textDecoration,
+                    fontSize: st.fontSize
+                };
+            } catch (_e) { return null; }
+        }
+
         var out = [];
         for (var r = 0; r < sel.rangeCount; r++) {
             var range = sel.getRangeAt(r);
@@ -479,7 +513,7 @@
                 pushPdfRect(out, pageNumber, pageView, pageEl, refined);
             }
         }
-        return { text: text, rects: out, source: 'pdfjs_textlayer_selection' };
+        return { text: text, rects: out, styles: anchorSpanStyle(), source: 'pdfjs_textlayer_selection' };
     }
 
     function updateSelectionCache() {
@@ -571,6 +605,167 @@
         setTimeout(function () { reportPageState(app, reason + ':settled'); }, 80);
     }
 
+    function installExistingTextClickHandler() {
+        if (window.__3tExistingTextClickInstalled) return;
+        window.__3tExistingTextClickInstalled = true;
+
+        function textOffsetWithinSpan(span, node, offset) {
+            var walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
+            var total = 0;
+            var current;
+            while ((current = walker.nextNode())) {
+                if (current === node) return total + Math.max(0, offset || 0);
+                total += String(current.nodeValue || '').length;
+            }
+            return -1;
+        }
+
+        function textNodeAtOffset(span, offset) {
+            var walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
+            var total = 0;
+            var current;
+            while ((current = walker.nextNode())) {
+                var len = String(current.nodeValue || '').length;
+                if (offset <= total + len) {
+                    return { node: current, offset: Math.max(0, Math.min(len, offset - total)) };
+                }
+                total += len;
+            }
+            return null;
+        }
+
+        function clickedTextFragment(span, event) {
+            var fullText = String(span.textContent || '');
+            var spanRect = span.getBoundingClientRect();
+            var fallback = { text: fullText, rect: spanRect };
+            if (!fullText) return fallback;
+
+            var caret = null;
+            try {
+                if (document.caretRangeFromPoint) {
+                    caret = document.caretRangeFromPoint(event.clientX, event.clientY);
+                } else if (document.caretPositionFromPoint) {
+                    var pos = document.caretPositionFromPoint(event.clientX, event.clientY);
+                    if (pos) {
+                        caret = document.createRange();
+                        caret.setStart(pos.offsetNode, pos.offset);
+                        caret.collapse(true);
+                    }
+                }
+            } catch (_) {}
+            if (!caret || !span.contains(caret.startContainer)) return fallback;
+
+            var offset = textOffsetWithinSpan(span, caret.startContainer, caret.startOffset);
+            if (offset < 0) return fallback;
+            offset = Math.max(0, Math.min(fullText.length, offset));
+            if (offset >= fullText.length && fullText.length > 0) offset = fullText.length - 1;
+            if (/\s/.test(fullText.charAt(offset)) && offset > 0) offset -= 1;
+
+            var start = offset;
+            var end = offset + 1;
+            while (start > 0 && !/\s/.test(fullText.charAt(start - 1))) start -= 1;
+            while (end < fullText.length && !/\s/.test(fullText.charAt(end))) end += 1;
+            if (start >= end) return fallback;
+
+            var startPos = textNodeAtOffset(span, start);
+            var endPos = textNodeAtOffset(span, end);
+            if (!startPos || !endPos) return fallback;
+
+            try {
+                var range = document.createRange();
+                range.setStart(startPos.node, startPos.offset);
+                range.setEnd(endPos.node, endPos.offset);
+                var rect = range.getBoundingClientRect();
+                var text = fullText.slice(start, end);
+                if (rect && rect.width > 0 && rect.height > 0 && text) {
+                    return { text: text, rect: rect };
+                }
+            } catch (_) {}
+            return fallback;
+        }
+
+        document.addEventListener('keydown', function(event) {
+            if (!window.__3tExistingTextMode || event.key !== 'Escape') return;
+            window.__3tExistingTextMode = false;
+            event.preventDefault();
+            event.stopPropagation();
+            window.__3tWithBridge('editExistingTextBridge', function(bridge) {
+                if (bridge && typeof bridge.cancelExistingTextEdit === 'function') {
+                    bridge.cancelExistingTextEdit();
+                }
+            });
+        }, true);
+
+        // Ghi nhận điểm bấm — KHÔNG chặn để người dùng vẫn kéo BÔI ĐEN được.
+        // Quyết định click-sửa-1-từ hay bôi-đen-chọn-cụm dời sang pointerup.
+        var _etDown = null;
+        document.addEventListener('pointerdown', function(event) {
+            if (!window.__3tExistingTextMode) { _etDown = null; return; }
+            if (event.button !== 0) { _etDown = null; return; }
+            var target = event.target && event.target.nodeType === 1 ? event.target : event.target.parentElement;
+            var textSpan = target && target.closest ? target.closest('.textLayer span') : null;
+            if (!textSpan) { _etDown = null; return; }
+            _etDown = {x: event.clientX, y: event.clientY, span: textSpan, cx: event.clientX, cy: event.clientY};
+        }, true);
+
+        document.addEventListener('pointerup', function(event) {
+            if (!window.__3tExistingTextMode) return;
+            var d = _etDown; _etDown = null;
+            if (!d) return;
+            // Đã bôi đen (có vùng chọn) → KHÔNG tự mở sửa; để dùng nút "Sửa text gốc".
+            var selTxt = window.getSelection ? String(window.getSelection().toString() || '').trim() : '';
+            if (selTxt) return;
+            // Kéo (di chuyển > 4px) → coi là chọn/pan, không phải click 1 từ.
+            if (Math.abs(event.clientX - d.x) + Math.abs(event.clientY - d.y) > 4) return;
+
+            var textSpan = d.span;
+            var pageEl = textSpan.closest('.page[data-page-number]');
+            if (!pageEl) return;
+            var pageNum = parseInt(pageEl.getAttribute('data-page-number') || '0', 10);
+            if (!pageNum) return;
+            var app = window.PDFViewerApplication;
+            var viewer = app && app.pdfViewer;
+            var pageView = viewer && viewer.getPageView
+                ? viewer.getPageView(pageNum - 1)
+                : (viewer && viewer._pages && viewer._pages[pageNum - 1]);
+            if (!pageView || !pageView.viewport) return;
+
+            var evForFrag = {clientX: d.cx, clientY: d.cy};
+            var fragment = clickedTextFragment(textSpan, evForFrag);
+            var spanRect = fragment.rect || textSpan.getBoundingClientRect();
+            var pageRect = pageEl.getBoundingClientRect();
+            var p0 = pageView.viewport.convertToPdfPoint(spanRect.left - pageRect.left, spanRect.top - pageRect.top);
+            var p1 = pageView.viewport.convertToPdfPoint(spanRect.right - pageRect.left, spanRect.bottom - pageRect.top);
+            var left = Math.min(p0[0], p1[0]);
+            var right = Math.max(p0[0], p1[0]);
+            var bottom = Math.min(p0[1], p1[1]);
+            var top = Math.max(p0[1], p1[1]);
+
+            var style = window.getComputedStyle(textSpan);
+            var fsPx = parseFloat(style.fontSize) || 16;
+            var vpScale = Number(pageView.viewport.scale || 1);
+            var styleJson = JSON.stringify({
+                fontSizePt: fsPx / Math.max(0.01, vpScale),
+                fontFamily: style.fontFamily,
+                color: style.color,
+                fontWeight: style.fontWeight,
+                fontStyle: style.fontStyle,
+                textDecoration: style.textDecorationLine || style.textDecoration,
+                fontSize: style.fontSize
+            });
+
+            window.__3tWithBridge('editExistingTextBridge', function(bridge) {
+                if (bridge && typeof bridge.reportExistingTextClick === 'function') {
+                    bridge.reportExistingTextClick(
+                        pageNum, left, bottom, right, top,
+                        String(fragment.text || textSpan.textContent || ''),
+                        styleJson
+                    );
+                }
+            });
+        }, true);
+    }
+
     function installHooks() {
         var app = window.PDFViewerApplication;
         if (!app || !app.eventBus) {
@@ -578,6 +773,7 @@
             return;
         }
         installSignatureInfoClickHandler();
+        installExistingTextClickHandler();
         if (window.__3tHooksInstalled) return;
         window.__3tHooksInstalled = true;
 
@@ -630,7 +826,11 @@
                 document.body.style.cursor = '';
             }
             container.addEventListener('mousedown', function (event) {
-                if (!event.ctrlKey || event.button !== 0) return;
+                // Ctrl (Win/Linux) hoặc Ctrl/⌘ (macOS) + chuột trái để kéo di chuyển.
+                // LƯU Ý macOS: Ctrl+chuột trái bị hệ điều hành đổi thành chuột phải
+                // (button === 2) → phải chấp nhận cả button 0 và 2 khi giữ Ctrl/⌘.
+                if (!(event.ctrlKey || event.metaKey)) return;
+                if (event.button !== 0 && event.button !== 2) return;
                 var target = event.target && event.target.nodeType === 1 ? event.target : event.target.parentElement;
                 if (target && target.closest && target.closest('input, textarea, select, button, [contenteditable="true"]')) return;
                 ctrlPan = {
@@ -644,6 +844,15 @@
                 event.preventDefault();
                 event.stopPropagation();
             }, true);
+            // macOS: Ctrl + chuột trái bị hệ điều hành coi là chuột phải → bật context
+            // menu cắt ngang thao tác kéo. Chặn context menu khi đang giữ Ctrl/⌘ hoặc
+            // khi đang pan, để Ctrl+kéo di chuyển mượt trên Mac.
+            container.addEventListener('contextmenu', function (event) {
+                if (ctrlPan || event.ctrlKey || event.metaKey) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+            }, true);
             document.addEventListener('mousemove', function (event) {
                 if (!ctrlPan) return;
                 container.scrollLeft = ctrlPan.scrollLeft - (event.clientX - ctrlPan.x);
@@ -656,7 +865,7 @@
             }, true);
             window.addEventListener('blur', stopCtrlPan, true);
             window.addEventListener('keyup', function (event) {
-                if (event.key === 'Control') stopCtrlPan();
+                if (event.key === 'Control' || event.key === 'Meta') stopCtrlPan();
             }, true);
             container.addEventListener('pointermove', function (event) {
                 window.__3tLastPointer = {

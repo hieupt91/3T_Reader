@@ -19,10 +19,16 @@ def test_ai_summarize_shortcut_does_not_conflict_with_save_as():
 
 
 def test_token_monitor_runs_in_background_worker():
+    # Dùng threading.Thread thuần thay vì QThread.moveToThread() - tránh
+    # segfault đã xác nhận trên macOS (PySide6 6.11 + Python 3.14) khi
+    # QThread teardown trong lúc queued QObject event chưa xử lý xong (xem
+    # comment tại _check_token_presence). worker vẫn là QObject, chỉ đổi
+    # cách chạy nền, không đổi hành vi check token.
     source = _read("app/window.py")
     assert "class _TokenPresenceWorker" in source
     assert "timer.timeout.connect(self._check_token_presence)" in source
-    assert "worker.moveToThread(thread)" in source
+    assert "_threading.Thread(target=worker.run, daemon=True" in source
+    assert "worker.moveToThread(thread)" not in source
     assert "subprocess.run" not in source
 
 
