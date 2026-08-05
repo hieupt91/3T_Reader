@@ -7,6 +7,10 @@ MUTEX_NAME = "3T_Reader_SingleInstance_v1"
 # VPS backend — set VPS_LICENSE_BASE_URL="" to run without license enforcement
 VPS_LICENSE_BASE_URL = "https://reader.3tcomputer.com"
 
+# Transfer-gateway V2 — companion device pairing cho key doanh nghiệp 3TR-E.
+# Tách biệt hoàn toàn VPS_LICENSE_BASE_URL (V1), theo SPEC_TRANSFER_GATEWAY_V2.md.
+TRANSFER_GATEWAY_BASE_URL = "https://transfer.3tcomputer.com"
+
 UPDATE_MANIFEST_URL = f"{VPS_LICENSE_BASE_URL}/api/v1/update/check"
 UPDATE_CHANNEL = "stable"
 LANGUAGE_PACK_BASE_URL = f"{VPS_LICENSE_BASE_URL}/api/v1/language"
