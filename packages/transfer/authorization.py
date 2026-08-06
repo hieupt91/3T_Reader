@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-"""Client gọi transfer-gateway V2 (companion device pairing cho key doanh
-nghiệp 3TR-E). Tách biệt hoàn toàn packages/license_client (V1) — chỉ dùng
-lại token/device_id V1 đã có sẵn qua get_cached_credentials() để xác thực
-desktop, KHÔNG đổi bất kỳ hành vi nào của license_client hiện có.
+"""Client gọi transfer-gateway V2 (companion device pairing + transfer-sessions
+cho key doanh nghiệp 3TR-E). Tách biệt hoàn toàn packages/license_client (V1)
+— chỉ dùng lại token/device_id V1 đã có sẵn qua get_cached_credentials() để
+xác thực desktop, KHÔNG đổi bất kỳ hành vi nào của license_client hiện có.
 
-Xem SPEC_TRANSFER_GATEWAY_V2.md (docs/) để biết đầy đủ API contract.
-Chỉ implement phần Phase 1 (companion pairing) — chưa có transfer-sessions
-(Phase 2, truyền PDF qua WebRTC), cố tình chưa code phần đó.
+Xem SPEC_TRANSFER_GATEWAY_V2.md và SPEC_MOBILE_SCANDOC_TRANSFER.md (docs/)
+để biết đầy đủ API contract. Phần WebRTC/DataChannel thật nằm ở protocol.py
+(module này chỉ có REST — tạo/join/complete transfer-session).
 """
 
 _CONNECT_TIMEOUT = 6
@@ -23,7 +23,9 @@ class TransferGatewayClient:
     def __init__(self, base_url: str) -> None:
         self._base = base_url.rstrip("/")
 
-    def _auth_headers(self) -> dict:
+    def get_credentials(self) -> tuple[str, str]:
+        """(token, device_id) V1 đã cache - dùng để xây header REST hoặc
+        query param cho WSS signaling (mục 4.1 SPEC_MOBILE_SCANDOC_TRANSFER.md)."""
         from packages.license_client import get_license_client
 
         client = get_license_client()
@@ -33,15 +35,27 @@ class TransferGatewayClient:
         creds = get_creds()
         if creds is None:
             raise TransferNotAvailable("Chưa kích hoạt license. Vui lòng kích hoạt key 3TR-E trước.")
-        token, device_id = creds
-        return {"Authorization": f"Bearer {token}", "X-Device-Id": device_id}
+        return creds
 
-    def _request(self, method: str, path: str, **kwargs) -> dict:
+    def _auth_headers(self, credentials: tuple[str, str] | None = None) -> dict:
+        token, device_id = credentials if credentials is not None else self.get_credentials()
+        headers = {"Authorization": f"Bearer {token}"}
+        # Token V2 (companion, dạng body.sig.ed2.key_id) không cần X-Device-Id -
+        # server tự resolve device từ chính token. Chỉ desktop token V1 cần.
+        if device_id:
+            headers["X-Device-Id"] = device_id
+        return headers
+
+    @property
+    def base_url(self) -> str:
+        return self._base
+
+    def _request(self, method: str, path: str, *, credentials: tuple[str, str] | None = None, **kwargs) -> dict:
         import requests
         from requests.exceptions import ConnectionError, Timeout
 
         url = f"{self._base}{path}"
-        headers = self._auth_headers()
+        headers = self._auth_headers(credentials)
         try:
             resp = requests.request(
                 method, url, headers=headers, timeout=(_CONNECT_TIMEOUT, _READ_TIMEOUT), **kwargs
@@ -70,6 +84,36 @@ class TransferGatewayClient:
     def revoke_device(self, device_id: str) -> dict:
         """Thu hồi 1 thiết bị companion ngay lập tức."""
         return self._request("POST", f"/api/v2/devices/{device_id}/revoke")
+
+    def create_transfer_session(self, file_name: str, file_size: int,
+                                 *, credentials: tuple[str, str] | None = None) -> dict:
+        """Bên gửi tạo phiên truyền (ticket ngắn hạn ~5 phút).
+        Trả {transfer_session_id, expires_at}."""
+        return self._request(
+            "POST", "/api/v2/transfer-sessions",
+            json={"auth_mode": "business_key", "file_name": file_name, "file_size": file_size},
+            credentials=credentials,
+        )
+
+    def join_transfer_session(self, transfer_session_id: str,
+                               *, credentials: tuple[str, str] | None = None) -> dict:
+        """Bên nhận tham gia phiên. Trả {transfer_session_id, sender_device_id, status}.
+        `credentials` cho phép truyền token V2 (companion) tường minh thay vì
+        token desktop V1 mặc định - dùng khi vai NHẬN là 1 thiết bị companion
+        khác thiết bị đang chạy tiến trình này (vd script test giả lập)."""
+        return self._request(
+            "POST", f"/api/v2/transfer-sessions/{transfer_session_id}/join",
+            credentials=credentials,
+        )
+
+    def complete_transfer_session(self, transfer_session_id: str, status: str, sha256: str = "",
+                                   *, credentials: tuple[str, str] | None = None) -> dict:
+        """Báo hoàn tất/thất bại sau khi DataChannel đóng. status: completed|failed."""
+        return self._request(
+            "POST", f"/api/v2/transfer-sessions/{transfer_session_id}/complete",
+            json={"status": status, "sha256": sha256},
+            credentials=credentials,
+        )
 
 
 _client: TransferGatewayClient | None = None
