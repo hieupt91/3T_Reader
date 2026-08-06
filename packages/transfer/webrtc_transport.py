@@ -51,9 +51,12 @@ async def send_file(
     signaling: SignalingClient,
     file_path: str,
     on_progress=None,
+    on_connected=None,
 ) -> None:
     """Vai trò gửi: tạo offer, chờ answer, mở DataChannel, gửi manifest +
-    chunk có flow-control, chờ xác nhận hoàn tất."""
+    chunk có flow-control, chờ xác nhận hoàn tất. on_connected() (không
+    tham số) gọi đúng lúc DataChannel vừa mở, trước khi bắt đầu gửi dữ liệu
+    - UI dùng để chuyển từ hiện mã/QR sang hiện progress bar."""
     manifest = Manifest.for_file(file_path)
     pc = _make_pc()
     channel = pc.createDataChannel("transfer", ordered=True)
@@ -79,12 +82,33 @@ async def send_file(
         await signaling.connect()
         await signaling.send_sdp_offer(pc.localDescription.sdp)
 
-        answer_msg = await asyncio.wait_for(signaling.receive(), timeout=30)
-        if answer_msg.get("type") != "sdp_answer":
+        # signaling_relay của server KHÔNG buffer message cho peer chưa kết
+        # nối WS (chỉ forward tới socket đang mở tại đúng thời điểm gửi).
+        # Bên nhận thật (người dùng quét QR bằng tay) luôn kết nối WS trễ
+        # hơn bên gửi (không cần thao tác người dùng) - nếu chỉ gửi offer
+        # đúng 1 lần, offer gần như chắc chắn bị rớt trước khi bên nhận kịp
+        # đăng ký (đã tái hiện + xác nhận bằng test thật: chờ 12s mô phỏng
+        # thời gian quét QR rồi mới kết nối bên nhận - chờ đúng 1 lần luôn
+        # timeout, gửi lại định kỳ thì nhận được ngay). Gửi lại đúng SDP đã
+        # tạo (không renegotiate) mỗi ~3s tới khi có answer, trong hạn 180s.
+        deadline = time.monotonic() + 180
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TransferError("Không có thiết bị nào tham gia trong thời gian chờ (3 phút).")
+            try:
+                answer_msg = await asyncio.wait_for(signaling.receive(), timeout=min(3.0, remaining))
+            except asyncio.TimeoutError:
+                await signaling.send_sdp_offer(pc.localDescription.sdp)
+                continue
+            if answer_msg.get("type") == "sdp_answer":
+                break
             raise TransferError(f"Kỳ vọng sdp_answer, nhận '{answer_msg.get('type')}'.")
         await pc.setRemoteDescription(RTCSessionDescription(sdp=answer_msg["sdp"], type="answer"))
 
         await asyncio.wait_for(done, timeout=30)  # chờ DataChannel mở
+        if on_connected:
+            on_connected()
 
         channel.send(manifest.to_json())
         sent_bytes = 0
