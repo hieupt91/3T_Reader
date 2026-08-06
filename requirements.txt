@@ -14,3 +14,5 @@ requests==2.33.1
 pytesseract>=0.3.13
 pdfplumber>=0.11.0
 openpyxl>=3.1.0
+aiortc==1.15.0
+websockets==15.0.1
