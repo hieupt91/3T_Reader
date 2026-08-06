@@ -12,7 +12,7 @@ def test_multi_page_watermark_shows_window_modal_progress_and_pumps_events():
     assert "if len(target_pages) > 1:" in src
     assert "QProgressDialog(" in src
     assert "setWindowModality(Qt.WindowModality.WindowModal)" in src
-    assert "QApplication.processEvents()" in src
+    assert "_pump_qt_events()" in src
 
 
 def test_single_page_watermark_path_is_unchanged():

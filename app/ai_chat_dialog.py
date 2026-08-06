@@ -4,7 +4,7 @@ from __future__ import annotations
 from packages.qt_compat.QtCore import Qt
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
-    QPushButton, QFrame, QLineEdit, QSizePolicy, QApplication,
+    QPushButton, QFrame, QLineEdit, QSizePolicy,
     QCheckBox,
 )
 from app.ai_task_runner import dialog_task_running, start_dialog_task
@@ -387,7 +387,8 @@ class AIChatDialog(QDialog):
         self._busy = True
         self._btn_send.setEnabled(False)
         self._lbl_status.setText("Đã gửi câu hỏi. AI đang đọc tài liệu và trả lời…")
-        QApplication.processEvents()
+        from app.actions._pdf_save import _pump_qt_events
+        _pump_qt_events()
 
         request_id = self._request_seq + 1
         self._request_seq = request_id

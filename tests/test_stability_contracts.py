@@ -274,7 +274,7 @@ def test_ai_chat_session_persists_history_to_disk():
     assert "_record_user_question(question)" in source
     assert "save_ocr_text_cache" in source
     assert "load_ocr_text_cache" in source
-    assert "PDFChatSession(self._pdf_path, history_identity_path=self._history_identity_path)" in dialog_source
+    assert "PDFChatSession(self._pdf_path, max_history_messages=100, history_identity_path=self._history_identity_path)" in dialog_source
     assert "self._rebuild_chat()" in dialog_source
     assert "save_ocr_text_cache(self._pdf_path, full_text)" in ocr_source
 

@@ -253,13 +253,35 @@ def atomic_copy_file(source_path: str, target_path: str, *, window=None) -> None
         raise
 
 
+_pumping_events = False
+
+
 def _pump_qt_events() -> None:
+    """Bơm event loop Qt 1 lần - CHẶN bơm lồng nhau (tái nhập cùng thread).
+
+    Windows fatal exception 0x8001010d (COM RPC_E_CANTCALLOUT_ININPUTSYNCCALL)
+    đã ghi nhận lặp lại trong app_log.txt, bắt nguồn từ đúng kiểu bơm
+    processEvents() lồng nhau này: 1 lần ghi PDF (rotate/sign/xoá trang...)
+    đang giữ pdf_write_slot và tự bơm event loop (vd. qua
+    wait_for_thumbnail_idle/release_viewer_file_lock) có thể khiến 1 timer
+    khác (autosave chú thích 350ms) chạy luôn trong lúc đó, gọi lại
+    pdf_write_slot cho CÙNG file và tự bơm tiếp - bơm lồng bên trong bơm là
+    kịch bản COM reentrancy kinh điển trên Windows. Lệnh gọi ngoài cùng vẫn
+    bơm bình thường; lệnh gọi tái nhập chỉ no-op và để vòng lặp gọi hàm này
+    tự time.sleep() rồi thử lại - lần ghi đang giữ slot không cần được bơm
+    hộ mới xong việc (pikepdf/ghi đĩa không phụ thuộc event loop)."""
+    global _pumping_events
+    if _pumping_events:
+        return
+    _pumping_events = True
     try:
         from packages.qt_compat.QtWidgets import QApplication
 
         QApplication.processEvents()
     except Exception:
         pass
+    finally:
+        _pumping_events = False
 
 
 def _retry_viewer_load_if_blank(window, source_path: str, *, page: int, zoom: str, delay_ms: int = 1200) -> None:

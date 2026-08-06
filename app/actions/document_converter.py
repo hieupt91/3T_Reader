@@ -3,12 +3,14 @@ import sys
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 import ssl
 import urllib.request
 import xml.etree.ElementTree as ET
 
-from packages.qt_compat.QtWidgets import QMessageBox, QProgressDialog, QApplication
+from packages.qt_compat.QtWidgets import QMessageBox, QProgressDialog
+from app.actions._pdf_save import _pump_qt_events
 from app.dialogs import ask_yes_no
 from packages.qt_compat.QtCore import Qt, QThread, pyqtSignal, QUrl
 from packages.qt_compat.QtGui import QDesktopServices
@@ -139,13 +141,14 @@ def download_and_extract_libreoffice(window) -> bool:
     
     cancelled = False
     while thread.isRunning():
-        QApplication.processEvents()
+        _pump_qt_events()
+        time.sleep(0.02)
         if progress_dlg.wasCanceled() and not cancelled:
             cancelled = True
             thread.cancel()
 
     thread.wait()
-    QApplication.processEvents()
+    _pump_qt_events()
 
     if cancelled:
         try:
@@ -162,8 +165,8 @@ def download_and_extract_libreoffice(window) -> bool:
     progress_dlg.setLabelText(_t("doc.dl.extract", "Đang giải nén bộ xử lý..."))
     progress_dlg.setRange(0, 0)
     progress_dlg.show()
-    QApplication.processEvents()
-    
+    _pump_qt_events()
+
     try:
         import subprocess
         dest_dir = get_bin_dir() / "libreoffice"
@@ -915,8 +918,8 @@ def convert_office_to_pdf(window, file_path: str) -> str:
     progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
     progress_dlg.setCancelButton(None)
     progress_dlg.show()
-    QApplication.processEvents()
-    
+    _pump_qt_events()
+
     out_dir = Path(tempfile.gettempdir()) / "3t_reader_docs"
     out_dir.mkdir(parents=True, exist_ok=True)
     expected_pdf = out_dir / (Path(file_path).stem + ".pdf")
@@ -1038,7 +1041,8 @@ def _run_itax_installer_silent(window, installer_path: Path) -> bool:
         progress.show()
         cancelled = False
         while proc.poll() is None:
-            QApplication.processEvents()
+            _pump_qt_events()
+            time.sleep(0.02)
             if progress.wasCanceled() and not cancelled:
                 cancelled = True
                 proc.terminate()
@@ -1091,13 +1095,14 @@ def handle_xml_itax(window, file_path: str):
 
         cancelled = False
         while thread.isRunning():
-            QApplication.processEvents()
+            _pump_qt_events()
+            time.sleep(0.02)
             if progress_dlg.wasCanceled() and not cancelled:
                 cancelled = True
                 thread.cancel()
 
         thread.wait()
-        QApplication.processEvents()
+        _pump_qt_events()
 
         if cancelled:
             try:

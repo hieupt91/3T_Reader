@@ -137,6 +137,24 @@ class _AnnotationOpQueue(QObject):
     def last_error(self) -> str:
         return self._last_error
 
+    def debug_snapshot(self, target_path: str | None = None) -> str:
+        """Chụp nhanh trạng thái queue để ghi log chẩn đoán - dùng khi quyết
+        định hiện/ẩn cảnh báo "chưa lưu chú thích" lúc đóng tab/app, để nếu
+        cảnh báo hiện sai (báo chưa lưu dù user không sửa gì) thì có log xác
+        định ngay là do đâu (VD: pending nào đó bị gắn nhầm is_user=True)."""
+        norm_target = os.path.abspath(target_path) if target_path else None
+        items = [
+            (path, is_user)
+            for path, _op, is_user in self._pending
+            if norm_target is None or path == norm_target
+        ]
+        return (
+            f"pending={items} flushing={self._flushing} "
+            f"flushing_target={self._flushing_target} "
+            f"flushing_has_user={self._flushing_has_user} "
+            f"last_error={self._last_error!r}"
+        )
+
     def has_pending(self, target_path: str | None = None, *, user_only: bool = False) -> bool:
         """user_only=True bỏ qua các thay đổi do auto-OCR nền tạo ra (không phải
         chú thích người dùng thao tác) — dùng khi quyết định có chặn đóng
@@ -285,6 +303,34 @@ def has_pending_annotations(window, target_path: str | None = None, *, user_only
     if callable(has_pending):
         return bool(has_pending(target_path, user_only=user_only))
     return False
+
+
+def log_unsaved_warning_debug(window, target_path: str | None, context: str) -> None:
+    """Ghi log chẩn đoán ngay trước khi hiện/bỏ qua cảnh báo "chưa lưu chú
+    thích" lúc đóng tab/app - để nếu cảnh báo hiện sai (báo chưa lưu dù
+    không sửa gì) thì lần sau có log thật để xác định nguồn thay vì đoán."""
+    try:
+        from datetime import datetime
+        from packages.platform import get_app_data_dir
+
+        queue = getattr(window, "_annotation_op_queue", None)
+        snapshot = queue.debug_snapshot(target_path) if queue is not None else "no-queue"
+        edit_state = None
+        try:
+            state = window._active_state() if hasattr(window, "_active_state") else None
+            edit_state = (state or {}).get("_pdf_edit_state")
+        except Exception:
+            pass
+        has_edit_ops = bool(edit_state and edit_state.get("ops"))
+        line = (
+            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {context} | "
+            f"target={target_path} | edit_state_ops={has_edit_ops} | {snapshot}\n"
+        )
+        log_path = os.path.join(get_app_data_dir(), "unsaved_warning_debug.log")
+        with open(log_path, "a", encoding="utf-8") as fh:
+            fh.write(line)
+    except Exception:
+        pass
 
 
 def _flush_annotations_before_heavy_op(window, target_path: str, operation_label: str) -> bool:

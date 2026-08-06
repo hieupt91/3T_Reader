@@ -1793,6 +1793,8 @@ class PDFReaderApp(QMainWindow):
             except Exception:
                 pass
 
+            from app.actions._pdf_save import _pump_qt_events
+
             cancelled = False
             for i, page_num in enumerate(page_list):
                 if progress is not None and progress.wasCanceled():
@@ -1801,7 +1803,7 @@ class PDFReaderApp(QMainWindow):
                 if progress is not None:
                     progress.setValue(i)
                     progress.setLabelText(f"Đang in trang {page_num + 1} / {total}...")
-                    QApplication.processEvents()
+                    _pump_qt_events()
                 try:
                     page_w_pt, page_h_pt = pdf.page_size(page_num + 1)
                 except Exception:
@@ -2336,14 +2338,15 @@ class PDFReaderApp(QMainWindow):
             if not report.get("field_signed"):
                 from app.actions.sign import UnsignedSignatureSetupDialog, _sign_existing_signature_field_with_usb
                 from packages.qt_compat.QtWidgets import QProgressDialog
-                from packages.qt_compat.QtCore import Qt, QCoreApplication
-                
+                from packages.qt_compat.QtCore import Qt
+                from app.actions._pdf_save import _pump_qt_events
+
                 dlg_prog = QProgressDialog("Đang quét tìm USB ký số...", None, 0, 0, self)
                 dlg_prog.setWindowTitle("Vui lòng chờ")
                 dlg_prog.setWindowModality(Qt.WindowModality.WindowModal)
                 dlg_prog.setCancelButton(None)
                 dlg_prog.show()
-                QCoreApplication.processEvents()
+                _pump_qt_events()
 
                 dlg = UnsignedSignatureSetupDialog(self, report=report)
                 dlg_prog.close()
@@ -2497,7 +2500,9 @@ class PDFReaderApp(QMainWindow):
         if edit_state and edit_state.get("ops"):
             return True
         target_path = state.get("source_path")
-        return has_pending_annotations(self, target_path)
+        # user_only=True: OCR nền tự tạo pending không tính là "chưa lưu" -
+        # thiếu cờ này từng khiến hàm báo sai (xem log_unsaved_warning_debug).
+        return has_pending_annotations(self, target_path, user_only=True)
 
     def _close_tab(self, index) -> bool:
         tab = self.tab_widget.widget(index)
@@ -2516,11 +2521,14 @@ class PDFReaderApp(QMainWindow):
             except Exception:
                 pass
         if queue is not None or has_pending_annotations(self, target_path):
+            from app.actions.annotate import log_unsaved_warning_debug
+            log_unsaved_warning_debug(self, target_path, "close_tab:before_flush")
             try:
                 flush_all = getattr(queue, "flush_all", None)
                 ok = flush_all(target_path) if callable(flush_all) else queue.flush()
                 if not ok:
                     if has_pending_annotations(self, target_path, user_only=True):
+                        log_unsaved_warning_debug(self, target_path, "close_tab:WARN_shown")
                         QMessageBox.warning(
                             self,
                             "Chưa lưu xong chú thích",
@@ -2534,10 +2542,16 @@ class PDFReaderApp(QMainWindow):
                         drop_ocr_pending(target_path)
             except Exception as exc:
                 if has_pending_annotations(self, target_path, user_only=True):
+                    log_unsaved_warning_debug(self, target_path, "close_tab:WARN_shown_exception")
                     QMessageBox.warning(self, "Chưa lưu xong chú thích", str(exc))
                     return False
         edit_state = state.get("_pdf_edit_state") if state else None
         if self._has_unsaved_changes(state) and edit_state and edit_state.get("ops"):
+            from app.actions.annotate import log_unsaved_warning_debug
+            log_unsaved_warning_debug(
+                self, target_path,
+                f"close_tab:WARN_edit_ops_shown op_count={len(edit_state.get('ops') or [])}",
+            )
             title = self.tab_widget.tabText(index) or "tài liệu"
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Warning)
@@ -3728,11 +3742,14 @@ class PDFReaderApp(QMainWindow):
 
         queue = getattr(self, "_annotation_op_queue", None)
         if queue is not None or has_pending_annotations(self):
+            from app.actions.annotate import log_unsaved_warning_debug
+            log_unsaved_warning_debug(self, None, "close_app:before_flush")
             try:
                 flush_all = getattr(queue, "flush_all", None)
                 ok = flush_all() if callable(flush_all) else queue.flush()
                 if not ok:
                     if has_pending_annotations(self, user_only=True):
+                        log_unsaved_warning_debug(self, None, "close_app:WARN_shown")
                         self._closing = False
                         QMessageBox.warning(
                             self,
@@ -3748,6 +3765,7 @@ class PDFReaderApp(QMainWindow):
                         drop_ocr_pending()
             except Exception as exc:
                 if has_pending_annotations(self, user_only=True):
+                    log_unsaved_warning_debug(self, None, "close_app:WARN_shown_exception")
                     self._closing = False
                     QMessageBox.warning(self, "Chưa lưu xong chú thích", str(exc))
                     event.ignore()
