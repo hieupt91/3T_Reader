@@ -363,6 +363,22 @@ class PDFReaderApp(QMainWindow):
         dlg = SendDocumentDialog(self, file_path)
         dlg.exec()
 
+    def _open_transfer_receive_dialog(self):
+        from packages.qt_compat.QtWidgets import QMessageBox
+
+        if not self._has_active_enterprise_license():
+            QMessageBox.information(
+                self,
+                "Nhận tài liệu",
+                "Tính năng này dành cho key doanh nghiệp (3TR-E).\n"
+                "Vui lòng kích hoạt key 3TR-E trước khi nhận tài liệu.",
+            )
+            return
+
+        from app.transfer_receive_dialog import ReceiveDocumentDialog
+        dlg = ReceiveDocumentDialog(self, on_open_file=self.open_document)
+        dlg.exec()
+
     def _ocr_current_page(self):
         from app.actions.ocr import ocr_current_page
         ocr_current_page(self)
@@ -1309,6 +1325,13 @@ class PDFReaderApp(QMainWindow):
         act_transfer_send = menu_license.addAction("Chuyển tài liệu...")
         act_transfer_send.setIcon(svg_icon("document_send.svg", size=16, color="#50b8f0"))
         act_transfer_send.triggered.connect(lambda: self._open_transfer_send_dialog())
+
+        # Nhận tài liệu (Phase 2) - vai NHẬN đảo ngược của Chuyển tài liệu:
+        # ScanDoc là bên gửi, desktop join qua mã/QR JSON dán tay (không quét
+        # camera). _open_transfer_receive_dialog() tự kiểm tra key 3TR-E.
+        act_transfer_receive = menu_license.addAction("Nhận tài liệu...")
+        act_transfer_receive.setIcon(svg_icon("document_receive.svg", size=16, color="#50b8f0"))
+        act_transfer_receive.triggered.connect(lambda: self._open_transfer_receive_dialog())
 
         self.menu_help = bar.addMenu(self._t("menu.help", "Trợ giúp"))
         menu_help = self.menu_help
