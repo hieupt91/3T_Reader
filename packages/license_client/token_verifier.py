@@ -11,7 +11,8 @@ import json
 # chừng. Chỉ xoá key cũ khỏi danh sách khi chắc chắn không còn client nào
 # dùng nữa (xem docs/HANDOFF_MULTIKEY_ED25519_2026-08.md).
 _TRUSTED_ED25519_PUBLIC_KEYS_B64 = [
-    "y0jZ/wQHoQ+VvAQjYuhlmf0R63cMLgkTHp1wzXrcM08=",  # key gốc, đang dùng từ 07/2026
+    "y0jZ/wQHoQ+VvAQjYuhlmf0R63cMLgkTHp1wzXrcM08=",  # key gốc, đang dùng từ 07/2026 (private key này đã lộ, đang chờ xoay)
+    "PaBi70B9rG1UMSJUJrHElYYhZmNWYSLdL4hrotwWU8I=",  # key mới sinh 06/08/2026 — VPS CHƯA ký bằng key này, chỉ thêm trước để app đời sau sẵn sàng tin
 ]
 
 
