@@ -2117,7 +2117,8 @@ class PDFReaderApp(QMainWindow):
         # Companion pairing (key doanh nghiệp 3TR-E) - Phase 1 theo
         # SPEC_TRANSFER_GATEWAY_V2.md. _open_transfer_pairing_dialog() tự
         # kiểm tra active key 3TR-E trước khi mở dialog.
-        act_transfer_devices = menu_license.addAction("📱  Thiết bị ScanDoc...")
+        act_transfer_devices = menu_license.addAction("Thiết bị ScanDoc...")
+        act_transfer_devices.setIcon(svg_icon("device_pairing.svg", size=16, color="#50b8f0"))
         act_transfer_devices.triggered.connect(lambda: self._open_transfer_pairing_dialog())
 
         self.menu_help = top_menu("menu_help", self._t("menu.help", "Trợ giúp"))
