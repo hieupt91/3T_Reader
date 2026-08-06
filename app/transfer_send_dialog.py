@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 """Dialog "Chuyển tài liệu" — gửi PDF đang mở sang thiết bị companion qua
-P2P WebRTC (Phase 2, packages/transfer/protocol.py). Cùng phong cách UI với
+P2P WebRTC (Phase 2: packages/transfer/{signaling_client,webrtc_transport,
+protocol,inbox}.py — kiến trúc port từ team Mac, xem
+docs/HANDOFF_PHASE2_MULTIKEY_2026-08.md). Cùng phong cách UI với
 transfer_pairing_dialog.py (Phase 1) để nhất quán.
 
-Luồng: tạo transfer-session -> hiện mã/QR (tái dùng cơ chế QR của Phase 1)
--> đợi thiết bị companion quét mã + tham gia -> tự động thương lượng SDP/ICE
--> mở DataChannel -> gửi file với progress bar -> báo hoàn tất.
+Luồng: REST tạo transfer-session (authorization.py) -> hiện mã/QR (tái dùng
+cơ chế QR của Phase 1) -> đợi thiết bị companion quét mã + tham gia ->
+webrtc_transport.send_file() tự thương lượng SDP/ICE (có gửi lại offer định
+kỳ - xem comment trong webrtc_transport.py - tránh mất tín hiệu vì bên nhận
+luôn kết nối trễ hơn bên gửi) -> mở DataChannel -> gửi file với progress bar
+-> báo hoàn tất qua REST.
 """
 
+import asyncio
 import os
+import threading
 
 from packages.qt_compat.QtCore import Qt
 from packages.qt_compat import pyqtSignal as Signal
@@ -178,26 +185,49 @@ class SendDocumentDialog(QDialog):
         self._status_label.setText("Đang tạo phiên truyền...")
         self._status_label.show()
 
-        from packages.transfer import protocol
-
         file_path = self._file_path
-
-        def on_status(stage, data):
-            self._sig_status.emit(stage, data)
 
         def on_progress(sent, total):
             self._sig_progress.emit(sent, total)
 
-        def coro_factory():
-            return protocol.send_file_async(file_path, on_progress=on_progress, on_status=on_status)
+        def on_connected():
+            self._sig_status.emit("connected", {})
 
-        def on_done(result):
-            self._sig_done.emit(result)
+        def worker():
+            import json as _json
+            from packages.transfer import get_transfer_client
+            from packages.transfer.signaling_client import SignalingClient
+            from packages.transfer.webrtc_transport import send_file
 
-        def on_error(exc):
-            self._sig_error.emit(str(exc))
+            client = get_transfer_client()
+            transfer_session_id = ""
+            try:
+                token, device_id = client.get_credentials()
+                file_name = os.path.basename(file_path)
+                file_size = os.path.getsize(file_path)
+                session = client.create_transfer_session(file_name, file_size)
+                transfer_session_id = session["transfer_session_id"]
 
-        protocol.run_async_in_thread(coro_factory, on_done, on_error)
+                qr_payload = _json.dumps({"v": 1, "transfer_session_id": transfer_session_id}, ensure_ascii=False)
+                self._sig_status.emit(
+                    "session_created",
+                    {"transfer_session_id": transfer_session_id, "qr_payload": qr_payload},
+                )
+
+                signaling = SignalingClient(client.base_url, transfer_session_id, token, device_id)
+                asyncio.run(send_file(signaling, file_path, on_progress=on_progress, on_connected=on_connected))
+
+                client.complete_transfer_session(transfer_session_id, "completed")
+                self._sig_done.emit({"transfer_session_id": transfer_session_id})
+            except Exception as exc:  # noqa: BLE001 - báo lỗi lên UI qua signal, không để lộ traceback thô
+                if transfer_session_id:
+                    try:
+                        client.complete_transfer_session(transfer_session_id, "failed")
+                    except Exception:
+                        pass
+                self._sig_error.emit(str(exc))
+
+        threading.Thread(target=worker, daemon=True, name="transfer-send").start()
 
     # ── Callback (đã chuyển an toàn về UI thread qua Qt signal) ─────────
 

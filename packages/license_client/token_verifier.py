@@ -3,9 +3,16 @@ from __future__ import annotations
 import base64
 import json
 
-# Public key tương ứng với private key trên VPS
-# Thay đổi nếu regenerate keypair
-_ED25519_PUBLIC_B64 = "y0jZ/wQHoQ+VvAQjYuhlmf0R63cMLgkTHp1wzXrcM08="
+# Danh sách public key được tin cậy cho token V1 (license offline verify).
+# Hỗ trợ NHIỀU key song song để xoay key an toàn: khi cần đổi private key
+# trên VPS, thêm key mới vào ĐẦU danh sách nhưng GIỮ NGUYÊN key cũ cho tới
+# khi đa số client đã cập nhật bản build có key mới — token ký bằng key cũ
+# HOẶC key mới đều verify offline được, không ai bị rơi về online-only giữa
+# chừng. Chỉ xoá key cũ khỏi danh sách khi chắc chắn không còn client nào
+# dùng nữa (xem docs/HANDOFF_MULTIKEY_ED25519_2026-08.md).
+_TRUSTED_ED25519_PUBLIC_KEYS_B64 = [
+    "y0jZ/wQHoQ+VvAQjYuhlmf0R63cMLgkTHp1wzXrcM08=",  # key gốc, đang dùng từ 07/2026
+]
 
 
 def _b64url_decode(value: str) -> bytes:
@@ -24,16 +31,16 @@ def verify_token_offline(token: str) -> dict:
         raise ValueError("Token không phải định dạng Ed25519.")
 
     body_b64, sig_b64, _, pub_b64_in_token = parts
-
-    # Kiểm tra public key trong token khớp với key đã nhúng trong app
-    expected_pub = base64.b64decode(_ED25519_PUBLIC_B64 + "==")
     token_pub = base64.b64decode(pub_b64_in_token + "==")
-    if token_pub != expected_pub:
+
+    # Public key trong token phải khớp MỘT trong các key đã nhúng trong app.
+    trusted_pubs = [base64.b64decode(k + "==") for k in _TRUSTED_ED25519_PUBLIC_KEYS_B64]
+    if token_pub not in trusted_pubs:
         raise ValueError("Public key trong token không khớp.")
 
     try:
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-        pub_key = Ed25519PublicKey.from_public_bytes(expected_pub)
+        pub_key = Ed25519PublicKey.from_public_bytes(token_pub)
         sig_bytes = _b64url_decode(sig_b64)
         pub_key.verify(sig_bytes, body_b64.encode("ascii"))
     except Exception as e:
