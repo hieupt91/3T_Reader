@@ -13,6 +13,13 @@ VERSION = APP_VERSION
 BASE_URL = "https://reader.3tcomputer.com/downloads"
 PUBLIC_INSTALLER_NAME = f"3TReader-{VERSION}-win-r3.exe"
 PUBLIC_PORTABLE_NAME = f"3TReader-{VERSION}-win-portable-r3.zip"
+RELEASE_NOTES = (
+    "Phiên bản 1.0.28: Thêm Chuyển/Nhận tài liệu trực tiếp qua thiết bị "
+    "ScanDoc (P2P, không qua máy chủ); sửa cảnh báo sai \"Chưa lưu xong "
+    "chú thích\" khi chỉ đọc tài liệu; sửa vệt đuôi chữ bị cắt cụt khi "
+    "Sửa text gốc."
+)
+REMOTE_CONFIG_PATH = "/home/hieupt/projects/3T_Reader/phase1-backend/data/admin-config.json"
 
 def sha256_file(path: str) -> str:
     h = hashlib.sha256()
@@ -100,42 +107,29 @@ def deploy():
                 print(f"Warning: {local_path} does not exist.")
         
         # sftp.close()
-        
-        print("Updating VPS docker-compose.yml if needed...")
-        update_cmd = """
-        cd /home/hieupt/projects/3T_Reader/phase1-backend
-        if [ -f docker-compose.yml ]; then
-            sed -i 's/1.1.0/{VERSION}/g' docker-compose.yml
-            docker compose restart
-        else
-            echo "docker-compose.yml not found, skipping restart."
-        fi
-        """
-        stdin, stdout, stderr = client.exec_command(update_cmd)
-        print(stdout.read().decode())
-        print(stderr.read().decode())
-        
-        with open(r"C:\Users\HieuPC\Desktop\3T_Reader_Phase1_Win\admin-config.json", "r", encoding="utf-8") as f:
-            local_cfg = json.load(f)
 
-        update_cfg = dict(local_cfg.get("update", {}))
+        # Đọc config THẬT đang chạy trên VPS làm nền - chỉ ghi đè đúng các
+        # field win_*/portable_*/release_notes bên dưới, giữ nguyên mọi
+        # field khác (đặc biệt mac_version/mac_url) để không đè nhầm dữ
+        # liệu Mac đang chạy thật bằng giá trị cũ/đoán mò.
+        with client.open_sftp().open(REMOTE_CONFIG_PATH, "r") as f:
+            remote_cfg = json.loads(f.read().decode("utf-8"))
+
+        update_cfg = dict(remote_cfg.get("update", {}))
         installer_path = os.path.join(local_dir, f"Setup_3T_Reader_v{VERSION}.exe")
         portable_path = os.path.join(local_dir, f"3T_Reader_Portable_v{VERSION}.zip")
         if os.path.exists(installer_path):
             update_cfg["win_version"] = VERSION
             update_cfg["win_url"] = f"{BASE_URL}/{PUBLIC_INSTALLER_NAME}"
             update_cfg["win_sha256"] = sha256_file(installer_path)
-            update_cfg["release_notes"] = "Phiên bản 1.0.25: Sửa lỗi hồi quy Chat PDF, cải thiện xoay trang, chú thích tìm kiếm, in tài liệu scan và độ ổn định tổng thể."
+            update_cfg["release_notes"] = RELEASE_NOTES
         if os.path.exists(portable_path):
             update_cfg["portable_url"] = f"{BASE_URL}/{PUBLIC_PORTABLE_NAME}"
             update_cfg["portable_sha256"] = sha256_file(portable_path)
-            
-        update_cfg["mac_version"] = "1.0.21"
-        update_cfg["mac_url"] = f"{BASE_URL}/3TReader-1.0.21-mac.dmg"
-        
-        local_cfg["update"] = update_cfg
 
-        cfg_str = json.dumps(local_cfg, ensure_ascii=False, indent=2)
+        remote_cfg["update"] = update_cfg
+
+        cfg_str = json.dumps(remote_cfg, ensure_ascii=False, indent=2)
         
         with open(r"C:\Users\HieuPC\Desktop\3T_Reader_Phase1_Win\admin-config-update.json", "w", encoding="utf-8") as f:
             f.write(cfg_str)
