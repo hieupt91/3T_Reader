@@ -89,11 +89,13 @@ def _parse_transfer_session_id(raw: str) -> str:
     if text.startswith("{"):
         try:
             data = json.loads(text)
-            sid = str(data.get("transfer_session_id") or "").strip()
-            if sid:
-                return sid
         except (json.JSONDecodeError, AttributeError):
-            pass
+            return text
+        # JSON hợp lệ nhưng thiếu transfer_session_id (vd người dùng lỡ dán
+        # nhầm mã QR ghép nối thiết bị {"v":1,"pairing_session_id":...} từ
+        # dialog "Thiết bị ScanDoc") - KHÔNG được coi cả JSON là session id,
+        # phải trả rỗng để báo lỗi rõ ràng thay vì gửi rác lên server.
+        return str(data.get("transfer_session_id") or "").strip()
     return text
 
 
@@ -187,10 +189,17 @@ class ReceiveDocumentDialog(QDialog):
         if self._receiving:
             return
 
-        transfer_session_id = _parse_transfer_session_id(self._code_input.toPlainText())
+        raw_text = self._code_input.toPlainText()
+        transfer_session_id = _parse_transfer_session_id(raw_text)
         if not transfer_session_id:
             self._restyle(self._status_label, "status_err")
-            self._status_label.setText("Chưa nhập mã. Dán mã hoặc mã QR do ScanDoc hiển thị.")
+            if raw_text.strip().startswith("{") and "pairing_session_id" in raw_text:
+                self._status_label.setText(
+                    "Đây là mã ghép nối thiết bị (Thiết bị ScanDoc), không phải mã nhận "
+                    "tài liệu. Hãy lấy mã ở màn hình gửi tài liệu trên ScanDoc."
+                )
+            else:
+                self._status_label.setText("Chưa nhập mã. Dán mã hoặc mã QR do ScanDoc hiển thị.")
             self._status_label.show()
             return
 
