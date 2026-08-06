@@ -8,13 +8,14 @@ from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QDialogButtonBox, QSpinBox, QSlider,
     QComboBox, QCheckBox, QFileDialog, QInputDialog,
-    QColorDialog, QMessageBox, QProgressDialog, QApplication,
+    QColorDialog, QMessageBox, QProgressDialog,
 )
 from packages.qt_compat.QtCore import Qt
 from packages.qt_compat.QtGui import QColor
 
 from app.actions._guard import require_document
 from app.actions._pdf_save import (
+    _pump_qt_events,
     make_staged_pdf_path,
     pdf_write_slot,
     remove_path_quietly,
@@ -316,7 +317,7 @@ def add_watermark(window):
                             window.status.showMessage("Đã hủy thêm watermark.", 3000)
                             return
                         progress_dlg.setValue(idx)
-                        QApplication.processEvents()
+                        _pump_qt_events()
 
                     page = pdf.pages[i]
                     mbox = page.mediabox
