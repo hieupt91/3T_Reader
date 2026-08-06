@@ -13,6 +13,7 @@ services:
     networks:
       - default
       - backend_default
+    restart: unless-stopped
     ports:
       - "127.0.0.1:8001:8001"
     depends_on:
@@ -25,6 +26,7 @@ services:
       POSTGRES_USER: transfer
       POSTGRES_PASSWORD: ${TRANSFER_DB_PASSWORD}
       POSTGRES_DB: transfer_gateway
+    restart: unless-stopped
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
@@ -32,6 +34,7 @@ services:
 
   transfer-redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "127.0.0.1:6380:6379"
     volumes:
