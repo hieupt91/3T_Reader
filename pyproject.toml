@@ -28,6 +28,8 @@ dependencies = [
   "openpyxl>=3.1.0",
   "numpy>=1.24.0",
   "pyttsx3==2.90",
+  "aiortc==1.15.0",
+  "websockets==15.0.1",
 ]
 
 [project.optional-dependencies]
