@@ -15,4 +15,5 @@ pytesseract>=0.3.13
 pdfplumber>=0.11.0
 openpyxl>=3.1.0
 aiortc==1.15.0
-websockets==15.0.1
+websockets==16.0
+qrcode==8.2

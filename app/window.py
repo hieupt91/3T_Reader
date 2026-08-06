@@ -314,13 +314,22 @@ class PDFReaderApp(QMainWindow):
         from app.license_dialog import open_license_dialog
         open_license_dialog(self)
 
-    def _open_transfer_pairing_dialog(self):
+    def _has_active_enterprise_license(self) -> bool:
+        """plan_code có thể là dạng key ("3TR-E-XXXX...") hoặc tên chuẩn hóa
+        ("enterprise") tuỳ nguồn - dùng đúng logic license_dialog.py đã kiểm
+        chứng (dòng ~494) để nhận diện cả 2 dạng, tránh chặn nhầm user có
+        key 3TR-E hợp lệ. Dùng chung cho mọi tính năng companion/transfer."""
         from packages.license_client import get_license_client
-        from packages.qt_compat.QtWidgets import QMessageBox
 
         status = get_license_client().validate_cached()
-        plan_code = (status.plan_code or "").upper()
-        if not status.active or not plan_code.startswith("3TR-E"):
+        plan_code = (status.plan_code or "").lower().strip()
+        is_enterprise = plan_code.startswith("3tr-e") or "enterprise" in plan_code
+        return bool(status.active and is_enterprise)
+
+    def _open_transfer_pairing_dialog(self):
+        from packages.qt_compat.QtWidgets import QMessageBox
+
+        if not self._has_active_enterprise_license():
             QMessageBox.information(
                 self,
                 "Thiết bị ScanDoc",
@@ -331,6 +340,27 @@ class PDFReaderApp(QMainWindow):
 
         from app.transfer_pairing_dialog import TransferPairingDialog
         dlg = TransferPairingDialog(self)
+        dlg.exec()
+
+    def _open_transfer_send_dialog(self):
+        from packages.qt_compat.QtWidgets import QMessageBox
+
+        if not self._has_active_enterprise_license():
+            QMessageBox.information(
+                self,
+                "Chuyển tài liệu",
+                "Tính năng này dành cho key doanh nghiệp (3TR-E).\n"
+                "Vui lòng kích hoạt key 3TR-E trước khi chuyển tài liệu.",
+            )
+            return
+
+        file_path = self.get_display_path()
+        if not file_path or not os.path.isfile(file_path):
+            QMessageBox.information(self, "Chuyển tài liệu", "Hãy mở 1 file PDF trước khi chuyển.")
+            return
+
+        from app.transfer_send_dialog import SendDocumentDialog
+        dlg = SendDocumentDialog(self, file_path)
         dlg.exec()
 
     def _ocr_current_page(self):
@@ -1272,6 +1302,13 @@ class PDFReaderApp(QMainWindow):
         act_transfer_devices = menu_license.addAction("Thiết bị ScanDoc...")
         act_transfer_devices.setIcon(svg_icon("device_pairing.svg", size=16, color="#50b8f0"))
         act_transfer_devices.triggered.connect(lambda: self._open_transfer_pairing_dialog())
+
+        # Chuyển tài liệu (Phase 2, packages/transfer/protocol.py) - gửi P2P
+        # qua WebRTC tới thiết bị companion. _open_transfer_send_dialog() tự
+        # kiểm tra key 3TR-E + có tài liệu đang mở trước khi mở dialog.
+        act_transfer_send = menu_license.addAction("Chuyển tài liệu...")
+        act_transfer_send.setIcon(svg_icon("document_send.svg", size=16, color="#50b8f0"))
+        act_transfer_send.triggered.connect(lambda: self._open_transfer_send_dialog())
 
         self.menu_help = bar.addMenu(self._t("menu.help", "Trợ giúp"))
         menu_help = self.menu_help
