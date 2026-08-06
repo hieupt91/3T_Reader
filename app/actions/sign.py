@@ -37,10 +37,11 @@ from app.actions._guard import require_document
 from app.actions._pdf_save import (
     collect_active_pdf_temp_paths,
     make_staged_pdf_path,
+    pdf_write_slot,
     prune_stale_app_temp_files,
     replace_document_with_staged,
 )
-from app.dialogs import show_warning, show_info
+from app.dialogs import show_warning, show_info, ask_yes_no
 from app.signature_templates import find_signature_template, list_signature_templates
 
 
@@ -80,12 +81,11 @@ def _cleanup_signature_preview(window, web_view=None):
 
 
 def _confirm_signature_selection(window) -> bool:
-    reply = QMessageBox.question(
+    reply = ask_yes_no(
         window,
         "Xác nhận vị trí ký",
         "Bạn có đồng ý ký văn bản này tại vị trí đã chọn không?\n\n"
-        "Chọn No nếu muốn kéo lại vùng ký.",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        "Chọn Không nếu muốn kéo lại vùng ký.",
     )
     return reply == QMessageBox.StandardButton.Yes
 
@@ -1340,9 +1340,10 @@ class SignaturePlacementDialog(QDialog):
 
 
 class SignaturePickPrompt(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, window_title: str = "Chọn vị trí ký",
+                 instruction: str = "Giữ chuột và kéo trực tiếp trên PDF để vẽ vùng chữ ký."):
         super().__init__(parent)
-        self.setWindowTitle("Chọn vị trí ký")
+        self.setWindowTitle(window_title)
         self.setWindowFlags(
             self.windowFlags()
             | Qt.WindowType.Tool
@@ -1352,7 +1353,7 @@ class SignaturePickPrompt(QDialog):
 
         root = QVBoxLayout(self)
 
-        title = QLabel("Giữ chuột và kéo trực tiếp trên PDF để vẽ vùng chữ ký.")
+        title = QLabel(instruction)
         title.setWordWrap(True)
         root.addWidget(title)
 
@@ -1601,13 +1602,14 @@ def _sign_existing_signature_field_with_usb(window, report: dict, token_info) ->
             raise RuntimeError("File ký xong không hợp lệ (thiếu %PDF header).")
 
         if in_place_output:
-            replace_document_with_staged(
-                window,
-                actual_output_path,
-                target_path=window.current_path,
-                page=int(report.get("clicked_page") or 1),
-                soft_reload=True,
-            )
+            with pdf_write_slot(window.current_path):
+                replace_document_with_staged(
+                    window,
+                    actual_output_path,
+                    target_path=window.current_path,
+                    page=int(report.get("clicked_page") or 1),
+                    soft_reload=True,
+                )
             final_output_path = window.current_path
         else:
             final_output_path = output_path
@@ -1623,14 +1625,13 @@ def _sign_existing_signature_field_with_usb(window, report: dict, token_info) ->
                 f"File đã được cập nhật tại:\n{final_output_path}",
             )
         else:
-            reply = QMessageBox.question(
+            reply = ask_yes_no(
                 window,
                 "Ký ô ký thành công",
                 "Ký ô ký thành công!\n\n"
                 f"Trạng thái: {validation_line}\n\n"
                 f"File lưu tại:\n{final_output_path}\n\n"
                 "Mở file đã ký ngay?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if reply == QMessageBox.StandardButton.Yes:
                 _refresh_document_view(
@@ -1808,12 +1809,14 @@ def _clamp_box(page_width: float, page_height: float, center_x: float, center_y:
     return (left, bottom, left + box_width, bottom + box_height)
 
 
-def _pick_signature_placement(window, *, sig_image_url: str = "", sig_text_html: str = ""):
+def _pick_signature_placement(window, *, sig_image_url: str = "", sig_text_html: str = "",
+                               prompt_title: str = "Chọn vị trí ký",
+                               prompt_instruction: str = "Giữ chuột và kéo trực tiếp trên PDF để vẽ vùng chữ ký."):
     web_view = _get_web_view(window)
     if web_view is None:
         return None
 
-    prompt = SignaturePickPrompt(window)
+    prompt = SignaturePickPrompt(window, window_title=prompt_title, instruction=prompt_instruction)
     bridge = SignaturePickBridge(prompt)
     channel = _setup_webchannel(web_view, prompt, "sigPickBridge", bridge)
     prompt._sig_pick_bridge = bridge
@@ -1961,11 +1964,10 @@ def create_signature_field(window):
         )
         _set_signature_field_marks(window, placements)
 
-        reply = QMessageBox.question(
+        reply = ask_yes_no(
             window,
             "Thêm ô ký",
             "Đã ghi nhận ô ký tạm.\n\nBạn có muốn đặt thêm ô ký khác trên tài liệu này không?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             break
@@ -1975,46 +1977,47 @@ def create_signature_field(window):
         return
 
     try:
-        output_path = make_staged_pdf_path(window.current_path, prefix=".3t_sigfields_", suffix=".pdf")
-        with open(window.current_path, "rb") as f:
-            writer = IncrementalPdfFileWriter(f, strict=False)
-            try:
-                used_names: set[str] = {
-                    str(name)
-                    for name, _value, _ref in fields.enumerate_sig_fields(writer)
-                    if name
-                }
-            except Exception:
-                used_names: set[str] = set()
+        with pdf_write_slot(window.current_path):
+            output_path = make_staged_pdf_path(window.current_path, prefix=".3t_sigfields_", suffix=".pdf")
+            with open(window.current_path, "rb") as f:
+                writer = IncrementalPdfFileWriter(f, strict=False)
+                try:
+                    used_names: set[str] = {
+                        str(name)
+                        for name, _value, _ref in fields.enumerate_sig_fields(writer)
+                        if name
+                    }
+                except Exception:
+                    used_names: set[str] = set()
 
-            def _unique_field_name(base: str) -> str:
-                candidate = base
-                idx = 2
-                while candidate in used_names:
-                    candidate = f"{base}_{idx}"
-                    idx += 1
-                used_names.add(candidate)
-                return candidate
+                def _unique_field_name(base: str) -> str:
+                    candidate = base
+                    idx = 2
+                    while candidate in used_names:
+                        candidate = f"{base}_{idx}"
+                        idx += 1
+                    used_names.add(candidate)
+                    return candidate
 
-            for item in placements:
-                field_name = _unique_field_name(item["field_name"])
-                fields.append_signature_field(
-                    writer,
-                    sig_field_spec=fields.SigFieldSpec(
-                        sig_field_name=field_name,
-                        box=item["box"],
-                        on_page=max(0, item["page_number"] - 1),
-                    ),
-                )
-            with open(output_path, "wb") as out:
-                writer.write(out)
+                for item in placements:
+                    field_name = _unique_field_name(item["field_name"])
+                    fields.append_signature_field(
+                        writer,
+                        sig_field_spec=fields.SigFieldSpec(
+                            sig_field_name=field_name,
+                            box=item["box"],
+                            on_page=max(0, item["page_number"] - 1),
+                        ),
+                    )
+                with open(output_path, "wb") as out:
+                    writer.write(out)
 
-        replace_document_with_staged(
-            window,
-            output_path,
-            target_path=window.current_path,
-            page=placements[-1]["page_number"],
-        )
+            replace_document_with_staged(
+                window,
+                output_path,
+                target_path=window.current_path,
+                page=placements[-1]["page_number"],
+            )
         _clear_signature_field_marks(window)
         window.status.showMessage(f"Đã tạo {len(placements)} ô ký số trên file đang mở", 3000)
     except Exception:
@@ -2123,13 +2126,14 @@ def sign_with_pfx(window):
 
         final_output_path = output_path
         if in_place_output:
-            replace_document_with_staged(
-                window,
-                actual_output_path,
-                target_path=window.current_path,
-                page=placement["page_number"],
-                soft_reload=True,
-            )
+            with pdf_write_slot(window.current_path):
+                replace_document_with_staged(
+                    window,
+                    actual_output_path,
+                    target_path=window.current_path,
+                    page=placement["page_number"],
+                    soft_reload=True,
+                )
             final_output_path = window.current_path
 
         validation = validate_signed_pdf_status(final_output_path)
@@ -2144,14 +2148,13 @@ def sign_with_pfx(window):
                 f"File đã được cập nhật tại:\n{final_output_path}",
             )
         else:
-            reply = QMessageBox.question(
+            reply = ask_yes_no(
                 window,
                 "Ký từ file chứng thư thành công",
                 "Ký từ file chứng thư thành công!\n\n"
                 f"Trạng thái: {validation_line}\n\n"
                 f"File lưu tại:\n{final_output_path}\n\n"
                 "Mở file đã ký ngay?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if reply == QMessageBox.StandardButton.Yes:
                 _refresh_document_view(window, final_output_path, page_number=placement["page_number"])
@@ -2271,13 +2274,14 @@ def sign_document(window):
 
         final_output_path = output_path
         if in_place_output:
-            replace_document_with_staged(
-                window,
-                actual_output_path,
-                target_path=window.current_path,
-                page=placement["page_number"],
-                soft_reload=True,
-            )
+            with pdf_write_slot(window.current_path):
+                replace_document_with_staged(
+                    window,
+                    actual_output_path,
+                    target_path=window.current_path,
+                    page=placement["page_number"],
+                    soft_reload=True,
+                )
             final_output_path = window.current_path
 
         validation = validate_signed_pdf_status(final_output_path)
@@ -2292,14 +2296,13 @@ def sign_document(window):
                 f"File đã được cập nhật tại:\n{final_output_path}",
             )
         else:
-            reply = QMessageBox.question(
+            reply = ask_yes_no(
                 window,
                 "Ký số thành công",
                 "Ký số thành công!\n\n"
                 f"Trạng thái: {validation_line}\n\n"
                 f"File lưu tại:\n{final_output_path}\n\n"
                 "Mở file đã ký ngay?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.Yes:
                 _refresh_document_view(window, final_output_path, page_number=placement["page_number"])
@@ -2530,25 +2533,26 @@ def sign_handwritten(window):
     try:
         from packages.pdf_engine import get_pdf_engine
 
-        out_path = make_staged_pdf_path(window.current_path, prefix=".3t_handwritten_", suffix=".pdf")
-        get_pdf_engine().rebuild_pdf_with_ops(
-            window.current_path,
-            out_path,
-            [{
-                "type": "image",
-                "page_number": page_no,
-                "box": box,
-                "image_path": sig_img_path,
-                "rotation": 0,
-            }],
-        )
+        with pdf_write_slot(window.current_path):
+            out_path = make_staged_pdf_path(window.current_path, prefix=".3t_handwritten_", suffix=".pdf")
+            get_pdf_engine().rebuild_pdf_with_ops(
+                window.current_path,
+                out_path,
+                [{
+                    "type": "image",
+                    "page_number": page_no,
+                    "box": box,
+                    "image_path": sig_img_path,
+                    "rotation": 0,
+                }],
+            )
 
-        replace_document_with_staged(
-            window,
-            out_path,
-            target_path=window.current_path,
-            page=page_no,
-        )
+            replace_document_with_staged(
+                window,
+                out_path,
+                target_path=window.current_path,
+                page=page_no,
+            )
         if hasattr(window, "status"):
             window.status.showMessage("Đã đặt chữ ký tay lên PDF", 3000)
     except Exception:

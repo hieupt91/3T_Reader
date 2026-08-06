@@ -1,7 +1,10 @@
 [project]
 name = "3t-reader"
-# Version is kept in sync with app/version.py (single source of truth).
-version = "1.0.25"
+# app/version.py is the single source of truth (3T_Reader.spec reads it
+# directly via exec() at build time; nothing in this codebase reads the
+# version field below). Update this manually alongside app/version.py when
+# bumping releases - nothing enforces the two staying in sync automatically.
+version = "1.0.28"
 description = "3T Reader desktop foundation for Windows and macOS"
 requires-python = ">=3.11"
 readme = "README.md"
@@ -13,7 +16,6 @@ authors = [
 # GPL pdfjs-viewer-pyqt6 wrapper from app code.
 dependencies = [
   "PySide6==6.11.0",
-  "pyqtdarktheme==0.1.7",
   "pypdfium2==5.7.0",
   "pikepdf==10.5.1",
   "reportlab==4.4.5",
@@ -30,12 +32,15 @@ dependencies = [
   "pyttsx3==2.90",
   "aiortc==1.15.0",
   "websockets==15.0.1",
+  "qrcode==8.2",
 ]
 
 [project.optional-dependencies]
 ai = [
   "anthropic>=0.25.0",
   "openai>=1.30.0",
+  "huggingface_hub>=0.25.0",
+  "google-genai>=0.1.0",
 ]
 legacy-pymupdf = [
   "PyMuPDF==1.27.2.2",

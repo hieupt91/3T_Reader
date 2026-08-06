@@ -374,6 +374,33 @@ class ThumbnailSidebar(QDockWidget):
             self._schedule_visible_load()
 
 
+class _OutlineLoader(QObject):
+    """Đọc outline PDF (pikepdf, đệ quy) trên threading.Thread nền.
+
+    Chạy thô không moveToThread, giống ThumbnailLoader ở trên - outlineReady
+    emit từ background thread, nối vào bound-method thật của BookmarkSidebar
+    để Qt tự suy ra thread affinity và queue đúng vào main thread.
+    """
+
+    outlineReady = pyqtSignal(list)
+
+    def __init__(self, read_fn, pdf_path: str):
+        super().__init__()
+        self._read_fn = read_fn
+        self.pdf_path = pdf_path
+
+    def start(self):
+        import threading
+        threading.Thread(target=self.run, daemon=True).start()
+
+    def run(self):
+        try:
+            outline = self._read_fn(self.pdf_path)
+        except Exception:
+            outline = []
+        self.outlineReady.emit(outline)
+
+
 class BookmarkSidebar(QDockWidget):
     """Hiển thị mục lục (Table of Contents / Outline) của PDF."""
 
@@ -384,6 +411,8 @@ class BookmarkSidebar(QDockWidget):
         )
         self.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
         self.setFixedWidth(220)
+        self._outline_token = 0
+        self._outline_loader = None
 
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -443,11 +472,33 @@ class BookmarkSidebar(QDockWidget):
             parent = parent.parent()
 
     def load_outline(self, pdf_path: str, on_navigate):
+        """Đọc + hiển thị outline PDF, không block UI thread.
+
+        pikepdf.open_outline() đệ quy toàn bộ cây mục lục - với file có
+        outline lớn (thường gặp ở file đã làm việc nhiều), chạy đồng bộ trên
+        UI thread gây lag rõ rệt mỗi lần mở file. Đưa ra threading.Thread nền
+        (_OutlineLoader), giống ThumbnailLoader ở trên.
+        """
         self._on_navigate = on_navigate
         self._tree.clear()
         self._page_items = {}
-        outline = self._read_outline(pdf_path)
+        self._empty_label.setVisible(False)
 
+        self._outline_token += 1
+        loader = _OutlineLoader(self._read_outline, pdf_path)
+        loader.outline_token = self._outline_token
+        loader.outlineReady.connect(self._on_outline_ready)
+        self._outline_loader = loader
+        loader.start()
+
+    def _on_outline_ready(self, outline: list) -> None:
+        loader = self.sender()
+        token = getattr(loader, "outline_token", None)
+        if token != self._outline_token:
+            return
+        self._apply_outline(outline)
+
+    def _apply_outline(self, outline: list[tuple[int, str, int]]) -> None:
         if not outline:
             self._tree.setVisible(False)
             self._empty_label.setVisible(True)
@@ -477,6 +528,7 @@ class BookmarkSidebar(QDockWidget):
             self._tree.topLevelItem(i).setExpanded(True)
 
     def clear(self):
+        self._outline_token += 1
         self._tree.clear()
         self._tree.setVisible(False)
         self._empty_label.setVisible(True)

@@ -10,8 +10,11 @@ from packages.qt_compat.QtCore import Qt
 from packages.qt_compat.QtGui import QDesktopServices, QFont
 from packages.qt_compat.QtCore import QUrl
 from packages.audit import read_recent_logs, get_audit_log_path
+from styles.theme import is_dark
 
-_STYLE = """
+def _build_style(dark: bool) -> str:
+    if dark:
+        return """
 QDialog { background: #16162A; }
 QLabel#title { color: #E8EEFF; font-size: 15px; font-weight: 700; }
 QLabel#status { color: #8080B0; font-size: 11px; }
@@ -38,6 +41,33 @@ QPushButton#btn_close {
 }
 QPushButton#btn_close:hover { background: #4A4A80; }
 """
+    return """
+QDialog { background: #F8FAFF; }
+QLabel#title { color: #0F172A; font-size: 15px; font-weight: 700; }
+QLabel#status { color: #64748B; font-size: 11px; }
+QTextEdit {
+    background: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 8px;
+    padding: 10px;
+}
+QPushButton {
+    background: #E2E8F0;
+    color: #334155;
+    border: 1px solid #CBD5E1;
+    border-radius: 7px;
+    padding: 8px 18px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QPushButton:hover { background: #CBD5E1; border-color: #94A3B8; }
+QPushButton#btn_close {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2563EB,stop:1 #1D4ED8);
+    color: #FFFFFF; border: none;
+}
+QPushButton#btn_close:hover { background: #3B82F6; }
+"""
 
 
 class AuditLogDialog(QDialog):
@@ -49,7 +79,7 @@ class AuditLogDialog(QDialog):
         self.setModal(True)
         self.setMinimumSize(800, 500)
         self.resize(900, 560)
-        self.setStyleSheet(_STYLE)
+        self.setStyleSheet(_build_style(is_dark()))
 
         self._build_ui()
         self._load_logs()

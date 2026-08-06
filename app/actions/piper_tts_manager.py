@@ -455,17 +455,40 @@ class PiperVoiceManagerDialog(QDialog):
             return
         
         self.btn_download.setEnabled(False)
+        # Đóng dialog trong lúc dl_thread (QThread thật) đang chạy nền có thể
+        # để lại signal progress/download_completed trỏ vào widget đã bị huỷ
+        # (self.progress_bar, self._on_download_finished) khi dialog Python bị
+        # dọn sau khi accept() - cùng lớp crash libshiboken "C++ object đã bị
+        # xoá" đã gặp ở nơi khác trong app. Chưa tái hiện được crash cụ thể để
+        # khẳng định chắc chắn, nhưng disable nút Đóng trong lúc tải là an
+        # toàn và đúng UX bất kể lý thuyết trên đúng hay không (không cho phép
+        # bỏ dở dialog trong khi thread nền vẫn đang ghi file).
+        self.btn_close.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
-        
+
         self.dl_thread = DownloadThread(voice) # Remove 'self' as parent to prevent PySide6 destruction crash
         self.dl_thread.progress.connect(self.progress_bar.setValue)
         self.dl_thread.download_completed.connect(self._on_download_finished)
         self.dl_thread.finished.connect(self.dl_thread.deleteLater) # Auto cleanup
         self.dl_thread.start()
         
+    def closeEvent(self, event):
+        """Chặn đóng qua nút X / phím Escape trong lúc dl_thread đang chạy -
+        nút "Đóng" đã disable ở trên nhưng chỉ chặn được đường click nút,
+        không chặn được 2 đường này. Cùng pattern đã dùng đúng ở
+        app/ai_translate_dialog.py::closeEvent cho lớp vấn đề tương tự."""
+        try:
+            if getattr(self, "dl_thread", None) and self.dl_thread.isRunning():
+                event.ignore()
+                return
+        except RuntimeError:
+            pass
+        super().closeEvent(event)
+
     def _on_download_finished(self, success):
         self.btn_download.setEnabled(True)
+        self.btn_close.setEnabled(True)
         self.progress_bar.setVisible(False)
         if success:
             QMessageBox.information(self, self._t("msg.success", "Thành công"), self._t("piper.dl_success", "Đã tải xong gói giọng đọc!"))

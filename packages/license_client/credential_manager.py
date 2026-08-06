@@ -21,13 +21,17 @@ def credential_manager_save(
     if not _is_windows():
         return False
     payload = json.dumps(data)
+    keyring_ok = False
     try:
         import keyring
 
         keyring.set_password(service_name, username, payload)
-        return True
+        keyring_ok = True
     except Exception:
         pass
+    # Luôn ghi thêm bản dự phòng DPAPI, kể cả khi keyring thành công: việc
+    # PyInstaller đóng gói metadata backend của keyring không ổn định giữa các
+    # bản build, nên chỉ tin vào keyring có thể làm mất license sau khi update.
     try:
         import base64
         import ctypes
@@ -58,14 +62,14 @@ def credential_manager_save(
             ctypes.byref(blob_out),
         )
         if not ok:
-            return False
+            return keyring_ok
 
         protected = ctypes.string_at(blob_out.pbData, blob_out.cbData)
         kernel32.LocalFree(blob_out.pbData)
         _dpapi_path(service_name=service_name, username=username).write_bytes(base64.b64encode(protected))
         return True
     except Exception:
-        return False
+        return keyring_ok
 
 
 def credential_manager_load(

@@ -4,6 +4,7 @@ import os
 import threading
 import traceback
 import faulthandler
+import gc
 
 # ================================================================
 # BƯỚC 1: Xử lý subprocess của QtWebEngine TRƯỚC TIÊN
@@ -111,6 +112,20 @@ from styles.theme import apply_theme
 
 if __name__ == "__main__":
     _install_crash_logging()
+
+    # CPython's cyclic GC có thể tự chạy trên BẤT KỲ thread nào (kể cả các
+    # QThread nền như ThumbnailLoader/OCR/rotate) ngay khi ngưỡng phân bổ bị
+    # vượt. Nếu đúng lúc đó nó dọn 1 vòng tham chiếu vòng có đụng tới object
+    # Qt, việc hủy object Qt từ sai thread là không an toàn -> heap Qt hỏng,
+    # crash muộn (đã xác nhận qua Windows Event Log: exception 0xc0000409
+    # trong Qt6Core.dll, hàm QtPrivate::sizedFree, lặp lại hàng chục lần từ
+    # 05/2026). Đây là lỗi đã biết của PySide6/PyQt trên Windows (GC chạy sai
+    # thread), không phải lỗi trong code app. Tắt GC tự động, tự chủ động
+    # gc.collect() định kỳ CHỈ từ main/GUI thread (xem PDFReaderApp._start_gc_timer)
+    # để việc dọn vòng tham chiếu luôn chạy đúng thread, không còn phụ thuộc
+    # thời điểm ngẫu nhiên GC tự kích hoạt.
+    gc.disable()
+
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 
     app = QApplication(sys.argv)
@@ -152,6 +167,13 @@ if __name__ == "__main__":
     if _ui_font:
         app.setFont(QFont(_ui_font, 10))
     app.setApplicationName(APP_NAME)
+
+    if _platform.system() == "Windows":
+        try:
+            from packages.platform.pdf_association import refresh_pdf_icon_if_default_changed
+            refresh_pdf_icon_if_default_changed()
+        except Exception:
+            pass
 
     from app.icon_utils import app_logo_icon
     app.setWindowIcon(app_logo_icon(256))

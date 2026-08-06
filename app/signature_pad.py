@@ -11,7 +11,7 @@ from packages.qt_compat.QtGui import (
 )
 from packages.qt_compat.QtCore import Qt, QPoint, QPointF
 
-from app.dialogs import show_info, show_warning
+from app.dialogs import show_info, show_warning, ask_yes_no
 from app.signature_templates import (
     delete_signature_template,
     list_signature_templates,
@@ -305,11 +305,11 @@ class SignatureTemplateManagerDialog(QDialog):
         data = self._current_item_data()
         if not data:
             return
-        reply = QMessageBox.question(
+        reply = ask_yes_no(
             self,
             "Xóa mẫu chữ ký",
             f"Xóa mẫu '{data['label']}'?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            default_no=True,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return

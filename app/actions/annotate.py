@@ -13,21 +13,19 @@ from packages.qt_compat.QtCore import QObject, QEventLoop, QTimer, pyqtSlot
 from packages.qt_compat.QtWidgets import (
     QFileDialog,
     QInputDialog,
-    QLineEdit,
     QMessageBox,
 )
 from app.actions._guard import require_document
 from packages.pdf_engine import get_pdf_engine
 from app.actions._pdf_save import (
     make_staged_pdf_path,
+    pdf_write_slot,
     remove_path_quietly,
     replace_document_with_staged,
     replace_file_with_retry,
 )
-from app.dialogs import show_warning, show_info
+from app.dialogs import show_warning, ask_yes_no
 from app.webchannel import register_webchannel_object
-import threading
-_PDF_SAVE_LOCK = threading.Lock()
 
 
 NOTE_ICON_SIZE_PT = 18.0
@@ -99,16 +97,17 @@ class _AnnotationOpQueue(QObject):
     def __init__(self, window):
         super().__init__(window)
         self._window = window
-        self._pending: list[tuple[str, object]] = []
+        self._pending: list[tuple[str, object, bool]] = []
         self._flushing = False
         self._flushing_target: str | None = None
+        self._flushing_has_user = False
         self._last_error = ""
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.flush)
 
-    def enqueue(self, target_path: str, op, *, delay_ms: int = 350) -> None:
-        self._pending.append((os.path.abspath(target_path), op))
+    def enqueue(self, target_path: str, op, *, delay_ms: int = 350, is_user_edit: bool = True) -> None:
+        self._pending.append((os.path.abspath(target_path), op, is_user_edit))
         self._last_error = ""
         
         from packages.qt_compat.QtCore import QSettings
@@ -126,7 +125,7 @@ class _AnnotationOpQueue(QObject):
         if target_path is None:
             return len(self._pending)
         target_path = os.path.abspath(target_path)
-        return sum(1 for path, _op in self._pending if path == target_path)
+        return sum(1 for path, _op, _is_user in self._pending if path == target_path)
 
     def is_flushing(self, target_path: str | None = None) -> bool:
         if not self._flushing:
@@ -138,13 +137,31 @@ class _AnnotationOpQueue(QObject):
     def last_error(self) -> str:
         return self._last_error
 
-    def has_pending(self, target_path: str | None = None) -> bool:
+    def has_pending(self, target_path: str | None = None, *, user_only: bool = False) -> bool:
+        """user_only=True bỏ qua các thay đổi do auto-OCR nền tạo ra (không phải
+        chú thích người dùng thao tác) — dùng khi quyết định có chặn đóng
+        tab/app hay không, để không báo "chưa lưu chú thích" oan cho OCR nền."""
         if self.is_flushing(target_path):
+            if not user_only or self._flushing_has_user:
+                return True
+        norm_target = os.path.abspath(target_path) if target_path else None
+        for path, _op, is_user in self._pending:
+            if norm_target is not None and path != norm_target:
+                continue
+            if user_only and not is_user:
+                continue
             return True
-        if target_path is None:
-            return bool(self._pending)
-        target_path = os.path.abspath(target_path)
-        return any(path == target_path for path, _op in self._pending)
+        return False
+
+    def drop_ocr_pending(self, target_path: str | None = None) -> None:
+        """Bỏ các thay đổi auto-OCR chưa ghi kịp (giữ nguyên chú thích người
+        dùng thật) — gọi khi đóng tab/app mà OCR nền ghi thất bại, vì mất
+        text-layer OCR chỉ cần chạy lại lần mở sau, không phải mất dữ liệu."""
+        norm_target = os.path.abspath(target_path) if target_path else None
+        self._pending = [
+            item for item in self._pending
+            if item[2] or (norm_target is not None and item[0] != norm_target)
+        ]
 
     def flush(self, target_path: str | None = None) -> bool:
         if self._flushing:
@@ -154,8 +171,8 @@ class _AnnotationOpQueue(QObject):
         if not self._pending:
             return True
         requested_target = os.path.abspath(target_path) if target_path else self._pending[0][0]
-        same_target: list[tuple[str, object]] = []
-        rest: list[tuple[str, object]] = []
+        same_target: list[tuple[str, object, bool]] = []
+        rest: list[tuple[str, object, bool]] = []
         for item in self._pending:
             if item[0] == requested_target:
                 same_target.append(item)
@@ -168,19 +185,21 @@ class _AnnotationOpQueue(QObject):
         self._pending = rest
         self._flushing = True
         self._flushing_target = requested_target
+        self._flushing_has_user = any(is_user for _path, _op, is_user in same_target)
 
         staged_path = ""
         try:
             import pikepdf
-            # Cùng khóa với luồng ghi nền (rotate) để không hai luồng cùng
-            # mở/save/replace một file PDF -> tránh hỏng file / mất dữ liệu.
-            with _PDF_SAVE_LOCK:
+            # Cùng "slot bận" với mọi luồng ghi PDF khác (rotate, xóa trang,
+            # ký số, lưu, watermark...) để không hai bên cùng mở/save/replace
+            # một file -> tránh mất dữ liệu 1 bên (xem pdf_write_slot).
+            with pdf_write_slot(requested_target):
                 with pikepdf.open(requested_target) as pdf:
-                    for _path, op in same_target:
+                    for _path, op, _is_user in same_target:
                         op(pdf)
                     staged_path = make_staged_pdf_path(requested_target)
                     pdf.save(staged_path)
-                replace_file_with_retry(staged_path, requested_target, attempts=3)
+                replace_file_with_retry(staged_path, requested_target, attempts=3, window=self._window)
             try:
                 from app.local_server import LocalPDFJSServer
                 LocalPDFJSServer.get().invalidate_pdf_cache(requested_target)
@@ -200,6 +219,7 @@ class _AnnotationOpQueue(QObject):
         finally:
             self._flushing = False
             self._flushing_target = None
+            self._flushing_has_user = False
 
         if self._pending:
             self._timer.start(50)
@@ -223,8 +243,8 @@ def _annotation_queue(window) -> _AnnotationOpQueue:
     return queue
 
 
-def _queue_annotation_op(window, target_path: str, op, *, delay_ms: int = 350) -> None:
-    _annotation_queue(window).enqueue(target_path, op, delay_ms=delay_ms)
+def _queue_annotation_op(window, target_path: str, op, *, delay_ms: int = 350, is_user_edit: bool = True) -> None:
+    _annotation_queue(window).enqueue(target_path, op, delay_ms=delay_ms, is_user_edit=is_user_edit)
 
 
 def _annotation_undo_stack(window) -> list:
@@ -257,13 +277,13 @@ def _flush_annotation_queue(window, target_path: str | None = None) -> bool:
     return bool(queue.flush())
 
 
-def has_pending_annotations(window, target_path: str | None = None) -> bool:
+def has_pending_annotations(window, target_path: str | None = None, *, user_only: bool = False) -> bool:
     queue = getattr(window, "_annotation_op_queue", None)
     if queue is None:
         return False
     has_pending = getattr(queue, "has_pending", None)
     if callable(has_pending):
-        return bool(has_pending(target_path))
+        return bool(has_pending(target_path, user_only=user_only))
     return False
 
 
@@ -353,7 +373,7 @@ def _schedule_annotation_undo_flush(window, target_path: str, *, delay_ms: int =
     QTimer.singleShot(max(0, int(delay_ms)), _run)
 
 
-def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str) -> None:
+def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str, window=None) -> None:
     import pikepdf
     staged_path = ""
     try:
@@ -363,7 +383,7 @@ def _save_pikepdf_in_place(pdf: pikepdf.Pdf, target_path: str) -> None:
             pdf.close()
         except Exception:
             pass
-        replace_file_with_retry(staged_path, target_path, attempts=8)
+        replace_file_with_retry(staged_path, target_path, attempts=8, window=window)
         try:
             from app.local_server import LocalPDFJSServer
             LocalPDFJSServer.get().invalidate_pdf_cache(target_path)
@@ -1261,11 +1281,12 @@ class _NoteToolsBridge(QObject):
                 show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
                 return
             import pikepdf
-            with pikepdf.open(self._pdf_path) as pdf:
-                if not _delete_note_by_id(pdf, note_id=note_id):
-                    show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
-                    return
-                _save_pikepdf_in_place(pdf, self._pdf_path)
+            with pdf_write_slot(self._pdf_path):
+                with pikepdf.open(self._pdf_path) as pdf:
+                    if not _delete_note_by_id(pdf, note_id=note_id):
+                        show_warning(self._window, "Xóa ghi chú", "Không tìm thấy ghi chú này trong tài liệu.")
+                        return
+                    _save_pikepdf_in_place(pdf, self._pdf_path, window=self._window)
 
             tombstone = dict(note)
             tombstone["_deleted"] = True
@@ -1303,14 +1324,15 @@ class _NoteToolsBridge(QObject):
 
             import pikepdf
             deleted = 0
-            with pikepdf.open(self._pdf_path) as pdf:
-                deleted = _delete_annotations_by_prefix(pdf, str(mark_id))
-                extra_ids: list[str] = []
-                if find_mode and keyword:
-                    extra_ids = _delete_annotations_by_content(pdf, keyword)
-                    deleted += len(extra_ids)
-                if deleted:
-                    _save_pikepdf_in_place(pdf, self._pdf_path)
+            with pdf_write_slot(self._pdf_path):
+                with pikepdf.open(self._pdf_path) as pdf:
+                    deleted = _delete_annotations_by_prefix(pdf, str(mark_id))
+                    extra_ids: list[str] = []
+                    if find_mode and keyword:
+                        extra_ids = _delete_annotations_by_content(pdf, keyword)
+                        deleted += len(extra_ids)
+                    if deleted:
+                        _save_pikepdf_in_place(pdf, self._pdf_path, window=self._window)
             if find_mode and keyword:
                 for base in set(extra_ids):
                     _remove_overlay_mark(self._window, base)
@@ -1345,21 +1367,22 @@ class _NoteToolsBridge(QObject):
 
             import pikepdf
             deleted = 0
-            with pikepdf.open(self._pdf_path) as pdf:
-                if page_number <= len(pdf.pages):
-                    page = pdf.pages[page_number - 1]
-                    annots = page.get("/Annots", None)
-                    if annots is not None:
-                        for idx in range(len(annots) - 1, -1, -1):
-                            annot = annots[idx]
-                            if _annotation_subtype(annot) not in _MARK_SUBTYPE_STYLES:
-                                continue
-                            if not _annotation_id(annot).startswith("3t-mark-"):
-                                continue
-                            del annots[idx]
-                            deleted += 1
-                if deleted:
-                    _save_pikepdf_in_place(pdf, self._pdf_path)
+            with pdf_write_slot(self._pdf_path):
+                with pikepdf.open(self._pdf_path) as pdf:
+                    if page_number <= len(pdf.pages):
+                        page = pdf.pages[page_number - 1]
+                        annots = page.get("/Annots", None)
+                        if annots is not None:
+                            for idx in range(len(annots) - 1, -1, -1):
+                                annot = annots[idx]
+                                if _annotation_subtype(annot) not in _MARK_SUBTYPE_STYLES:
+                                    continue
+                                if not _annotation_id(annot).startswith("3t-mark-"):
+                                    continue
+                                del annots[idx]
+                                deleted += 1
+                    if deleted:
+                        _save_pikepdf_in_place(pdf, self._pdf_path, window=self._window)
 
             try:
                 getter = getattr(self._window, "_get_webview", None)
@@ -2232,17 +2255,32 @@ def _add_pdf_annotation(pdf: pikepdf.Pdf, page_idx: int, subtype: str,
 
 
 _GET_SELECTION_RECTS_JS = r"""(function() {
+    // Trả JSON string, KHÔNG trả object JS trực tiếp: cầu nối tự động
+    // JS-object -> QVariant -> Python dict của QWebEnginePage.runJavaScript()
+    // đã quan sát thấy âm thầm làm rỗng payload trong thực tế (callback vẫn
+    // chạy, không exception, nhưng Python nhận về {} dù JS chắc chắn trả
+    // đủ text+rects - xác nhận qua console trực tiếp). Đi qua JSON string +
+    // json.loads() ở Python tránh hẳn lớp marshaling không đáng tin đó.
+    var result;
     try {
         if (typeof window.__3tReadSelectionPayload === 'function') {
-            return window.__3tReadSelectionPayload();
-        }
-        var raw = window.__3tLastSelectionPayload;
-        if (raw && raw.rects && raw.rects.length > 0 && Date.now() - (raw.timestamp || 0) < 15000) {
-            return raw;
+            result = window.__3tReadSelectionPayload();
+        } else {
+            var raw = window.__3tLastSelectionPayload;
+            if (raw && raw.rects && raw.rects.length > 0 && Date.now() - (raw.timestamp || 0) < 15000) {
+                result = raw;
+            }
         }
     } catch (_err) {}
-    var sel = window.getSelection ? window.getSelection() : null;
-    return { text: sel ? String(sel.toString() || '') : '', rects: [] };
+    if (!result) {
+        var sel = window.getSelection ? window.getSelection() : null;
+        result = { text: sel ? String(sel.toString() || '') : '', rects: [] };
+    }
+    try {
+        return JSON.stringify(result);
+    } catch (_err2) {
+        return JSON.stringify({ text: '', rects: [] });
+    }
 })()"""
 
 
@@ -2348,16 +2386,7 @@ def _fallback_selection_payload_from_text(window, text: str) -> dict:
     }
 
 
-def _get_selection_payload_sync(window, *, timeout_ms: int = 350, allow_text_search_fallback: bool = True):
-    """Read the current PDF.js selection payload synchronously for modal flows."""
-    try:
-        getter = getattr(window, "_get_webview", None)
-        web_view = getter() if callable(getter) else None
-    except Exception:
-        web_view = None
-    if web_view is None:
-        return "", {}
-
+def _read_selection_payload_once(window, web_view, timeout_ms: int) -> dict:
     holder = {"payload": None}
     loop = QEventLoop(window)
 
@@ -2371,8 +2400,62 @@ def _get_selection_payload_sync(window, *, timeout_ms: int = 350, allow_text_sea
         QTimer.singleShot(timeout_ms, lambda: loop.quit() if loop.isRunning() else None)
         loop.exec()
     except Exception:
-        holder["payload"] = {}
-    payload = holder.get("payload") or {}
+        return {}
+    raw = holder.get("payload")
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        result = json.loads(raw)
+    except Exception:
+        return {}
+    return result if isinstance(result, dict) else {}
+
+
+def _wait_ms_pumped(window, delay_ms: int) -> None:
+    """Block for delay_ms while keeping the Qt event loop pumped (unlike
+    time.sleep, which would freeze the UI on the main thread)."""
+    loop = QEventLoop(window)
+    QTimer.singleShot(max(0, delay_ms), loop.quit)
+    loop.exec()
+
+
+def _get_selection_payload_sync(
+    window,
+    *,
+    timeout_ms: int = 350,
+    allow_text_search_fallback: bool = True,
+    geometry_retries: int = 2,
+    geometry_retry_delay_ms: int = 120,
+):
+    """Read the current PDF.js selection payload synchronously for modal flows."""
+    try:
+        getter = getattr(window, "_get_webview", None)
+        web_view = getter() if callable(getter) else None
+    except Exception:
+        web_view = None
+    if web_view is None:
+        return "", {}
+
+    payload = _read_selection_payload_once(window, web_view, timeout_ms)
+    # PDF.js selection geometry (getClientRects()/page viewport lookup) can
+    # briefly lag the browser selection itself settling - text is already
+    # available via getSelection().toString() but rects come back empty for
+    # a moment. Retry the JS read a few times with a short pumped delay
+    # before giving up, instead of immediately surfacing "chưa lấy được tọa
+    # độ" to the user. Deliberately NOT falling back to page-text search here
+    # (that previously picked the wrong occurrence of duplicate text - TC42).
+    attempt = 0
+    while (
+        not _payload_has_selection_rects(payload)
+        and str(payload.get("text") or "").strip()
+        and attempt < geometry_retries
+    ):
+        _wait_ms_pumped(window, geometry_retry_delay_ms)
+        payload = _read_selection_payload_once(window, web_view, min(timeout_ms, 300))
+        attempt += 1
+
     if _payload_has_selection_rects(payload):
         return payload
 
@@ -2429,6 +2512,8 @@ def highlight_text(window):
     """Highlight the current PDF.js text selection."""
     if _mark_mode_is_find(window):
         _mark_keyword_from_selection(window, "highlight")
+        return
+    if _mark_search_keyword_when_no_selection(window, "highlight"):
         return
     _do_selected_text_mark(window, "highlight")
 
@@ -2627,6 +2712,14 @@ def _rotate_page(window, degrees: int):
     page_no = _get_current_page(window)
     if not _flush_annotations_before_heavy_op(window, path, "xoay trang"):
         return
+    # Nếu đang có phiên "Sửa PDF" (chèn text/ảnh/rect) chưa lưu, phải flush
+    # xuống đĩa trước khi ghi /Rotate trực tiếp bằng pikepdf bên dưới - nếu
+    # không, working_file/toạ độ của edit session còn dở sẽ lệch so với
+    # trang vừa xoay (rotate_pages_action ở pages.py đã làm đúng bước này,
+    # đường ghi riêng ở đây trước đó thiếu).
+    from app.actions.pages import _auto_commit_edit_state
+    if not _auto_commit_edit_state(window):
+        return
 
     # Xoay THẬT 1 trang (ghi /Rotate) rồi reload MỀM (giữ zoom + vị trí, phủ nhẹ).
     # Dùng chung cơ chế với "Xoay tất cả" để nhất quán và đúng layout.
@@ -2672,111 +2765,24 @@ def delete_current_page(window):
                 show_warning(window, "Không thể xóa",
                     "Tài liệu chỉ có 1 trang, không thể xóa.")
                 return
-            reply = QMessageBox.question(
+            reply = ask_yes_no(
                 window, "Xóa trang",
                 f"Xóa trang {page_no}/{total}? Thao tác không thể hoàn tác.",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
+                default_no=True,
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
-            del pdf.pages[page_no - 1]
-            _save_pikepdf_reload(window, pdf, keep_page=False)
+            # Slot chỉ bọc đoạn ghi thật (không bọc lúc chờ user xác nhận ở
+            # trên) - giữ "bận" suốt thời gian dialog hỏi đang mở sẽ chặn
+            # autosave chú thích không cần thiết, có thể rất lâu nếu user
+            # chưa trả lời ngay.
+            with pdf_write_slot(path):
+                del pdf.pages[page_no - 1]
+                _save_pikepdf_reload(window, pdf, keep_page=False)
         if hasattr(window, "status"):
             window.status.showMessage(f"Đã xóa trang {page_no}", 2000)
     except Exception as e:
         show_warning(window, "Lỗi xóa trang", str(e))
-
-
-# ── Merge PDF ─────────────────────────────────────────────────────────────────
-
-@require_document(show_message=True)
-def merge_pdf(window):
-    """Append another PDF to the current document."""
-    other_path, _ = QFileDialog.getOpenFileName(
-        window, "Chọn PDF cần ghép vào cuối", "", "PDF Files (*.pdf)"
-    )
-    if not other_path:
-        return
-    path = window.current_path
-    if not _flush_annotations_before_heavy_op(window, path, "ghep PDF"):
-        return
-    try:
-        import pikepdf
-        with pikepdf.open(path) as pdf:
-            with pikepdf.open(other_path) as other:
-                pdf.pages.extend(other.pages)
-            _save_pikepdf_reload(window, pdf, keep_page=False)
-        if hasattr(window, "status"):
-            window.status.showMessage(
-                f"Đã ghép PDF: {os.path.basename(other_path)}", 3000)
-    except Exception as e:
-        show_warning(window, "Lỗi ghép PDF", str(e))
-
-
-# ── Extract pages ─────────────────────────────────────────────────────────────
-
-@require_document(show_message=True)
-def extract_pages(window):
-    """Extract a range of pages to a new PDF file."""
-    path = window.current_path
-    import pikepdf
-    with pikepdf.open(path) as _tmp:
-        total = len(_tmp.pages)
-
-    range_text, ok = QInputDialog.getText(
-        window, "Trích xuất trang",
-        f"Nhập trang cần trích (VD: 1-3,5,7-9). Tổng: {total} trang:",
-        QLineEdit.EchoMode.Normal,
-    )
-    if not ok or not range_text.strip():
-        return
-
-    pages = _parse_page_range(range_text, total)
-    if not pages:
-        show_warning(window, "Lỗi", "Dải trang không hợp lệ.")
-        return
-
-    out_path, _ = QFileDialog.getSaveFileName(
-        window, "Lưu trang trích xuất", "", "PDF Files (*.pdf)"
-    )
-    if not out_path:
-        return
-
-    try:
-        import pikepdf
-        dst = pikepdf.Pdf.new()
-        with pikepdf.open(path) as src:
-            for p in pages:
-                dst.pages.append(src.pages[p - 1])
-        dst.save(out_path)
-        dst.close()
-        show_info(window, "Trích xuất thành công",
-            f"Đã lưu {len(pages)} trang vào:\n{out_path}")
-    except Exception as e:
-        show_warning(window, "Lỗi trích xuất", str(e))
-
-
-def _parse_page_range(text: str, max_page: int) -> list[int]:
-    pages = []
-    for part in text.replace(" ", "").split(","):
-        if "-" in part:
-            a, _, b = part.partition("-")
-            try:
-                start, end = max(1, int(a)), min(max_page, int(b))
-                if start > end:
-                    start, end = end, start
-                pages.extend(range(start, end + 1))
-            except ValueError:
-                pass
-        else:
-            try:
-                p = int(part)
-                if 1 <= p <= max_page:
-                    pages.append(p)
-            except ValueError:
-                pass
-    return sorted(set(pages))
 
 
 # ── Underline / Strikeout ─────────────────────────────────────────────────────

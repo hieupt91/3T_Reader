@@ -9,13 +9,18 @@ def _read(rel_path: str) -> str:
 
 
 def test_rotate_pages_action_is_exposed_from_page_ui():
+    # Nút ribbon "Xoay tất cả" (self._act_rall) và menu "Xoay trang..."
+    # (act_rotate_all) cùng gọi rotate_pages_action - tên biến đổi khi
+    # window.py chuyển sang helper _set(name, i18n_key, fallback) cho toàn
+    # bộ action đăng ký (hoà giải piper-vps-sync 2026-08-05), hành vi UI
+    # không đổi.
     window_source = _read("app/window.py")
 
     assert "from app.actions.pages import merge_pdfs_action, rotate_pages_action, split_pdf_action" in window_source
-    assert "self._act_rotate_pages = make(" in window_source
+    assert "self._act_rall = make(" in window_source
     assert "lambda: rotate_pages_action(self)" in window_source
-    assert "self.g_rot.add(make_action_btn(self._act_rotate_pages, \"Xoay trang\"))" in window_source
-    assert "act_rotate_pages = menu_pages.addAction(\"Xoay trang...\")" in window_source
+    assert "self.g_rot.add(make_action_btn(self._act_rall, \"Xoay tất cả\"))" in window_source
+    assert 'act_rotate_all = menu_pages.addAction("Xoay trang… (chọn / tất cả)")' in window_source
 
 
 def test_rotate_pages_dialog_keeps_all_pages_entry_point():
@@ -25,19 +30,14 @@ def test_rotate_pages_dialog_keeps_all_pages_entry_point():
     assert "rotations = {pn: deg for pn in range(1, total + 1)}" in pages_source
 
 
-def test_rotate_pages_runs_viewer_js_on_real_webengine_view():
+def test_rotate_pages_writes_synchronously_then_reloads():
+    # Rotate xoay THẬT (ghi /Rotate qua pdf engine) rồi reload mềm ngay -
+    # không còn dùng CSS-transform JS + thumbnail QTransform hack tạm thời
+    # (code cũ dùng biến js_code chưa từng định nghĩa -> NameError khi chạy,
+    # đã bị loại bỏ khi hoà giải piper-vps-sync 2026-08-05).
     pages_source = _read("app/actions/pages.py")
 
-    assert "findChild(QWebEngineView)" in pages_source
-    assert "wv.page().runJavaScript(js_code)" in pages_source
-    assert "window.viewer.page().runJavaScript(js_code)" not in pages_source
-
-
-def test_rotate_all_pages_previews_only_visible_sidebar_thumbnails():
-    pages_source = _read("app/actions/pages.py")
-
-    assert "preview_rotations = rotations" in pages_source
-    assert "if _all_pages[0]:" in pages_source
-    assert "window.sidebar._visible_page_range()" in pages_source
-    assert "for pn, rdeg in preview_rotations.items():" in pages_source
-    assert "for pn, rdeg in rotations.items():" not in pages_source
+    assert "get_pdf_engine().rotate_pages(path, tmp, rotations)" in pages_source
+    assert "replace_document_with_staged(window, tmp, target_path=path," in pages_source
+    assert "findChild(QWebEngineView)" not in pages_source
+    assert "preview_rotations = rotations" not in pages_source

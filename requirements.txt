@@ -2,7 +2,6 @@
 # OCR: cần cài tesseract trên OS: brew install tesseract tesseract-lang (macOS)
 
 PySide6==6.11.0
-pyqtdarktheme==0.1.7
 pypdfium2==5.7.0
 pikepdf==10.5.1
 reportlab==4.4.5
@@ -19,6 +18,7 @@ pyttsx3==2.90
 numpy>=1.24.0
 aiortc==1.15.0
 websockets==15.0.1
+qrcode==8.2
 
 # Platform-specific dependencies (TIEU_CHUAN_DONG_BO_WIN_MAC)
 pywin32==306 ; sys_platform == 'win32'

@@ -11,6 +11,11 @@ APP_VERSION = _version_ns['APP_VERSION']
 datas = []
 binaries = []
 hiddenimports = ['pypdfium2', 'pikepdf', 'pyhanko.network', 'pyhanko.network.requests', 'pyhanko_certvalidator', 'pyhanko_certvalidator.fetchers.requests_fetchers', 'PySide6.QtPrintSupport', 'PySide6.QtWebEngineWidgets', 'pdf2docx', 'pdfplumber', 'openpyxl', 'openai', 'anthropic', 'huggingface_hub', 'google.genai', 'requests', 'keyring']
+# build_secure.py Nuitka-compiles these to ABI-tagged .pyd (e.g. annotate.cp313-win_amd64.pyd) and
+# removes the .py source; collect_submodules() below walks the filesystem and does not recognize
+# that tagged suffix, so they get silently dropped from the frozen build unless listed explicitly here.
+# Keep in sync with build_secure.py's `sensitive_files`.
+hiddenimports += ['app.window', 'app.actions.annotate', 'app.actions.pages', 'packages.license_client.vps_client']
 datas += [('assets', 'assets')]
 datas += [('styles', 'styles')]
 datas += [('third_party/pdfjs', 'third_party/pdfjs')]
@@ -45,7 +50,17 @@ hiddenimports.extend(collect_submodules('core'))
 
 
 # Native PDF backends can require package-provided binaries/data at runtime.
-for _package in ('pypdfium2', 'pikepdf', 'pyhanko', 'pyhanko_certvalidator'):
+for _package in ('pypdfium2', 'pikepdf', 'pyhanko', 'pyhanko_certvalidator', 'keyring'):
+    _merge_collected(_package)
+
+# google.genai (Gemini) and huggingface_hub (HuggingFace) are optional AI
+# providers imported directly by packages/ai/provider.py. A plain string in
+# hiddenimports above is not enough for them in this project's full
+# dependency graph (verified empirically: reproduced with a real PyInstaller
+# build against main.py - neither ends up in dist/*/_internal despite being
+# listed there) - collect_all() walks their real submodules/metadata the
+# same way already relied on for the packages above.
+for _package in ('google.genai', 'huggingface_hub'):
     _merge_collected(_package)
 
 

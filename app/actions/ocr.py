@@ -359,13 +359,13 @@ def _legacy_ocr_full_document(window):
 
     if total > 50:
         from packages.qt_compat.QtWidgets import QMessageBox
+        from app.dialogs import ask_yes_no
         lang = get_selected_language()
         _t = lambda key, fallback: get_translation(lang, key, fallback)
-        reply = QMessageBox.question(
+        reply = ask_yes_no(
             window,
             _t("ocr.install.long_doc", "Tài liệu dài"),
             _t("ocr.install.long_doc_text", f"Tài liệu có {total} trang. OCR toàn bộ có thể mất vài phút.\n\nTiếp tục?").format(total=total),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
@@ -456,16 +456,16 @@ def ocr_full_document(window):
 
     if total > 50:
         from packages.qt_compat.QtWidgets import QMessageBox
+        from app.dialogs import ask_yes_no
         lang = get_selected_language()
         _t = lambda key, fallback: get_translation(lang, key, fallback)
-        reply = QMessageBox.question(
+        reply = ask_yes_no(
             window,
             _t("ocr.install.long_doc", "Tai lieu dai"),
             _t(
                 "ocr.install.long_doc_text",
                 f"Tai lieu co {total} trang. OCR toan bo co the mat vai phut.\n\nTiep tuc?",
             ).format(total=total),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return

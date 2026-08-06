@@ -9,6 +9,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 from packages.qt_compat.QtWidgets import QMessageBox, QProgressDialog, QApplication
+from app.dialogs import ask_yes_no
 from packages.qt_compat.QtCore import Qt, QThread, pyqtSignal, QUrl
 from packages.qt_compat.QtGui import QDesktopServices
 
@@ -24,6 +25,41 @@ def get_bin_dir() -> Path:
     from packages.platform import get_app_data_dir
     return Path(get_app_data_dir()) / "modules"
 
+
+def _sha256_file(path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _fetch_sha256_sidecar(url: str) -> str:
+    """Best-effort fetch of a `<url>.sha256` sidecar text file, if the server
+    publishes one (iTaxViewer is a 3rd-party installer - 3T Company can only
+    pin a checksum for it, not sign it like the app's own updates in
+    packages/updater/update_client.py). Returns a lowercase hex digest, or
+    "" if unavailable/malformed - callers must treat "" as "no check
+    possible" and proceed unchanged rather than blocking a valid download
+    just because the server hasn't published a sidecar yet."""
+    try:
+        from packages.net_utils import make_ssl_context
+
+        req = urllib.request.Request(url + ".sha256", headers={"User-Agent": "3T_Reader"})
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            urllib.request.HTTPSHandler(context=make_ssl_context()),
+        )
+        with opener.open(req, timeout=10) as resp:
+            text = resp.read(256).decode("utf-8", errors="ignore").strip()
+        digest = text.split()[0].lower() if text else ""
+        if len(digest) == 64 and all(c in "0123456789abcdef" for c in digest):
+            return digest
+    except Exception:
+        pass
+    return ""
+
 class DownloadThread(QThread):
     progress = pyqtSignal(int)
     finished_dl = pyqtSignal(bool, str)
@@ -32,6 +68,17 @@ class DownloadThread(QThread):
         super().__init__()
         self.url = url
         self.dest_path = dest_path
+        self._cancelled = False
+
+    def cancel(self):
+        """Ask run() to stop between chunks instead of force-killing the thread.
+
+        QThread.terminate() kills the thread at whatever instruction it happens
+        to be executing (including mid network I/O), which can leave process
+        state corrupted or crash outright. Cooperative cancellation checked
+        between reads is the safe alternative.
+        """
+        self._cancelled = True
 
     def run(self):
         try:
@@ -47,6 +94,9 @@ class DownloadThread(QThread):
                 total = int(resp.headers.get("Content-Length", 0))
                 downloaded = 0
                 while True:
+                    if self._cancelled:
+                        self.finished_dl.emit(False, "cancelled")
+                        return
                     chunk = resp.read(65536)
                     if not chunk:
                         break
@@ -87,14 +137,22 @@ def download_and_extract_libreoffice(window) -> bool:
     thread.finished_dl.connect(on_finished)
     thread.start()
     
+    cancelled = False
     while thread.isRunning():
         QApplication.processEvents()
-        if progress_dlg.wasCanceled():
-            thread.terminate()
-            return False
-            
+        if progress_dlg.wasCanceled() and not cancelled:
+            cancelled = True
+            thread.cancel()
+
     thread.wait()
     QApplication.processEvents()
+
+    if cancelled:
+        try:
+            Path(temp_zip).unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
             
     if not success:
         QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.dl.fail", "Tải thất bại: ") + error_msg)
@@ -835,11 +893,10 @@ def convert_office_to_pdf(window, file_path: str) -> str:
     # 1. Check for LibreOffice
     lo_bin = get_libreoffice_bin()
     if not lo_bin:
-        ans = QMessageBox.question(
-            window, 
+        ans = ask_yes_no(
+            window,
             _t("doc.lo.missing", "Thiếu Bộ Xử Lý"),
             _t("doc.lo.prompt", "Để đọc file Word/Excel chính xác 100%, ứng dụng cần tải thêm Module LibreOffice (~150MB).\n\nBạn có muốn tải và cài đặt tự động không?"),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if ans == QMessageBox.StandardButton.Yes:
             if download_and_extract_libreoffice(window):
@@ -970,13 +1027,24 @@ def _run_itax_installer_silent(window, installer_path: Path) -> bool:
         status = getattr(window, "status", None)
         if status is not None:
             status.showMessage("Đang cài iTaxViewer ở chế độ nền...", 5000)
-        progress = QProgressDialog("Đang cài iTaxViewer ở chế độ nền...", "", 0, 0, window)
+        # Trước đây không có nút Hủy và không giới hạn thời gian chờ - nếu bộ
+        # cài bên thứ 3 (không do 3T kiểm soát) treo vì bất kỳ lý do gì, dialog
+        # window-modal này khóa cả app vĩnh viễn, không có lối thoát nào trong
+        # app ngoài kill process qua Task Manager. Cho phép hủy (kill subprocess)
+        # thay vì đặt timeout cứng - tránh cắt ngang 1 lượt cài chạy chậm nhưng
+        # hợp lệ trên máy yếu.
+        progress = QProgressDialog("Đang cài iTaxViewer ở chế độ nền...", "Hủy", 0, 0, window)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setCancelButton(None)
         progress.show()
+        cancelled = False
         while proc.poll() is None:
             QApplication.processEvents()
+            if progress.wasCanceled() and not cancelled:
+                cancelled = True
+                proc.terminate()
         progress.close()
+        if cancelled:
+            return False
         return proc.returncode == 0
     except Exception as e:
         QMessageBox.warning(window, _t("common.error", "Lỗi"), str(e))
@@ -990,11 +1058,10 @@ def handle_xml_itax(window, file_path: str):
     if _open_xml_with_itaxviewer(window, file_path):
         return
 
-    ans = QMessageBox.question(
+    ans = ask_yes_no(
         window,
         _t("doc.itax.title", "File Thuế XML"),
         _t("doc.itax.prompt", "Để đọc định dạng XML đặc thù của Thuế, bạn cần cài đặt phần mềm iTaxViewer.\n\nBạn có muốn tải bản cài đặt chuẩn từ máy chủ 3T Reader không?"),
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
     )
     if ans == QMessageBox.StandardButton.Yes:
         import time
@@ -1021,20 +1088,42 @@ def handle_xml_itax(window, file_path: str):
             
         thread.finished_dl.connect(on_finished)
         thread.start()
-        
+
+        cancelled = False
         while thread.isRunning():
             QApplication.processEvents()
-            if progress_dlg.wasCanceled():
-                thread.terminate()
-                return
-                
+            if progress_dlg.wasCanceled() and not cancelled:
+                cancelled = True
+                thread.cancel()
+
         thread.wait()
         QApplication.processEvents()
-                
+
+        if cancelled:
+            try:
+                temp_exe.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+
         if not success:
             QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.dl.fail", "Tải thất bại: ") + error_msg)
             return
-            
+
+        expected_sha256 = _fetch_sha256_sidecar(url.split("?")[0])
+        if expected_sha256 and _sha256_file(temp_exe).lower() != expected_sha256:
+            QMessageBox.warning(
+                window,
+                _t("common.error", "Lỗi"),
+                "Tệp iTaxViewer tải về không khớp checksum kỳ vọng từ máy chủ - đã hủy cài đặt để đảm bảo an toàn.",
+            )
+            temp_exe.unlink(missing_ok=True)
+            return
+        # expected_sha256 rỗng nghĩa là máy chủ chưa có sidecar .sha256 công
+        # bố cho bản iTaxViewer hiện tại - bỏ qua kiểm tra, giữ nguyên hành vi
+        # cũ (cài thẳng) thay vì chặn cài đặt hợp lệ vì thiếu 1 giá trị chưa
+        # được publish.
+
         if _run_itax_installer_silent(window, temp_exe):
             if not _open_xml_with_itaxviewer(window, file_path):
                 QMessageBox.warning(window, _t("common.error", "Lỗi"), "Đã cài iTaxViewer nhưng chưa tìm thấy iTaxViewer.exe để mở file XML.")

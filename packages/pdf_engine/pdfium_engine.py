@@ -427,7 +427,14 @@ def _resolve_reportlab_font(bold: bool = False, family: str = "", italic: bool =
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
-    fallback = "Helvetica-Bold" if bold else "Helvetica"
+    if bold and italic:
+        fallback = "Helvetica-BoldOblique"
+    elif italic:
+        fallback = "Helvetica-Oblique"
+    elif bold:
+        fallback = "Helvetica-Bold"
+    else:
+        fallback = "Helvetica"
     try:
         import hashlib
         from packages.platform.fonts import get_vietnamese_font_path

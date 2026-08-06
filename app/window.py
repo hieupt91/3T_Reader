@@ -52,7 +52,7 @@ from app.actions.annotate import (
     underline_text, strikeout_text, add_comment, enable_note_tools,
     has_pending_annotations,
 )
-from app.actions.pages import merge_pdfs_action, split_pdf_action, rotate_pages_action
+from app.actions.pages import merge_pdfs_action, rotate_pages_action, split_pdf_action
 from app.actions.sign import (
     check_token,
     create_signature_field,
@@ -312,6 +312,7 @@ class PDFReaderApp(QMainWindow):
         self._connect_signals()
         self._apply_language_texts()
         self._start_token_monitor()
+        self._start_gc_timer()
         self._apply_toolbar_prefs()
         QTimer.singleShot(15_000, self._auto_check_update)
         # Khôi phục AI API key đã lưu (nếu có) nhưng defer lại 500ms để không block UI khi khởi động
@@ -347,8 +348,13 @@ class PDFReaderApp(QMainWindow):
         from packages.qt_compat.QtWidgets import QMessageBox
 
         status = get_license_client().validate_cached()
-        plan_code = (status.plan_code or "").upper()
-        if not status.active or not plan_code.startswith("3TR-E"):
+        # plan_code có thể là dạng key ("3TR-E-XXXX...") hoặc tên chuẩn hóa
+        # ("enterprise") tuỳ nguồn - dùng đúng logic license_dialog.py đã
+        # kiểm chứng (dòng ~494) để nhận diện cả 2 dạng, tránh chặn nhầm
+        # user có key 3TR-E hợp lệ nhưng plan_code trả về "enterprise".
+        plan_code = (status.plan_code or "").lower().strip()
+        is_enterprise = plan_code.startswith("3tr-e") or "enterprise" in plan_code
+        if not status.active or not is_enterprise:
             QMessageBox.information(
                 self,
                 "Thiết bị ScanDoc",
@@ -2108,6 +2114,9 @@ class PDFReaderApp(QMainWindow):
         act_activate.setShortcut(QKeySequence("Ctrl+Shift+L"))
         act_activate.triggered.connect(lambda: self._open_license_dialog())
 
+        # Companion pairing (key doanh nghiệp 3TR-E) - Phase 1 theo
+        # SPEC_TRANSFER_GATEWAY_V2.md. _open_transfer_pairing_dialog() tự
+        # kiểm tra active key 3TR-E trước khi mở dialog.
         act_transfer_devices = menu_license.addAction("📱  Thiết bị ScanDoc...")
         act_transfer_devices.triggered.connect(lambda: self._open_transfer_pairing_dialog())
 
@@ -2454,15 +2463,22 @@ class PDFReaderApp(QMainWindow):
                 flush_all = getattr(queue, "flush_all", None)
                 ok = flush_all(target_path) if callable(flush_all) else queue.flush()
                 if not ok:
-                    QMessageBox.warning(
-                        self,
-                        "Chưa lưu xong chú thích",
-                        "Một số thay đổi chú thích chưa lưu xong. Vui lòng đợi vài giây rồi đóng tab lại.",
-                    )
-                    return False
+                    if has_pending_annotations(self, target_path, user_only=True):
+                        QMessageBox.warning(
+                            self,
+                            "Chưa lưu xong chú thích",
+                            "Một số thay đổi chú thích chưa lưu xong. Vui lòng đợi vài giây rồi đóng tab lại.",
+                        )
+                        return False
+                    # Chỉ còn OCR nền chưa ghi kịp, không phải chú thích người
+                    # dùng — không chặn đóng tab, OCR sẽ tự chạy lại lần sau.
+                    drop_ocr_pending = getattr(queue, "drop_ocr_pending", None)
+                    if callable(drop_ocr_pending):
+                        drop_ocr_pending(target_path)
             except Exception as exc:
-                QMessageBox.warning(self, "Chưa lưu xong chú thích", str(exc))
-                return False
+                if has_pending_annotations(self, target_path, user_only=True):
+                    QMessageBox.warning(self, "Chưa lưu xong chú thích", str(exc))
+                    return False
         edit_state = state.get("_pdf_edit_state") if state else None
         if self._has_unsaved_changes(state) and edit_state and edit_state.get("ops"):
             title = self.tab_widget.tabText(index) or "tài liệu"
@@ -3659,19 +3675,26 @@ class PDFReaderApp(QMainWindow):
                 flush_all = getattr(queue, "flush_all", None)
                 ok = flush_all() if callable(flush_all) else queue.flush()
                 if not ok:
+                    if has_pending_annotations(self, user_only=True):
+                        self._closing = False
+                        QMessageBox.warning(
+                            self,
+                            "Chưa lưu xong chú thích",
+                            "Một số thay đổi chú thích chưa lưu xong. Vui lòng đợi vài giây rồi thoát lại.",
+                        )
+                        event.ignore()
+                        return
+                    # Chỉ còn OCR nền chưa ghi kịp, không phải chú thích người
+                    # dùng — không chặn thoát app, OCR sẽ tự chạy lại lần sau.
+                    drop_ocr_pending = getattr(queue, "drop_ocr_pending", None)
+                    if callable(drop_ocr_pending):
+                        drop_ocr_pending()
+            except Exception as exc:
+                if has_pending_annotations(self, user_only=True):
                     self._closing = False
-                    QMessageBox.warning(
-                        self,
-                        "Chưa lưu xong chú thích",
-                        "Một số thay đổi chú thích chưa lưu xong. Vui lòng đợi vài giây rồi thoát lại.",
-                    )
+                    QMessageBox.warning(self, "Chưa lưu xong chú thích", str(exc))
                     event.ignore()
                     return
-            except Exception as exc:
-                self._closing = False
-                QMessageBox.warning(self, "Chưa lưu xong chú thích", str(exc))
-                event.ignore()
-                return
 
         for idx in range(self.tab_widget.count() - 1, -1, -1):
             if not self._close_tab(idx):
@@ -3692,6 +3715,16 @@ class PDFReaderApp(QMainWindow):
     # ------------------------------------------------------------------ #
     #  USB token monitor                                                   #
     # ------------------------------------------------------------------ #
+
+    def _start_gc_timer(self):
+        """Chủ động gc.collect() định kỳ trên đúng main/GUI thread — bù lại
+        việc gc tự động đã bị tắt ở main.py (xem comment ở đó). Không đặt
+        khoảng thời gian quá ngắn để tránh tốn CPU vô ích."""
+        timer = QTimer(self)
+        timer.setInterval(10_000)
+        timer.timeout.connect(gc.collect)
+        timer.start()
+        self._gc_timer = timer
 
     def _start_token_monitor(self):
         """Theo dõi USB token trong nền mà không khóa luồng UI."""
