@@ -104,6 +104,14 @@ def _auto_ocr_registry(window) -> dict:
     return registry
 
 
+def _auto_ocr_first_reload_done(window) -> set:
+    flags = getattr(window, "_auto_ocr_first_reload_done", None)
+    if not isinstance(flags, set):
+        flags = set()
+        window._auto_ocr_first_reload_done = flags
+    return flags
+
+
 def start_auto_ocr_for_document(window, pdf_path: str | None, current_page: int = 1) -> None:
     """Bắt đầu OCR nền cho `pdf_path` nếu còn trang thiếu text layer.
 
@@ -141,6 +149,8 @@ def start_auto_ocr_for_document(window, pdf_path: str | None, current_page: int 
 
     current_page = max(1, min(total_pages, int(current_page or 1)))
     page_order = [current_page] + [p for p in range(1, total_pages + 1) if p != current_page]
+
+    _auto_ocr_first_reload_done(window).discard(abs_path)
 
     thread = QThread(window)
     worker = _AutoOcrWorker(pdf_path, page_order)
@@ -190,13 +200,32 @@ def _on_auto_ocr_page_done(
             merge_text_layer_into_pdf(pdf, page_idx, data)
 
     _queue_annotation_op(window, pdf_path, _op, delay_ms=400, is_user_edit=False)
-    # Gom nhiều trang hoàn tất liên tiếp thành một lần lưu + soft reload duy
-    # nhất (tái dùng cơ chế debounce sẵn có của undo chú thích).
-    _schedule_annotation_undo_flush(window, pdf_path, delay_ms=600)
+
+    # Text layer OCR vô hình - reload viewer không đổi gì người dùng thấy,
+    # chỉ cần để bôi đen/chọn text dùng được ngay. Với file scan nhiều trang,
+    # trước đây MỖI trang xong đều ép window.viewer.load_pdf() (vì OCR không
+    # tạo "mark" nên reload_document() không đi nhánh soft_reload) - khi
+    # Tesseract mất hơn ~600ms/trang thì gần như mỗi trang là 1 lần reload
+    # toàn bộ, giữ chung PDFIUM_LOCK với render trang/thumbnail -> viewer
+    # giật, CPU cao suốt lúc OCR nền chạy trên file lớn. Giờ chỉ reload ngay
+    # cho trang đầu tiên hoàn tất (để tương tác được sớm nhất) - các trang
+    # còn lại chỉ ghi đĩa (đã tự debounce qua enqueue ở trên), đợi
+    # _on_auto_ocr_finished reload một lần duy nhất khi xong toàn bộ.
+    abs_path = os.path.abspath(pdf_path)
+    first_reload_flags = _auto_ocr_first_reload_done(window)
+    if abs_path not in first_reload_flags:
+        first_reload_flags.add(abs_path)
+        _schedule_annotation_undo_flush(window, pdf_path, delay_ms=600)
 
 
 def _on_auto_ocr_finished(window, pdf_path: str, ocr_page_count: int, failed_pages: list | None = None) -> None:
     failed_pages = failed_pages or []
+    _auto_ocr_first_reload_done(window).discard(os.path.abspath(pdf_path))
+    if ocr_page_count > 0:
+        # Reload lần cuối để mọi trang OCR ở giữa (bị bỏ qua reload theo
+        # từng trang, xem _on_auto_ocr_page_done) chắc chắn dùng bôi đen/tìm
+        # kiếm được, không phải đợi user tự F5/mở lại file.
+        _schedule_annotation_undo_flush(window, pdf_path, delay_ms=200)
     if not (ocr_page_count > 0 or failed_pages) or not hasattr(window, "status"):
         return
     current_path = getattr(window, "current_path", None)
