@@ -2781,8 +2781,23 @@ def edit_existing_text(window):
         except Exception:
             return False
 
-    def _expanded_text_box(left: float, bottom: float, right: float, top: float, text: str, font_size: float, base_path: str, page_num: int):
-        estimated_width = max(right - left, len(text) * font_size * 0.62)
+    def _measure_text_width(text: str, font_size: float, font_family: str = "", bold: bool = False, italic: bool = False) -> float:
+        """Đo bề rộng text bằng đúng font/engine sẽ dùng lúc render thật
+        (packages/pdf_engine/pdfium_engine.py::_draw_text_box dùng
+        reportlab stringWidth) - trước đây ước lượng bằng hằng số
+        font_size*0.62/ký tự, sai lệch vài % tuỳ font/độ dài chuỗi và là
+        nguyên nhân chính gây chồng/lệch chữ khi co cỡ chữ không khớp
+        thực tế lúc vẽ."""
+        try:
+            from packages.pdf_engine.pdfium_engine import _resolve_reportlab_font
+            from reportlab.pdfbase import pdfmetrics
+            font_name = _resolve_reportlab_font(bold, font_family, italic=italic)
+            return float(pdfmetrics.stringWidth(text, font_name, font_size))
+        except Exception:
+            return len(text) * font_size * 0.62
+
+    def _expanded_text_box(left: float, bottom: float, right: float, top: float, text: str, font_size: float, base_path: str, page_num: int, font_family: str = "", bold: bool = False, italic: bool = False):
+        estimated_width = max(right - left, _measure_text_width(text, font_size, font_family, bold, italic))
         new_right = left + estimated_width
         min_height = max(top - bottom, font_size * 1.35)
         new_top = bottom + min_height
@@ -2930,31 +2945,26 @@ def edit_existing_text(window):
 
         text_value = str(new_text).strip()
 
-        # PDF không tự dàn lại dòng: nếu chữ thay thế ước tính rộng hơn vùng
-        # đã bôi đen ở cỡ chữ gốc, ưu tiên CO CỠ CHỮ lại cho vừa đúng vùng đã
-        # chọn (giữ sàn tối thiểu 55% để còn đọc được) thay vì mở rộng vùng
-        # che theo chiều ngang - mở rộng vùng che nghĩa là đè/xoá luôn 1 phần
-        # nội dung NGAY SAU đó mà người dùng không hề chọn để sửa. Chỉ khi co
-        # tới sàn vẫn không đủ chỗ (chữ thay thế quá dài) mới nới thêm vùng
-        # che ra ngoài như phương án cuối, kèm đệm an toàn để mép vùng che
-        # không cắt ngang giữa 1 ký tự liền sau (đã đo thực nghiệm: hệ số
-        # ước lượng bề rộng trung bình có thể hụt vài điểm PDF với chuỗi toàn
-        # chữ hoa, hụt cộng dồn theo độ dài chuỗi).
+        # PDF không tự dàn lại dòng: giữ nguyên cỡ chữ gốc, không co lại -
+        # co chữ để "vừa khít" từng làm cỡ chữ thay đổi thất thường và lệch
+        # so với chữ xung quanh. Nếu chữ thay thế rộng hơn vùng đã bôi đen,
+        # mở rộng khung chèn (đo bằng bề rộng glyph thật, không còn hằng số
+        # ước lượng) và mở rộng luôn vùng che theo, kèm đệm an toàn, để phần
+        # mở rộng không đè lên nội dung liền sau mà không được che.
         if text_value:
             insert_left, insert_bottom, insert_right, insert_top = insert_box
             available_width = max(1.0, insert_right - insert_left)
-            estimated_width = max(1.0, len(text_value) * font_size * 0.62)
-            if estimated_width > available_width:
-                shrink_ratio = max(0.55, available_width / estimated_width)
-                font_size = font_size * shrink_ratio
 
             exp_left, exp_bottom, exp_right, exp_top = _expanded_text_box(
                 insert_left, insert_bottom, insert_right, insert_top,
                 text_value, font_size, base_snapshot, int(pageNum),
+                font_family, is_bold, is_italic,
             )
             insert_box = (exp_left, exp_bottom, exp_right, exp_top)
             if (exp_right - exp_left) > available_width + 0.5:
-                safety_margin = max(2.0, font_size * 0.15) + len(text_value) * font_size * 0.03
+                # Đo thật đã chính xác nên chỉ cần biên an toàn nhỏ cho sai số
+                # làm tròn/kerning, không cần bù luỹ kế theo độ dài chuỗi nữa.
+                safety_margin = max(2.0, font_size * 0.1)
                 r_left, r_bottom, r_right, r_top = redact_box
                 redact_box = (
                     min(r_left, exp_left),
@@ -3006,7 +3016,7 @@ def edit_existing_text(window):
 
         if text_value:
             insert_left, insert_bottom, insert_right, insert_top = insert_box
-            text_box = _expanded_text_box(insert_left, insert_bottom, insert_right, insert_top, text_value, font_size, base_snapshot, int(pageNum))
+            text_box = _expanded_text_box(insert_left, insert_bottom, insert_right, insert_top, text_value, font_size, base_snapshot, int(pageNum), font_family, is_bold, is_italic)
             op = {
                 "id": state["next_id"],
                 "type": "text",
