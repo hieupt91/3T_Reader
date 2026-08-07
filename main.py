@@ -180,11 +180,10 @@ if __name__ == "__main__":
 
     window = PDFReaderApp()
     startup_pdfs = list(_startup_pdf_paths_value)
-    # Mặc định mở toàn màn hình (cùng cơ chế với F11 - toggle_fullscreen())
-    # để is_fullscreen đồng bộ đúng, F11/Esc tắt toàn màn hình hoạt động
-    # bình thường ngay từ lần đầu mở app.
-    window.showFullScreen()
-    window.is_fullscreen = True
+    # Mặc định mở phóng to hết màn hình nhưng VẪN GIỮ thanh tiêu đề (thu
+    # nhỏ/khôi phục/đóng) - showFullScreen() (như F11) ẩn hết viền cửa sổ,
+    # không có nút đóng/thu nhỏ, gây khó dùng cho thao tác hàng ngày.
+    window.showMaximized()
 
     from packages.qt_compat.QtCore import QTimer
     from app.license_dialog import check_license_on_startup
