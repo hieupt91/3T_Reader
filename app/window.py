@@ -783,6 +783,12 @@ class PDFReaderApp(QMainWindow):
         self.act_theme_toggle = make("Giao diện","sun.svg", "Đổi chủ đề sáng/tối", None, self._toggle_theme)
         self.act_theme_toggle.setIcon(svg_icon("sun.svg", color="#f0c050"))
         self.act_fullscreen   = make("Toàn màn", "fullscreen.svg", f"Toàn màn hình (F11)", "F11", self.toggle_fullscreen)
+        # Không còn nút riêng trên ribbon (đã thay bằng act_transfer_device)
+        # nhưng vẫn cần addAction() để phím tắt F11 tiếp tục hoạt động - một
+        # QAction không gắn vào widget nào (không addAction/không
+        # setDefaultAction trên nút hiển thị) thì shortcut sẽ không kích hoạt.
+        self.addAction(self.act_fullscreen)
+        self.act_transfer_device = make("Nhận từ ĐT", "device_pairing.svg", "Ghép nối / chuyển - nhận tài liệu qua thiết bị ScanDoc", None, lambda: self._open_transfer_pairing_dialog())
         self.act_brightness_up   = make("Sáng hơn",  "brightness_up.svg",  f"Tăng độ sáng ({shortcut_label('Ctrl+Shift+=')})", "Ctrl+Shift+=", lambda: brightness_up(self))
         self.act_brightness_down = make("Tối hơn",   "brightness_down.svg", f"Giảm độ sáng ({shortcut_label('Ctrl+Shift+-')})", "Ctrl+Shift+-", lambda: brightness_down(self))
         self.act_check_token  = make("USB token", "usb.svg", "Kiểm tra USB ký số", None, lambda: check_token(self))
@@ -860,7 +866,7 @@ class PDFReaderApp(QMainWindow):
         self.g_view.add(make_action_btn(self.act_toggle_sidebar_btn, "Thumb"))
         self.g_view.add(make_action_btn(self.act_toggle_toc_btn,     "Mục lục"))
         self.g_view.add(make_action_btn(self.act_theme_toggle,       "Chủ đề"))
-        self.g_view.add(make_action_btn(self.act_fullscreen,         "Toàn màn"))
+        self.g_view.add(make_action_btn(self.act_transfer_device,    "Nhận từ ĐT"))
         self.g_view.add(make_action_btn(self.act_tts,                "Đọc sách"))
 
         self._lang_toolbar_button = QToolButton(self)
@@ -2919,6 +2925,7 @@ class PDFReaderApp(QMainWindow):
         _set("act_fit",                  "action.fit",            "Vừa trang")
         _set("act_theme_toggle",         "action.theme",          "Giao diện")
         _set("act_fullscreen",           "action.fullscreen",     "Toàn màn")
+        _set("act_transfer_device",      "action.transfer_device", "Nhận từ ĐT")
         _set("act_highlight",            "action.highlight",      "Tô sáng")
         _set("act_highlight_color",      "action.fill_color",     "Màu tô")
         _set("act_underline",            "action.underline",      "Gạch dưới")
