@@ -3803,7 +3803,13 @@ class PDFReaderApp(QMainWindow):
         việc gc tự động đã bị tắt ở main.py (xem comment ở đó). Không đặt
         khoảng thời gian quá ngắn để tránh tốn CPU vô ích."""
         timer = QTimer(self)
-        timer.setInterval(10_000)
+        # Đo thực tế: gc.collect() với ~88K object tracked mất 20-44ms mỗi
+        # lần, chạy đồng bộ ngay trên main/GUI thread -> giật ngắn bất kể
+        # user đang làm gì. 10s/lần là hơi dày cho một thao tác luôn tốn
+        # vài chục ms; giãn ra 30s giảm 3 lần tần suất giật mà vẫn đủ dọn
+        # vòng tham chiếu định kỳ (gc.collect() chỉ bắt cycle, phần lớn rác
+        # đã được refcounting dọn ngay không cần đợi tới đây).
+        timer.setInterval(30_000)
         timer.timeout.connect(gc.collect)
         timer.start()
         self._gc_timer = timer
