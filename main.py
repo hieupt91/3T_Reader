@@ -189,10 +189,9 @@ if __name__ == "__main__":
     start_single_instance_server(window.open_external_files)
 
     def _finish_startup():
-        if not check_license_on_startup(window):
-            window.close()
-            app.quit()
-            return
+        # check_license_on_startup() tự chạy phần gọi mạng (nếu có) trên
+        # thread nền, không chặn ở đây - mở file ngay, không cần đợi.
+        check_license_on_startup(window)
         if startup_pdfs:
             from app.actions.file import open_file
 

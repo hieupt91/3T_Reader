@@ -468,6 +468,14 @@ def check_license_on_startup(window) -> bool:
     """
     Kiểm tra license khi khởi động. (Freemium Model)
     Nếu không có license hợp lệ -> Chạy ở chế độ FREE.
+
+    validate_cached() có thể phải gọi mạng đồng bộ tới VPS khi token cache
+    không xác minh offline được (token cũ/không đúng định dạng Ed25519) -
+    đã đo thực tế mất tới ~0.9-14s tuỳ mạng. Chạy trên thread nền để không
+    chặn main/GUI thread lúc khởi động (trước đây gọi trực tiếp ở đây từng
+    làm mở file/hiện UI chậm hẳn theo đúng thời gian gọi mạng này). Badge/
+    heartbeat vẫn phải dựng trên main thread nên marshal lại qua
+    QTimer.singleShot(0, ...) - cùng pattern đã dùng trong _start_heartbeat.
     """
     from app.config import VPS_LICENSE_BASE_URL
     if not VPS_LICENSE_BASE_URL:
@@ -476,14 +484,23 @@ def check_license_on_startup(window) -> bool:
 
     from packages.license_client import get_license_client
     client = get_license_client()
-    status = client.validate_cached()
 
-    if status.active:
-        _show_license_badge(window, status.plan_code or "free", status.expires_at)
-        _start_heartbeat(window, client)
-    else:
-        _show_license_badge(window, "free", None)
+    def _worker():
+        try:
+            status = client.validate_cached()
+        except Exception:
+            return
 
+        def _apply_status():
+            if status.active:
+                _show_license_badge(window, status.plan_code or "free", status.expires_at)
+                _start_heartbeat(window, client)
+            else:
+                _show_license_badge(window, "free", None)
+
+        QTimer.singleShot(0, _apply_status)
+
+    threading.Thread(target=_worker, daemon=True).start()
     return True
 
 def get_current_plan() -> str:
