@@ -2,7 +2,7 @@
 ; Kịch bản tạo bộ cài đặt chuyên nghiệp cho 3T Reader
 ; ================================================================
 #define MyAppName      "3T Reader"
-#define MyAppVersion   "1.0.28"
+#define MyAppVersion   "1.0.29"
 #define MyAppPublisher "3T Company"
 #define MyAppExeName   "3T_Reader.exe"
 

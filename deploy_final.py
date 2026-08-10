@@ -14,10 +14,12 @@ BASE_URL = "https://reader.3tcomputer.com/downloads"
 PUBLIC_INSTALLER_NAME = f"3TReader-{VERSION}-win-r3.exe"
 PUBLIC_PORTABLE_NAME = f"3TReader-{VERSION}-win-portable-r3.zip"
 RELEASE_NOTES = (
-    "Phiên bản 1.0.28: Thêm Chuyển/Nhận tài liệu trực tiếp qua thiết bị "
-    "ScanDoc (P2P, không qua máy chủ); sửa cảnh báo sai \"Chưa lưu xong "
-    "chú thích\" khi chỉ đọc tài liệu; sửa vệt đuôi chữ bị cắt cụt khi "
-    "Sửa text gốc."
+    "Phiên bản 1.0.29: Mở app nhanh hơn (license check chạy nền, không "
+    "chặn mở file); hết giật màn hình khi OCR nền xử lý file scan; xoay "
+    "trang không còn đứng hình; sửa chồng chữ khi \"Sửa text gốc\" thay "
+    "đoạn dài hơn; dọn resource ảnh watermark cũ tránh phình file; mở "
+    "app mặc định phóng to màn hình; icon Nhận từ điện thoại thay cho "
+    "icon Toàn màn hình trên thanh công cụ."
 )
 REMOTE_CONFIG_PATH = "/home/hieupt/projects/3T_Reader/phase1-backend/data/admin-config.json"
 
