@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..cache import redis_client
@@ -19,6 +19,10 @@ from .device_service import count_active_companions, get_device
 from .token_service_v2 import token_service_v2
 
 _CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # Base32 dễ đọc, bỏ ký tự dễ nhầm (0/O, 1/I/L)
+# Mã QR/kết nối chỉ sống 120s (settings.pairing_code_ttl_seconds) nên không
+# lo lẫn ảnh hưởng thiết bị khác, nhưng row hết hạn không ai dùng vẫn nằm lại
+# DB mãi nếu không dọn - dọn tranh thủ mỗi lần tạo mã mới, giống transfer_sessions.
+_PAIRING_RETENTION = timedelta(hours=24)
 
 
 def _generate_code() -> str:
@@ -32,7 +36,13 @@ def _hash_code(code: str) -> str:
     return hashlib.sha256(code.strip().upper().replace("-", "").encode("utf-8")).hexdigest()
 
 
+async def _cleanup_stale_pairing_sessions(db: AsyncSession) -> None:
+    cutoff = datetime.now(timezone.utc) - _PAIRING_RETENTION
+    await db.execute(delete(PairingSession).where(PairingSession.expires_at < cutoff))
+
+
 async def create_companion_session(db: AsyncSession, desktop_device: Device) -> dict:
+    await _cleanup_stale_pairing_sessions(db)
     license_id = desktop_device.license_id
     from ..models import LicenseV2
 
