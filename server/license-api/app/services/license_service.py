@@ -79,6 +79,20 @@ class LicenseService:
                 return existing_device_id
         return None
 
+    def peek(self, license_key: str) -> dict:
+        """Chỉ kiểm tra key có tồn tại - KHÔNG đăng ký device, KHÔNG tiêu seat,
+        KHÔNG đổi state. Dùng cho luồng "gõ key thẳng trên điện thoại" của
+        ScanDoc Business (transfer-gateway V2) khi chưa có desktop nào activate
+        key này trước."""
+        record = self.licenses.get(license_key)
+        if record is None:
+            return {"valid": False}
+        return {
+            "valid": True,
+            "seat_limit": record.seat_limit,
+            "plan": record.plan,
+        }
+
     def activate(self, license_key: str, device_id: str, platform: str, app_version: str, machine_name: str | None) -> dict:
         record = self.licenses.get(license_key)
         if record is None:

@@ -23,6 +23,19 @@ class ActivateResponse(BaseModel):
     plan: str = "personal"
 
 
+class PeekRequest(BaseModel):
+    license_key: str = Field(min_length=6)
+
+
+class PeekResponse(BaseModel):
+    """Chỉ kiểm tra key có tồn tại/hợp lệ - KHÔNG đăng ký device, KHÔNG tiêu
+    seat. Dùng cho transfer-gateway V2 xác thực key doanh nghiệp gõ trực tiếp
+    trên điện thoại, trước khi có desktop nào activate key này."""
+    valid: bool
+    seat_limit: int | None = None
+    plan: str | None = None
+
+
 class ValidateRequest(BaseModel):
     token: str
     device_id: str

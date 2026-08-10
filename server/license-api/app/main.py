@@ -25,6 +25,8 @@ from .schemas import (
     DeactivateResponse,
     HeartbeatRequest,
     HeartbeatResponse,
+    PeekRequest,
+    PeekResponse,
     ReleaseManifestResponse,
     UpdateCheckResponse,
     ValidateRequest,
@@ -1096,6 +1098,25 @@ def validate(req: ValidateRequest) -> ValidateResponse:
 )
 def validate_v1(req: ValidateRequest) -> ValidateResponse:
     return validate(req)
+
+
+@app.post(
+    "/api/license/peek",
+    response_model=PeekResponse,
+    dependencies=[Depends(_rate_dep("license_peek", 20, 60))],
+)
+def license_peek(req: PeekRequest) -> PeekResponse:
+    result = license_service.peek(req.license_key.strip().upper())
+    return PeekResponse(**result)
+
+
+@app.post(
+    f"/api/{settings.api_version}/license/peek",
+    response_model=PeekResponse,
+    dependencies=[Depends(_rate_dep("license_peek", 20, 60))],
+)
+def license_peek_v1(req: PeekRequest) -> PeekResponse:
+    return license_peek(req)
 
 
 @app.post(

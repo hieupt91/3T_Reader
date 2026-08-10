@@ -11,6 +11,7 @@ from .config import settings
 from .db import SessionLocal, get_db, init_db
 from .models import Device
 from .schemas import (
+    CompanionClaimByKeyRequest,
     CompanionSessionClaimRequest,
     CompanionSessionClaimResponse,
     CompanionSessionCreateResponse,
@@ -164,6 +165,37 @@ async def claim_companion_session(
         )
         raise exc
     await audit_service.record(db, event_type="pair_claim", result="ok", correlation_id=correlation_id)
+    return CompanionSessionClaimResponse(**result)
+
+
+@app.post(
+    "/api/v2/business/companion-sessions/claim-by-key",
+    response_model=CompanionSessionClaimResponse,
+    dependencies=[Depends(rate_dep("companion_claim_by_key", 10, 300))],
+)
+async def claim_companion_by_key(
+    req: CompanionClaimByKeyRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> CompanionSessionClaimResponse:
+    """Kích hoạt bằng gõ thẳng key `3TR-E` trên điện thoại - không cần
+    pairing_session_id do desktop tạo trước. Xem pairing_service.claim_by_key."""
+    correlation_id = str(uuid.uuid4())
+    try:
+        result = await pairing_service.claim_by_key(
+            db,
+            license_key=req.license_key,
+            device_public_key=req.device_public_key,
+            device_type=req.device_type,
+            display_name=req.display_name,
+            client_ip=_client_ip(request),
+        )
+    except HTTPException as exc:
+        await audit_service.record(
+            db, event_type="key_claim", result="error", correlation_id=correlation_id,
+        )
+        raise exc
+    await audit_service.record(db, event_type="key_claim", result="ok", correlation_id=correlation_id)
     return CompanionSessionClaimResponse(**result)
 
 

@@ -25,6 +25,13 @@ class CompanionSessionClaimResponse(BaseModel):
     expires_at: datetime
 
 
+class CompanionClaimByKeyRequest(BaseModel):
+    license_key: str
+    device_public_key: str
+    device_type: str  # iphone | ipad
+    display_name: str = ""
+
+
 class DeviceRevokeResponse(BaseModel):
     ok: bool
     device_id: str
