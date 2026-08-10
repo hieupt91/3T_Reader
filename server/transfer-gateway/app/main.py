@@ -248,6 +248,28 @@ async def revoke_device(
     return DeviceRevokeResponse(ok=True, device_id=str(target.device_id), revoked_at=target.revoked_at)
 
 
+@app.post("/api/v2/devices/self/revoke", response_model=DeviceRevokeResponse)
+async def revoke_self(
+    db: AsyncSession = Depends(get_db),
+    device: Device = Depends(any_device_auth),
+) -> DeviceRevokeResponse:
+    """Cho companion (iPhone/iPad) tự huỷ ghép nối bằng chính device_token của
+    nó - `revoke_device` ở trên chỉ nhận desktop_auth nên companion không gọi
+    được. Thiếu route này là lý do "Huỷ ghép nối" trên ScanDoc trước đây chỉ
+    xoá token cục bộ mà không giải phóng slot mobile_companion_limit ở server,
+    khiến nhập lại đúng key báo "Đã đạt giới hạn" dù đã huỷ."""
+    from datetime import datetime, timezone
+
+    device.revoked_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(device)
+
+    await audit_service.record(
+        db, event_type="revoke_self", result="ok", correlation_id=str(uuid.uuid4()), device_id=device.device_id
+    )
+    return DeviceRevokeResponse(ok=True, device_id=str(device.device_id), revoked_at=device.revoked_at)
+
+
 # ── Phase 2: transfer-sessions (P2P PDF, chỉ signaling — không có file bytes) ──
 
 
