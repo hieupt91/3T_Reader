@@ -27,7 +27,15 @@ class Settings:
 
     pairing_code_ttl_seconds: int = int(os.environ.get("TRANSFER_PAIRING_TTL", "120"))
     pairing_max_attempts: int = int(os.environ.get("TRANSFER_PAIRING_MAX_ATTEMPTS", "5"))
-    transfer_ticket_ttl_seconds: int = int(os.environ.get("TRANSFER_TICKET_TTL", "300"))
+    # Mặc định 1h - người dùng có thể tự chỉnh ngắn/dài hơn qua ttl_seconds khi
+    # tạo transfer session (bị kẹp [60, 86400] trong transfer_session_service).
+    transfer_ticket_ttl_seconds: int = int(os.environ.get("TRANSFER_TICKET_TTL", "3600"))
+    transfer_ticket_ttl_min_seconds: int = int(os.environ.get("TRANSFER_TICKET_TTL_MIN", "60"))
+    transfer_ticket_ttl_max_seconds: int = int(os.environ.get("TRANSFER_TICKET_TTL_MAX", "86400"))
+    # Dọn transfer_sessions hết hạn quá lâu để tránh tồn đọng mã rác vô thời hạn.
+    transfer_session_retention_seconds: int = int(
+        os.environ.get("TRANSFER_SESSION_RETENTION", str(24 * 3600))
+    )
     default_mobile_companion_per_desktop: int = 2
 
 

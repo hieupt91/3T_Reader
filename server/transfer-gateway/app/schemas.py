@@ -54,6 +54,11 @@ class TransferSessionCreateRequest(BaseModel):
     auth_mode: str = "business_key"  # business_key | public_premium (public_premium chưa implement)
     file_name: str = ""
     file_size: int = 0
+    # Người dùng có thể tuỳ chỉnh thời gian sống của mã ghép nối (giây). None
+    # -> dùng mặc định server (settings.transfer_ticket_ttl_seconds). Bị kẹp
+    # trong [60, 86400] ở transfer_session_service để tránh mã sống quá lâu
+    # thành rác hoặc quá ngắn không kịp dùng.
+    ttl_seconds: int | None = None
 
 
 class TransferSessionCreateResponse(BaseModel):

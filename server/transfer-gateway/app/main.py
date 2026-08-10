@@ -202,14 +202,18 @@ async def claim_companion_by_key(
 @app.get("/api/v2/business/devices", response_model=list[DeviceListItem])
 async def list_devices(
     db: AsyncSession = Depends(get_db),
-    desktop: Device = Depends(desktop_auth),
+    # Trước chỉ desktop_auth - companion (iPhone/iPad) không tự xem được danh
+    # sách thiết bị cùng key. any_device_auth cho cả 2 loại gọi, response chỉ
+    # gồm device_id/type/display_name/last_seen_at/revoked_at (không có token
+    # hay dữ liệu nhạy cảm) nên an toàn khi mở cho companion.
+    caller: Device = Depends(any_device_auth),
 ) -> list[DeviceListItem]:
     from sqlalchemy import select
 
     rows = (
         await db.execute(
             select(Device).where(
-                Device.license_id == desktop.license_id,
+                Device.license_id == caller.license_id,
                 Device.device_type.in_(["iphone", "ipad"]),
             )
         )
@@ -286,7 +290,7 @@ async def create_transfer_session(
     correlation_id = str(uuid.uuid4())
     try:
         result = await transfer_session_service.create_session(
-            db, device, req.auth_mode, req.file_name, req.file_size
+            db, device, req.auth_mode, req.file_name, req.file_size, req.ttl_seconds
         )
     except HTTPException as exc:
         await audit_service.record(

@@ -4,20 +4,42 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import Device, TransferSession
 
 
-async def create_session(db: AsyncSession, sender: Device, auth_mode: str, file_name: str, file_size: int) -> dict:
+async def _cleanup_stale_sessions(db: AsyncSession) -> None:
+    """Xoá transfer_sessions hết hạn đã lâu (mã rác không ai dùng tới) - chạy
+    tranh thủ mỗi lần tạo session mới, không cần scheduler/cron riêng."""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.transfer_session_retention_seconds)
+    await db.execute(delete(TransferSession).where(TransferSession.expires_at < cutoff))
+
+
+async def create_session(
+    db: AsyncSession,
+    sender: Device,
+    auth_mode: str,
+    file_name: str,
+    file_size: int,
+    ttl_seconds: int | None = None,
+) -> dict:
     if auth_mode != "business_key":
         # public_premium cần verify App Store Server API — chưa implement (Phase 3).
         raise HTTPException(status_code=501, detail="auth_mode 'public_premium' chưa được hỗ trợ.")
 
+    await _cleanup_stale_sessions(db)
+
+    effective_ttl = ttl_seconds if ttl_seconds is not None else settings.transfer_ticket_ttl_seconds
+    effective_ttl = max(
+        settings.transfer_ticket_ttl_min_seconds,
+        min(effective_ttl, settings.transfer_ticket_ttl_max_seconds),
+    )
+
     now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(seconds=settings.transfer_ticket_ttl_seconds)
+    expires_at = now + timedelta(seconds=effective_ttl)
     manifest = {"file_name": file_name[:255], "file_size": max(0, int(file_size))} if file_name else None
 
     session = TransferSession(
