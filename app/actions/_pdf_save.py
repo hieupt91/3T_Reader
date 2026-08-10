@@ -357,6 +357,29 @@ def wait_for_thumbnail_idle(window, target_path: str | None, *, timeout_s: float
 _active_pdf_writes: set[str] = set()
 
 
+def _acquire_pdf_write_slot(target_path: str | None, *, timeout_s: float = 20.0) -> str:
+    """Chờ tới khi `target_path` rảnh rồi đánh dấu bận - nửa "acquire" của
+    pdf_write_slot(), tách riêng để dùng được cho thao tác chạy nền (acquire
+    trên main thread TRƯỚC khi spawn worker, release trên main thread SAU
+    khi worker xong - xem _rotate_page). Luôn gọi trên main thread, giống
+    hệt như pdf_write_slot() vẫn luôn được dùng, để _active_pdf_writes chỉ
+    bị mutate từ 1 thread duy nhất (không cần khóa thread-safe riêng)."""
+    norm = _normalise_path(target_path) or target_path or ""
+    if not norm:
+        return ""
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    while norm in _active_pdf_writes and time.monotonic() < deadline:
+        _pump_qt_events()
+        time.sleep(0.05)
+    _active_pdf_writes.add(norm)
+    return norm
+
+
+def _release_pdf_write_slot(norm: str) -> None:
+    if norm:
+        _active_pdf_writes.discard(norm)
+
+
 @contextlib.contextmanager
 def pdf_write_slot(target_path: str | None, *, timeout_s: float = 20.0):
     """Serialize the full read-modify-write sequence (open PDF, mutate,
@@ -379,19 +402,11 @@ def pdf_write_slot(target_path: str | None, *, timeout_s: float = 20.0):
     releases the slot, or, in the extreme case, the wait times out and this
     call proceeds anyway rather than hanging forever.
     """
-    norm = _normalise_path(target_path) or target_path or ""
-    if not norm:
-        yield
-        return
-    deadline = time.monotonic() + max(0.0, timeout_s)
-    while norm in _active_pdf_writes and time.monotonic() < deadline:
-        _pump_qt_events()
-        time.sleep(0.05)
-    _active_pdf_writes.add(norm)
+    norm = _acquire_pdf_write_slot(target_path, timeout_s=timeout_s)
     try:
         yield
     finally:
-        _active_pdf_writes.discard(norm)
+        _release_pdf_write_slot(norm)
 
 
 def replace_file_with_retry(staged_path: str, target_path: str, *, attempts: int = 8, window=None) -> None:

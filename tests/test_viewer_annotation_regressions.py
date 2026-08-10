@@ -201,20 +201,26 @@ def test_inline_image_preview_is_more_visible_and_guided():
 
 
 def test_background_rotate_uses_atomic_replace_not_shutil_move():
-    # _rotate_page/rotate_pages_action ghi /Rotate đồng bộ rồi giao việc thay
-    # file cho replace_document_with_staged() - hàm này gọi replace_file_with_retry()
-    # (os.replace, atomic) nội bộ, xem app/actions/_pdf_save.py. Không còn
-    # thread nền _burn() gọi replace_file_with_retry() trực tiếp như trước
+    # _rotate_page() ghi /Rotate trên QThread riêng (get_pdf_engine().rotate_pages(),
+    # chỉ đọc `path` + ghi ra file tạm `tmp` - không đụng file thật) rồi giao
+    # việc thay file thật cho _RotatePageRelay.onFinished() (main thread) gọi
+    # replace_document_with_staged() -> replace_file_with_retry() (os.replace,
+    # atomic) nội bộ, xem app/actions/_pdf_save.py. Không còn thread nền
+    # _burn() tự gọi shutil.move() trực tiếp không qua write-slot như trước
     # (đã loại bỏ khi hoà giải piper-vps-sync 2026-08-05, tránh ghi đè kép).
     from app.actions import annotate, pages
     from app.actions import _pdf_save
 
-    annotate_src = inspect.getsource(annotate._rotate_page)
+    rotate_src = inspect.getsource(annotate._rotate_page)
+    worker_src = inspect.getsource(annotate._RotatePageWorker)
+    relay_src = inspect.getsource(annotate._RotatePageRelay)
     pages_src = inspect.getsource(pages.rotate_pages_action)
     save_src = inspect.getsource(_pdf_save.replace_document_with_staged)
 
-    assert "replace_document_with_staged(window, tmp, target_path=path" in annotate_src
-    assert "shutil.move(tmp, path)" not in annotate_src
+    assert "replace_document_with_staged(self._window, tmp, target_path=self._path" in relay_src
+    assert "shutil.move(" not in rotate_src
+    assert "shutil.move(" not in worker_src
+    assert "shutil.move(" not in relay_src
     assert "replace_document_with_staged(window, tmp, target_path=path" in pages_src
     assert "shutil.move(tmp, path)" not in pages_src
     assert "replace_file_with_retry(" in save_src

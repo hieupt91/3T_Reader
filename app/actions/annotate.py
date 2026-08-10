@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 if typing.TYPE_CHECKING:
     import pikepdf
 
-from packages.qt_compat.QtCore import QObject, QEventLoop, QTimer, pyqtSlot
+from packages.qt_compat.QtCore import QObject, QEventLoop, QThread, QTimer, pyqtSignal, pyqtSlot
 from packages.qt_compat.QtWidgets import (
     QFileDialog,
     QInputDialog,
@@ -18,6 +18,8 @@ from packages.qt_compat.QtWidgets import (
 from app.actions._guard import require_document
 from packages.pdf_engine import get_pdf_engine
 from app.actions._pdf_save import (
+    _acquire_pdf_write_slot,
+    _release_pdf_write_slot,
     make_staged_pdf_path,
     pdf_write_slot,
     remove_path_quietly,
@@ -2753,6 +2755,84 @@ def rotate_page_ccw(window):
     _rotate_page(window, -90)
 
 
+class _RotatePageWorker(QObject):
+    """Chạy get_pdf_engine().rotate_pages() (pikepdf, đọc `path` + ghi ra
+    `tmp` - KHÔNG đụng file gốc) trên QThread riêng để không đứng hình UI.
+    An toàn tách khỏi main thread vì hàm này chỉ đọc `path` và ghi 1 file
+    tạm mới hoàn toàn (`tmp`, do make_staged_pdf_path() tạo riêng cho lần
+    gọi này) - không có state dùng chung nào khác bị đụng từ thread này."""
+
+    finished = pyqtSignal(str, object)  # (tmp_path, exception hoặc None)
+
+    def __init__(self, path: str, tmp: str, page_no: int, degrees: int):
+        super().__init__()
+        self._path = path
+        self._tmp = tmp
+        self._page_no = page_no
+        self._degrees = degrees
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            get_pdf_engine().rotate_pages(self._path, self._tmp, {self._page_no: self._degrees})
+            self.finished.emit(self._tmp, None)
+        except Exception as exc:
+            self.finished.emit(self._tmp, exc)
+
+
+class _RotatePageRelay(QObject):
+    """Sống trên main thread (QObject(window)) - nhận signal từ worker và
+    làm nốt phần phải chạy trên main thread: release write-slot, reload
+    viewer, hiện thông báo. Route qua QObject thật (không phải lambda) để
+    Qt tự dùng QueuedConnection đúng, cùng lý do đã ghi ở _AutoOcrRelay
+    (app/actions/auto_ocr.py)."""
+
+    def __init__(self, window, *, path: str, page_no: int, degrees: int, write_slot: str):
+        super().__init__(window)
+        self._window = window
+        self._path = path
+        self._page_no = page_no
+        self._degrees = degrees
+        self._write_slot = write_slot
+
+    @pyqtSlot(str, object)
+    def onFinished(self, tmp: str, error: object) -> None:
+        _release_pdf_write_slot(self._write_slot)
+        norm_path = _normalise_rotate_path(self._path)
+        busy = getattr(self._window, "_rotating_pages", None)
+        if isinstance(busy, set):
+            busy.discard(norm_path)
+        jobs = getattr(self._window, "_rotate_page_jobs", None)
+        if isinstance(jobs, dict):
+            jobs.pop(norm_path, None)
+
+        if error is not None:
+            remove_path_quietly(tmp)
+            show_warning(self._window, "Lỗi xoay trang", str(error))
+            return
+
+        if _is_temp_converted_document(self._window, self._path):
+            from app.actions._pdf_save import reload_document
+            state = self._window._active_state() if hasattr(self._window, "_active_state") else None
+            display_path = state.get("display_path") if state else self._path
+            reload_document(self._window, tmp, page=max(1, self._page_no),
+                            display_path=display_path, temp_path=tmp, soft_reload=True)
+        else:
+            replace_document_with_staged(self._window, tmp, target_path=self._path,
+                                         page=max(1, self._page_no), soft_reload=True)
+
+        if hasattr(self._window, "status"):
+            direction = "thuận chiều kim đồng hồ" if self._degrees > 0 else "ngược chiều kim đồng hồ"
+            self._window.status.showMessage(f"Đã xoay trang {self._page_no} {direction}", 2000)
+
+
+def _normalise_rotate_path(path: str) -> str:
+    try:
+        return os.path.abspath(path)
+    except Exception:
+        return path
+
+
 def _rotate_page(window, degrees: int):
     path = window.current_path
     page_no = _get_current_page(window)
@@ -2767,31 +2847,52 @@ def _rotate_page(window, degrees: int):
     if not _auto_commit_edit_state(window):
         return
 
-    # Xoay THẬT 1 trang (ghi /Rotate) rồi reload MỀM (giữ zoom + vị trí, phủ nhẹ).
-    # Dùng chung cơ chế với "Xoay tất cả" để nhất quán và đúng layout.
-    tmp = make_staged_pdf_path(path)
-    try:
-        # Dùng đúng engine như "Xoay tất cả" (đang chạy OK) để nhất quán.
-        get_pdf_engine().rotate_pages(path, tmp, {page_no: degrees})
-        if _is_temp_converted_document(window, path):
-            from app.actions._pdf_save import reload_document
-            state = window._active_state() if hasattr(window, "_active_state") else None
-            display_path = state.get("display_path") if state else path
-            reload_document(window, tmp, page=max(1, page_no),
-                            display_path=display_path, temp_path=tmp, soft_reload=True)
-        else:
-            replace_document_with_staged(window, tmp, target_path=path,
-                                         page=max(1, page_no), soft_reload=True)
-    except Exception as e:
-        remove_path_quietly(tmp)
-        show_warning(window, "Lỗi xoay trang", str(e))
+    norm_path = _normalise_rotate_path(path)
+    busy = getattr(window, "_rotating_pages", None)
+    if not isinstance(busy, set):
+        busy = set()
+        window._rotating_pages = busy
+    if norm_path in busy:
+        if hasattr(window, "status"):
+            window.status.showMessage("Đang xoay trang, vui lòng đợi...", 1500)
         return
+    busy.add(norm_path)
 
-    window.status.showMessage(f"Đã xoay trang {page_no} {degrees}°", 3000)
+    # Xoay THẬT 1 trang (ghi /Rotate) chạy nền rồi reload MỀM (giữ zoom +
+    # vị trí, phủ nhẹ) khi xong - trước đây rotate_pages() (đọc+ghi PDF
+    # bằng pikepdf) chạy thẳng trên main thread, đứng hình UI đúng bằng
+    # thời gian ghi đĩa mỗi lần bấm. write-slot phải acquire ở ĐÂY (main
+    # thread, trước khi spawn worker) và release trong _RotatePageRelay
+    # (cũng main thread) - _active_pdf_writes không thread-safe, chỉ được
+    # mutate từ 1 thread duy nhất (xem docstring pdf_write_slot()).
+    tmp = make_staged_pdf_path(path)
+    write_slot = _acquire_pdf_write_slot(path)
 
-    if hasattr(window, "status"):
-        direction = "thuận chiều kim đồng hồ" if degrees > 0 else "ngược chiều kim đồng hồ"
-        window.status.showMessage(f"Đã xoay trang {page_no} {direction}", 2000)
+    thread = QThread(window)
+    worker = _RotatePageWorker(path, tmp, page_no, degrees)
+    relay = _RotatePageRelay(window, path=path, page_no=page_no, degrees=degrees, write_slot=write_slot)
+    worker.moveToThread(thread)
+    thread.started.connect(worker.run)
+    worker.finished.connect(relay.onFinished)
+    worker.finished.connect(thread.quit)
+    worker.finished.connect(worker.deleteLater)
+    thread.finished.connect(thread.deleteLater)
+
+    # worker không có Qt-parent (moveToThread() không giữ sống) và cũng
+    # không còn Python reference nào khác sau khi hàm này return - refcount
+    # về 0, bị dọn ngay (dù gc.disable() chỉ tắt bộ dọn CYCLE, refcounting
+    # thường vẫn chạy) TRƯỚC KHI thread kịp gọi worker.run(), nên
+    # thread.started không bao giờ thực sự chạy được gì (đã xác nhận qua
+    # test thật: log không bao giờ thấy "_RotatePageWorker.run: enter").
+    # Giữ sống bằng registry trên window, cùng pattern _auto_ocr_registry
+    # (app/actions/auto_ocr.py), dọn lại trong _RotatePageRelay.onFinished.
+    jobs = getattr(window, "_rotate_page_jobs", None)
+    if not isinstance(jobs, dict):
+        jobs = {}
+        window._rotate_page_jobs = jobs
+    jobs[norm_path] = (thread, worker, relay)
+
+    thread.start()
 
 
 # ── Delete page ───────────────────────────────────────────────────────────────
