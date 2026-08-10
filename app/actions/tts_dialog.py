@@ -783,6 +783,25 @@ class TTSDialog(QDialog):
         self._bridge.status.emit(f"Đang phát Piper TTS: {voice.name}")
 
     def _run_offline_tts(self):
+        # Cả nhánh "sapi" (win32com.client.Dispatch) lẫn nhánh pyttsx3 mặc
+        # định trên Windows (driver sapi5 của pyttsx3 cũng tạo COM object
+        # SAPI qua comtypes bên trong) đều tạo COM object trên đúng
+        # threading.Thread này (xem chỗ gọi ở start_speaking() phía trên) -
+        # thread thường không tự CoInitialize(), COM object tạo ra sẽ chạy
+        # ở apartment mặc định (MTA) lệch với main thread STA của Qt. Lệch
+        # apartment giữa 2 thread là nguyên nhân kinh điển của
+        # RPC_E_CANTCALLOUT_ININPUTSYNCCALL (0x8001010d) - đã ghi nhận lặp
+        # lại nhiều lần trong app_log.txt suốt phiên làm việc này, không
+        # tái hiện được ổn định qua các nghi vấn khác (processEvents lồng
+        # nhau, GPU compositing QtWebEngine) đã loại trừ trước đó.
+        com_initialized = False
+        if sys.platform == "win32":
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+                com_initialized = True
+            except Exception:
+                pass
         voice = self.voice_cb.currentData()
         rate = self.rate_slider.value()
         try:
@@ -797,6 +816,12 @@ class TTSDialog(QDialog):
         except Exception as exc:
             self._bridge.finished.emit(False, f"Lỗi đọc offline: {exc}")
         finally:
+            if com_initialized:
+                try:
+                    import pythoncom
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
             self._engine_run = None
             self._speaker_run = None
 
