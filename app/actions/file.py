@@ -64,11 +64,11 @@ def _sidebar_urls(window) -> list[QUrl]:
     return [QUrl.fromLocalFile(path) for path in paths]
 
 
-def _pick_document_file(window):
+def _pick_document_files(window):
     import sys
     dialog = QFileDialog(window)
     dialog.setWindowTitle("Chọn tệp tài liệu")
-    dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+    dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
     dialog.setNameFilters([
         "Tài liệu (*.pdf *.png *.jpg *.jpeg *.bmp *.doc *.docx *.xls *.xlsx *.xml)", 
         "Tệp PDF (*.pdf)", 
@@ -93,14 +93,20 @@ def _pick_document_file(window):
         dialog.setLabelText(QFileDialog.DialogLabel.Reject, "Hủy")
 
     if dialog.exec():
-        selected = dialog.selectedFiles()
-        return selected[0] if selected else None
-    return None
+        return dialog.selectedFiles()
+    return []
 
 
 def open_file(window, path=None):
     if not path:
-        path = _pick_document_file(window)
+        paths = _pick_document_files(window)
+        if not paths:
+            return
+        if len(paths) > 1:
+            for p in paths:
+                open_file(window, p)
+            return
+        path = paths[0]
     if path:
         if not os.path.exists(path):
             show_warning(
