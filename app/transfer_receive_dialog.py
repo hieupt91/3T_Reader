@@ -266,6 +266,13 @@ class ReceiveDocumentDialog(QDialog):
         if self._received_path:
             self._btn_open.show()
 
+        # Chỉ đổi label trong dialog là không đủ - nếu cửa sổ "Nhận tài liệu"
+        # không đang là cửa sổ active (user đang làm việc khác), họ sẽ không
+        # biết file đã nhận xong. Bật thêm popup để không bỏ lỡ.
+        from packages.qt_compat.QtWidgets import QMessageBox
+
+        QMessageBox.information(self, "Nhận tài liệu", f"Đã nhận xong: {file_name}")
+
     def _on_error(self, message: str) -> None:
         self._receiving = False
         self._code_input.setEnabled(True)
