@@ -138,6 +138,7 @@ _ICON_COLORS = {
     "undo.svg":          "#9090c8",
     "edit_object.svg":   "#5b9cf6",
     "file_plus.svg":     "#4fc080",
+    "device_pairing.svg": "#3ba8f0",
 }
 
 # Màu icon cho chế độ sáng — đậm hơn để nổi trên nền trắng
@@ -178,6 +179,7 @@ _ICON_COLORS_LIGHT = {
     "undo.svg":          "#4a4a8a",
     "edit_object.svg":   "#1a5cbf",
     "file_plus.svg":     "#1a7a40",
+    "device_pairing.svg": "#1560a8",
 }
 
 
@@ -802,7 +804,28 @@ class PDFReaderApp(QMainWindow):
         g_view.add(make_action_btn(self.act_toggle_sidebar_btn, "Thumb"))
         g_view.add(make_action_btn(self.act_toggle_toc_btn,     "Mục lục"))
         g_view.add(make_action_btn(self.act_theme_toggle,       "Chủ đề"))
-        g_view.add(make_action_btn(self.act_fullscreen,         "Toàn màn"))
+
+        # Thay icon "Toàn màn" trên ribbon bằng nút gửi/nhận tài liệu qua điện
+        # thoại (ScanDoc) - tính năng dùng thường xuyên hơn nhiều so với
+        # fullscreen. F11/Ctrl+Cmd+F và mục "Toàn màn hình" trong menu Xem vẫn
+        # còn nguyên, chỉ bỏ nút tắt trên toolbar.
+        self._phone_transfer_button = QToolButton(self)
+        self._phone_transfer_button.setAutoRaise(True)
+        self._phone_transfer_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        self._phone_transfer_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._phone_transfer_button.setIcon(svg_icon("device_pairing.svg", size=28, color=_ic("device_pairing.svg")))
+        self._phone_transfer_button.setText("Điện thoại")
+        self._phone_transfer_button.setToolTip("Gửi/nhận tài liệu qua ứng dụng ScanDoc trên điện thoại")
+        phone_transfer_menu = QMenu(self._phone_transfer_button)
+        self._phone_transfer_button.setMenu(phone_transfer_menu)
+        act_phone_send = phone_transfer_menu.addAction("Chuyển tài liệu...")
+        act_phone_receive = phone_transfer_menu.addAction("Nhận tài liệu...")
+        phone_transfer_menu.addSeparator()
+        act_phone_devices = phone_transfer_menu.addAction("Thiết bị ScanDoc...")
+        act_phone_send.triggered.connect(lambda: self._open_transfer_send_dialog())
+        act_phone_receive.triggered.connect(lambda: self._open_transfer_receive_dialog())
+        act_phone_devices.triggered.connect(lambda: self._open_transfer_pairing_dialog())
+        g_view.add(self._phone_transfer_button)
 
         self._lang_toolbar_button = QToolButton(self)
         self._lang_toolbar_button.setAutoRaise(True)
