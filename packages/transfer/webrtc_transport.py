@@ -8,6 +8,20 @@ ICE cho kết nối nhanh hơn.
 
 STUN dùng công khai tạm thời (xem SPEC_MOBILE_SCANDOC_TRANSFER.md mục 4.3)
 — chưa có STUN service riêng của 3T.
+
+Thêm 11/08/2026: TURN relay (coturn, container `coturn-3treader` trên máy
+chủ 116.97.215.211, cấu hình tại `/home/hieupt/coturn/turnserver.conf`) -
+STUN thôi không đủ khi 1 trong 2 bên bị chặn kết nối đến trực tiếp (vd
+Windows Firewall coi WiFi là "Public network" - đã tái hiện + xác nhận bằng
+test thật). TURN chỉ cần app gọi RA (luôn được phép), không cần ai gọi VÀO
+máy, nên tránh được vấn đề này hoàn toàn. Dùng credential tĩnh (long-term,
+không phải REST API ephemeral) - đơn giản, chấp nhận được vì token có thể
+bị trích xuất từ app cũng chỉ dùng được để relay qua chính server 3T, không
+lộ dữ liệu người dùng nào. Lưu ý: TURN mới mở port ở firewall NGAY TRÊN máy
+chủ - máy chủ này còn nằm sau NAT của router (dùng chung IP public với máy
+dev), nên user THẬT ở mạng khác chỉ dùng được sau khi ai đó port-forward
+UDP/TCP 3478 + dải 49160-49200 trên router trỏ về 192.168.1.254 (việc này
+không làm được qua SSH, cần vào trang quản trị router).
 """
 
 import asyncio
@@ -19,9 +33,28 @@ from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSession
 from .protocol import CHUNK_SIZE, Manifest, ReceiveAssembler, iter_chunks
 from .signaling_client import SignalingClient
 
-_ICE_SERVERS = [RTCIceServer(urls="stun:stun.cloudflare.com:3478")]
+_ICE_SERVERS = [
+    RTCIceServer(urls="stun:stun.cloudflare.com:3478"),
+    # 2 URL trỏ CÙNG 1 server TURN (coturn-3treader, xem comment ở đầu
+    # file) - IP public (116.97.215.211) cho user ở mạng khác, và IP LAN
+    # nội bộ (192.168.1.254) riêng cho trường hợp máy đang test/dùng CÙNG
+    # mạng vật lý với server đó (gửi thẳng ra IP public khi đứng trong
+    # chính mạng đó bị NAT hairpin của router chặn - đã tái hiện + xác
+    # nhận). Đã test thật thành công 11/08/2026: ICE/DTLS/SCTP kết nối đầy
+    # đủ qua đường LAN + firewall rule cho phép inbound tới python.exe.
+    RTCIceServer(
+        urls="turn:116.97.215.211:3478",
+        username="3treader",
+        credential="E0CRYgMm6InFRWCcnlGHqAJc9u6aoOsC",
+    ),
+    RTCIceServer(
+        urls="turn:192.168.1.254:3478",
+        username="3treader",
+        credential="E0CRYgMm6InFRWCcnlGHqAJc9u6aoOsC",
+    ),
+]
 _BUFFERED_AMOUNT_HIGH = 1024 * 1024  # 1 MiB — tạm dừng gửi khi vượt, chống tràn bộ nhớ đầu nhận
-_ICE_GATHER_TIMEOUT = 15
+_ICE_GATHER_TIMEOUT = 45  # đủ chờ 1 trong nhiều candidate source hết retry (~40s theo RFC 5389) nếu 1 nguồn bị chặn
 
 
 class TransferError(RuntimeError):
@@ -133,6 +166,8 @@ async def send_file(
 async def receive_file(
     signaling: SignalingClient,
     on_progress=None,
+    *,
+    offer_timeout: float = 60,
 ) -> "tuple[str, bytes]":
     """Vai trò nhận: chờ offer, tạo answer, nhận manifest + chunk qua
     DataChannel, verify hash. Trả (file_name, data) — caller (UI) tự quyết
@@ -175,7 +210,12 @@ async def receive_file(
 
     try:
         await signaling.connect()
-        offer_msg = await asyncio.wait_for(signaling.receive(), timeout=60)
+        try:
+            offer_msg = await asyncio.wait_for(signaling.receive(), timeout=offer_timeout)
+        except asyncio.TimeoutError as exc:
+            raise TransferError(
+                "Không có thiết bị nào quét mã trong thời gian chờ."
+            ) from exc
         if offer_msg.get("type") != "sdp_offer":
             raise TransferError(f"Kỳ vọng sdp_offer, nhận '{offer_msg.get('type')}'.")
         await pc.setRemoteDescription(RTCSessionDescription(sdp=offer_msg["sdp"], type="offer"))
@@ -224,18 +264,25 @@ async def host_receive_file_async(*, on_progress=None, on_status=None) -> "tuple
 
     session = client.create_transfer_session("", 0)
     transfer_session_id = session["transfer_session_id"]
-    # Server hiện không trả qr_payload cho transfer-session (khác
-    # companion-session) - tự dựng đúng format _extract_session_id()/
-    # _parse_transfer_session_id() đã hỗ trợ (xác nhận thực nghiệm với API
-    # thật 11/08/2026: create_transfer_session chỉ trả
-    # {transfer_session_id, expires_at}).
+    # Cập nhật 11/08/2026: create_transfer_session giờ trả thêm "code" (mã
+    # ngắn 8 ký tự, vd "7SH6-FHU2") cho người dùng gõ tay thay vì quét QR.
+    # qr_payload vẫn tự dựng - server không trả field này cho transfer-session
+    # (khác companion-session).
     qr_payload = json.dumps({"v": 1, "transfer_session_id": transfer_session_id})
 
     if on_status:
-        on_status("created", {"transfer_session_id": transfer_session_id, "qr_payload": qr_payload})
+        on_status("created", {
+            "transfer_session_id": transfer_session_id,
+            "qr_payload": qr_payload,
+            "code": session.get("code", ""),
+            "expires_at": session.get("expires_at", ""),
+        })
 
     signaling = SignalingClient(client.base_url, transfer_session_id, token, device_id)
-    return await receive_file(signaling, on_progress=on_progress)
+    # offer_timeout dài hơn mặc định (180s thay vì 60s) vì giờ cần thời gian
+    # cho người dùng thật cầm điện thoại quét QR/gõ mã, không phải 2 tiến
+    # trình tự động nối nhau ngay như trước khi đảo vai.
+    return await receive_file(signaling, on_progress=on_progress, offer_timeout=180)
 
 
 async def guest_send_file_async(
@@ -245,18 +292,24 @@ async def guest_send_file_async(
     credentials: "tuple[str, str] | None" = None,
     on_progress=None,
     on_connected=None,
+    on_status=None,
 ) -> None:
-    """Vai THAM GIA phiên đã có (quét QR) nhưng vẫn GỬI bytes - đảo ngược
-    send_file() (vốn tự tạo phiên). CHỈ dùng cho script test tự động xác
-    minh giao thức đảo vai - vai "guest gửi" thật trên điện thoại nằm ở
-    Swift/ScanDoc (xem Phase 3 trong kế hoạch), không phải Python này.
+    """Vai THAM GIA phiên đã có (dán mã ScanDoc hiện ra) nhưng vẫn GỬI bytes -
+    đảo ngược send_file() (vốn tự tạo phiên). Dùng thật cho
+    transfer_send_dialog.py (desktop là bên gửi, dán mã do ScanDoc "Nhận tài
+    liệu" tạo ra) và cho script test tự động xác minh giao thức đảo vai.
     `credentials` cho phép truyền token thiết bị khác (giả lập 2 thiết bị
-    trong test) thay vì mặc định dùng credentials của máy đang chạy."""
+    trong test) thay vì mặc định dùng credentials của máy đang chạy.
+    on_status("joined", {}) gọi ngay sau khi join_transfer_session REST
+    thành công - để UI không báo "đã tham gia" trước khi thực sự đúng
+    (mã sai/hết hạn thì join raise lỗi, không gọi callback này)."""
     from .authorization import get_transfer_client
 
     client = get_transfer_client()
     token, device_id = credentials if credentials is not None else client.get_credentials()
     client.join_transfer_session(transfer_session_id, credentials=credentials)
+    if on_status:
+        on_status("joined", {})
 
     signaling = SignalingClient(client.base_url, transfer_session_id, token, device_id)
     await send_file(signaling, file_path, on_progress=on_progress, on_connected=on_connected)

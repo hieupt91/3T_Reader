@@ -788,7 +788,12 @@ class PDFReaderApp(QMainWindow):
         # QAction không gắn vào widget nào (không addAction/không
         # setDefaultAction trên nút hiển thị) thì shortcut sẽ không kích hoạt.
         self.addAction(self.act_fullscreen)
-        self.act_transfer_device = make("Nhận từ ĐT", "device_pairing.svg", "Ghép nối / chuyển - nhận tài liệu qua thiết bị ScanDoc", None, lambda: self._open_transfer_pairing_dialog())
+        # Trỏ vào dialog "Nhận tài liệu" (không phải ghép nối thiết bị) - đúng
+        # với tên nút "Nhận từ ĐT" và đúng nguyên tắc luồng đảo chiều
+        # 11/08/2026 (bên nhận luôn tự tạo mã/QR, đây là thao tác hàng ngày
+        # người dùng cần, còn ghép nối thiết bị chỉ làm 1 lần lúc đầu - vẫn
+        # có sẵn ở menu License > "Thiết bị ScanDoc...").
+        self.act_transfer_device = make("Nhận từ ĐT", "device_pairing.svg", "Nhận tài liệu từ thiết bị ScanDoc đã ghép nối", None, lambda: self._open_transfer_receive_dialog())
         self.act_brightness_up   = make("Sáng hơn",  "brightness_up.svg",  f"Tăng độ sáng ({shortcut_label('Ctrl+Shift+=')})", "Ctrl+Shift+=", lambda: brightness_up(self))
         self.act_brightness_down = make("Tối hơn",   "brightness_down.svg", f"Giảm độ sáng ({shortcut_label('Ctrl+Shift+-')})", "Ctrl+Shift+-", lambda: brightness_down(self))
         self.act_check_token  = make("USB token", "usb.svg", "Kiểm tra USB ký số", None, lambda: check_token(self))

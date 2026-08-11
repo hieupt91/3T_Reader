@@ -106,6 +106,18 @@ class TransferGatewayClient:
             credentials=credentials,
         )
 
+    def resolve_transfer_code(self, code: str,
+                               *, credentials: tuple[str, str] | None = None) -> dict:
+        """Đổi mã ngắn 8 ký tự (vd "PJG8-PKQC", user gõ tay - không phân
+        biệt hoa/thường, có/không gạch ngang) thành transfer_session_id
+        thật. Thêm 11/08/2026 cùng lúc create_transfer_session() bắt đầu
+        trả thêm field "code". 404 (RuntimeError) nếu mã sai/hết hạn."""
+        return self._request(
+            "POST", "/api/v2/transfer-sessions/resolve",
+            json={"code": code},
+            credentials=credentials,
+        )
+
     def complete_transfer_session(self, transfer_session_id: str, status: str, sha256: str = "",
                                    *, credentials: tuple[str, str] | None = None) -> dict:
         """Báo hoàn tất/thất bại sau khi DataChannel đóng. status: completed|failed."""

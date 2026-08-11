@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 
 from packages.qt_compat.QtCore import Qt, QTimer
@@ -30,6 +31,46 @@ def _render_qr_pixmap(payload: str, *, box_size: int = 176) -> QPixmap | None:
         return QPixmap.fromImage(qimage)
     except Exception:
         return None
+
+
+def _extract_session_id(raw: str) -> str:
+    """Chấp nhận UUID/mã ngắn thô hoặc nguyên chuỗi JSON QR payload
+    ({"v":1,"transfer_session_id":"..."}) - dán cả 2 dạng đều dùng được.
+    Dùng chung cho cả 2 dialog gửi/nhận (transfer_send_dialog.py,
+    transfer_receive_dialog.py)."""
+    text = raw.strip()
+    if not text:
+        return ""
+    if text.startswith("{"):
+        try:
+            data = json.loads(text)
+            return str(data.get("transfer_session_id", "")).strip()
+        except Exception:
+            return ""
+    return text
+
+
+def _is_short_code(text: str) -> bool:
+    """Mã ngắn 8 ký tự (có gạch ngang giữa hoặc không, vd "PJG8-PKQC") khác
+    với transfer_session_id đầy đủ (UUID 8-4-4-4-12, 32 ký tự hex sau khi
+    bỏ gạch ngang) - thêm 11/08/2026 cùng field "code" mới từ server."""
+    stripped = text.replace("-", "")
+    return len(stripped) == 8 and stripped.isalnum()
+
+
+def _is_pairing_qr_payload(raw: str) -> bool:
+    """True nếu user lỡ dán nhầm mã QR ghép nối thiết bị
+    ({"v":1,"pairing_session_id":"..."} từ dialog "Thiết bị ScanDoc") thay
+    vì mã nhận/gửi tài liệu - 2 QR trông giống hệt nhau với mắt thường, cần
+    báo lỗi rõ ràng thay vì chỉ nói chung chung "mã không hợp lệ"."""
+    text = raw.strip()
+    if not text.startswith("{"):
+        return False
+    try:
+        data = json.loads(text)
+    except Exception:
+        return False
+    return "pairing_session_id" in data and "transfer_session_id" not in data
 
 
 _STYLE = """

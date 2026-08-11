@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 """Dialog "Chuyển tài liệu" — gửi PDF đang mở sang thiết bị companion qua
-P2P WebRTC (Phase 2: packages/transfer/{signaling_client,webrtc_transport,
-protocol,inbox}.py — kiến trúc port từ team Mac, xem
-docs/HANDOFF_PHASE2_MULTIKEY_2026-08.md). Cùng phong cách UI với
-transfer_pairing_dialog.py (Phase 1) để nhất quán.
+P2P WebRTC.
 
-Luồng: REST tạo transfer-session (authorization.py) -> hiện mã/QR (tái dùng
-cơ chế QR của Phase 1) -> đợi thiết bị companion quét mã + tham gia ->
-webrtc_transport.send_file() tự thương lượng SDP/ICE (có gửi lại offer định
-kỳ - xem comment trong webrtc_transport.py - tránh mất tín hiệu vì bên nhận
-luôn kết nối trễ hơn bên gửi) -> mở DataChannel -> gửi file với progress bar
--> báo hoàn tất qua REST.
+Từ 11/08/2026 (xem docs/PLAN_2026-08-11_reverse_qr_send_flow.md, nhánh
+phase1-backend): ScanDoc (điện thoại) mới là bên TẠO PHIÊN + hiện mã/QR khi
+người dùng bấm "Nhận tài liệu" trên app - desktop (bên gửi) chỉ cần NHẬP mã
+đó vào rồi tham gia phiên (đúng nguyên tắc "bên nhận luôn tạo phiên, bên gửi
+luôn kết nối tới bằng mã đó"). Desktop vẫn giữ vai trò WebRTC offerer/đẩy
+bytes như trước (webrtc_transport.guest_send_file_async, gọi lại nguyên vẹn
+send_file() cũ) - chỉ đổi CÁCH lấy transfer_session_id (nhập tay/dán mã thay
+vì tự tạo + hiện QR của mình).
 """
 
 import asyncio
@@ -22,10 +21,10 @@ from packages.qt_compat.QtCore import Qt
 from packages.qt_compat import pyqtSignal as Signal
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QFrame, QProgressBar,
+    QPushButton, QFrame, QProgressBar, QLineEdit,
 )
 
-from app.transfer_pairing_dialog import _render_qr_pixmap
+from app.transfer_pairing_dialog import _extract_session_id, _is_short_code, _is_pairing_qr_payload
 
 
 _STYLE = """
@@ -47,6 +46,12 @@ QLabel#qr_display {
 QLabel#status_line { color: #8080B0; font-size: 12px; }
 QLabel#status_err { color: #E05050; font-size: 12px; }
 QLabel#status_ok { color: #34C759; font-size: 13px; font-weight: 700; }
+QLineEdit#code_input {
+    color: #E8EEFF; font-size: 14px; font-family: monospace;
+    background: #1E1E38; border: 1px solid #3A3A60; border-radius: 8px;
+    padding: 10px 12px;
+}
+QLineEdit#code_input:focus { border-color: #FF7700; }
 QProgressBar {
     background: #1E1E38; border: 1px solid #3A3A60; border-radius: 6px;
     text-align: center; color: #E8EEFF; height: 20px;
@@ -78,7 +83,8 @@ def _human_size(num_bytes: int) -> str:
 
 class SendDocumentDialog(QDialog):
     """Gửi 1 file PDF cụ thể (đường dẫn cố định lúc mở dialog) sang thiết bị
-    companion đã/đang ghép nối với key 3TR-E hiện tại."""
+    companion đã ghép nối với key 3TR-E hiện tại. Người dùng lấy mã trên
+    ScanDoc (đã bấm "Nhận tài liệu") rồi dán vào đây."""
 
     _sig_status = Signal(str, dict)
     _sig_progress = Signal(int, int)
@@ -109,7 +115,10 @@ class SendDocumentDialog(QDialog):
         title.setObjectName("title")
         layout.addWidget(title)
 
-        subtitle = QLabel("Gửi trực tiếp cho iPhone/iPad đã ghép nối — không qua máy chủ, không cần internet chậm.")
+        subtitle = QLabel(
+            "Trên điện thoại, mở ScanDoc và bấm \"Nhận tài liệu\" để lấy mã, "
+            "sau đó dán mã đó vào đây — gửi trực tiếp, không qua máy chủ."
+        )
         subtitle.setObjectName("subtitle")
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
@@ -131,17 +140,10 @@ class SendDocumentDialog(QDialog):
         file_layout.addWidget(meta_label)
         layout.addWidget(file_box)
 
-        self._qr_label = QLabel("")
-        self._qr_label.setObjectName("qr_display")
-        self._qr_label.setAlignment(Qt.AlignCenter)
-        self._qr_label.hide()
-        layout.addWidget(self._qr_label)
-
-        self._code_label = QLabel("")
-        self._code_label.setObjectName("code_display")
-        self._code_label.setAlignment(Qt.AlignCenter)
-        self._code_label.hide()
-        layout.addWidget(self._code_label)
+        self._code_input = QLineEdit()
+        self._code_input.setObjectName("code_input")
+        self._code_input.setPlaceholderText("Mã hiện trên ScanDoc, vd PJG8-PKQC...")
+        layout.addWidget(self._code_input)
 
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 100)
@@ -155,7 +157,7 @@ class SendDocumentDialog(QDialog):
         self._status_label.hide()
         layout.addWidget(self._status_label)
 
-        self._btn_start = QPushButton("Bắt đầu gửi")
+        self._btn_start = QPushButton("Gửi file")
         self._btn_start.setObjectName("btn_start")
         self._btn_start.clicked.connect(self._on_start_clicked)
         layout.addWidget(self._btn_start)
@@ -178,11 +180,26 @@ class SendDocumentDialog(QDialog):
     def _on_start_clicked(self) -> None:
         if self._sending:
             return
+        raw_text = self._code_input.text()
+        entered = _extract_session_id(raw_text)
+        if not entered:
+            self._restyle(self._status_label, "status_err")
+            if _is_pairing_qr_payload(raw_text):
+                self._status_label.setText(
+                    "Đây là mã ghép nối thiết bị (Thiết bị ScanDoc), không phải mã nhận "
+                    "tài liệu. Hãy lấy mã ở màn hình \"Nhận tài liệu\" trên ScanDoc."
+                )
+            else:
+                self._status_label.setText("Mã không hợp lệ. Dán đúng mã/QR từ ScanDoc.")
+            self._status_label.show()
+            return
+
         self._sending = True
+        self._code_input.setEnabled(False)
         self._btn_start.setEnabled(False)
         self._btn_start.setText("Đang gửi...")
         self._restyle(self._status_label, "status_line")
-        self._status_label.setText("Đang tạo phiên truyền...")
+        self._status_label.setText("Đang tham gia phiên truyền...")
         self._status_label.show()
 
         file_path = self._file_path
@@ -194,33 +211,35 @@ class SendDocumentDialog(QDialog):
             self._sig_status.emit("connected", {})
 
         def worker():
-            import json as _json
             from packages.transfer import get_transfer_client
-            from packages.transfer.signaling_client import SignalingClient
-            from packages.transfer.webrtc_transport import send_file
+            from packages.transfer.webrtc_transport import guest_send_file_async
 
             client = get_transfer_client()
-            transfer_session_id = ""
+            joined = False
+            transfer_session_id = entered
+
+            def on_status(stage, data):
+                nonlocal joined
+                if stage == "joined":
+                    joined = True
+                self._sig_status.emit(stage, data)
+
             try:
-                token, device_id = client.get_credentials()
-                file_name = os.path.basename(file_path)
-                file_size = os.path.getsize(file_path)
-                session = client.create_transfer_session(file_name, file_size)
-                transfer_session_id = session["transfer_session_id"]
+                if _is_short_code(entered):
+                    resolved = client.resolve_transfer_code(entered)
+                    transfer_session_id = resolved["transfer_session_id"]
 
-                qr_payload = _json.dumps({"v": 1, "transfer_session_id": transfer_session_id}, ensure_ascii=False)
-                self._sig_status.emit(
-                    "session_created",
-                    {"transfer_session_id": transfer_session_id, "qr_payload": qr_payload},
+                asyncio.run(
+                    guest_send_file_async(
+                        transfer_session_id, file_path,
+                        on_progress=on_progress, on_connected=on_connected, on_status=on_status,
+                    )
                 )
-
-                signaling = SignalingClient(client.base_url, transfer_session_id, token, device_id)
-                asyncio.run(send_file(signaling, file_path, on_progress=on_progress, on_connected=on_connected))
 
                 client.complete_transfer_session(transfer_session_id, "completed")
                 self._sig_done.emit({"transfer_session_id": transfer_session_id})
             except Exception as exc:  # noqa: BLE001 - báo lỗi lên UI qua signal, không để lộ traceback thô
-                if transfer_session_id:
+                if joined:
                     try:
                         client.complete_transfer_session(transfer_session_id, "failed")
                     except Exception:
@@ -232,19 +251,9 @@ class SendDocumentDialog(QDialog):
     # ── Callback (đã chuyển an toàn về UI thread qua Qt signal) ─────────
 
     def _on_status(self, stage: str, data: dict) -> None:
-        if stage == "session_created":
-            code = data.get("transfer_session_id", "")[:8].upper()
-            self._code_label.setText(code)
-            self._code_label.show()
-            qr_payload = data.get("qr_payload", "")
-            pixmap = _render_qr_pixmap(qr_payload) if qr_payload else None
-            if pixmap is not None:
-                self._qr_label.setPixmap(pixmap)
-                self._qr_label.show()
-            self._status_label.setText("Mở ScanDoc trên điện thoại đã ghép nối và quét mã để nhận file.")
+        if stage == "joined":
+            self._status_label.setText("Đã tham gia phiên - đang kết nối trực tiếp tới thiết bị...")
         elif stage == "connected":
-            self._qr_label.hide()
-            self._code_label.hide()
             self._progress_bar.setValue(0)
             self._progress_bar.show()
             self._status_label.setText("Đã kết nối - đang gửi...")
@@ -268,13 +277,14 @@ class SendDocumentDialog(QDialog):
         self._restyle(self._status_label, "status_ok")
         self._status_label.setText("✓ Đã gửi xong, thiết bị nhận đã xác nhận đủ dữ liệu.")
         self._btn_start.hide()
+        self._code_input.setEnabled(False)
 
     def _on_error(self, message: str) -> None:
         self._sending = False
+        self._code_input.setEnabled(True)
         self._btn_start.setEnabled(True)
         self._btn_start.setText("Thử lại")
-        self._qr_label.hide()
-        self._code_label.hide()
         self._progress_bar.hide()
         self._restyle(self._status_label, "status_err")
         self._status_label.setText(message)
+        self._status_label.show()

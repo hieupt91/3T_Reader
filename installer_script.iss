@@ -104,6 +104,15 @@ Name: "{autodesktop}\{#MyAppName}"; \
   Tasks: desktopicon
 
 [Run]
+; Mở firewall cho tính năng "Nhận từ ĐT" (P2P WebRTC ScanDoc) - installer đã
+; chạy quyền admin sẵn (PrivilegesRequired=admin) nên làm được ngay lúc cài,
+; người dùng không cần tự bấm Allow / đổi Network profile sang Private sau
+; này (phát hiện thực nghiệm: mạng WiFi "Public" mặc định của Windows chặn
+; hết inbound, khiến kết nối trực tiếp tới ScanDoc luôn timeout).
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall add rule name=""3T Reader (ScanDoc P2P)"" dir=in action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any"; \
+  Flags: runhidden; \
+  StatusMsg: "Đang cấu hình tường lửa cho tính năng nhận tài liệu..."
 ; Chạy app sau khi cài xong (tuỳ chọn)
 Filename: "{app}\{#MyAppExeName}"; \
   WorkingDir: "{app}"; \
@@ -111,6 +120,11 @@ Filename: "{app}\{#MyAppExeName}"; \
   Flags: nowait postinstall skipifsilent
 Filename: "{sys}\ie4uinit.exe"; Parameters: "-ClearIconCache"; Flags: runhidden
 Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; Flags: runhidden
+
+[UninstallRun]
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall delete rule name=""3T Reader (ScanDoc P2P)"" program=""{app}\{#MyAppExeName}"""; \
+  Flags: runhidden; RunOnceId: "RemoveScanDocFirewallRule"
 
 [UninstallDelete]
 ; Xoá sạch thư mục khi gỡ cài đặt
