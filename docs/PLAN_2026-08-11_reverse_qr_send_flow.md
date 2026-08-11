@@ -242,6 +242,29 @@ hiện đang làm NGƯỢC nguyên tắc (tự tạo phiên thay vì join) nên 
       lưu PDF thô vào thư viện?
 - [ ] Thứ tự ưu tiên: làm xong trọn vẹn chiều ScanDoc→3TReader (Phase 0-5)
       rồi mới sang chiều 3TReader→ScanDoc (Phase 6-7), hay làm song song?
-      Đề xuất: **làm tuần tự**, vì Phase 1 (tách vai trò trong protocol.py)
-      là nền tảng dùng chung cho cả 2 chiều - làm xong + test kỹ 1 chiều
-      trước sẽ an toàn hơn.
+      → **Đã chốt 11/08/2026: làm SONG SONG cả 2 chiều**, không làm tuần tự
+      như đề xuất ban đầu. Phase 1 (tách vai trò trong `protocol.py`) vẫn là
+      nền tảng chung, làm trước - nhưng Phase 2+3 (chiều 1) và Phase 6+7
+      (chiều 2) có thể triển khai đồng thời vì không phụ thuộc nhau (file
+      Swift/Python khác nhau, không đụng chung code).
+
+## 9. VPS có cần sửa gì thêm không? (đã xác nhận: KHÔNG)
+
+Đã rà soát lại kỹ lần 2 (tính cả việc giờ làm song song 2 chiều, không chỉ
+1 chiều như phân tích ban đầu ở mục 3):
+
+- `create_transfer_session`/`join_transfer_session` không kiểm tra
+  `device_type` của người gọi — desktop hay companion tạo phiên/join đều
+  chạy đúng 1 code path như nhau. Cả 2 chiều dùng chung 2 endpoint này.
+- Server không đọc/hiểu nội dung SDP (`signaling_relay.relay()` chỉ forward
+  JSON thô) — không có khái niệm "offerer"/"answerer" ở tầng backend, nên
+  đảo vai trò ở client không đụng gì tới server.
+- Rate limit tạo phiên hiện tại `rate_dep("transfer_create", 20, 60)` (20
+  lần/phút) - đủ rộng rãi cho cả 2 chiều dùng song song, kể cả lúc test.
+- TTL mặc định 1h (`transfer_ticket_ttl_seconds`, đã tăng từ đợt trước) đủ
+  dài cho việc "bên nhận mở màn hình chờ" ở cả 2 chiều, không cần giá trị
+  riêng.
+
+**Kết luận: VPS không cần deploy gì thêm cho toàn bộ tính năng này** (cả 2
+chiều) - trừ khi trong lúc code Phase 1-3/6-7 phát sinh nhu cầu thật không
+lường trước được từ đầu.
