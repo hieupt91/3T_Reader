@@ -133,12 +133,41 @@ connection closed
 connection closed
 ```
 
+**Cập nhật (tái hiện lần 2, cùng ngày):** lặp lại đúng lỗi này, lần này bắt
+được thêm 2 bằng chứng mới:
+
+1. **Thông báo lỗi thấy được trên màn hình ScanDoc:**
+   > Không thể hoàn tất tác vụ. Socket không được kết nối.
+
+   Đây là message lỗi cấp thấp (socket-level), không phải lỗi WebRTC/SDP —
+   gợi ý mạnh là lỗi nằm ở tầng kết nối WebSocket/network của ScanDoc (ví
+   dụ dùng socket đã đóng, hoặc gọi API trước khi socket kết nối xong).
+   Team iOS có thể grep chuỗi "Socket không được kết nối" /
+   tương đương tiếng Anh ("socket is not connected" — có thể là message gốc
+   từ `URLSessionWebSocketTask`/`NWConnection` trước khi được dịch sang
+   tiếng Việt trong app) để tìm đúng vị trí ném lỗi này trong code Swift.
+
+2. **Log REST xác nhận ScanDoc tự đánh dấu phiên thất bại:**
+   ```
+   POST /api/v2/transfer-sessions/<id>/join       -> 200 OK
+   POST /api/v2/transfer-sessions/<id>/complete   -> 200 OK   (gọi 2 lần liên tiếp, cùng 1 session id)
+   ```
+   ScanDoc chủ động gọi API `/complete` (đánh dấu completed/failed) **trước
+   khi** từng gửi bất kỳ `sdp_offer` nào qua WebSocket — xác nhận lỗi xảy ra
+   ở bước tạo `RTCPeerConnection`/gather ICE candidate cục bộ trên chính
+   ScanDoc, TRƯỚC KHI kịp bắt đầu quy trình WebRTC thật sự. Việc gọi
+   `/complete` 2 lần liên tiếp cho cùng 1 session có thể là dấu hiệu retry
+   logic phía ScanDoc cũng có vấn đề (gọi lại complete thay vì thử kết nối
+   lại từ đầu).
+
 Cả 2 bên đều kết nối WebSocket thành công (bằng chứng: cả 2 dòng
 `connection open`), nhưng phiên kết thúc (`connection closed`) rất nhanh
-sau đó **mà không có bất kỳ hoạt động REST nào khác** (không có request
-`/complete`). Ở phiên bình thường, desktop sẽ đợi tới 180 giây để nhận
-`sdp_offer` — việc đóng kết nối ngay sau khi mở nghĩa là ScanDoc tự đóng
-WebSocket, không phải do timeout hay do server chủ động ngắt.
+sau đó. Ở lần đầu tái hiện, không thấy request `/complete` nào đi kèm; ở
+lần tái hiện thứ 2 (mục cập nhật ở trên) thì CÓ — cho thấy hành vi cụ thể
+(có gọi `/complete` hay không) có thể khác nhau tuỳ nguyên nhân lỗi cụ thể
+bên trong ScanDoc mỗi lần, nhưng điểm chung là: ScanDoc tự đóng kết nối
+sớm, không phải do timeout hay do server chủ động ngắt (server đợi tới 180
+giây mới coi là hết hạn).
 
 **Gợi ý điều tra:** kiểm tra code phía Swift quản lý WebSocket signaling
 — có case nào tự đóng kết nối ngay sau khi mở (ví dụ do lỗi khi bắt đầu
