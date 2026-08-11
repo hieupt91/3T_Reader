@@ -3,6 +3,27 @@
 Trạng thái: **chưa triển khai** — tài liệu lập kế hoạch, viết trước khi code để
 thống nhất phạm vi trước khi đụng vào giao thức P2P đang chạy ổn định.
 
+## 0. Nguyên tắc chung (đã chốt với người dùng 11/08/2026)
+
+> **Bên NHẬN luôn là bên tạo phiên** (hiện mã/QR) — bên GỬI luôn là bên kết
+> nối tới phiên đó. Áp dụng đối xứng cho cả 2 chiều (máy tính nhận → máy
+> tính tạo phiên; điện thoại nhận → điện thoại tạo phiên).
+
+**Ràng buộc quan trọng khi áp dụng nguyên tắc này**: 3TReader desktop đã có
+quyết định thiết kế từ trước là **không quét camera** (`transfer_receive_dialog.py`
+dòng 6: "desktop không quét camera - quyết định UX đã chốt"), chỉ dán mã tay.
+Vì vậy 2 chiều KHÔNG đối xứng hoàn toàn về mặt UI:
+
+| Chiều | Bên nhận (tạo phiên) | Bên gửi (kết nối tới) | Cách bên gửi lấy mã |
+|---|---|---|---|
+| ScanDoc → 3TReader | 3TReader | ScanDoc | ScanDoc **quét QR bằng camera** (3TReader hiện QR) |
+| 3TReader → ScanDoc | ScanDoc | 3TReader | 3TReader **dán mã tay** (ScanDoc hiện mã, không cần quét vì desktop không có luồng scan) |
+
+Chiều 2 (3TReader → ScanDoc) hiện **chưa tồn tại bên ScanDoc** (chỉ desktop
+có `transfer_send_dialog.py` tạo phiên sẵn, nhưng ScanDoc không có màn "Nhận
+từ 3TReader" nào để join+nhận) — đây là tính năng MỚI hoàn toàn, không phải
+chỉ đảo vai, xem mục 7.
+
 ## 1. Vấn đề hiện tại
 
 Luồng gửi tài liệu hôm nay (`SendToDesktopView.swift` bên ScanDoc +
@@ -172,11 +193,55 @@ Files: `Shared/Transfer/{SendToDesktopView,WebRTCSendService,TransferGatewayClie
    Không đổi tên cột (tốn công, rủi ro migration) — chỉ cần comment rõ trong
    code để người đọc sau không nhầm.
 
-## 6. Việc cần người dùng xác nhận trước khi bắt tay code
+## 7. Chiều thứ 2: 3TReader → ScanDoc (ScanDoc là bên NHẬN, tự tạo phiên)
 
-- [ ] Giữ hay bỏ đường "dán mã thủ công" làm phương án dự phòng? (mục Phase 2)
-- [ ] TTL cho phiên "host chờ quét" nên cấu hình ở đâu, mặc định bao lâu?
-      (mục Phase 3, Phase 4)
-- [ ] Có cần làm song song cho cả luồng NHẬN từ 3TReader gửi SANG ScanDoc
-      không, hay chỉ đảo chiều luồng ScanDoc → 3TReader như mô tả ở đây?
-      (tài liệu này chỉ scope đúng 1 chiều đã yêu cầu)
+Áp dụng đúng nguyên tắc mục 0: ScanDoc (bên nhận) tạo phiên + hiện mã;
+3TReader (bên gửi) dán mã tay để join. Đây là **tính năng mới** vì ScanDoc
+hiện chưa có màn "Nhận từ 3TReader" nào, và desktop's `transfer_send_dialog.py`
+hiện đang làm NGƯỢC nguyên tắc (tự tạo phiên thay vì join) nên cũng phải sửa.
+
+### Phase 6 — iOS: màn "Nhận từ 3TReader" (mới hoàn toàn)
+- [ ] View mới `ReceiveFromDesktopView.swift` (đối xứng `SendToDesktopView.swift`):
+      mở màn là gọi `createTransferSession` ngay (ScanDoc = bên tạo phiên),
+      hiện mã to (text, không nhất thiết QR vì desktop không quét - xem bảng
+      mục 0), trạng thái "Đang chờ 3TReader kết nối...".
+- [ ] `WebRTCSendService.swift` cần thêm hàm đối xứng đóng vai **answerer +
+      nhận bytes** (hiện file này chỉ có vai gửi) — hoặc tạo file mới
+      `WebRTCReceiveService.swift` cho rõ ràng, tránh nhồi 2 vai trái ngược
+      vào 1 class. Cần: đợi `sdp_offer` qua WSS, trả `sdp_answer`, nhận
+      DataChannel, ghi file nhận được vào thư mục tài liệu ScanDoc (tương tự
+      `_receive_file_over_channel` bên Python, viết lại bằng Swift/CryptoKit
+      cho SHA-256 verify).
+- [ ] Sau khi nhận xong: tự động thêm file vào thư viện tài liệu (`DocumentStore`)
+      giống luồng "Quét mới" hiện có - cần xác nhận với người dùng có muốn
+      tự động OCR file nhận về không, hay chỉ lưu PDF thô.
+
+### Phase 7 — Desktop: sửa `transfer_send_dialog.py` (Win + Mac)
+- [ ] Đổi từ "tự tạo phiên + hiện QR" (`send_file_async`, sai nguyên tắc)
+      sang "dán mã do ScanDoc hiện ra" (`guest_send_file_async` viết ở
+      Phase 1, đóng vai offerer + đẩy bytes - giữ nguyên, chỉ đổi input mã
+      từ tự sinh sang người dùng dán vào).
+- [ ] UI: thêm lại ô dán mã (giống `transfer_receive_dialog.py` cũ trước khi
+      sửa ở Phase 2) - lưu ý 2 dialog `transfer_send_dialog.py` (giờ dán mã)
+      và `transfer_receive_dialog.py` (giờ hiện QR) sẽ có UI **ngược nhau**
+      so với tên gọi hiện tại ("Chuyển tài liệu" = dán mã để chuyển ĐI,
+      "Nhận tài liệu" = hiện QR để người khác gửi ĐẾN) - cần soát lại text
+      hướng dẫn trong cả 2 dialog cho khỏi gây nhầm lẫn với người dùng cuối.
+
+## 8. Việc cần người dùng xác nhận trước khi bắt tay code
+
+- [x] ~~Có cần làm song song cho cả luồng NHẬN từ 3TReader gửi SANG ScanDoc
+      không~~ → **Đã chốt 11/08/2026: có, áp dụng nguyên tắc "bên nhận tạo
+      phiên" đối xứng cho cả 2 chiều** (xem mục 0, 7).
+- [ ] Giữ hay bỏ đường "dán mã thủ công" làm phương án dự phòng cho chiều
+      ScanDoc→3TReader? (mục Phase 2) - lưu ý chiều 3TReader→ScanDoc BẮT
+      BUỘC phải có dán mã tay (desktop không quét), không phải tuỳ chọn.
+- [ ] TTL cho phiên "chờ kết nối" (cả 2 chiều) nên cấu hình ở đâu, mặc định
+      bao lâu? (mục Phase 3, Phase 4)
+- [ ] File nhận về từ 3TReader (Phase 6) có cần tự OCR ngay không, hay chỉ
+      lưu PDF thô vào thư viện?
+- [ ] Thứ tự ưu tiên: làm xong trọn vẹn chiều ScanDoc→3TReader (Phase 0-5)
+      rồi mới sang chiều 3TReader→ScanDoc (Phase 6-7), hay làm song song?
+      Đề xuất: **làm tuần tự**, vì Phase 1 (tách vai trò trong protocol.py)
+      là nền tảng dùng chung cho cả 2 chiều - làm xong + test kỹ 1 chiều
+      trước sẽ an toàn hơn.
