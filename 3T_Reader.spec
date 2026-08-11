@@ -63,6 +63,16 @@ for _package in ('pypdfium2', 'pikepdf', 'pyhanko', 'pyhanko_certvalidator', 'ke
 for _package in ('google.genai', 'huggingface_hub'):
     _merge_collected(_package)
 
+# aiortc (WebRTC cho truyền P2P ScanDoc) chỉ được import ở top-level của
+# packages/transfer/webrtc_transport.py, nhưng module đó tự nó chỉ được
+# packages/transfer/{send,receive}_dialog.py import kiểu lazy (trong hàm,
+# xem app/transfer_send_dialog.py). collect_submodules('packages') phía
+# trên chỉ đảm bảo webrtc_transport.py được đóng gói, không kéo theo
+# aiortc/aioice - xác nhận thực nghiệm: build 1.0.29 thật thiếu hẳn cả 2,
+# dù cryptography/av/pylibsrtp (dependency khác của aiortc) vẫn có mặt.
+for _package in ('aiortc', 'aioice'):
+    _merge_collected(_package)
+
 
 a = Analysis(
     ['main.py'],
