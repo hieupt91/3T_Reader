@@ -233,13 +233,26 @@ hiện đang làm NGƯỢC nguyên tắc (tự tạo phiên thay vì join) nên 
 - [x] ~~Có cần làm song song cho cả luồng NHẬN từ 3TReader gửi SANG ScanDoc
       không~~ → **Đã chốt 11/08/2026: có, áp dụng nguyên tắc "bên nhận tạo
       phiên" đối xứng cho cả 2 chiều** (xem mục 0, 7).
-- [ ] Giữ hay bỏ đường "dán mã thủ công" làm phương án dự phòng cho chiều
-      ScanDoc→3TReader? (mục Phase 2) - lưu ý chiều 3TReader→ScanDoc BẮT
-      BUỘC phải có dán mã tay (desktop không quét), không phải tuỳ chọn.
-- [ ] TTL cho phiên "chờ kết nối" (cả 2 chiều) nên cấu hình ở đâu, mặc định
-      bao lâu? (mục Phase 3, Phase 4)
-- [ ] File nhận về từ 3TReader (Phase 6) có cần tự OCR ngay không, hay chỉ
-      lưu PDF thô vào thư viện?
+- [x] ~~Giữ hay bỏ đường "dán mã thủ công" làm phương án dự phòng cho chiều
+      ScanDoc→3TReader?~~ → **Đã chốt 11/08/2026: GIỮ.** Phase 2 không xoá
+      UI dán mã cũ của `transfer_receive_dialog.py`, chỉ thêm QR làm cách
+      chính, dán mã vẫn còn làm dự phòng.
+- [x] ~~TTL cho phiên "chờ kết nối" nên cấu hình ở đâu?~~ → **Đã chốt
+      11/08/2026: tái dùng nguyên `ttl_seconds` đã có sẵn ở `create_transfer_session`
+      (không thêm field/endpoint mới)** - lý do: (1) VPS đã tự dọn session
+      hết hạn quá 24h (`_cleanup_stale_sessions`, làm từ đợt trước) nên không
+      lo tồn mã rác dù TTL dài hay ngắn; (2) TTL chỉ ảnh hưởng thời gian
+      SỐNG của bản ghi trong DB, không ảnh hưởng tốc độ đường truyền P2P
+      thật (đường truyền là WebRTC trực tiếp giữa 2 thiết bị qua STUN, không
+      qua VPS) - đúng yêu cầu "không ảnh hưởng đường truyền". Mặc định vẫn
+      1h như cấu hình hiện tại của server, bên tạo phiên (giờ có thể là
+      ScanDoc HOẶC 3TReader tuỳ chiều) có thể tự truyền `ttl_seconds` khác
+      nếu muốn, y hệt cơ chế Picker thời hạn đã làm ở `SendToDesktopView.swift`.
+- [x] ~~File nhận về từ 3TReader có cần tự OCR ngay không?~~ → **Đã chốt
+      11/08/2026: KHÔNG tự OCR riêng cho luồng này** - file nhận về xử lý
+      như file thường (thêm vào thư viện, mở bằng app nào tuỳ người dùng
+      chọn) - không thêm logic đặc biệt, tái dùng đúng hành vi import tài
+      liệu đã có sẵn trong app.
 - [ ] Thứ tự ưu tiên: làm xong trọn vẹn chiều ScanDoc→3TReader (Phase 0-5)
       rồi mới sang chiều 3TReader→ScanDoc (Phase 6-7), hay làm song song?
       → **Đã chốt 11/08/2026: làm SONG SONG cả 2 chiều**, không làm tuần tự
