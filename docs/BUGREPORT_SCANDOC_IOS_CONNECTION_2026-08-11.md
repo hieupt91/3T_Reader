@@ -242,6 +242,20 @@ mô tả trong `REVIEW_SCANDOC_IOS_TRANSFER_2026-08-11.md` mục 2 (gửi ngay s
 (mili-giây), không phải sau 85 giây. Retry 5 lần × 300ms (~1.5s) mà báo cáo
 đó mô tả cũng không khớp với khoảng thời gian này.
 
+**Đo lại lần 2 (cùng ngày, ~30 phút sau)** - CÙNG bản TestFlight, kết quả:
+```
+10:22:13.949  WebSocket ScanDoc (iphone) [accepted], connection open
+10:23:31.737  POST .../complete -> 200 OK   (failed)   <- lỗi ở đây
+10:23:38.805  POST .../complete -> 200 OK   (gọi lại lần 2)
+```
+Khoảng cách lần này: **~77.8 giây** (`10:22:13.949` → `10:23:31.737`).
+
+**2 lần đo cho ra số liệu rất gần nhau (77.8s và 85s)** — đây là bằng chứng
+mạnh cho thấy KHÔNG PHẢI mạng chập chờn ngẫu nhiên một lần, mà nhiều khả
+năng đang chờ đúng 1 timeout cố định nào đó trong code (nằm đâu đó trong
+khoảng 75-90 giây) rồi mới báo lỗi - tìm đúng chỗ có con số timeout này
+trong code Swift sẽ khoanh vùng được ngay vị trí lỗi thật.
+
 **Giả thuyết:** ~85 giây gần với tổng của vài timeout cộng lại (ví dụ 45s
 ICE gathering timeout mới thêm + 1 vòng chờ/retry khác ở tầng cao hơn) —
 nghĩa là code đang chờ ở MỘT BƯỚC KHÁC (không phải bước gửi socket ban đầu
