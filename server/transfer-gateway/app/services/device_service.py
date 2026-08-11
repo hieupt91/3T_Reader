@@ -125,3 +125,30 @@ async def resolve_companion_device(db: AsyncSession, v2_token: str) -> Device:
     if device_row.revoked_at is not None:
         raise HTTPException(status_code=403, detail="Thiết bị đã bị thu hồi.")
     return device_row
+
+
+async def resolve_companion_device_for_transfer(db: AsyncSession, v2_token: str) -> Device:
+    """Như resolve_companion_device() nhưng KHÔNG kiểm tra `revoked_at` - chỉ
+    dùng cho các endpoint truyền tài liệu (create/join/resolve transfer-session).
+    Đã chốt với người dùng 11/08/2026: gửi/nhận tài liệu chỉ cần có đúng
+    mã/QR + token đã ký hợp lệ (chứng minh từng kích hoạt bằng key thật) -
+    không cần thiết bị còn "active" trong bảng devices. Tránh race-condition
+    thật đã gặp: token cũ bị revoke đúng lúc app tự kích hoạt lại (self-revoke
+    rồi claim lại token mới) khiến 1 request giữa chừng bị từ chối nhầm dù
+    key vẫn hợp lệ. Danh sách thiết bị/self-revoke vẫn dùng resolve_companion_device()
+    bình thường - việc thu hồi thật vẫn có ý nghĩa ở những chỗ đó."""
+    from .token_service_v2 import TokenV2Error, token_service_v2
+
+    try:
+        payload = token_service_v2.verify(v2_token)
+    except TokenV2Error as exc:
+        raise HTTPException(status_code=401, detail=f"Token V2 không hợp lệ: {exc}") from exc
+
+    device_id = payload.get("device_id")
+    if not device_id:
+        raise HTTPException(status_code=401, detail="Token V2 thiếu device_id.")
+
+    device_row = await get_device(db, uuid.UUID(device_id))
+    if device_row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy thiết bị.")
+    return device_row

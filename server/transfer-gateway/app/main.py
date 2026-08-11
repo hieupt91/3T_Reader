@@ -22,9 +22,16 @@ from .schemas import (
     TransferSessionCreateRequest,
     TransferSessionCreateResponse,
     TransferSessionJoinResponse,
+    TransferSessionResolveRequest,
+    TransferSessionResolveResponse,
 )
 from .services import audit_service, pairing_service, transfer_session_service
-from .services.device_service import get_device, resolve_companion_device, resolve_desktop_device
+from .services.device_service import (
+    get_device,
+    resolve_companion_device,
+    resolve_companion_device_for_transfer,
+    resolve_desktop_device,
+)
 from .services.signaling import SignalingError, signaling_relay, validate_message
 
 _RATE_BUCKETS: dict[tuple[str, str], list[float]] = {}
@@ -90,9 +97,34 @@ async def any_device_auth(
     return await resolve_desktop_device(db, token, x_device_id)
 
 
-async def ws_any_device_auth(db: AsyncSession, token: str, v1_device_id: str | None) -> Device:
+async def transfer_device_auth(
+    db: AsyncSession = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_device_id: str | None = Header(default=None),
+) -> Device:
+    """Như any_device_auth nhưng dùng resolve_companion_device_for_transfer()
+    cho companion (bỏ kiểm tra revoked_at) - chỉ dùng cho 3 endpoint truyền
+    tài liệu (create/join/resolve). Desktop vẫn dùng resolve_desktop_device()
+    như cũ (đã tự re-validate key sống mỗi lần qua license-api, không có
+    race-condition tương tự companion)."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Thiếu Authorization: Bearer <token>.")
+    token = authorization.split(" ", 1)[1].strip()
+
     if token.count(".") == 3 and token.split(".")[2] == "ed2":
-        return await resolve_companion_device(db, token)
+        return await resolve_companion_device_for_transfer(db, token)
+
+    if not x_device_id:
+        raise HTTPException(status_code=401, detail="Thiếu header X-Device-Id (token desktop V1).")
+    return await resolve_desktop_device(db, token, x_device_id)
+
+
+async def ws_any_device_auth(db: AsyncSession, token: str, v1_device_id: str | None) -> Device:
+    """Dùng resolve_companion_device_for_transfer() (bỏ kiểm tra revoked_at)
+    - cùng lý do với transfer_device_auth ở trên, tránh chặn nhầm kết nối
+    signaling giữa chừng 1 phiên truyền đã tạo/join hợp lệ."""
+    if token.count(".") == 3 and token.split(".")[2] == "ed2":
+        return await resolve_companion_device_for_transfer(db, token)
     if not v1_device_id:
         raise HTTPException(status_code=401, detail="Thiếu device_id cho token desktop V1.")
     return await resolve_desktop_device(db, token, v1_device_id)
@@ -285,7 +317,7 @@ async def revoke_self(
 async def create_transfer_session(
     req: TransferSessionCreateRequest,
     db: AsyncSession = Depends(get_db),
-    device: Device = Depends(any_device_auth),
+    device: Device = Depends(transfer_device_auth),
 ) -> TransferSessionCreateResponse:
     correlation_id = str(uuid.uuid4())
     try:
@@ -305,6 +337,23 @@ async def create_transfer_session(
 
 
 @app.post(
+    "/api/v2/transfer-sessions/resolve",
+    response_model=TransferSessionResolveResponse,
+    dependencies=[Depends(rate_dep("transfer_resolve", 20, 60))],
+)
+async def resolve_transfer_session(
+    req: TransferSessionResolveRequest,
+    db: AsyncSession = Depends(get_db),
+    device: Device = Depends(transfer_device_auth),
+) -> TransferSessionResolveResponse:
+    """Đổi mã ngắn 8 ký tự (người dùng gõ tay) -> transfer_session_id thật.
+    QR không cần gọi endpoint này - QR đã mang sẵn transfer_session_id đầy
+    đủ trong payload."""
+    transfer_session_id = await transfer_session_service.resolve_code(db, req.code)
+    return TransferSessionResolveResponse(transfer_session_id=transfer_session_id)
+
+
+@app.post(
     "/api/v2/transfer-sessions/{transfer_session_id}/join",
     response_model=TransferSessionJoinResponse,
     dependencies=[Depends(rate_dep("transfer_join", 20, 60))],
@@ -312,7 +361,7 @@ async def create_transfer_session(
 async def join_transfer_session(
     transfer_session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    device: Device = Depends(any_device_auth),
+    device: Device = Depends(transfer_device_auth),
 ) -> TransferSessionJoinResponse:
     result = await transfer_session_service.join_session(db, device, transfer_session_id)
     return TransferSessionJoinResponse(**result)
@@ -326,7 +375,7 @@ async def complete_transfer_session(
     transfer_session_id: uuid.UUID,
     req: TransferSessionCompleteRequest,
     db: AsyncSession = Depends(get_db),
-    device: Device = Depends(any_device_auth),
+    device: Device = Depends(transfer_device_auth),
 ) -> TransferSessionCompleteResponse:
     correlation_id = str(uuid.uuid4())
     result = await transfer_session_service.complete_session(db, device, transfer_session_id, req.status)

@@ -69,6 +69,12 @@ class TransferSession(Base):
     __tablename__ = "transfer_sessions"
 
     transfer_session_id: Mapped[uuid.UUID] = _uuid_col()
+    # Mã ngắn 8 ký tự để người dùng gõ tay thay vì UUID đầy đủ (quy ước
+    # giống PairingSession.code_hash - không phân biệt hoa/thường, xem
+    # _hash_code() trong transfer_session_service.py). Nullable vì thêm sau
+    # khi bảng đã có data - session cũ (trước bản vá) sẽ có giá trị NULL,
+    # không dùng được đường dán-mã-ngắn nhưng vẫn join bằng UUID bình thường.
+    code_hash: Mapped[str | None] = mapped_column(String, index=True)
     sender_device_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("devices.device_id"), nullable=False)
     receiver_device_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("devices.device_id")

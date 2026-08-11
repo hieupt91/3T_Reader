@@ -64,6 +64,19 @@ class TransferSessionCreateRequest(BaseModel):
 class TransferSessionCreateResponse(BaseModel):
     transfer_session_id: str
     expires_at: datetime
+    # Mã ngắn 8 ký tự (vd "PJG8-PKQC") để người dùng gõ tay thay vì UUID đầy
+    # đủ - trả về plaintext ĐÚNG 1 LẦN lúc tạo (server chỉ lưu hash), giống
+    # cách pairing_session trả `code`. Dùng cùng POST .../resolve để đổi
+    # sang transfer_session_id thật trước khi join.
+    code: str
+
+
+class TransferSessionResolveRequest(BaseModel):
+    code: str
+
+
+class TransferSessionResolveResponse(BaseModel):
+    transfer_session_id: str
 
 
 class TransferSessionJoinRequest(BaseModel):

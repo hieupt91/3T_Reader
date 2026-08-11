@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -9,6 +11,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import Device, TransferSession
+
+# Base32 dễ đọc, bỏ ký tự dễ nhầm (0/O, 1/I/L) - ĐÚNG alphabet đã dùng cho
+# mã ghép nối thiết bị (pairing_service._CODE_ALPHABET) để người dùng chỉ
+# cần nhớ 1 quy ước duy nhất cho mọi loại mã trong app.
+_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
+def _generate_short_code() -> str:
+    raw = os.urandom(8)
+    chars = [_CODE_ALPHABET[b % len(_CODE_ALPHABET)] for b in raw]
+    code = "".join(chars[:8])
+    return f"{code[:4]}-{code[4:]}"
+
+
+def _hash_short_code(code: str) -> str:
+    # Không phân biệt hoa/thường, bỏ dấu gạch ngang trước khi hash - khớp
+    # quy ước _hash_code() bên pairing_service.py.
+    return hashlib.sha256(code.strip().upper().replace("-", "").encode("utf-8")).hexdigest()
 
 
 async def _cleanup_stale_sessions(db: AsyncSession) -> None:
@@ -41,9 +61,11 @@ async def create_session(
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(seconds=effective_ttl)
     manifest = {"file_name": file_name[:255], "file_size": max(0, int(file_size))} if file_name else None
+    plaintext_code = _generate_short_code()
 
     session = TransferSession(
         sender_device_id=sender.device_id,
+        code_hash=_hash_short_code(plaintext_code),
         auth_mode=auth_mode,
         file_manifest_meta=manifest,
         expires_at=expires_at,
@@ -55,7 +77,27 @@ async def create_session(
     return {
         "transfer_session_id": str(session.transfer_session_id),
         "expires_at": expires_at,
+        "code": plaintext_code,
     }
+
+
+async def resolve_code(db: AsyncSession, code: str) -> str:
+    """Đổi mã ngắn 8 ký tự -> transfer_session_id thật, dùng trước khi join
+    khi người dùng gõ tay mã thay vì quét QR (QR đã mang sẵn UUID đầy đủ,
+    không cần bước này). Không kiểm tra license ở đây - việc đó join_session
+    đã làm; resolve chỉ tra cứu."""
+    code_hash = _hash_short_code(code)
+    session = (
+        await db.execute(select(TransferSession).where(TransferSession.code_hash == code_hash))
+    ).scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=404, detail="Mã không đúng hoặc đã hết hạn.")
+
+    now = datetime.now(timezone.utc)
+    if now > session.expires_at or session.status not in ("created", "signaling"):
+        raise HTTPException(status_code=410, detail="Mã đã hết hạn hoặc phiên không còn nhận thiết bị mới.")
+
+    return str(session.transfer_session_id)
 
 
 async def join_session(db: AsyncSession, receiver: Device, transfer_session_id: uuid.UUID) -> dict:

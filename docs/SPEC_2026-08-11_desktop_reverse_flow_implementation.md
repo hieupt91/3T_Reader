@@ -14,6 +14,37 @@ này): `{"v":1,"transfer_session_id":"<uuid>"}` - JSON, field
 `transfer_session_id` bắt buộc, các field khác nếu thêm sẽ bị ScanDoc bỏ
 qua (không lỗi) nhưng đừng đổi tên field có sẵn.
 
+## Cập nhật 11/08/2026 (SAU khi viết bản đầu tài liệu này) - 2 thay đổi backend mới
+
+Đã deploy lên VPS, **team desktop cần biết để dùng đúng** khi code:
+
+1. **Mã ngắn 8 ký tự** (vd `PJG8-PKQC`, cùng alphabet với mã ghép nối thiết
+   bị) - `POST /api/v2/transfer-sessions` giờ trả thêm field `code` trong
+   response (bên cạnh `transfer_session_id`, `expires_at`). ScanDoc hiện
+   `code` này cho người dùng đọc/gõ tay (đường "Tạo mã dự phòng" và "Nhận
+   tài liệu") - **desktop nên dùng đúng `code` này làm mã hiển thị chính**
+   thay vì UUID đầy đủ, để đồng nhất trải nghiệm 2 bên.
+   - Endpoint mới **`POST /api/v2/transfer-sessions/resolve`** - body
+     `{"code": "PJG8-PKQC"}` (không phân biệt hoa/thường, có gạch ngang hay
+     không đều được), trả `{"transfer_session_id": "<uuid>"}` (404 nếu mã
+     sai/hết hạn). **Khi người dùng gõ tay mã 8 ký tự (không phải dán
+     nguyên QR JSON), gọi endpoint này TRƯỚC để lấy `transfer_session_id`
+     thật rồi mới gọi `join_transfer_session`** - `guest_send_file_async()`
+     ở Phần 1b bên dưới cần thêm bước này nếu input là mã ngắn (dùng cùng
+     logic linh hoạt như `_parse_transfer_session_id()` hiện có: thử parse
+     JSON trước, nếu không phải JSON và độ dài ngắn ~9-10 ký tự (có gạch
+     ngang) thì coi là mã ngắn → gọi resolve; nếu là UUID 36 ký tự thì dùng
+     thẳng, không cần resolve).
+
+2. **Bỏ kiểm tra "thiết bị bị thu hồi" cho riêng các endpoint truyền tài
+   liệu** (create/resolve/join/complete transfer-session + WSS signaling) -
+   đã chốt với người dùng: chỉ cần key doanh nghiệp còn hợp lệ (token đã ký
+   hợp lệ, chưa hết hạn ~1 năm) là gửi/nhận được, không cần thiết bị còn
+   "active" trong bảng devices. Việc này **không cần desktop code gì thêm**
+   (đã xử lý hoàn toàn ở backend qua `transfer_device_auth`), chỉ nêu ra để
+   team hiểu là lỗi "thiết bị đã bị thu hồi" sẽ không còn xảy ra ở các
+   endpoint này nữa dù trước đó thiết bị companion có bị revoke tạm thời.
+
 ---
 
 ## Phần 1: `packages/transfer/protocol.py` - 2 hàm mới
