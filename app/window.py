@@ -42,7 +42,7 @@ from app.actions.edit import (
     edit_existing_text,
 )
 from app.actions.free_draw import draw_on_pdf
-from app.actions.navigate import prev_page, next_page, jump_to_page
+from app.actions.navigate import prev_page, next_page, jump_to_page, first_page, last_page
 from app.actions.zoom import zoom_in, zoom_out, apply_zoom, zoom_fit
 from app.actions.brightness import brightness_up, brightness_down, apply_brightness_to_webview
 from styles.theme import toggle_theme, is_dark
@@ -1923,6 +1923,7 @@ class PDFReaderApp(QMainWindow):
         self.menu_recent.aboutToShow.connect(self._refresh_recent_menu)
         menu_file.addSeparator()
         menu_file.addAction(self.act_save)
+        menu_file.addAction(self.act_save_as)
         menu_file.addAction(self.act_print)
         menu_file.addSeparator()
 
@@ -1966,6 +1967,13 @@ class PDFReaderApp(QMainWindow):
         act_goto = menu_nav.addAction("Đến trang...")
         act_goto.setIcon(svg_icon("chevron_right.svg", size=16, color="#9b9bc0"))
         act_goto.triggered.connect(self._focus_page_input)
+        menu_nav.addSeparator()
+        act_first_page = menu_nav.addAction("Trang đầu tiên")
+        act_first_page.setShortcut(QKeySequence("Ctrl+Home"))
+        act_first_page.triggered.connect(lambda: first_page(self))
+        act_last_page = menu_nav.addAction("Trang cuối cùng")
+        act_last_page.setShortcut(QKeySequence("Ctrl+End"))
+        act_last_page.triggered.connect(lambda: last_page(self))
 
         self.menu_view = top_menu("menu_view", self._t("menu.view", "Xem"))
         menu_view = self.menu_view
@@ -1979,6 +1987,7 @@ class PDFReaderApp(QMainWindow):
         menu_view.addAction(self.act_toggle_sidebar_btn)
         menu_view.addAction(self.act_toggle_toc_btn)
         menu_view.addAction(self.act_toggle_annotations_btn)
+        menu_view.addAction(self.act_tts)
         act_toggle_toolbar = self.toolbar.toggleViewAction()
         act_toggle_toolbar.setText("Thanh công cụ")
         act_toggle_toolbar.setShortcut(QKeySequence("Ctrl+B"))
@@ -2123,6 +2132,8 @@ class PDFReaderApp(QMainWindow):
         menu_sign.addSeparator()
         menu_sign.addAction(self.act_check_token)
         menu_sign.addAction(self.act_sign)
+        menu_sign.addAction(self.act_sign_file)
+        menu_sign.addAction(self.act_signature_field)
         menu_sign.addAction(self.act_verify_signature)
 
         self.menu_ocr = top_menu("menu_ocr", self._t("menu.ocr", "OCR"))
@@ -2175,17 +2186,20 @@ class PDFReaderApp(QMainWindow):
         act_transfer_devices.setIcon(svg_icon("device_pairing.svg", size=16, color="#50b8f0"))
         act_transfer_devices.triggered.connect(lambda: self._open_transfer_pairing_dialog())
 
-        # Chuyển tài liệu (Phase 2, packages/transfer/protocol.py) - gửi P2P
-        # qua WebRTC tới thiết bị companion. _open_transfer_send_dialog() tự
-        # kiểm tra key 3TR-E + có tài liệu đang mở trước khi mở dialog.
+        # Chuyển tài liệu (gửi P2P qua WebRTC tới ScanDoc) - từ 11/08/2026
+        # desktop là bên GỬI/dán mã (ScanDoc mới là bên tạo mã/QR khi bấm
+        # "Nhận tài liệu" trên điện thoại - xem transfer_send_dialog.py).
+        # _open_transfer_send_dialog() tự kiểm tra key 3TR-E + có tài liệu
+        # đang mở trước khi mở dialog.
         act_transfer_send = menu_license.addAction("Chuyển tài liệu...")
         act_transfer_send.setIcon(svg_icon("document_send.svg", size=16, color="#50b8f0"))
         act_transfer_send.triggered.connect(lambda: self._open_transfer_send_dialog())
 
-        # Nhận tài liệu (đối xứng "Chuyển tài liệu") - nhận PDF từ thiết bị
-        # companion, dán mã do bên gửi hiển thị vì desktop không quét được
-        # QR trên điện thoại. _open_transfer_receive_dialog() tự kiểm tra
-        # key 3TR-E trước khi mở dialog.
+        # Nhận tài liệu (đối xứng "Chuyển tài liệu") - desktop là bên NHẬN
+        # nên tự tạo phiên + hiện QR/mã ngay khi mở dialog (ScanDoc quét/gõ
+        # mã đó để gửi tới) - xem transfer_receive_dialog.py.
+        # _open_transfer_receive_dialog() tự kiểm tra key 3TR-E trước khi
+        # mở dialog.
         act_transfer_receive = menu_license.addAction("Nhận tài liệu...")
         act_transfer_receive.setIcon(svg_icon("document_send.svg", size=16, color="#50b8f0"))
         act_transfer_receive.triggered.connect(lambda: self._open_transfer_receive_dialog())
