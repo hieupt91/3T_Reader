@@ -52,7 +52,7 @@ from app.actions.annotate import (
     underline_text, strikeout_text, add_comment, enable_note_tools,
     has_pending_annotations,
 )
-from app.actions.pages import merge_pdfs_action, rotate_pages_action, split_pdf_action
+from app.actions.pages import merge_pdfs_action, rotate_pages_action, split_pdf_action, delete_pages_action, insert_blank_page
 from app.actions.sign import (
     check_token,
     create_signature_field,
@@ -2085,6 +2085,16 @@ class PDFReaderApp(QMainWindow):
         act_del_page.triggered.connect(lambda: delete_current_page(self))
         act_del_page.setIcon(svg_icon("delete_page.svg", size=16, color="#e05050"))
 
+        act_del_pages = menu_pages.addAction("Xóa nhiều trang...")
+        act_del_pages.triggered.connect(lambda: delete_pages_action(self))
+        act_del_pages.setIcon(svg_icon("delete_page.svg", size=16, color="#e05050"))
+
+        menu_pages.addSeparator()
+
+        act_insert_blank = menu_pages.addAction("Chèn trang trắng...")
+        act_insert_blank.triggered.connect(lambda: insert_blank_page(self, self.viewer.get_current_page()))
+        act_insert_blank.setIcon(svg_icon("file_plus.svg", size=16, color="#4fc080"))
+
         menu_pages.addSeparator()
 
         act_merge = menu_pages.addAction("Ghép PDF vào cuối...")
@@ -3334,7 +3344,7 @@ class PDFReaderApp(QMainWindow):
         menu.addSeparator()
         
         act_add_page = menu.addAction("📄 Thêm trang trắng phía sau")
-        # act_add_page.triggered.connect(lambda: insert_blank_page(self))
+        act_add_page.triggered.connect(lambda: insert_blank_page(self, viewer.get_current_page()))
 
         menu.exec(viewer.mapToGlobal(pos))
 
