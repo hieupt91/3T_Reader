@@ -218,7 +218,47 @@ nhưng cũng cần sửa vì ảnh hưởng trải nghiệm người dùng thậ
 - **Không phải do sai transfer_session_id/mã:** log REST (`/join` trả
   `200 OK`) xác nhận ScanDoc join đúng phiên trước khi các lỗi trên xảy ra.
 
-## 6. Tham chiếu code phía desktop (không cần sửa gì thêm ở đây)
+## 6. Tái test với bản TestFlight mới (đã có fix từ `docs/REVIEW_SCANDOC_IOS_TRANSFER_2026-08-11.md`)
+
+Sau khi nhận báo cáo rà soát code (`REVIEW_SCANDOC_IOS_TRANSFER_2026-08-11.md`,
+nhánh `phase1-backend`) và team iOS xác nhận đã lên TestFlight, đã test lại
+5 lần liên tiếp (điện thoại xác nhận **đã update** lên bản mới nhất qua
+TestFlight, không phải bản cũ). Kết quả: **vẫn thất bại với đúng thông báo
+"Socket không được kết nối"** — nhưng có 1 khác biệt quan trọng bắt được qua
+log có timestamp chính xác (`docker logs -t`):
+
+```
+09:49:45.835  WebSocket desktop (windows) [accepted], connection open
+09:49:49.001  POST .../join -> 200 OK                              (ScanDoc)
+09:49:49.424  WebSocket ScanDoc (iphone) [accepted], connection open
+09:51:14.269  POST .../complete -> 200 OK   (failed)                <- lỗi ở đây
+09:51:15.915  POST .../complete -> 200 OK   (gọi lại lần 2)
+```
+
+**Khoảng cách từ lúc WebSocket ScanDoc mở đến lúc báo lỗi: ~85 giây**
+(`09:49:49.424` → `09:51:14.269`). Đây là điểm mấu chốt: lỗi "socket race"
+mô tả trong `REVIEW_SCANDOC_IOS_TRANSFER_2026-08-11.md` mục 2 (gửi ngay sau
+`.resume()` chưa chắc bắt tay xong) đáng lẽ phải fail gần như NGAY LẬP TỨC
+(mili-giây), không phải sau 85 giây. Retry 5 lần × 300ms (~1.5s) mà báo cáo
+đó mô tả cũng không khớp với khoảng thời gian này.
+
+**Giả thuyết:** ~85 giây gần với tổng của vài timeout cộng lại (ví dụ 45s
+ICE gathering timeout mới thêm + 1 vòng chờ/retry khác ở tầng cao hơn) —
+nghĩa là code đang chờ ở MỘT BƯỚC KHÁC (không phải bước gửi socket ban đầu
+đã sửa), rồi khi timeout đó hết hạn, code lại ném RA ĐÚNG thông báo "Socket
+không được kết nối" (có thể do dùng chung 1 error type/message cho nhiều
+nguyên nhân khác nhau), gây nhầm lẫn là "vẫn chưa sửa" trong khi thực ra là
+**lỗi khác, ở bước khác, chỉ trùng thông báo hiển thị**.
+
+**Gợi ý điều tra tiếp:** kiểm tra TẤT CẢ các chỗ trong code Swift ném ra
+đúng chuỗi lỗi "Socket không được kết nối" (hoặc message gốc tiếng Anh
+tương ứng) — nếu có nhiều nơi dùng chung 1 message cho các nguyên nhân khác
+nhau (timeout ICE gathering, timeout chờ answer, socket chết thật...), nên
+tách riêng để lần sau có thể phân biệt ngay qua UI thay vì phải đo timestamp
+log server như lần này. Ưu tiên xem đoạn code nào có thể chạy mất ~85 giây
+trước khi ném lỗi - đó là nơi lỗi thật đang xảy ra.
+
+## 7. Tham chiếu code phía desktop (không cần sửa gì thêm ở đây)
 
 - `packages/transfer/webrtc_transport.py` — `host_receive_file_async()` /
   `receive_file()`: vai trò nhận, đã test xác nhận hoạt động đúng.
