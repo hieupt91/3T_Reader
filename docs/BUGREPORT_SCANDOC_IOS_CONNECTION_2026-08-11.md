@@ -256,13 +256,30 @@ năng đang chờ đúng 1 timeout cố định nào đó trong code (nằm đâ
 khoảng 75-90 giây) rồi mới báo lỗi - tìm đúng chỗ có con số timeout này
 trong code Swift sẽ khoanh vùng được ngay vị trí lỗi thật.
 
-**Giả thuyết:** ~85 giây gần với tổng của vài timeout cộng lại (ví dụ 45s
-ICE gathering timeout mới thêm + 1 vòng chờ/retry khác ở tầng cao hơn) —
-nghĩa là code đang chờ ở MỘT BƯỚC KHÁC (không phải bước gửi socket ban đầu
-đã sửa), rồi khi timeout đó hết hạn, code lại ném RA ĐÚNG thông báo "Socket
-không được kết nối" (có thể do dùng chung 1 error type/message cho nhiều
-nguyên nhân khác nhau), gây nhầm lẫn là "vẫn chưa sửa" trong khi thực ra là
-**lỗi khác, ở bước khác, chỉ trùng thông báo hiển thị**.
+**Cập nhật quan trọng (lần test tiếp theo, cùng ngày):** thông báo lỗi trên
+ScanDoc đã đổi, cụ thể hơn hẳn so với các lần trước:
+> Mất kết nối tín hiệu giữa chừng: Không thể hoàn tất tác vụ. Socket không
+> được kết nối.
+
+Phần **"Mất kết nối tín hiệu giữa chừng"** (mới xuất hiện, không có ở các
+lần test trước) là chi tiết mấu chốt — xác nhận trực tiếp giả thuyết ở
+trên: đây **không phải lỗi lúc mới thiết lập kết nối** (đã sửa xong ở lần
+review trước), mà là **WebSocket tín hiệu (signaling) đang hoạt động bình
+thường rồi bị rớt/đóng GIỮA CHỪNG** sau một khoảng thời gian - khớp hoàn
+hảo với mốc thời gian ~78-85 giây đã đo được ở 2 lần trước.
+
+**Giả thuyết chính xác hơn:** rất có thể là **idle/read timeout của chính
+`URLSessionWebSocketTask`** (hoặc tầng network tương đương) - nhiều thư
+viện/OS có giá trị mặc định đóng kết nối WebSocket không hoạt động sau một
+khoảng thời gian cố định (thường trong khoảng 60-120 giây tuỳ cấu hình).
+Nếu `SignalingChannel.swift` không tự gửi ping/keepalive định kỳ trong lúc
+chờ đợi (chờ answer, chờ điều kiện nào đó), kết nối có thể bị hệ thống tự
+đóng dù code Swift không chủ động làm gì. **Gợi ý điều tra ưu tiên**: kiểm
+tra `SignalingChannel.swift` có cơ chế ping/keepalive định kỳ trên
+WebSocket không, và nếu URLSession có cấu hình timeout nào ảnh hưởng tới
+kết nối WebSocket đang mở (`timeoutIntervalForRequest`,
+`timeoutIntervalForResource` hoặc tương đương) - so với con số ~78-85s đo
+được.
 
 **Gợi ý điều tra tiếp:** kiểm tra TẤT CẢ các chỗ trong code Swift ném ra
 đúng chuỗi lỗi "Socket không được kết nối" (hoặc message gốc tiếng Anh
