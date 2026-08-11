@@ -11,6 +11,7 @@ STUN dùng công khai tạm thời (xem SPEC_MOBILE_SCANDOC_TRANSFER.md mục 4.
 """
 
 import asyncio
+import json
 import time
 
 from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSessionDescription
@@ -193,3 +194,69 @@ async def receive_file(
     finally:
         await pc.close()
         await signaling.close()
+
+
+# ── Đảo vai trò tạo phiên (xem docs/PLAN_2026-08-11_reverse_qr_send_flow.md,
+# nhánh phase1-backend) ────────────────────────────────────────────────────
+#
+# send_file()/receive_file() ở trên gắn cứng "ai tạo phiên" với "vai WebRTC +
+# chiều byte" thành đúng 2 tổ hợp: tạo phiên+offerer+đẩy file (send_file),
+# hoặc join+answerer+nhận file (receive_file). Luồng mới (3TReader tự tạo
+# phiên + hiện QR NHƯNG VẪN NHẬN bytes; ScanDoc quét QR + join NHƯNG VẪN GỬI
+# bytes) cần tách "ai tạo phiên" ra khỏi "vai WebRTC" - 2 hàm dưới đây chỉ
+# thêm bước REST tạo/join phiên rồi gọi lại NGUYÊN VẸN send_file()/
+# receive_file() ở trên (không sửa, không viết lại logic WebRTC) cho đúng
+# vai trò ngược lại.
+
+
+async def host_receive_file_async(*, on_progress=None, on_status=None) -> "tuple[str, bytes]":
+    """Vai TẠO PHIÊN (hiện QR) nhưng vẫn NHẬN bytes - dùng cho dialog "Nhận
+    tài liệu" mở lên là tự tạo phiên ngay, không cần dán mã. on_status(stage,
+    data) gọi với stage="created" ngay sau khi có transfer_session_id, data
+    chứa {"transfer_session_id", "qr_payload"} để UI hiện QR trước khi vào
+    receive_file() (vốn có thể block khá lâu chờ offer). Trả (file_name,
+    data) giống hệt receive_file() - caller tự lưu inbox + complete session,
+    không đổi convention hiện có ở transfer_receive_dialog.py."""
+    from .authorization import get_transfer_client
+
+    client = get_transfer_client()
+    token, device_id = client.get_credentials()
+
+    session = client.create_transfer_session("", 0)
+    transfer_session_id = session["transfer_session_id"]
+    # Server hiện không trả qr_payload cho transfer-session (khác
+    # companion-session) - tự dựng đúng format _extract_session_id()/
+    # _parse_transfer_session_id() đã hỗ trợ (xác nhận thực nghiệm với API
+    # thật 11/08/2026: create_transfer_session chỉ trả
+    # {transfer_session_id, expires_at}).
+    qr_payload = json.dumps({"v": 1, "transfer_session_id": transfer_session_id})
+
+    if on_status:
+        on_status("created", {"transfer_session_id": transfer_session_id, "qr_payload": qr_payload})
+
+    signaling = SignalingClient(client.base_url, transfer_session_id, token, device_id)
+    return await receive_file(signaling, on_progress=on_progress)
+
+
+async def guest_send_file_async(
+    transfer_session_id: str,
+    file_path: str,
+    *,
+    credentials: "tuple[str, str] | None" = None,
+    on_progress=None,
+    on_connected=None,
+) -> None:
+    """Vai THAM GIA phiên đã có (quét QR) nhưng vẫn GỬI bytes - đảo ngược
+    send_file() (vốn tự tạo phiên). CHỈ dùng cho script test tự động xác
+    minh giao thức đảo vai - vai "guest gửi" thật trên điện thoại nằm ở
+    Swift/ScanDoc (xem Phase 3 trong kế hoạch), không phải Python này.
+    `credentials` cho phép truyền token thiết bị khác (giả lập 2 thiết bị
+    trong test) thay vì mặc định dùng credentials của máy đang chạy."""
+    from .authorization import get_transfer_client
+
+    client = get_transfer_client()
+    token, device_id = credentials if credentials is not None else client.get_credentials()
+    client.join_transfer_session(transfer_session_id, credentials=credentials)
+
+    signaling = SignalingClient(client.base_url, transfer_session_id, token, device_id)
+    await send_file(signaling, file_path, on_progress=on_progress, on_connected=on_connected)
