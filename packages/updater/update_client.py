@@ -4,15 +4,23 @@ import hashlib
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 
 _TIMEOUT = 15  # seconds
 
-_EMBEDDED_PUBLIC_B64: Optional[str] = None
+# _ED25519_PUBLIC_B64 (số ít) không còn tồn tại trong token_verifier.py -
+# đổi thành list _TRUSTED_ED25519_PUBLIC_KEYS_B64 khi thêm hỗ trợ xoay
+# nhiều key (xem docs/HANDOFF_MULTIKEY_ED25519_2026-08.md), nhưng chỗ này
+# import tên cũ nên luôn rơi vào except, _EMBEDDED_PUBLIC_KEYS_B64 luôn
+# rỗng - _verify_signature() bên dưới luôn cảnh báo "missing embedded
+# public key" và từ chối MỌI bản cập nhật hợp lệ, với MỌI user. Đã xác
+# nhận thực tế qua gọi trực tiếp API /api/v1/update/check: signature
+# server trả về là Ed25519 hợp lệ, chỉ verify phía client bị hỏng.
+_EMBEDDED_PUBLIC_KEYS_B64: list[str] = []
 try:
-    from packages.license_client.token_verifier import _ED25519_PUBLIC_B64  # type: ignore[import]
+    from packages.license_client.token_verifier import _TRUSTED_ED25519_PUBLIC_KEYS_B64  # type: ignore[import]
 
-    _EMBEDDED_PUBLIC_B64 = _ED25519_PUBLIC_B64
+    _EMBEDDED_PUBLIC_KEYS_B64 = list(_TRUSTED_ED25519_PUBLIC_KEYS_B64)
 except Exception:
     pass
 
@@ -71,7 +79,7 @@ def _sha256_file(path: Path) -> str:
 def _verify_signature(manifest_signature: str, manifest_json_bytes: bytes) -> bool:
     import warnings
 
-    if _EMBEDDED_PUBLIC_B64 is None:
+    if not _EMBEDDED_PUBLIC_KEYS_B64:
         warnings.warn(
             "Updater: missing embedded Ed25519 public key; refusing unverified update.",
             stacklevel=2,
@@ -81,15 +89,29 @@ def _verify_signature(manifest_signature: str, manifest_json_bytes: bytes) -> bo
     try:
         import base64
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        from cryptography.exceptions import InvalidSignature
 
-        pub_bytes = base64.b64decode(_EMBEDDED_PUBLIC_B64 + "==")
-        pub_key = Ed25519PublicKey.from_public_bytes(pub_bytes)
         sig_bytes = base64.b64decode(manifest_signature + "==")
-        pub_key.verify(sig_bytes, manifest_json_bytes)
-        return True
     except Exception as exc:
         warnings.warn(f"Updater: invalid manifest signature: {exc}", stacklevel=2)
         return False
+
+    # Thử lần lượt từng key tin cậy (hỗ trợ xoay key, cùng cách
+    # verify_token_offline() làm với license token) - server có thể ký
+    # bằng bất kỳ key nào còn hợp lệ trong danh sách.
+    for key_b64 in _EMBEDDED_PUBLIC_KEYS_B64:
+        try:
+            pub_bytes = base64.b64decode(key_b64 + "==")
+            pub_key = Ed25519PublicKey.from_public_bytes(pub_bytes)
+            pub_key.verify(sig_bytes, manifest_json_bytes)
+            return True
+        except InvalidSignature:
+            continue
+        except Exception:
+            continue
+
+    warnings.warn("Updater: invalid manifest signature (no trusted key matched).", stacklevel=2)
+    return False
 
 
 def check_for_update(
