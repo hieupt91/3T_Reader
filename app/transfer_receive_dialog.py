@@ -47,6 +47,21 @@ def _extract_session_id(raw: str) -> str:
     return text
 
 
+def _is_pairing_qr_payload(raw: str) -> bool:
+    """True nếu user lỡ dán nhầm mã QR ghép nối thiết bị
+    ({"v":1,"pairing_session_id":"..."} từ dialog "Thiết bị ScanDoc") thay
+    vì mã nhận tài liệu - 2 QR trông giống hệt nhau với mắt thường, cần báo
+    lỗi rõ ràng thay vì chỉ nói chung chung "mã không hợp lệ"."""
+    text = raw.strip()
+    if not text.startswith("{"):
+        return False
+    try:
+        data = json.loads(text)
+    except Exception:
+        return False
+    return "pairing_session_id" in data and "transfer_session_id" not in data
+
+
 class ReceiveDocumentDialog(QDialog):
     """Nhận 1 file PDF từ thiết bị companion đã ghép nối với key 3TR-E hiện
     tại, qua mã/QR do phía gửi (điện thoại) cung cấp."""
@@ -135,10 +150,17 @@ class ReceiveDocumentDialog(QDialog):
     def _on_start_clicked(self) -> None:
         if self._receiving:
             return
-        transfer_session_id = _extract_session_id(self._code_input.text())
+        raw_text = self._code_input.text()
+        transfer_session_id = _extract_session_id(raw_text)
         if not transfer_session_id:
             self._restyle(self._status_label, "status_err")
-            self._status_label.setText("Mã không hợp lệ. Dán đúng mã/QR từ ScanDoc.")
+            if _is_pairing_qr_payload(raw_text):
+                self._status_label.setText(
+                    "Đây là mã ghép nối thiết bị (Thiết bị ScanDoc), không phải mã nhận "
+                    "tài liệu. Hãy lấy mã ở màn hình gửi tài liệu trên ScanDoc."
+                )
+            else:
+                self._status_label.setText("Mã không hợp lệ. Dán đúng mã/QR từ ScanDoc.")
             self._status_label.show()
             return
 
@@ -213,10 +235,19 @@ class ReceiveDocumentDialog(QDialog):
         self._restyle(self._status_label, "status_ok")
         self._received_path = result.get("path", "")
         import os
-        self._status_label.setText(f"✓ Đã nhận xong: {os.path.basename(self._received_path)}")
+        file_name = os.path.basename(self._received_path)
+        self._status_label.setText(f"✓ Đã nhận xong: {file_name}")
         self._btn_start.hide()
         if self._received_path.lower().endswith(".pdf"):
             self._btn_open.show()
+
+        # Chỉ đổi label trong dialog là không đủ - nếu cửa sổ "Nhận tài liệu"
+        # không đang là cửa sổ active (user đang làm việc khác), họ sẽ không
+        # biết file đã nhận xong. Bật thêm popup để không bỏ lỡ (port từ
+        # phase1-mac commit e33ac32, xem docs/UPDATE_2026-08-10_transfer_fixes.md).
+        from packages.qt_compat.QtWidgets import QMessageBox
+
+        QMessageBox.information(self, "Nhận tài liệu", f"Đã nhận xong: {file_name}")
 
     def _on_open_clicked(self) -> None:
         parent = self.parent()
