@@ -85,6 +85,42 @@ def _refresh_explorer_icon_cache() -> None:
             )
     except Exception:
         pass
+    # ie4uinit -ClearIconCache chỉ xoá cache icon cỡ LỚN - chế độ "Details"
+    # trong Explorer dùng cache icon cỡ NHỎ riêng (iconcache_*.db trong
+    # %LocalAppData%\Microsoft\Windows\Explorer), không bị xoá theo, nên
+    # icon PDF vẫn hiện cũ ở view Details dù đã đổi app mặc định. Xoá thẳng
+    # các file cache đó rồi restart explorer.exe để buộc build lại từ đầu -
+    # mọi cửa sổ Explorer đang mở sẽ nháy/đóng-mở lại trong chốc lát, chỉ
+    # chấp nhận được vì hàm này CHỈ chạy đúng 1 lần khi phát hiện default
+    # app thật sự đổi thành 3T Reader (xem gate ở refresh_pdf_icon_if_default_changed),
+    # không chạy mỗi lần mở app hay mỗi lần cập nhật phiên bản.
+    try:
+        import glob
+        import subprocess
+        import time as _time
+
+        explorer_dir = os.path.join(
+            os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Explorer"
+        )
+        cache_files = glob.glob(os.path.join(explorer_dir, "iconcache_*.db"))
+        if cache_files:
+            subprocess.run(
+                ["taskkill", "/F", "/IM", "explorer.exe"], timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            _time.sleep(0.5)
+            for f in cache_files:
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
+            subprocess.Popen(
+                [os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "explorer.exe")],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+    except Exception:
+        pass
 
 
 def refresh_pdf_icon_if_default_changed() -> None:
