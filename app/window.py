@@ -853,6 +853,12 @@ class PDFReaderApp(QMainWindow):
         self.g_file.add(make_action_btn(self.act_print,   "In"))
         p0.add_group(self.g_file)
 
+        # Tách riêng khỏi nhóm "Xem" (không liên quan hiển thị) - trước đây
+        # bị gộp chung vào "Giao diện" khiến nhóm đó quá tải.
+        self.g_share = RibbonGroup("Chia sẻ")
+        self.g_share.add(make_action_btn(self.act_transfer_device, "Nhận từ ĐT"))
+        p0.add_group(self.g_share)
+
         self.g_nav = RibbonGroup("Điều hướng")
         self.g_nav.add(make_action_btn(self.act_prev, "Trước"))
         self.g_nav.add(self.page_spin)
@@ -867,39 +873,13 @@ class PDFReaderApp(QMainWindow):
         self.g_zoom.add(make_action_btn(self.act_fit,      "Vừa trang"))
         p0.add_group(self.g_zoom)
 
-        self.g_view = RibbonGroup("Giao diện")
+        # Chỉ giữ 2 nút thật sự thuộc "Xem" (ẩn/hiện panel) - Chủ đề/Ngôn
+        # ngữ/Đọc sách đã chuyển sang tab "Cài đặt" hoặc nhóm riêng phù hợp
+        # hơn (trước đây bị gộp hết vào đây khiến quá nhiều icon không liên
+        # quan nhau).
+        self.g_view = RibbonGroup("Xem")
         self.g_view.add(make_action_btn(self.act_toggle_sidebar_btn, "Thumb"))
         self.g_view.add(make_action_btn(self.act_toggle_toc_btn,     "Mục lục"))
-        self.g_view.add(make_action_btn(self.act_theme_toggle,       "Chủ đề"))
-        self.g_view.add(make_action_btn(self.act_transfer_device,    "Nhận từ ĐT"))
-        self.g_view.add(make_action_btn(self.act_tts,                "Đọc sách"))
-
-        self._lang_toolbar_button = QToolButton(self)
-        self._lang_toolbar_button.setAutoRaise(True)
-        self._lang_toolbar_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        self._lang_toolbar_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._lang_toolbar_button.setIcon(svg_icon("language.svg", size=28, color=_ic("language.svg")))
-        self._lang_toolbar_button.setText(self._t("menu.language", "Ngôn ngữ"))
-        self._lang_toolbar_button.setToolTip(self._t("menu.language", "Ngôn ngữ"))
-        lang_menu = QMenu(self._lang_toolbar_button)
-        self._lang_toolbar_button.setMenu(lang_menu)
-        self.act_lang_vi_tb = lang_menu.addAction(self._t("lang.vietnamese", "Tiếng Việt"))
-        self.act_lang_en_tb = lang_menu.addAction(self._t("lang.english", "English"))
-        self.act_lang_fr_tb = lang_menu.addAction(self._t("lang.french", "Français"))
-        self.act_lang_zh_tb = lang_menu.addAction(self._t("lang.chinese", "中文"))
-        self.act_lang_ko_tb = lang_menu.addAction(self._t("lang.korean", "한국어"))
-        self.act_lang_th_tb = lang_menu.addAction(self._t("lang.thai", "ไทย"))
-        lang_menu.addSeparator()
-        self.act_lang_refresh_tb = lang_menu.addAction(self._t("lang.download", "Tải gói ngôn ngữ..."))
-        self.act_lang_vi_tb.triggered.connect(lambda: self._set_language("vi"))
-        self.act_lang_en_tb.triggered.connect(lambda: self._set_language("en"))
-        self.act_lang_fr_tb.triggered.connect(lambda: self._set_language("fr"))
-        self.act_lang_zh_tb.triggered.connect(lambda: self._set_language("zh"))
-        self.act_lang_ko_tb.triggered.connect(lambda: self._set_language("ko"))
-        self.act_lang_th_tb.triggered.connect(lambda: self._set_language("th"))
-        self.act_lang_refresh_tb.triggered.connect(lambda: self._refresh_language_pack())
-        self._ensure_action_tooltips(lang_menu)
-        self.g_view.add(self._lang_toolbar_button)
         p0.add_group(self.g_view, add_sep=False)
         p0.add_stretch()
 
@@ -1075,6 +1055,48 @@ class PDFReaderApp(QMainWindow):
         self.act_signature_field = self._act_field
 
         self.ribbon.add_tab(self._t("tab.sign", "Ký số"), p5)
+
+        # ─── Tab 6: Cài đặt ───────────────────────────────────────────────
+        # Gom các nút thuần "cài đặt/tuỳ chỉnh" (chủ đề, ngôn ngữ) tách khỏi
+        # nhóm "Xem" cũ - trước đây bị nhét chung khiến 1 nhóm có quá nhiều
+        # icon không cùng chủ đề (view toggle lẫn settings lẫn tính năng).
+        p6 = RibbonPanel()
+
+        self.g_appearance = RibbonGroup("Giao diện")
+        self.g_appearance.add(make_action_btn(self.act_theme_toggle, "Chủ đề"))
+        p6.add_group(self.g_appearance)
+
+        self.g_lang = RibbonGroup("Ngôn ngữ")
+        self._lang_toolbar_button = QToolButton(self)
+        self._lang_toolbar_button.setAutoRaise(True)
+        self._lang_toolbar_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        self._lang_toolbar_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._lang_toolbar_button.setIcon(svg_icon("language.svg", size=28, color=_ic("language.svg")))
+        self._lang_toolbar_button.setText(self._t("menu.language", "Ngôn ngữ"))
+        self._lang_toolbar_button.setToolTip(self._t("menu.language", "Ngôn ngữ"))
+        lang_menu = QMenu(self._lang_toolbar_button)
+        self._lang_toolbar_button.setMenu(lang_menu)
+        self.act_lang_vi_tb = lang_menu.addAction(self._t("lang.vietnamese", "Tiếng Việt"))
+        self.act_lang_en_tb = lang_menu.addAction(self._t("lang.english", "English"))
+        self.act_lang_fr_tb = lang_menu.addAction(self._t("lang.french", "Français"))
+        self.act_lang_zh_tb = lang_menu.addAction(self._t("lang.chinese", "中文"))
+        self.act_lang_ko_tb = lang_menu.addAction(self._t("lang.korean", "한국어"))
+        self.act_lang_th_tb = lang_menu.addAction(self._t("lang.thai", "ไทย"))
+        lang_menu.addSeparator()
+        self.act_lang_refresh_tb = lang_menu.addAction(self._t("lang.download", "Tải gói ngôn ngữ..."))
+        self.act_lang_vi_tb.triggered.connect(lambda: self._set_language("vi"))
+        self.act_lang_en_tb.triggered.connect(lambda: self._set_language("en"))
+        self.act_lang_fr_tb.triggered.connect(lambda: self._set_language("fr"))
+        self.act_lang_zh_tb.triggered.connect(lambda: self._set_language("zh"))
+        self.act_lang_ko_tb.triggered.connect(lambda: self._set_language("ko"))
+        self.act_lang_th_tb.triggered.connect(lambda: self._set_language("th"))
+        self.act_lang_refresh_tb.triggered.connect(lambda: self._refresh_language_pack())
+        self._ensure_action_tooltips(lang_menu)
+        self.g_lang.add(self._lang_toolbar_button)
+        p6.add_group(self.g_lang, add_sep=False)
+        p6.add_stretch()
+
+        self.ribbon.add_tab(self._t("tab.settings", "Cài đặt"), p6)
 
         # ── Thêm ribbon vào toolbar ───────────────────────────────────────
         self.ribbon.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
