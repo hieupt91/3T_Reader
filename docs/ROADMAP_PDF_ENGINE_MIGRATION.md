@@ -14,6 +14,14 @@
 | `app/actions/edit.py::_page_is_scan_text` | Đang dùng thật — phát hiện trang là scan (font "glyphless") hay PDF vector thường |
 | `packages/pdf_engine/pymupdf_engine.py` | Chỉ chạy nếu set `THREET_READER_PDF_ENGINE=pymupdf` — không dùng trong production (engine mặc định là `pypdfium2`), nhưng vẫn tồn tại trong code và trong khai báo `pyproject.toml` (`legacy-pymupdf`) |
 
+## Vì sao đây không chỉ là việc "vá 2 hàm cho hết AGPL"
+
+**Làm rõ trước để khỏi hiểu nhầm phạm vi rủi ro:** hiển thị/render trang PDF hiện tại **không** đi qua PyMuPDF — dùng `pypdfium2` (`packages/pdf_engine/pdfium_engine.py`, engine mặc định), license permissive, an toàn. AGPL chỉ đang dính ở đúng 2 hàm phân tích span/font trong `edit.py`, không phải toàn bộ pipeline hiển thị.
+
+Nhưng **năng lực đang cần xây lại** (đọc từng ký tự trong PDF kèm toạ độ chính xác, font, size, màu, rồi gộp thành "span"/"đoạn văn bản có định dạng đồng nhất") lại là **hạ tầng nền** cho rất nhiều tính năng khác ngoài "Sửa text gốc" — tìm kiếm chính xác theo vị trí, chọn văn bản, OCR-align, highlight/underline/strikeout đặt đúng baseline, xuất Word/Excel giữ định dạng, và cả các tính năng chỉnh sửa tương lai chưa làm. Nếu chỉ vá tạm 2 hàm cho xong việc trước mắt, nhiều khả năng vài tháng nữa lại phải viết lại năng lực tương tự ở chỗ khác.
+
+→ **Nên làm Giai đoạn 2 như xây 1 module dùng chung** (vd `packages/pdf_engine/text_layout.py` hay tương tự) — API rõ ràng (`get_spans(page) -> list[Span]` với `Span` có bbox/font/size/color), để `edit.py` và các tính năng sau này đều gọi qua module này, thay vì mỗi chỗ tự viết lại logic đọc span riêng.
+
 ## Lưu ý quan trọng — KHÔNG "đọc code MuPDF/PyMuPDF rồi viết lại"
 
 Luật bản quyền bảo vệ cách triển khai cụ thể (thuật toán/cấu trúc/logic), không chỉ ý tưởng chức năng. Đọc source AGPL rồi viết lại theo đúng logic đó — dù đổi tên biến, đổi ngôn ngữ — vẫn có thể bị coi là **derivative work**, vẫn dính AGPL. Cách hợp pháp duy nhất để "viết lại độc lập" là **clean-room reverse engineering** (1 đội đọc code gốc chỉ viết ra đặc tả chức năng, đội thứ 2 chưa từng thấy code gốc chỉ dựa vào đặc tả để viết code mới) — không áp dụng quy trình này thì không nên tự tin là đã "sạch".
