@@ -2836,15 +2836,37 @@ class _RotatePageRelay(QObject):
             show_warning(self._window, "Lỗi xoay trang", str(error))
             return
 
-        if _is_temp_converted_document(self._window, self._path):
-            from app.actions._pdf_save import reload_document
-            state = self._window._active_state() if hasattr(self._window, "_active_state") else None
-            display_path = state.get("display_path") if state else self._path
-            reload_document(self._window, tmp, page=max(1, self._page_no),
-                            display_path=display_path, temp_path=tmp, soft_reload=True)
-        else:
-            replace_document_with_staged(self._window, tmp, target_path=self._path,
-                                         page=max(1, self._page_no), soft_reload=True)
+        # replace_document_with_staged()/reload_document() do disk I/O (file
+        # replace, retried up to 15x - see replace_file_with_retry) that can
+        # still fail if something else keeps a lock on the target past all
+        # retries (antivirus/indexer scan on a freshly-written multi-hundred-
+        # MB file, seen live on 2026-08-13 QA). This runs inside a Qt slot
+        # (pyqtSlot) - an exception escaping here previously crashed the
+        # whole process (Fatal Python error: Aborted) instead of just failing
+        # this one rotate, because PySide6 aborts on an uncaught exception
+        # unwinding through the C++/Qt call boundary. Catch and report like
+        # the worker-side `error is not None` branch above instead.
+        try:
+            if _is_temp_converted_document(self._window, self._path):
+                from app.actions._pdf_save import reload_document
+                state = self._window._active_state() if hasattr(self._window, "_active_state") else None
+                display_path = state.get("display_path") if state else self._path
+                reload_document(self._window, tmp, page=max(1, self._page_no),
+                                display_path=display_path, temp_path=tmp, soft_reload=True)
+            else:
+                replace_document_with_staged(self._window, tmp, target_path=self._path,
+                                             page=max(1, self._page_no), soft_reload=True)
+        except Exception as exc:
+            remove_path_quietly(tmp)
+            show_warning(
+                self._window,
+                "Lỗi xoay trang",
+                "Không ghi được trang đã xoay xuống đĩa (file có thể đang bị "
+                "phần mềm khác khóa tạm thời, vd quét virus). Trang chưa bị "
+                "thay đổi trên đĩa - hãy thử xoay lại.\n\n"
+                f"Chi tiết kỹ thuật: {exc}",
+            )
+            return
 
         if hasattr(self._window, "status"):
             direction = "thuận chiều kim đồng hồ" if self._degrees > 0 else "ngược chiều kim đồng hồ"
