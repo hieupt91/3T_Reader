@@ -134,6 +134,9 @@ STYLESHEET = """
         background: transparent;
         border: none;
     }
+    QDialog#AppMessageDialog QLabel#DialogTitle {
+        padding-top: 1px;
+    }
     QDialog#AppMessageDialog QLabel#DialogMessage {
         background-color: #171723;
         color: #ececff;
@@ -149,14 +152,23 @@ STYLESHEET = """
         border-radius: 8px;
         padding: 8px 24px;
         font-size: 13px;
-        min-width: 120px;
+        min-width: 100px;
         min-height: 34px;
-    }
-    QDialog#AppMessageDialog QPushButton#DialogAccept:hover {
-        background-color: #7d75ff;
     }
     QDialog#AppMessageDialog QPushButton#DialogAccept:focus {
         border: 1px solid #9a94ff;
+    }
+    QDialog#AppMessageDialog QPushButton#DialogSecondary {
+        background-color: transparent;
+        color: #d6d6ea;
+        border-radius: 8px;
+        padding: 8px 20px;
+        font-size: 13px;
+        min-width: 90px;
+        min-height: 34px;
+    }
+    QDialog#AppMessageDialog QPushButton#DialogSecondary:hover {
+        background-color: #1f1f2e;
     }
     QFrame#SearchPanel {
         background-color: rgba(19, 19, 30, 0.96);
@@ -345,6 +357,50 @@ LIGHT_STYLESHEET = """
         min-width: 80px; min-height: 34px;
     }
     QMessageBox QPushButton:hover { background-color: #7d75ff; }
+    QDialog#AppMessageDialog {
+        background-color: #ffffff;
+        border: 1px solid #dcdcec;
+        border-radius: 12px;
+    }
+    QDialog#AppMessageDialog QLabel#DialogIcon {
+        padding-top: 2px;
+    }
+    QDialog#AppMessageDialog QScrollArea#DialogScroll {
+        background: transparent;
+        border: none;
+    }
+    QDialog#AppMessageDialog QLabel#DialogTitle {
+        padding-top: 1px;
+    }
+    QDialog#AppMessageDialog QLabel#DialogMessage {
+        background-color: #f5f5fa;
+        color: #2c2c4a;
+        border: 1px solid #e2e2ef;
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 13px;
+    }
+    QDialog#AppMessageDialog QPushButton#DialogAccept {
+        color: #ffffff;
+        border: none;
+        border-radius: 8px;
+        padding: 8px 24px;
+        font-size: 13px;
+        min-width: 100px;
+        min-height: 34px;
+    }
+    QDialog#AppMessageDialog QPushButton#DialogSecondary {
+        background-color: transparent;
+        color: #2c2c4a;
+        border-radius: 8px;
+        padding: 8px 20px;
+        font-size: 13px;
+        min-width: 90px;
+        min-height: 34px;
+    }
+    QDialog#AppMessageDialog QPushButton#DialogSecondary:hover {
+        background-color: #ebebf5;
+    }
     QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
     QScrollBar::handle:vertical { background-color: #c8c8dc; border-radius: 3px; min-height: 40px; }
     QScrollBar::handle:vertical:hover { background-color: #6c63ff; }
