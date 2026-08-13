@@ -95,6 +95,13 @@ def _save_pikepdf_reload(window, pdf: pikepdf.Pdf, *, keep_page: bool = True):
         replace_document_with_staged(window, staged_path, target_path=target_path, keep_page=keep_page, soft_reload=False)
 
 
+# Số lần retry tự động tối đa khi flush chú thích lỗi (vd file bị đặt
+# read-only, ổ đĩa chỉ đọc) trước khi DỪNG HẲN và báo lỗi rõ ràng thay vì
+# lặp lại vô thời hạn (mỗi 1.2s) - lỗi này từng chạy ngầm vô hạn, không
+# bao giờ tự hết dù nguyên nhân không tự khỏi được (QA 2026-08-13).
+_MAX_FLUSH_RETRIES = 5
+
+
 class _AnnotationOpQueue(QObject):
     def __init__(self, window):
         super().__init__(window)
@@ -104,6 +111,7 @@ class _AnnotationOpQueue(QObject):
         self._flushing_target: str | None = None
         self._flushing_has_user = False
         self._last_error = ""
+        self._fail_count = 0
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.flush)
@@ -111,6 +119,7 @@ class _AnnotationOpQueue(QObject):
     def enqueue(self, target_path: str, op, *, delay_ms: int = 350, is_user_edit: bool = True) -> None:
         self._pending.append((os.path.abspath(target_path), op, is_user_edit))
         self._last_error = ""
+        self._fail_count = 0
         
         from packages.qt_compat.QtCore import QSettings
         auto_save = str(QSettings().value("3TReader/auto_save", "true")).lower() == "true"
@@ -232,6 +241,21 @@ class _AnnotationOpQueue(QObject):
             remove_path_quietly(staged_path)
             self._pending = same_target + self._pending
             self._last_error = str(exc)
+            self._fail_count += 1
+            if self._fail_count >= _MAX_FLUSH_RETRIES:
+                if hasattr(self._window, "status"):
+                    self._window.status.showMessage("Không thể lưu chú thích tự động — xem thông báo.", 4000)
+                show_warning(
+                    self._window,
+                    "Không thể lưu chú thích",
+                    "Đã thử lưu chú thích nhiều lần nhưng không thành công (file có thể "
+                    "đang chỉ đọc, bị khóa bởi ứng dụng khác, hoặc không còn quyền ghi).\n\n"
+                    "Thay đổi vẫn được giữ trong phiên làm việc này nhưng KHÔNG tự động "
+                    "lưu nữa. Hãy dùng \"Lưu mới\" để lưu sang vị trí khác, hoặc sửa quyền "
+                    "ghi của file rồi bấm Lưu lại.\n\n"
+                    f"Lỗi gần nhất: {exc}",
+                )
+                return False
             if hasattr(self._window, "status"):
                 self._window.status.showMessage(f"Chưa lưu được chú thích, sẽ thử lại: {exc}", 3500)
             self._timer.start(1200)
@@ -241,6 +265,7 @@ class _AnnotationOpQueue(QObject):
             self._flushing_target = None
             self._flushing_has_user = False
 
+        self._fail_count = 0
         if self._pending:
             self._timer.start(50)
         return True

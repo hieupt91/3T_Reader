@@ -158,7 +158,14 @@ def _prepare_pdf_source(window, path: str):
     try:
         doc = get_pdf_engine().open(path)
     except Exception as e:
-        show_warning(window, "Không mở được tệp", str(e))
+        show_warning(
+            window,
+            "Không mở được tệp",
+            "Không đọc được nội dung file PDF này — file có thể bị hỏng, tải chưa "
+            "xong, hoặc không đúng định dạng PDF. Hãy thử tải lại file hoặc dùng "
+            "một file khác.\n\n"
+            f"Chi tiết kỹ thuật: {e}",
+        )
         return None
 
     try:
