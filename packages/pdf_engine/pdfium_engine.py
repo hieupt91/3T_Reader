@@ -233,6 +233,23 @@ class PdfiumEngine:
                     continue
 
                 with pikepdf.Pdf.open(io.BytesIO(overlay_bytes)) as overlay_pdf:
+                    # pikepdf.Page.add_overlay() bakes in a compensating rotation
+                    # whenever the overlay page's own /Rotate differs from the
+                    # target page's CURRENT /Rotate, to make the overlay look
+                    # "upright" as displayed right now. That compensation gets
+                    # written permanently into the merged content stream, so it
+                    # only stays correct for the /Rotate value present at THIS
+                    # merge - any later rotate of the page (a separate, plain
+                    # /Rotate increment - see rotate_pages() above) then rotates
+                    # this already-compensated content on top, drifting it out
+                    # of sync with the rest of the page (verified empirically:
+                    # inserted image/text landed in the wrong spot after a 2nd
+                    # rotate, QA 2026-08-13, B16). Setting the overlay page's
+                    # /Rotate to match the target's current value before the
+                    # merge makes add_overlay see no mismatch, so it applies no
+                    # compensation - the inserted content then behaves exactly
+                    # like ordinary page content under any further rotation.
+                    overlay_pdf.pages[0]["/Rotate"] = int(page.get("/Rotate", 0))
                     page.add_overlay(overlay_pdf.pages[0])
 
             pdf.save(output_path)
