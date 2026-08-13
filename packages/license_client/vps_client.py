@@ -22,6 +22,9 @@ _USE_KEYCHAIN = platform.system() == "Darwin"
 _USE_CREDENTIAL_MANAGER = platform.system() == "Windows"
 _DEFAULT_GRACE_DAYS = 7
 _MAX_GRACE_DAYS = 30
+_LEGACY_CREDENTIAL_CANDIDATES = (
+    {"service_name": "3T Reader License", "username": "3t-reader"},
+)
 
 _session = None
 _session_lock = threading.Lock()
@@ -111,34 +114,70 @@ class VpsLicenseClient:
     def _load_cache(self) -> dict:
         if _USE_KEYCHAIN:
             data = keychain_load()
-            if data:
+            if data and data.get("token"):
                 return data
         elif _USE_CREDENTIAL_MANAGER:
             data = credential_manager_load()
-            if data:
+            if data and data.get("token"):
                 return data
+            for candidate in _LEGACY_CREDENTIAL_CANDIDATES:
+                data = credential_manager_load(**candidate)
+                if data and data.get("token"):
+                    try:
+                        credential_manager_save(data)
+                    except Exception:
+                        pass
+                    return data
+
+        data = self._load_file_cache()
+        if data and data.get("token"):
+            try:
+                self._save_secure_cache(data)
+            except Exception:
+                pass
+            return data
+        return data or {}
+
+    def _load_file_cache(self) -> dict:
         try:
-            return json.loads(self._cache.read_text(encoding="utf-8"))
+            data = json.loads(self._cache.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
         except Exception:
             return {}
 
-    def _save_cache(self, data: dict) -> None:
+    def _save_file_cache(self, data: dict) -> bool:
+        try:
+            self._cache.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._cache.with_suffix(self._cache.suffix + ".tmp")
+            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            tmp.replace(self._cache)
+            return True
+        except Exception:
+            return False
+
+    def _save_secure_cache(self, data: dict) -> bool:
         if _USE_KEYCHAIN:
-            if keychain_save(data):
-                return
-        elif _USE_CREDENTIAL_MANAGER:
-            if credential_manager_save(data):
-                return
-        self._cache.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._cache.with_suffix(self._cache.suffix + ".tmp")
-        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        tmp.replace(self._cache)
+            return bool(keychain_save(data))
+        if _USE_CREDENTIAL_MANAGER:
+            return bool(credential_manager_save(data))
+        return False
+
+    def _save_cache(self, data: dict) -> None:
+        secure_ok = self._save_secure_cache(data)
+        file_ok = self._save_file_cache(data)
+        if not secure_ok and not file_ok:
+            raise RuntimeError("Khong luu duoc cache license.")
 
     def _clear_cache(self) -> None:
         if _USE_KEYCHAIN:
             keychain_delete()
         elif _USE_CREDENTIAL_MANAGER:
             credential_manager_delete()
+            for candidate in _LEGACY_CREDENTIAL_CANDIDATES:
+                try:
+                    credential_manager_delete(**candidate)
+                except Exception:
+                    pass
         self._cache.unlink(missing_ok=True)
 
     def _verify_offline(self, cache: dict) -> LicenseStatus | None:

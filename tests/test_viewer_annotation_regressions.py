@@ -149,7 +149,7 @@ def test_tc42_strict_selection_does_not_search_duplicate_text(monkeypatch):
     monkeypatch.setattr(
         annotate,
         "_search_text_on_page",
-        lambda _path, _page, _text: [(10, 20, 30, 40), (50, 20, 70, 40), (90, 20, 110, 40)],
+        lambda _path, _page, _text: [(10, 20, 30, 40), (100, 20, 120, 40), (190, 20, 210, 40)],
     )
 
     strict_payload = annotate._get_selection_payload_sync(

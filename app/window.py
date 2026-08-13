@@ -513,9 +513,88 @@ class PDFReaderApp(QMainWindow):
     #  Open document                                                       #
     # ------------------------------------------------------------------ #
 
+    def _normalized_document_path(self, path: str | None) -> str | None:
+        if not path:
+            return None
+        try:
+            return os.path.normcase(os.path.abspath(str(path)))
+        except OSError:
+            return None
+
+    def _find_open_document_tab(self, path: str | None):
+        target = self._normalized_document_path(path)
+        if not target:
+            return None, -1
+        for tab, state in list(self._tabs_data.items()):
+            if not isinstance(state, dict):
+                continue
+            candidates = (
+                state.get("source_path"),
+                state.get("display_path"),
+                state.get("chat_identity_path"),
+            )
+            if any(self._normalized_document_path(candidate) == target for candidate in candidates if candidate):
+                return tab, self.tab_widget.indexOf(tab)
+        return None, -1
+
+    def _has_other_large_document_open(self, path: str, *, threshold_bytes: int = 512 * 1024 * 1024) -> bool:
+        target = self._normalized_document_path(path)
+        if not target:
+            return False
+        for state in list(self._tabs_data.values()):
+            if not isinstance(state, dict):
+                continue
+            for key in ("source_path", "display_path"):
+                candidate = state.get(key)
+                if not candidate or self._normalized_document_path(candidate) == target:
+                    continue
+                try:
+                    if os.path.isfile(candidate) and os.path.getsize(candidate) >= threshold_bytes:
+                        return True
+                except OSError:
+                    continue
+        return False
+
     def open_document(self, source_path: str, *, display_path: str | None = None, temp_path: str | None = None) -> bool:
         if not source_path:
             return False
+
+        for path in (source_path, display_path):
+            _tab, existing_index = self._find_open_document_tab(path)
+            if existing_index >= 0:
+                if temp_path and os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except OSError:
+                        pass
+                self._remove_welcome_tab()
+                self.tab_widget.setCurrentIndex(existing_index)
+                self._update_tab_bar_visibility()
+                title = os.path.basename(display_path or source_path)
+                self.status.showMessage(f"Tệp đã mở sẵn: {title}", 3000)
+                return True
+
+        try:
+            is_large_pdf = os.path.getsize(source_path) >= 512 * 1024 * 1024
+        except OSError:
+            is_large_pdf = False
+        if is_large_pdf and self._has_other_large_document_open(source_path):
+            from app.dialogs import ask_yes_no
+
+            reply = ask_yes_no(
+                self,
+                "Tài liệu rất lớn",
+                "Đang có tài liệu PDF rất lớn khác đang mở. Mở thêm file rất lớn cùng lúc "
+                "có thể làm Windows/Qt WebEngine dùng nhiều RAM và sập ứng dụng.\n\n"
+                "Bạn vẫn muốn mở tiếp?",
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                if temp_path and os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except OSError:
+                        pass
+                return False
 
         tab    = QWidget()
         layout = QVBoxLayout(tab)
@@ -811,11 +890,6 @@ class PDFReaderApp(QMainWindow):
         self.page_spin.setFixedWidth(62)
         self.page_spin.setToolTip("Nhập số trang rồi Enter")
         self.page_spin.editingFinished.connect(lambda: jump_to_page(self))
-        self.page_spin.setStyleSheet(
-            "QSpinBox{background:#1C1C36;color:#E0E8FF;border:1px solid #3A3A60;"
-            "border-radius:5px;padding:2px 4px;font-size:12px;}"
-            "QSpinBox::up-button,QSpinBox::down-button{width:0;}"
-        )
 
         self.total_label = QLabel(" / -")
         self.total_label.setStyleSheet("color:#7070A8;font-size:12px;padding-right:6px;")
@@ -828,11 +902,12 @@ class PDFReaderApp(QMainWindow):
         self.zoom_spin.setToolTip("Zoom — double-click để về 100%")
         self.zoom_spin.editingFinished.connect(lambda: apply_zoom(self))
         self.zoom_spin.installEventFilter(self)
-        self.zoom_spin.setStyleSheet(
-            "QSpinBox{background:#1C1C36;color:#E0E8FF;border:1px solid #3A3A60;"
-            "border-radius:5px;padding:2px 4px;font-size:12px;}"
-            "QSpinBox::up-button,QSpinBox::down-button{width:0;}"
-        )
+
+        # page_spin/zoom_spin trước đây có màu tối cứng (setStyleSheet 1
+        # lần lúc khởi tạo) - không đổi theo _toggle_theme() như mọi widget
+        # khác, nên bị "kẹt" màu tối kể cả khi app đang ở chế độ sáng. Áp
+        # style theo đúng theme hiện tại, gọi lại mỗi lần đổi theme.
+        self._apply_spinbox_theme()
 
         # ── Xây dựng Ribbon ──────────────────────────────────────────────
         from app.ribbon_bar import RibbonBar, RibbonPanel, RibbonGroup, make_action_btn, make_ribbon_btn
@@ -1094,6 +1169,34 @@ class PDFReaderApp(QMainWindow):
         self._ensure_action_tooltips(lang_menu)
         self.g_lang.add(self._lang_toolbar_button)
         p6.add_group(self.g_lang, add_sep=False)
+
+        self.g_license = RibbonGroup("Key")
+        self._act_license_check = make("Kiểm tra key", "usb.svg", "Kích hoạt / kiểm tra key license (Ctrl+Shift+L)", None, lambda: self._open_license_dialog())
+        self.g_license.add(make_action_btn(self._act_license_check, "Kiểm tra key"))
+        p6.add_group(self.g_license)
+
+        self.g_help = RibbonGroup("Trợ giúp")
+        self._help_toolbar_button = QToolButton(self)
+        self._help_toolbar_button.setAutoRaise(True)
+        self._help_toolbar_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        self._help_toolbar_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._help_toolbar_button.setIcon(svg_icon("history.svg", size=28, color=_ic("history.svg")))
+        self._help_toolbar_button.setText("Trợ giúp")
+        self._help_toolbar_button.setToolTip("Trợ giúp")
+        help_menu = QMenu(self._help_toolbar_button)
+        self._help_toolbar_button.setMenu(help_menu)
+        act_help_shortcuts = help_menu.addAction("Xem phím tắt")
+        act_help_shortcuts.triggered.connect(self._show_shortcuts_hint)
+        act_help_update = help_menu.addAction("Kiểm tra cập nhật...")
+        act_help_update.triggered.connect(self._check_for_update)
+        act_help_audit = help_menu.addAction("Nhật ký hoạt động...")
+        act_help_audit.triggered.connect(self._show_audit_log)
+        help_menu.addSeparator()
+        act_help_about = help_menu.addAction("Giới thiệu 3T Reader...")
+        act_help_about.triggered.connect(self._show_about)
+        self._ensure_action_tooltips(help_menu)
+        self.g_help.add(self._help_toolbar_button)
+        p6.add_group(self.g_help, add_sep=False)
         p6.add_stretch()
 
         self.ribbon.add_tab(self._t("tab.settings", "Cài đặt"), p6)
@@ -2938,10 +3041,12 @@ class PDFReaderApp(QMainWindow):
             self.ribbon.set_tab_text(3, self._t("tab.security_export", "Bảo mật & Xuất"))
             self.ribbon.set_tab_text(4, self._t("tab.ocr_ai", "OCR & AI"))
             self.ribbon.set_tab_text(5, self._t("tab.sign", "Ký số"))
+            self.ribbon.set_tab_text(6, self._t("tab.settings", "Cài đặt"))
 
         # ── Ribbon Group labels ────────────────────────────────────────────
         for attr, key, fb in [
             ("g_file",    "group.file",      "Tệp"),
+            ("g_share",   "group.share",     "Chia sẻ"),
             ("g_nav",     "group.navigate",  "Điều hướng"),
             ("g_zoom",    "group.zoom",      "Thu phóng"),
             ("g_view",    "group.view",      "Giao diện"),
@@ -3623,10 +3728,30 @@ class PDFReaderApp(QMainWindow):
         if hasattr(self, "status"):
             self.status.showMessage("Đã đổi màu tô sáng.", 1800)
 
+    def _apply_spinbox_theme(self):
+        """page_spin/zoom_spin dùng style riêng (ẩn nút mũi tên lên/xuống
+        để gọn trong ribbon) nên không tự ăn theo QSS toàn app - phải tự
+        set lại đúng bảng màu theo theme hiện tại."""
+        if is_dark():
+            style = (
+                "QSpinBox{background:#1C1C36;color:#E0E8FF;border:1px solid #3A3A60;"
+                "border-radius:5px;padding:2px 4px;font-size:12px;}"
+                "QSpinBox::up-button,QSpinBox::down-button{width:0;}"
+            )
+        else:
+            style = (
+                "QSpinBox{background:#ffffff;color:#2c2c4a;border:1px solid #dcdcec;"
+                "border-radius:5px;padding:2px 4px;font-size:12px;}"
+                "QSpinBox::up-button,QSpinBox::down-button{width:0;}"
+            )
+        self.page_spin.setStyleSheet(style)
+        self.zoom_spin.setStyleSheet(style)
+
     def _toggle_theme(self):
         toggle_theme()
         self._refresh_icons()
         self.ribbon.set_theme(is_dark())
+        self._apply_spinbox_theme()
         if is_dark():
             self.act_theme_toggle.setIcon(svg_icon("sun.svg", color="#f0c050"))
             self.act_theme_toggle.setText("☀ Sáng")

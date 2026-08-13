@@ -641,6 +641,19 @@ def compress_pdf(window):
         return
 
     src = target_path or read_path
+    try:
+        size_bytes = os.path.getsize(src)
+    except OSError:
+        size_bytes = 0
+    if size_bytes >= 512 * 1024 * 1024:
+        show_warning(
+            window,
+            "PDF quá lớn để nén trực tiếp",
+            "File PDF này lớn hơn 512MB. Tạm thời không nén trực tiếp trong ứng dụng "
+            "để tránh lỗi Windows/Qt WebEngine có thể làm sập toàn bộ phiên làm việc.\n\n"
+            "Hãy đóng các tab PDF lớn khác hoặc dùng công cụ nén ngoài cho file rất lớn.",
+        )
+        return
     _set_tmp_target(src)
     out = _tmp_pdf()
 
