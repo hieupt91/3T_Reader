@@ -2732,9 +2732,42 @@ def _build_scan_patch(
         return None
 
 
+def _maybe_show_mixed_format_hint(window) -> None:
+    """"Sửa text gốc" chỉ giữ được ĐÚNG 1 kiểu định dạng (màu/đậm/nghiêng)
+    cho cả đoạn thay thế - nếu vùng bôi đen trùm qua nhiều kiểu định dạng
+    khác nhau (vd nhãn đậm đen + giá trị màu khác), phần không khớp sẽ ra
+    sai màu/kiểu (xem docs/SUA_TEXT_GOC_SCAN_IMPLEMENTATION_PLAN.md). Nhắc
+    người dùng trước mỗi lần dùng, có thể tắt hẳn qua checkbox."""
+    from packages.qt_compat.QtCore import QSettings
+    from packages.qt_compat.QtWidgets import QCheckBox, QMessageBox
+
+    settings = QSettings()
+    if str(settings.value("3TReader/edit_text_hint_dismissed", "false")).lower() == "true":
+        return
+
+    box = QMessageBox(
+        QMessageBox.Icon.Information,
+        "Sửa text gốc",
+        "Chỉ nên bôi đen ĐÚNG phần chữ cần đổi, không kèm theo nhãn hoặc chữ "
+        "có định dạng khác (vd đừng bôi đen cả \"Địa chỉ (Address): ...\" mà chỉ "
+        "bôi đen phần giá trị sau dấu hai chấm).\n\n"
+        "Lý do: nếu vùng bôi đen có nhiều kiểu định dạng khác nhau (đậm/nhạt, "
+        "màu khác nhau), app chỉ giữ được 1 kiểu cho toàn bộ đoạn thay thế - "
+        "phần còn lại sẽ hiện sai màu/kiểu chữ.",
+        QMessageBox.StandardButton.Ok,
+        window,
+    )
+    checkbox = QCheckBox("Không hiển thị lại")
+    box.setCheckBox(checkbox)
+    box.exec()
+    if checkbox.isChecked():
+        settings.setValue("3TReader/edit_text_hint_dismissed", "true")
+
+
 @require_document(show_message=True)
 def edit_existing_text(window):
     """Edit existing text in the PDF by redacting it and inserting new text."""
+    _maybe_show_mixed_format_hint(window)
     from packages.qt_compat.QtWidgets import QInputDialog
     import json
     import re
