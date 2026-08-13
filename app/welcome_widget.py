@@ -30,6 +30,7 @@ class WelcomeWidget(QWidget):
         self._card_title_labels: list[QLabel] = []
         self._card_desc_labels: list[QLabel] = []
         self._secondary_labels: list[QLabel] = []
+        self._recent_buttons: list[QPushButton] = []
         self._setup_ui()
 
     # ── Theme-aware re-styling ──────────────────────────────────────────────
@@ -81,6 +82,13 @@ class WelcomeWidget(QWidget):
         for lbl in self._secondary_labels:
             lbl.setStyleSheet(
                 f"font-size:11px; color:{desc_color}; background:transparent; border:none;"
+            )
+        recent_border = "#3A4F6A" if dark else "#C0CBE0"
+        for btn in self._recent_buttons:
+            btn.setStyleSheet(
+                f"QPushButton {{ background:transparent; color:{title_color}; font-size:11px;"
+                f" border:1px solid {recent_border}; border-radius:6px; padding:0 10px; }}"
+                "QPushButton:hover { border-color:#FF7700; color:#FF7700; }"
             )
         if hasattr(self, "_hint_lbl"):
             self._hint_lbl.setStyleSheet(f"color:{hint_color}; font-size:11px;")
@@ -246,11 +254,7 @@ class WelcomeWidget(QWidget):
             btn.setFixedHeight(30)
             btn.setMaximumWidth(180)
             btn.setToolTip(path)
-            btn.setStyleSheet(
-                "QPushButton { background:transparent; color:#C8D8F8; font-size:11px;"
-                " border:1px solid #3A4F6A; border-radius:6px; padding:0 10px; }"
-                "QPushButton:hover { border-color:#FF7700; color:#FF7700; }"
-            )
+            self._recent_buttons.append(btn)
             btn.clicked.connect(lambda _checked=False, p=path: self._open_recent_file(p))
             recent_row.addWidget(btn)
         if recent_row.count() == 1:
