@@ -34,9 +34,18 @@ class _FakeSoftReloadViewer(_FakeViewer):
             self._page = page
 
 
+class _FakeStatus:
+    def __init__(self):
+        self.messages = []
+
+    def showMessage(self, text, timeout_ms=0):
+        self.messages.append((text, timeout_ms))
+
+
 class _FakeWindow:
     def __init__(self, source_path: str, *, display_path: str | None = None, temp_path: str | None = None, page: int = 2):
         self.viewer = _FakeViewer(page)
+        self.status = _FakeStatus()
         self._state = {
             "source_path": source_path,
             "display_path": display_path or source_path,
@@ -121,6 +130,45 @@ def test_replace_document_with_staged_prefers_soft_reload_and_keeps_zoom(tmp_pat
     assert target.read_bytes() == b"new"
     assert window.viewer.soft_loaded == [(str(target), 4, "175")]
     assert window.viewer.loaded == []
+
+
+def test_replace_document_with_staged_soft_reload_shows_loading_status(tmp_path, monkeypatch):
+    """reload_soft() can defer its actual reload up to 4s (waits for any
+    active text selection to clear - see __3tWaitThenReload in
+    app/pdf_viewer.py) with the page showing pre-reload content the whole
+    time and zero visual indication anything is happening (found live
+    2026-08-14: rotate + insert-text left the page looking exactly like the
+    untouched original for several seconds - easily mistaken for lost work).
+    A status message must be shown so the wait is not silent. The message is
+    scheduled via QTimer.singleShot (not called synchronously) so it lands
+    after the caller's own "Đã xoay trang..." message instead of being
+    clobbered by it - fire the timer inline here since no Qt event loop runs
+    in this test."""
+    from packages.qt_compat.QtCore import QTimer
+
+    monkeypatch.setattr(QTimer, "singleShot", staticmethod(lambda _delay, cb: cb()))
+
+    target = tmp_path / "doc.pdf"
+    target.write_bytes(b"old")
+    staged = _pdf_save.make_staged_pdf_path(str(target))
+    with open(staged, "wb") as fh:
+        fh.write(b"new")
+
+    window = _FakeWindow(str(target), temp_path=None, page=4)
+    window.viewer = _FakeSoftReloadViewer(page=4, zoom="175")
+    window.viewer._path = str(target)
+
+    _pdf_save.replace_document_with_staged(
+        window,
+        staged,
+        target_path=str(target),
+        display_path=str(target),
+        temp_path=None,
+    )
+
+    assert window.status.messages, "expected a status message during the deferred soft reload"
+    text, timeout_ms = window.status.messages[-1]
+    assert timeout_ms > 0
 
 
 def test_ensure_edit_state_prefers_display_path_over_legacy_op_temp(tmp_path, monkeypatch):

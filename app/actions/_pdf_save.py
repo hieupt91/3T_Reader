@@ -531,7 +531,26 @@ def replace_document_with_staged(
             soft_reload=soft_reload,
         )
     else:
+        # reload_soft() (app/pdf_viewer.py) hoãn tải lại tối đa 4s nếu người
+        # dùng đang giữ 1 vùng bôi đen (tránh phá selection đang thao tác dở -
+        # xem comment __3tWaitThenReload trong reload_soft). Trong lúc chờ đó,
+        # trang vẫn hiện đúng y nguyên nội dung TRƯỚC khi sửa/xoay (chưa kịp
+        # nạp lại) mà không có dấu hiệu nào đang tải - dễ hiểu lầm là thao tác
+        # không có tác dụng hoặc bị mất (phát hiện live 2026-08-14: xoay + chèn
+        # chữ xong, màn hình đứng yên y hệt bản gốc suốt vài giây). Báo trạng
+        # thái để người dùng biết đang xử lý, tự ẩn khi xong hoặc hết hạn.
+        # Trì hoãn 1 nhịp event-loop: hầu hết caller (vd _RotatePageRelay) tự
+        # show message "Đã xoay trang..." NGAY sau khi hàm này return - gọi
+        # showMessage() đồng bộ ở đây sẽ bị đè mất tức khắc.
+        status = getattr(window, "status", None)
+        if status is not None:
+            try:
+                from packages.qt_compat.QtCore import QTimer
+
+                QTimer.singleShot(150, lambda: status.showMessage("Đang cập nhật lại trang...", 8000))
+            except Exception:
+                pass
         # For soft reload, we just call the viewer directly to avoid redundant reload_document logic
         window.viewer.reload_soft(resolved_target, page=target_page, zoom=str(zoom or current_viewer_zoom(window)))
-        
+
     return resolved_target
