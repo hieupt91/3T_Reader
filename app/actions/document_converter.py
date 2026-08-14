@@ -892,7 +892,37 @@ def _validate_pdf(path: Path) -> bool:
     with open(path, "rb") as fh:
         return fh.read(4) == b"%PDF"
 
+def _try_convert_via_installed_office(file_path: str) -> str:
+    """B52: nếu máy đã có Microsoft Office hoặc WPS Office cài sẵn, dùng COM
+    Automation của chính nó convert sang PDF - tránh bắt người dùng tải
+    LibreOffice (~150MB) khi họ đã có sẵn công cụ tương đương. Trả đường dẫn
+    PDF nếu thành công, "" nếu không có Office/WPS hoặc convert lỗi (caller
+    luôn fallback xuống LibreOffice, đường này không bao giờ bắt buộc)."""
+    if sys.platform != "win32":
+        return ""
+    try:
+        from packages.document_core.office_com import convert_via_office_com, detect_office_suite
+    except Exception:
+        return ""
+    if detect_office_suite() is None:
+        return ""
+    out_dir = Path(tempfile.gettempdir()) / "3t_reader_docs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    expected_pdf = out_dir / (Path(file_path).stem + ".pdf")
+    expected_pdf.unlink(missing_ok=True)
+    try:
+        ok = convert_via_office_com(file_path, str(expected_pdf))
+    except Exception:
+        ok = False
+    return str(expected_pdf) if ok and _validate_pdf(expected_pdf) else ""
+
+
 def convert_office_to_pdf(window, file_path: str) -> str:
+    # 0. B52: thử Office/WPS đã cài sẵn trước - nhanh hơn, không cần tải gì
+    via_office = _try_convert_via_installed_office(file_path)
+    if via_office:
+        return via_office
+
     # 1. Check for LibreOffice
     lo_bin = get_libreoffice_bin()
     if not lo_bin:
