@@ -86,6 +86,8 @@ async def send_file(
     file_path: str,
     on_progress=None,
     on_connected=None,
+    *,
+    channel_open_timeout: float = 30,
 ) -> None:
     """Vai trò gửi: tạo offer, chờ answer, mở DataChannel, gửi manifest +
     chunk có flow-control, chờ xác nhận hoàn tất. on_connected() (không
@@ -140,7 +142,21 @@ async def send_file(
             raise TransferError(f"Kỳ vọng sdp_answer, nhận '{answer_msg.get('type')}'.")
         await pc.setRemoteDescription(RTCSessionDescription(sdp=answer_msg["sdp"], type="answer"))
 
-        await asyncio.wait_for(done, timeout=30)  # chờ DataChannel mở
+        try:
+            await asyncio.wait_for(done, timeout=channel_open_timeout)  # chờ DataChannel mở
+        except asyncio.TimeoutError as exc:
+            # asyncio.TimeoutError không có message (str(exc) == "") - nếu
+            # không bắt riêng ở đây, người dùng thấy lỗi TRẮNG KHÔNG CHỮ (đã
+            # xác nhận: str(asyncio.TimeoutError()) == ''). Xảy ra thật khi
+            # SDP/ICE trao đổi xong (đã qua bước gửi/nhận answer ở trên) nhưng
+            # kết nối P2P thật sự không thiết lập được (TURN không tới được -
+            # đúng lỗ hổng hạ tầng đã biết: TURN server đứng sau NAT router,
+            # user ngoài mạng văn phòng chưa chắc dùng được).
+            raise TransferError(
+                "Không thiết lập được kết nối trực tiếp với thiết bị (có thể do "
+                "tường lửa/mạng chặn). Hãy thử lại khi 2 thiết bị cùng WiFi, "
+                "hoặc kiểm tra kết nối mạng."
+            ) from exc
         if on_connected:
             on_connected()
 
@@ -168,6 +184,7 @@ async def receive_file(
     on_progress=None,
     *,
     offer_timeout: float = 60,
+    channel_open_timeout: float = 30,
 ) -> "tuple[str, bytes]":
     """Vai trò nhận: chờ offer, tạo answer, nhận manifest + chunk qua
     DataChannel, verify hash. Trả (file_name, data) — caller (UI) tự quyết
@@ -225,8 +242,23 @@ async def receive_file(
         await _wait_ice_gathering_complete(pc)
         await signaling.send_sdp_answer(pc.localDescription.sdp)
 
-        await asyncio.wait_for(channel_ready, timeout=30)
-        await asyncio.wait_for(transfer_done, timeout=600)
+        try:
+            await asyncio.wait_for(channel_ready, timeout=channel_open_timeout)
+        except asyncio.TimeoutError as exc:
+            # Cùng vấn đề như send_file(): asyncio.TimeoutError không có
+            # message, phải bắt riêng để không hiện lỗi trắng không chữ.
+            raise TransferError(
+                "Không thiết lập được kết nối trực tiếp với thiết bị (có thể do "
+                "tường lửa/mạng chặn). Hãy thử lại khi 2 thiết bị cùng WiFi, "
+                "hoặc kiểm tra kết nối mạng."
+            ) from exc
+        try:
+            await asyncio.wait_for(transfer_done, timeout=600)
+        except asyncio.TimeoutError as exc:
+            raise TransferError(
+                "Quá thời gian chờ nhận dữ liệu - kết nối có thể đã bị gián đoạn "
+                "giữa chừng. Hãy thử lại."
+            ) from exc
 
         if "error" in result:
             raise TransferError(result["error"])
