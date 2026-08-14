@@ -53,6 +53,23 @@ def test_selection_cache_survives_toolbar_focus_loss():
     assert "area > bestArea" in js_hooks
 
 
+def test_selection_rect_collection_rejects_line_wrap_slivers():
+    """B18: range.getClientRects() can include a near-zero-width sliver at a
+    line-wrap boundary on a multi-line selection. clampSelectionRectToText()
+    pins that rect's height to the nearest real text span but leaves its
+    bogus width untouched, so the sliver survives as a tall/thin phantom
+    annotation box once written to the PDF (observed live: 3.2pt wide x
+    15.1pt tall). Guard by aspect ratio before any span-height snapping."""
+    js_hooks = _read("assets/js/pdfjs_ui_hooks.js")
+    assert "cr.width < cr.height * 0.15" in js_hooks
+    # Guard must run before clampSelectionRectToText() height-snapping, else
+    # the sliver picks up a real line height and the ratio check downstream
+    # would no longer catch it.
+    guard_pos = js_hooks.index("cr.width < cr.height * 0.15")
+    clamp_pos = js_hooks.index("clampSelectionRectToText(cr, pageEl)")
+    assert guard_pos < clamp_pos
+
+
 def test_text_mark_toolbar_uses_pdfjs_selection_rects_without_prompt_or_search():
     from app.actions import annotate
 

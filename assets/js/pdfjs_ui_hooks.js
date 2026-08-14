@@ -501,6 +501,17 @@
             for (var i = 0; i < rects.length; i++) {
                 var cr = rects[i];
                 if (!cr || cr.width < 0.5 || cr.height < 0.5) continue;
+                // Loại rect "sliver" tại điểm ngắt dòng: trên 1 selection nhiều
+                // dòng, range.getClientRects() thỉnh thoảng trả thêm 1 rect gần
+                // như không có bề rộng thật (không phải glyph, chỉ là ranh giới
+                // xuống dòng của trình duyệt) - clampSelectionRectToText() bên
+                // dưới ghim chiều cao rect này theo span thật gần nhất nhưng
+                // KHÔNG ghim chiều rộng, nên rect méo (rất cao, rất hẹp) lọt
+                // qua thành 1 annotation méo khi ghi xuống PDF (B18, phát hiện
+                // 2026-08-14: hộp Gạch dưới rộng 3.2pt cao 15.1pt - tỉ lệ ~0.21
+                // trong khi glyph thật, kể cả "l"/"I" hẹp nhất, không bao giờ
+                // hẹp hơn ~30% chiều cao của nó).
+                if (cr.width < cr.height * 0.15) continue;
                 var pageEl = pageForRect(cr) || fallbackPage;
                 if (!pageEl) continue;
                 var pageNumber = parseInt(pageEl.getAttribute('data-page-number') || '0', 10);
