@@ -8,21 +8,24 @@ from typing import Callable
 
 _TIMEOUT = 15  # seconds
 
-# _ED25519_PUBLIC_B64 (số ít) không còn tồn tại trong token_verifier.py -
-# đổi thành list _TRUSTED_ED25519_PUBLIC_KEYS_B64 khi thêm hỗ trợ xoay
-# nhiều key (xem docs/HANDOFF_MULTIKEY_ED25519_2026-08.md), nhưng chỗ này
-# import tên cũ nên luôn rơi vào except, _EMBEDDED_PUBLIC_KEYS_B64 luôn
-# rỗng - _verify_signature() bên dưới luôn cảnh báo "missing embedded
-# public key" và từ chối MỌI bản cập nhật hợp lệ, với MỌI user. Đã xác
-# nhận thực tế qua gọi trực tiếp API /api/v1/update/check: signature
-# server trả về là Ed25519 hợp lệ, chỉ verify phía client bị hỏng.
-_EMBEDDED_PUBLIC_KEYS_B64: list[str] = []
-try:
-    from packages.license_client.token_verifier import _TRUSTED_ED25519_PUBLIC_KEYS_B64  # type: ignore[import]
-
-    _EMBEDDED_PUBLIC_KEYS_B64 = list(_TRUSTED_ED25519_PUBLIC_KEYS_B64)
-except Exception:
-    pass
+# Nhúng THẲNG danh sách key ở đây thay vì import từ
+# packages.license_client.token_verifier - phiên bản import trước đó (xem
+# git blame) bọc trong try/except rộng, và trên bản build đóng gói thật
+# (PyInstaller + Nuitka, xem build_secure.py) import đó âm thầm raise và bị
+# except nuốt mất, khiến _EMBEDDED_PUBLIC_KEYS_B64 luôn RỖNG -
+# _verify_signature() luôn trả False, từ chối MỌI bản cập nhật hợp lệ, với
+# MỌI user, không có cách nào tự phát hiện ra vì lỗi bị nuốt im lặng (xác
+# nhận thực tế 14/08/2026: user thật thấy "Chữ ký manifest không hợp lệ"
+# dù server ký đúng). Nhúng thẳng (không phụ thuộc import package khác) để
+# updater không bao giờ phụ thuộc vào 1 chuỗi import xuyên package có thể
+# vỡ âm thầm ở tầng đóng gói. PHẢI giữ giống hệt
+# packages/license_client/token_verifier.py:_TRUSTED_ED25519_PUBLIC_KEYS_B64
+# khi xoay key - test_update_client.py có check đối chiếu 2 danh sách này
+# để bắt lệch ngay ở CI thay vì rơi vào đúng lỗi này lần nữa.
+_EMBEDDED_PUBLIC_KEYS_B64: list[str] = [
+    "y0jZ/wQHoQ+VvAQjYuhlmf0R63cMLgkTHp1wzXrcM08=",
+    "PaBi70B9rG1UMSJUJrHElYYhZmNWYSLdL4hrotwWU8I=",
+]
 
 
 @dataclass
