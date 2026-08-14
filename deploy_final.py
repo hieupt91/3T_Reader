@@ -22,7 +22,10 @@ RELEASE_NOTES = (
     "theo mức độ; sửa tab trùng lặp khi mở lại cùng 1 file; cảnh báo trước "
     "khi mở thêm PDF rất lớn lúc đã có file lớn khác đang mở; xuất Word "
     "báo đúng lỗi thật thay vì báo nhầm \"đã huỷ\"; vá license bị mất sau "
-    "khi update ứng dụng."
+    "khi update ứng dụng; sửa ô tọa độ méo khi bôi đen/gạch dưới/gạch ngang "
+    "nhiều dòng; báo trạng thái rõ ràng khi tải lại trang bị hoãn sau khi "
+    "sửa/xoay (tránh hiểu lầm mất dữ liệu); sửa dialog lỗi trắng không chữ "
+    "khi kết nối \"Nhận từ ĐT\" không thiết lập được."
 )
 REMOTE_CONFIG_PATH = "/home/hieupt/projects/3T_Reader/phase1-backend/data/admin-config.json"
 
