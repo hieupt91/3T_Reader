@@ -62,13 +62,19 @@ RestartIfNeededByRun=no
 
 [Registry]
 ; Chiếm quyền mở .pdf mặc định — chỉ khi người dùng chọn (ARCH-10)
+; DefaultIcon PHẢI trỏ vào {app}\_internal\assets\... (không phải
+; {app}\assets\...) - PyInstaller onedir (bản build hiện tại) đặt mọi thứ
+; ngoài chính file .exe vào thư mục con _internal\, kể cả assets\. Đường dẫn
+; cũ thiếu _internal\ trỏ tới file không tồn tại -> Explorer hiện icon PDF
+; mặc định của Windows thay vì icon 3T Reader, xác nhận thật 14/08/2026 bằng
+; cách đọc registry trên máy đã cài qua đúng installer này.
 Root: HKCR; Subkey: ".pdf"; ValueType: string; ValueName: ""; ValueData: "3TReader.PDF"; Flags: uninsdeletevalue; Tasks: pdfassoc
 Root: HKCR; Subkey: ".pdf\OpenWithProgids"; ValueType: string; ValueName: "3TReader.PDF"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKCR; Subkey: "3TReader.PDF"; ValueType: string; ValueName: ""; ValueData: "PDF Document"; Flags: uninsdeletekey
-Root: HKCR; Subkey: "3TReader.PDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\assets\pdf_icon_3t.ico"
+Root: HKCR; Subkey: "3TReader.PDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\_internal\assets\pdf_icon_3t.ico"
 Root: HKCR; Subkey: "3TReader.PDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
 Root: HKCR; Subkey: "Applications\{#MyAppExeName}"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{#MyAppName}"; Flags: uninsdeletekey
-Root: HKCR; Subkey: "Applications\{#MyAppExeName}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\assets\pdf_icon_3t.ico"
+Root: HKCR; Subkey: "Applications\{#MyAppExeName}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\_internal\assets\pdf_icon_3t.ico"
 Root: HKCR; Subkey: "Applications\{#MyAppExeName}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
 Root: HKCR; Subkey: "Applications\{#MyAppExeName}\SupportedTypes"; ValueType: string; ValueName: ".pdf"; ValueData: ""; Flags: uninsdeletevalue
 ; Cho phép nâng cấp không cần gỡ bản cũ
