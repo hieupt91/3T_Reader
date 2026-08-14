@@ -11,8 +11,8 @@ from app.version import APP_VERSION
 
 VERSION = APP_VERSION
 BASE_URL = "https://reader.3tcomputer.com/downloads"
-PUBLIC_INSTALLER_NAME = f"3TReader-{VERSION}-win-r4.exe"
-PUBLIC_PORTABLE_NAME = f"3TReader-{VERSION}-win-portable-r4.zip"
+PUBLIC_INSTALLER_NAME = f"3TReader-{VERSION}-win-r5.exe"
+PUBLIC_PORTABLE_NAME = f"3TReader-{VERSION}-win-portable-r5.zip"
 RELEASE_NOTES = (
     "Phiên bản 1.0.31: Sửa ảnh/chữ chèn vào PDF bị lệch hướng khi xoay "
     "trang thêm lần nữa; sửa crash khi xoay trang lúc file đang bị khóa "
