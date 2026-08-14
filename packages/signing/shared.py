@@ -29,6 +29,42 @@ def _replace_signed_output(staged_path: str, output_path: str) -> None:
     os.replace(staged_path, output_path)
 
 
+def _burn_stamp_onto_pdf(input_path: str, page_number: int, box, stamp_pdf: str) -> str:
+    """Dán ảnh con dấu chữ ký (`stamp_pdf`, PDF 1 trang do
+    build_vietnamese_stamp_style() tự sinh bằng reportlab) đè lên trang
+    `page_number` (1-indexed) của `input_path`, đúng vùng `box` (toạ độ PDF
+    gốc, bottom-up: left, bottom, right, top). Trả đường dẫn file tạm đã
+    dán - caller (PKCS11Signer/PFX signer) tự đọc file này để ký thật bằng
+    pyHanko ngay sau, không đổi luồng ký.
+
+    B2 (2026-08-14): thay PyMuPDF `page.show_pdf_page()` bằng pikepdf
+    `page.add_overlay(rect=...)` - cùng cơ chế overlay đã dùng ổn định cho
+    watermark (packages/pdf_engine/pdfium_engine.py::watermark_pdf) và đã
+    fix lỗi lệch hướng khi trang đích đang xoay (B16, 2026-08-14) - áp dụng
+    luôn safeguard đó ở đây cho nhất quán, dù hộp ký số hiếm khi rơi vào
+    trang đã xoay. Đây là đường ký số THẬT (chữ ký pháp lý) - đã test kỹ
+    bằng file tổng hợp + đối chiếu bytes trước khi coi là xong, xem
+    tests/test_signing_stamp_burn.py."""
+    import shutil
+
+    import pikepdf
+
+    burn_path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
+    shutil.copy2(input_path, burn_path)
+
+    with pikepdf.Pdf.open(burn_path, allow_overwriting_input=True) as pdf:
+        page = pdf.pages[page_number - 1]
+        with pikepdf.Pdf.open(stamp_pdf) as stamp_doc:
+            stamp_page = stamp_doc.pages[0]
+            # B16: khớp /Rotate overlay với trang đích TRƯỚC khi merge, tránh
+            # add_overlay() tự bake compensation sai nếu trang đích đang xoay.
+            stamp_page["/Rotate"] = int(page.get("/Rotate", 0))
+            rect = pikepdf.Rectangle(float(box[0]), float(box[1]), float(box[2]), float(box[3]))
+            page.add_overlay(stamp_page, rect)
+        pdf.save(burn_path)
+    return burn_path
+
+
 class _TemporaryImportedPdfPage:
     """Imported PDF page that cleans up its source file after rendering."""
 
@@ -949,30 +985,10 @@ async def sign_pdf_with_session(
             cert_serial=cert_serial,
             appearance_box=box,
         )
-        import fitz
-        
         burn_input_path = input_path
         if stamp_pdf and os.path.exists(stamp_pdf):
             try:
-                import fitz, shutil
-                burn_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-                burn_tmp.close()
-                burn_input_path = burn_tmp.name
-                shutil.copy2(input_path, burn_input_path)
-                
-                doc = fitz.open(burn_input_path)
-                page = doc[page_number - 1]
-                x0 = box[0]
-                y0 = page.rect.height - box[3]
-                x1 = box[2]
-                y1 = page.rect.height - box[1]
-                rect = fitz.Rect(x0, y0, x1, y1)
-                stamp_doc = fitz.open(stamp_pdf)
-                page.show_pdf_page(rect, stamp_doc, 0, overlay=True)
-                stamp_doc.close()
-                
-                doc.save(doc.name, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
-                doc.close()
+                burn_input_path = _burn_stamp_onto_pdf(input_path, page_number, box, stamp_pdf)
             except Exception as e:
                 open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burn error: {e}\n")
                 burn_input_path = input_path
@@ -1110,30 +1126,10 @@ async def sign_pdf_with_pkcs12(
             cert_serial=cert_serial,
             appearance_box=box,
         )
-        import fitz
-        
         burn_input_path = input_path
         if stamp_pdf and os.path.exists(stamp_pdf):
             try:
-                import fitz, shutil
-                burn_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-                burn_tmp.close()
-                burn_input_path = burn_tmp.name
-                shutil.copy2(input_path, burn_input_path)
-                
-                doc = fitz.open(burn_input_path)
-                page = doc[page_number - 1]
-                x0 = box[0]
-                y0 = page.rect.height - box[3]
-                x1 = box[2]
-                y1 = page.rect.height - box[1]
-                rect = fitz.Rect(x0, y0, x1, y1)
-                stamp_doc = fitz.open(stamp_pdf)
-                page.show_pdf_page(rect, stamp_doc, 0, overlay=True)
-                stamp_doc.close()
-                
-                doc.save(doc.name, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
-                doc.close()
+                burn_input_path = _burn_stamp_onto_pdf(input_path, page_number, box, stamp_pdf)
             except Exception as e:
                 open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burn error: {e}\n")
                 burn_input_path = input_path
