@@ -2369,73 +2369,42 @@ def _center_distance(a, b) -> float:
 
 
 def _find_pdf_span(base_path: str, page_num: int, pick_box: tuple[float, float, float, float]) -> dict | None:
-    """Tìm span PyMuPDF khớp nhất với `pick_box` trên `page_num`, dùng cho
-    "sửa text gốc" (TC30) để lấy font/size/color/vị trí của text đang sửa."""
+    """Tìm span khớp nhất với `pick_box` trên `page_num`, dùng cho "sửa text
+    gốc" (TC30) để lấy font/size/color/vị trí của text đang sửa.
+
+    B2 (2026-08-14): đổi nguồn dữ liệu từ PyMuPDF (AGPL-3.0) sang pypdfium2
+    (BSD-3, đã là engine chính của app) - xem
+    packages/pdf_engine/text_layout.py + docs/ROADMAP_PDF_ENGINE_MIGRATION.md
+    + docs/ROADMAP_B52_B2_B13_2026-08-14.md mục B2. Đối chiếu kết quả 2 bản
+    đã pass trên file thật (tests/test_text_layout_vs_pymupdf.py) trước khi
+    đổi. Giữ NGUYÊN contract trả về (dict cùng key) - không đổi bất kỳ
+    caller nào."""
+    import pypdfium2 as pdfium
+
+    from packages.pdf_engine.text_layout import find_span_at, get_spans
+
     try:
-        import fitz
+        doc = pdfium.PdfDocument(base_path)
     except Exception:
         return None
-
-    doc = fitz.open(base_path)
     try:
-        if page_num < 1 or page_num > doc.page_count:
+        if page_num < 1 or page_num > len(doc):
             return None
         page = doc[page_num - 1]
-        page_h = float(page.rect.height)
-        best = None
-        best_score = None
-        best_overlap = 0.0
-        for block in page.get_text("dict").get("blocks", []):
-            for line in block.get("lines", []):
-                for span in line.get("spans", []):
-                    text = str(span.get("text", ""))
-                    if not text.strip():
-                        continue
-                    x0, y0, x1, y1 = [float(v) for v in span.get("bbox", (0, 0, 0, 0))]
-                    span_box = (x0, page_h - y1, x1, page_h - y0)
-                    overlap = _inter_area(pick_box, span_box)
-                    distance = _center_distance(pick_box, span_box)
-                    score = (-overlap, distance)
-                    if best_score is None or score < best_score:
-                        origin_x, origin_y = span.get("origin", (x0, y1))
-                        color_int = int(span.get("color", 0) or 0)
-                        font_name = str(span.get("font", ""))
-                        # Text do auto-OCR chèn (packages/ocr/engine.py,
-                        # Tesseract textonly_pdf) dùng font vô hình đặt tên
-                        # "GlyphLessFont" chỉ để định vị/chọn chữ — không
-                        # phải font thật của ảnh scan. Lấy font_family/bold
-                        # từ đây sẽ ra tên font vô nghĩa; đánh dấu để
-                        # on_click() giữ font mặc định thay vì áp nó.
-                        is_ocr_placeholder_font = "glyphless" in font_name.lower()
-                        best = {
-                            "box": span_box,
-                            "baseline": (float(origin_x), page_h - float(origin_y)),
-                            "font_size": float(span.get("size", 12) or 12),
-                            "font_family": "" if is_ocr_placeholder_font else font_name,
-                            "font_color": (
-                                ((color_int >> 16) & 0xFF) / 255.0,
-                                ((color_int >> 8) & 0xFF) / 255.0,
-                                (color_int & 0xFF) / 255.0,
-                            ),
-                            "bold": False if is_ocr_placeholder_font else ("bold" in font_name.lower()),
-                            "italic": False if is_ocr_placeholder_font else (
-                                "italic" in font_name.lower() or "oblique" in font_name.lower()
-                            ),
-                            "is_ocr_placeholder_font": is_ocr_placeholder_font,
-                        }
-                        best_score = score
-                        best_overlap = overlap
-        if best is not None and best_overlap <= 0.0:
-            # PDF.js text-layer rects are often offset a point or two from
-            # the true span bbox. Accept a near miss (small gap) instead of
-            # dropping the match — otherwise font/size/color fall back to
-            # CSS defaults and results look inconsistent (TC30).
-            bb = best["box"]
-            gap_x = max(0.0, max(pick_box[0], bb[0]) - min(pick_box[2], bb[2]))
-            gap_y = max(0.0, max(pick_box[1], bb[1]) - min(pick_box[3], bb[3]))
-            if max(gap_x, gap_y) > 5.0:
-                return None
-        return best
+        spans = get_spans(page)
+        best = find_span_at(spans, pick_box)
+        if best is None:
+            return None
+        return {
+            "box": best.box,
+            "baseline": best.baseline,
+            "font_size": best.font_size,
+            "font_family": best.font_family,
+            "font_color": best.font_color,
+            "bold": best.bold,
+            "italic": best.italic,
+            "is_ocr_placeholder_font": best.is_ocr_placeholder_font,
+        }
     finally:
         doc.close()
 
@@ -2587,39 +2556,26 @@ def _sample_text_ink_color(
 
 def _page_is_scan_text(base_path: str, page_num: int) -> bool:
     """True nếu text trên trang chỉ là lớp OCR vô hình (GlyphLessFont) —
-    tức trang là ảnh scan, mọi chữ nhìn thấy đều là pixel của ảnh."""
+    tức trang là ảnh scan, mọi chữ nhìn thấy đều là pixel của ảnh.
+
+    B2 (2026-08-14): cổng sang pypdfium2, xem comment ở _find_pdf_span()
+    ngay phía trên - cùng lý do, cùng đối chiếu."""
+    import pypdfium2 as pdfium
+
+    from packages.pdf_engine.text_layout import page_is_scan_text as _page_is_scan_text_impl
+
     try:
-        import fitz
+        doc = pdfium.PdfDocument(base_path)
     except Exception:
         return False
     try:
-        doc = fitz.open(base_path)
-        try:
-            if page_num < 1 or page_num > doc.page_count:
-                return False
-            page = doc[page_num - 1]
-            ocr_count = 0
-            total_count = 0
-            for block in page.get_text("dict").get("blocks", []):
-                for line in block.get("lines", []):
-                    for span in line.get("spans", []):
-                        if not str(span.get("text", "")).strip():
-                            continue
-                        total_count += 1
-                        if "glyphless" in str(span.get("font", "")).lower():
-                            ocr_count += 1
-            if total_count == 0:
-                return False
-            # Coi là trang scan nếu ĐA SỐ span là OCR vô hình. Không đòi 100%
-            # để chịu được vài span thật lẫn vào (số trang đóng dấu, header...)
-            # — 1 span thật không được làm hỏng cả trang scan.
-            if ocr_count / total_count < 0.6:
-                return False
-            return bool(page.get_images(full=True))
-        finally:
-            doc.close()
+        if page_num < 1 or page_num > len(doc):
+            return False
+        return _page_is_scan_text_impl(doc[page_num - 1])
     except Exception:
         return False
+    finally:
+        doc.close()
 
 
 def _build_scan_patch(
