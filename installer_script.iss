@@ -2,7 +2,12 @@
 ; Kịch bản tạo bộ cài đặt chuyên nghiệp cho 3T Reader
 ; ================================================================
 #define MyAppName      "3T Reader"
-#define MyAppVersion   "1.0.31"
+#ifndef MyAppVersion
+  #define MyAppVersion "1.0.33"
+#endif
+#ifndef BuildSource
+  #define BuildSource "dist\\3T_Reader_Secure"
+#endif
 #define MyAppPublisher "3T Company"
 #define MyAppExeName   "3T_Reader.exe"
 
@@ -46,8 +51,13 @@ OutputBaseFilename=Setup_3T_Reader_v{#MyAppVersion}
 Compression=lzma2/fast
 SolidCompression=no
 
-; Giao diện
+; Giao diện chuyên nghiệp - ảnh sinh từ scripts/build_installer_assets.py
+; (dùng brand_appicon_512.png/icon_128.png có sẵn, giữ đúng màu thương hiệu
+; cam #FF7700->#FF4400 đã dùng xuyên suốt UI trong app).
 WizardStyle=modern
+WizardImageFile=assets\installer\wizard_large.bmp
+WizardSmallImageFile=assets\installer\wizard_small.bmp
+WizardImageStretch=no
 SetupIconFile=assets\app.ico
 
 ; Yêu cầu Admin
@@ -88,12 +98,20 @@ Name: "pdfassoc"; Description: "Đặt 3T Reader làm ứng dụng mở file PDF
 
 [Files]
 ; Toàn bộ thư mục build onedir của PyInstaller
-Source: "dist\3T_Reader_Secure\*"; \
+Source: "{#BuildSource}\*"; \
   DestDir: "{app}"; \
   Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; OCR runtime is packaged by PyInstaller into _internal\Tesseract-OCR so
 ; installer and portable builds use the same bundled files.
+
+; Ảnh giới thiệu tính năng hiện trong lúc cài (trang Installing) - dontcopy
+; nghĩa là chỉ giải nén tạm vào {tmp} lúc setup chạy (qua ExtractTemporaryFile
+; trong [Code]), KHÔNG cài vào {app} - sinh bởi scripts/build_installer_assets.py.
+Source: "assets\installer\feature_slide_1.bmp"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "assets\installer\feature_slide_2.bmp"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "assets\installer\feature_slide_3.bmp"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "assets\installer\feature_slide_4.bmp"; DestDir: "{tmp}"; Flags: dontcopy
 
 [Icons]
 ; Start Menu
@@ -139,9 +157,66 @@ Type: filesandordirs; Name: "{app}"
 [Code]
 procedure RefreshShellIcons(wEventId, uFlags, dwItem1, dwItem2: Longint);
 external 'SHChangeNotify@shell32.dll stdcall';
+function GetTickCount: LongWord;
+external 'GetTickCount@kernel32.dll stdcall';
 const
   SHCNE_ASSOCCHANGED = $08000000;
   SHCNF_IDLIST = $0000;
+  FeatureSlideCount = 4;
+
+var
+  FeatureImage: TBitmapImage;
+  FeatureIndex: Integer;
+  FeatureLastSwitchTick: DWORD;
+
+// Trang "Installing" chỉ có progress bar trơn, khá tẻ nhạt lúc chờ - hiện
+// luân phiên 4 ảnh giới thiệu tính năng (assets/installer/feature_slide_*.bmp,
+// sinh bởi scripts/build_installer_assets.py) để trông chuyên nghiệp hơn,
+// giống các bộ cài lớn (Steam, Adobe...) hay làm. TTimer không có trong bản
+// Pascal Script này (ISCC 6.7.3 báo "Unknown type 'TTimer'") - dùng
+// CurInstallProgressChanged (Inno tự gọi liên tục lúc cài) + GetTickCount
+// để đổi ảnh mỗi ~3s thay vì cần timer thật.
+procedure LoadFeatureSlide(Index: Integer);
+var
+  FileName: String;
+begin
+  FileName := ExpandConstant('{tmp}\feature_slide_' + IntToStr(Index) + '.bmp');
+  if FileExists(FileName) then
+    FeatureImage.Bitmap.LoadFromFile(FileName);
+end;
+
+procedure InitializeWizard();
+var
+  I: Integer;
+begin
+  for I := 1 to FeatureSlideCount do
+    ExtractTemporaryFile('feature_slide_' + IntToStr(I) + '.bmp');
+
+  FeatureImage := TBitmapImage.Create(WizardForm);
+  FeatureImage.Parent := WizardForm.InstallingPage;
+  FeatureImage.Left := WizardForm.ProgressGauge.Left;
+  FeatureImage.Top := WizardForm.ProgressGauge.Top + WizardForm.ProgressGauge.Height + 24;
+  FeatureImage.Width := WizardForm.ProgressGauge.Width;
+  FeatureImage.Height := 138;
+  FeatureImage.Stretch := True;
+  FeatureImage.Center := False;
+
+  FeatureIndex := 1;
+  LoadFeatureSlide(FeatureIndex);
+  FeatureLastSwitchTick := GetTickCount;
+end;
+
+procedure CurInstallProgressChanged(CurProgress, MaxProgress: Integer);
+begin
+  if GetTickCount - FeatureLastSwitchTick >= 3000 then
+  begin
+    FeatureIndex := FeatureIndex + 1;
+    if FeatureIndex > FeatureSlideCount then
+      FeatureIndex := 1;
+    LoadFeatureSlide(FeatureIndex);
+    FeatureLastSwitchTick := GetTickCount;
+  end;
+end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
