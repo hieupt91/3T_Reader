@@ -201,6 +201,23 @@ phải ưu tiên rollback backup trước khi load bất cứ module code nào. 
   apply): nhánh `piper-vps-sync`, commit `7cbe557`.
 - Kế hoạch đầy đủ đa nền tảng: `piper-vps-sync/docs/PLAN_B53_DELTA_UPDATE_2026-08-15.md`.
 
+## Bằng chứng build Windows tham khảo (không phải package phát hành)
+
+Ngày 15/08/2026 đã kiểm tra artifact Windows `B53_Test_5` thực tế:
+
+- `app/`: 66 file `.pyc` rời trong `_internal`;
+- `packages/`: 65 file `.pyc` rời trong `_internal`;
+- code không còn nằm hoàn toàn trong archive executable như cấu trúc build cũ;
+- tool tạo package đã sinh ZIP đúng format `manifest.json` + `payload/`;
+- package test: `5,217,604` bytes;
+- SHA-256 package test:
+  `79a1d8acfccc055e45c88bdc34d3b5bb7e8eb2140c90962e146957de3ed7fe3a`.
+
+Con số này chỉ chứng minh mô hình tách code layer có thể giảm đáng kể dữ liệu
+so với installer Windows ~486 MB. Không upload hash/URL này lên VPS và không
+dùng nó cho macOS: team Mac phải tự tạo artifact, hash và ký phù hợp với
+bundle/codesign của macOS.
+
 Mọi câu hỏi về bật cờ hoặc phát package thật cần phối hợp với team VPS; team
 Mac không tự bật `delta_enabled` và không thay API v1.
 
