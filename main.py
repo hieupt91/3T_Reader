@@ -42,10 +42,18 @@ if len(sys.argv) >= 3 and sys.argv[1] == "--pkcs11-list-tokens":
 _crash_log_handle = None
 
 
+def get_app_log_path() -> str:
+    """Đường dẫn app_log.txt thật - dùng chung cho _install_crash_logging()
+    (ghi log) và app/window.py::_export_bug_report() (B13: đóng gói log gửi
+    báo cáo lỗi) để luôn trỏ đúng 1 file, không lệch giữa 2 nơi tính toán
+    riêng."""
+    return os.path.join(os.path.dirname(__file__), "app_log.txt")
+
+
 def _install_crash_logging() -> None:
     global _crash_log_handle
     try:
-        log_path = os.path.join(os.path.dirname(__file__), "app_log.txt")
+        log_path = get_app_log_path()
         _crash_log_handle = open(log_path, "a", encoding="utf-8", buffering=1)
         # Chỉ bật faulthandler cho main thread — KHÔNG dùng all_threads=True
         # vì all_threads=True sẽ khiến SIGSEGV ở QThread (do PySide6 GC race condition)

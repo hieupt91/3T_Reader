@@ -1191,6 +1191,8 @@ class PDFReaderApp(QMainWindow):
         act_help_update.triggered.connect(self._check_for_update)
         act_help_audit = help_menu.addAction("Nhật ký hoạt động...")
         act_help_audit.triggered.connect(self._show_audit_log)
+        act_help_bug_report = help_menu.addAction("Xuất log để báo lỗi...")
+        act_help_bug_report.triggered.connect(self._export_bug_report)
         help_menu.addSeparator()
         act_help_about = help_menu.addAction("Giới thiệu 3T Reader...")
         act_help_about.triggered.connect(self._show_about)
@@ -2351,6 +2353,9 @@ class PDFReaderApp(QMainWindow):
         act_audit_log = menu_help.addAction("📋  Nhật ký hoạt động...")
         act_audit_log.triggered.connect(self._show_audit_log)
 
+        act_bug_report = menu_help.addAction("🐞  Xuất log để báo lỗi...")
+        act_bug_report.triggered.connect(self._export_bug_report)
+
         menu_help.addSeparator()
         act_about = menu_help.addAction("Giới thiệu 3T Reader...")
         act_about.triggered.connect(self._show_about)
@@ -3185,6 +3190,58 @@ class PDFReaderApp(QMainWindow):
         from app.audit_log_dialog import AuditLogDialog
         dlg = AuditLogDialog(self)
         dlg.exec()
+
+    def _export_bug_report(self):
+        """B13: đóng gói app_log.txt (chứa cả dòng faulthandler ghi lúc
+        crash native, nếu có - xem main.py::_install_crash_logging) kèm vài
+        dòng thông tin hệ thống/phiên bản vào 1 file .zip người dùng tự
+        chọn nơi lưu, để gửi kèm khi báo lỗi. KHÔNG tự upload đi đâu - repo
+        này chưa có endpoint nhận báo cáo lỗi, xem
+        docs/ROADMAP_B52_B2_B13_2026-08-14.md mục B13 (thu thập telemetry
+        thật là bước đầu tiên cần làm trước khi sửa tiếp crash Qt/GC hiếm)."""
+        import platform as _platform
+        import zipfile
+        from datetime import datetime
+
+        from app.version import APP_VERSION
+        from packages.qt_compat.QtWidgets import QFileDialog, QMessageBox
+
+        try:
+            from main import get_app_log_path
+            log_path = get_app_log_path()
+        except Exception:
+            log_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "app_log.txt")
+
+        if not os.path.isfile(log_path):
+            QMessageBox.information(
+                self, "Xuất log để báo lỗi",
+                "Chưa có file log nào để xuất (app_log.txt trống hoặc chưa được tạo).",
+            )
+            return
+
+        default_name = f"3TReader_bug_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Lưu báo cáo lỗi", default_name, "Zip Files (*.zip)"
+        )
+        if not save_path:
+            return
+
+        try:
+            info_lines = [
+                f"3T Reader version: {APP_VERSION}",
+                f"OS: {_platform.platform()}",
+                f"Python: {_platform.python_version()}",
+                f"Thời điểm xuất: {datetime.now().isoformat()}",
+            ]
+            with zipfile.ZipFile(save_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("info.txt", "\n".join(info_lines))
+                zf.write(log_path, arcname="app_log.txt")
+            QMessageBox.information(
+                self, "Xuất log để báo lỗi",
+                f"Đã lưu: {save_path}\n\nGửi file này kèm mô tả lỗi bạn gặp phải để được hỗ trợ nhanh hơn.",
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Lỗi", f"Không xuất được báo cáo: {exc}")
 
     def _refresh_recent_menu(self):
         menu = getattr(self, "menu_recent", None)
