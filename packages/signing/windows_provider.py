@@ -602,10 +602,44 @@ def _append_unique_error(errors: list[str], msg: str) -> None:
 
 def _get_token_by_info(lib, token_info: TokenInfo):
     tokens = list(lib.get_tokens())
-    for token in tokens:
-        serial = _clean_token_value(getattr(token, "serial", ""))
-        if token_info.serial and serial == token_info.serial:
-            return token
+    if not tokens:
+        return None
+
+    if token_info.serial:
+        for token in tokens:
+            serial = _clean_token_value(getattr(token, "serial", ""))
+            if serial == token_info.serial:
+                return token
+
+    # Serial phần cứng trống hoặc không khớp bất kỳ token nào - một số dòng
+    # token/driver không trả serial đáng tin cậy (rỗng, hoặc TRÙNG NHAU giữa
+    # 2 token cùng model cắm song song). Rơi thẳng xuống token_index lúc đó
+    # không an toàn: thứ tự liệt kê token không đảm bảo ổn định giữa các lần
+    # p11.lib() khởi tạo riêng biệt (mỗi lần chọn token và mỗi lần ký thật
+    # đều chạy 1 tiến trình con mới, tự enum lại từ đầu) khi có nhiều token
+    # giống hệt nhau về phần cứng - PIN đúng của người dùng bị áp nhầm sang
+    # token khác, báo PinIncorrect dù PIN không sai (lỗi thật: "ký thất bại
+    # token thứ 2 khi cắm song song"). Serial của CHÍNH CHỨNG THƯ ký số
+    # (cert_serial, đọc từ nội dung chứng thư trên token) gần như chắc chắn
+    # duy nhất cho từng người dùng thật dù phần cứng giống hệt nhau, nên
+    # dùng làm lớp khớp đáng tin thứ 2, trước khi phải đoán mò theo index.
+    if token_info.cert_serial:
+        try:
+            from pkcs11.constants import Attribute, ObjectClass
+        except Exception:
+            Attribute = ObjectClass = None
+        if Attribute is not None:
+            for token in tokens:
+                try:
+                    with token.open(rw=False) as session:
+                        for cert in session.get_objects({Attribute.CLASS: ObjectClass.CERTIFICATE}):
+                            cert_der = _safe_get_pkcs11_attr(cert, Attribute.VALUE)
+                            identity = extract_signer_identity_from_der(cert_der)
+                            if identity and identity.get("serial_hex") == token_info.cert_serial:
+                                return token
+                except Exception:
+                    continue
+
     if 0 <= token_info.token_index < len(tokens):
         return tokens[token_info.token_index]
     return tokens[0] if tokens else None
