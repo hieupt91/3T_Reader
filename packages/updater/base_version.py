@@ -13,6 +13,13 @@ import os
 _DEFAULT_BASE_VERSION = "base-1.0"
 _FILE_NAME = "base_version.txt"
 
+# Base version bootstrap NÀY thật sự có - chỉ bump khi delta_runtime.py (hay
+# file bootstrap bất biến khác) đổi, TỨC LÀ đúng lúc 1 bản cài đặt đầy đủ
+# mới được build. Base version chỉ có thể đổi qua cài đặt đầy đủ (delta
+# không bao giờ nâng base - delta chỉ áp dụng khi base khớp sẵn), nên hằng
+# số này luôn đáng tin hơn base_version.txt đã lưu.
+NATIVE_BASE_VERSION = "base-1.2"
+
 
 def _path() -> str:
     from packages.platform import get_app_data_dir
@@ -38,3 +45,19 @@ def set_installed_base_version(value: str) -> None:
             fh.write((value or _DEFAULT_BASE_VERSION).strip())
     except OSError:
         pass
+
+
+def reconcile_native_base_version() -> None:
+    """Gọi 1 lần lúc khởi động (main.py, trước khi tạo QApplication).
+
+    base_version.txt chỉ được delta_runtime.py ghi SAU một lần áp delta
+    thành công - cài đặt đầy đủ (installer) không đụng tới file này. Hệ quả
+    thật gặp phải (15/08/2026): máy đã từng áp delta lên base-1.1, sau đó
+    được cài lại bằng bản đầy đủ base-1.2 mới hơn - base_version.txt vẫn còn
+    "base-1.1" cũ, khiến server nghĩ máy chưa lên base-1.2 và không bao giờ
+    cấp delta nữa cho tới khi ai đó tay xoá file này. Vì base version chỉ có
+    thể đổi qua cài đặt đầy đủ (chưa bao giờ qua delta), NATIVE_BASE_VERSION
+    của đúng bản đang chạy luôn là sự thật - ghi đè bất cứ giá trị cũ nào
+    khác đi."""
+    if get_installed_base_version() != NATIVE_BASE_VERSION:
+        set_installed_base_version(NATIVE_BASE_VERSION)

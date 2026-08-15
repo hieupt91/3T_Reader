@@ -33,6 +33,16 @@ if _delta_helper_result is not None:
 # app booting mixed old/new files.  Restore the old complete layer first.
 recover_incomplete_updates()
 
+# base_version.txt only gets written after a successful delta apply - a full
+# installer never touches it, so a machine that applied a delta once and was
+# later reinstalled via a newer full installer keeps reporting its old,
+# stale base forever (confirmed live 15/08/2026: server stops offering any
+# further delta to that machine). The base only ever changes via a full
+# install, so this exact running build's native base is always the truth.
+from packages.updater.base_version import reconcile_native_base_version
+
+reconcile_native_base_version()
+
 # Auto-OCR uses a separate process so a native OCR/PDF backend failure cannot
 # take down the Qt document viewer. This is intentionally before UI imports.
 if len(sys.argv) == 5 and sys.argv[1] == "--auto-ocr-worker":
