@@ -21,8 +21,14 @@ tính năng OCR độc lập.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+import tempfile
+import threading
+import uuid
+from pathlib import Path
 
-from packages.qt_compat.QtCore import QObject, QThread, QTimer, pyqtSignal, pyqtSlot
+from packages.qt_compat.QtCore import QObject, QTimer, pyqtSignal, pyqtSlot
 
 from app.actions.annotate import _queue_annotation_op, _schedule_annotation_undo_flush
 
@@ -42,7 +48,7 @@ class _AutoOcrWorker(QObject):
 
     @pyqtSlot()
     def run(self) -> None:
-        from packages.ocr.engine import ocr_pdf_page_text_layer, page_has_text
+        from packages.ocr.engine import page_has_text
         from packages.audit import log_action, ACT_OCR
 
         done_count = 0
@@ -53,7 +59,7 @@ class _AutoOcrWorker(QObject):
             try:
                 if page_has_text(self._pdf_path, page_num):
                     continue
-                pdf_bytes = ocr_pdf_page_text_layer(self._pdf_path, page_num)
+                pdf_bytes = _run_isolated_ocr(self._pdf_path, page_num)
                 if pdf_bytes:
                     done_count += 1
                     self.pageDone.emit(self._pdf_path, page_num, pdf_bytes)
@@ -66,6 +72,34 @@ class _AutoOcrWorker(QObject):
                 log_action(ACT_OCR, self._pdf_path, f"auto-ocr trang {page_num} loi: {exc}")
                 continue
         self.finished.emit(self._pdf_path, done_count, failed_pages)
+
+
+def _run_isolated_ocr(pdf_path: str, page_num: int) -> bytes | None:
+    """Run native OCR in a helper process, hidden on Windows."""
+    # Multiple tabs can OCR page 1 concurrently; a unique output prevents one
+    # helper from consuming or deleting another helper's result.
+    output = Path(tempfile.gettempdir()) / f"3t_auto_ocr_{uuid.uuid4().hex}.pdf"
+    try:
+        if getattr(sys, "frozen", False):
+            command = [sys.executable, "--auto-ocr-worker", pdf_path, str(page_num), str(output)]
+        else:
+            main_py = Path(__file__).resolve().parents[2] / "main.py"
+            command = [sys.executable, str(main_py), "--auto-ocr-worker", pdf_path, str(page_num), str(output)]
+        result = subprocess.run(
+            command,
+            timeout=180,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if result.returncode == 0 and output.is_file():
+            return output.read_bytes()
+        return None
+    finally:
+        try:
+            output.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 class _AutoOcrRelay(QObject):
@@ -130,7 +164,7 @@ def start_auto_ocr_for_document(window, pdf_path: str | None, current_page: int 
     abs_path = os.path.abspath(pdf_path)
     registry = _auto_ocr_registry(window)
     existing = registry.get(abs_path)
-    if existing is not None and existing[0].isRunning():
+    if existing is not None and existing[0].is_alive():
         return
 
     try:
@@ -152,16 +186,14 @@ def start_auto_ocr_for_document(window, pdf_path: str | None, current_page: int 
 
     _auto_ocr_first_reload_done(window).discard(abs_path)
 
-    thread = QThread(window)
     worker = _AutoOcrWorker(pdf_path, page_order)
     relay = _AutoOcrRelay(window, abs_path)
-    worker.moveToThread(thread)
-    thread.started.connect(worker.run)
     worker.pageDone.connect(relay.onPageDone)
     worker.finished.connect(relay.onFinished)
-    worker.finished.connect(thread.quit)
-    worker.finished.connect(worker.deleteLater)
-    thread.finished.connect(thread.deleteLater)
+    # Native OCR is already isolated in a child process.  Keep the scheduler
+    # itself on a Python thread so closing/reloading a tab cannot trigger a
+    # QThread QObject-lifetime abort in the GUI process.
+    thread = threading.Thread(target=worker.run, name="3T-AutoOCR", daemon=True)
 
     registry[abs_path] = (thread, worker, relay)
     thread.start()

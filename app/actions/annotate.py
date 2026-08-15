@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import threading
 import re
 import uuid
 import json
@@ -9,7 +10,7 @@ from datetime import datetime, timezone
 if typing.TYPE_CHECKING:
     import pikepdf
 
-from packages.qt_compat.QtCore import QObject, QEventLoop, QThread, QTimer, pyqtSignal, pyqtSlot
+from packages.qt_compat.QtCore import QObject, QEventLoop, QTimer, pyqtSignal, pyqtSlot
 from packages.qt_compat.QtWidgets import (
     QFileDialog,
     QInputDialog,
@@ -2913,17 +2914,24 @@ def _rotate_page(window, degrees: int):
     # (cũng main thread) - _active_pdf_writes không thread-safe, chỉ được
     # mutate từ 1 thread duy nhất (xem docstring pdf_write_slot()).
     tmp = make_staged_pdf_path(path)
-    write_slot = _acquire_pdf_write_slot(path)
+    try:
+        write_slot = _acquire_pdf_write_slot(path)
+    except TimeoutError:
+        remove_path_quietly(tmp)
+        if hasattr(window, "status"):
+            window.status.showMessage("Tài liệu đang được lưu/xử lý, vui lòng thử xoay lại sau.", 3000)
+        return
 
-    thread = QThread(window)
+    # Do not move a QObject worker to QThread here.  A rotate may outlive a
+    # tab close/reload; PyQt can then destroy the QThread wrapper while its
+    # native thread is still running, which aborts the whole process on
+    # Windows.  A plain Python thread has no Qt lifetime/affinity teardown.
+    # Signals emitted by the worker are still delivered to the QObject relay
+    # on the GUI thread (queued connection).
     worker = _RotatePageWorker(path, tmp, page_no, degrees)
     relay = _RotatePageRelay(window, path=path, page_no=page_no, degrees=degrees, write_slot=write_slot)
-    worker.moveToThread(thread)
-    thread.started.connect(worker.run)
     worker.finished.connect(relay.onFinished)
-    worker.finished.connect(thread.quit)
-    worker.finished.connect(worker.deleteLater)
-    thread.finished.connect(thread.deleteLater)
+    thread = threading.Thread(target=worker.run, name="3T-RotatePage", daemon=True)
 
     # worker không có Qt-parent (moveToThread() không giữ sống) và cũng
     # không còn Python reference nào khác sau khi hàm này return - refcount
