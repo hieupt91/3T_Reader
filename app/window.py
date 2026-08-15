@@ -2438,6 +2438,9 @@ class PDFReaderApp(QMainWindow):
         (ảnh thuần) thì phải OCR trước. Chạy nền ngay khi mở file, không phân
         biệt gói license (khác với OCR thủ công toàn tài liệu, vẫn khóa
         Enterprise trong app/actions/ocr.py)."""
+        from app.config import AUTO_OCR_ON_OPEN
+        if not AUTO_OCR_ON_OPEN:
+            return
         pdf_path = state.get("source_path")
         if not pdf_path:
             return

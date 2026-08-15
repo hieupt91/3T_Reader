@@ -238,7 +238,6 @@ class OCRDialog(QDialog):
             self._text_edit.setFont(QFont(font_name, 11))
 
     def _start(self):
-        print(f"[OCR] start pages={len(self._pages)} high_quality={self._hq}", flush=True)
         self._worker = _Worker(self._pdf_path, self._pages, self._hq)
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_finished)
@@ -264,7 +263,6 @@ class OCRDialog(QDialog):
         sb.setValue(sb.maximum())
 
     def _on_finished(self, full_text: str, total: int):
-        print(f"[OCR] finished pages={total} chars={len(full_text or '')}", flush=True)
         self._final_text = full_text
         try:
             from packages.ai.chat_pdf import save_ocr_text_cache

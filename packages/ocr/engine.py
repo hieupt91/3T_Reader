@@ -28,6 +28,30 @@ class OCRRuntimeStatus:
     error: str = ""
 
 
+def _hidden_process_kwargs() -> dict:
+    """Prevent bundled Tesseract from flashing a black console on Windows."""
+    if sys.platform != "win32":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
+def _configure_pytesseract_no_window(pytesseract) -> None:
+    """pytesseract does not set CREATE_NO_WINDOW itself on all versions."""
+    module = pytesseract.pytesseract
+    if getattr(module, "_3t_no_window", False):
+        return
+    original = module.subprocess_args
+
+    def subprocess_args(include_stdout=True):
+        kwargs = original(include_stdout)
+        kwargs.update(_hidden_process_kwargs())
+        return kwargs
+
+    module.subprocess_args = subprocess_args
+    module._3t_no_window = True
+    error: str = ""
+
+
 def _is_executable(path: str | os.PathLike[str] | None) -> bool:
     if not path:
         return False
@@ -144,6 +168,7 @@ def get_installed_langs() -> list[str]:
             text=True,
             timeout=10,
             env=env,
+            **_hidden_process_kwargs(),
         )
         lines = (result.stdout + result.stderr).splitlines()
         langs = []
@@ -209,6 +234,8 @@ def ocr_pil_image(pil_image, page_num: int = 1, high_quality: bool = False) -> O
 
     try:
         import pytesseract
+
+        _configure_pytesseract_no_window(pytesseract)
 
         pytesseract.pytesseract.tesseract_cmd = cmd
         tessdata_dir = _tessdata_dir(cmd)
@@ -306,6 +333,8 @@ def ocr_pdf_page_text_layer(pdf_path: str, page_num: int, *, scale: float = 2.0)
         import pypdfium2 as pdfium
         import pytesseract
         from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+
+        _configure_pytesseract_no_window(pytesseract)
 
         with PDFIUM_LOCK:
             doc = pdfium.PdfDocument(pdf_path)

@@ -39,6 +39,15 @@ RELEASE_NOTES = (
     "sửa icon file PDF hiển thị sai trong Windows Explorer chế độ xem chi "
     "tiết."
 )
+# Release notes for the bootstrap release; keep the historical long note above
+# in source for reference, but publish only the notes that describe 1.0.32.
+RELEASE_NOTES = (
+    "Phien ban 1.0.32: them co che cap nhat nhe B53 cho cac ban va code sau nay; "
+    "cai tien icon file PDF va giao dien bo cai dat; an cua so console den cua Tesseract. "
+    "Auto-OCR khi mo file tam thoi duoc tat de uu tien do on dinh trong khi tiep tuc "
+    "xu ly loi vang app khi mo tai lieu."
+)
+
 REMOTE_CONFIG_PATH = "/home/hieupt/projects/3T_Reader/phase1-backend/data/admin-config.json"
 LOCAL_DIR = r"C:\Users\HieuPC\Desktop\3T_Reader_Phase1_Win\build\installer"
 REMOTE_DOWNLOADS_DIR = "/home/hieupt/projects/3T_Reader/phase1-backend/downloads"

@@ -20,6 +20,26 @@ if getattr(sys, 'frozen', False):
     if any(arg.startswith('--type=') for arg in sys.argv):
         sys.exit(0)
 
+# B53: this private helper mode intentionally runs before any UI/Qt/native
+# application module import.  A second process waits for the GUI to exit and
+# applies the already verified code package with a journal + backup.
+from packages.updater.delta_runtime import recover_incomplete_updates, run_apply_helper_from_argv
+
+_delta_helper_result = run_apply_helper_from_argv(sys.argv)
+if _delta_helper_result is not None:
+    sys.exit(0 if _delta_helper_result else 1)
+
+# A power loss or forced shutdown during a previous patch must never leave the
+# app booting mixed old/new files.  Restore the old complete layer first.
+recover_incomplete_updates()
+
+# Auto-OCR uses a separate process so a native OCR/PDF backend failure cannot
+# take down the Qt document viewer. This is intentionally before UI imports.
+if len(sys.argv) == 5 and sys.argv[1] == "--auto-ocr-worker":
+    from packages.ocr.auto_worker import main as _auto_ocr_worker_main
+
+    sys.exit(_auto_ocr_worker_main(sys.argv[2:]))
+
 if len(sys.argv) >= 3 and sys.argv[1] == "--usb-sign-worker":
     from packages.signing.usb_worker import main as _usb_sign_worker_main
 

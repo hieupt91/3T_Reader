@@ -16,3 +16,6 @@ UPDATE_CHANNEL = "stable"
 LANGUAGE_PACK_BASE_URL = f"{VPS_LICENSE_BASE_URL}/api/v1/language"
 OCR_TESSERACT_INSTALLER_URL = f"{VPS_LICENSE_BASE_URL}/downloads/ocr/tesseract-ocr-windows-x64.exe"
 OCR_TESSDATA_BASE_URL = f"{VPS_LICENSE_BASE_URL}/downloads/ocr/tessdata"
+# Auto-OCR is isolated in a helper process so native OCR/PDF failures cannot
+# terminate the Qt viewer. The helper creates no console window on Windows.
+AUTO_OCR_ON_OPEN = False
