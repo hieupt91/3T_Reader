@@ -25,7 +25,7 @@ from vps_secret import vps_password
 CODE_PACKAGE_LOCAL = os.environ["CODE_PACKAGE_LOCAL"]
 CODE_PACKAGE_VERSION = os.environ["CODE_PACKAGE_VERSION"]
 CODE_PACKAGE_NOTES = os.environ["CODE_PACKAGE_NOTES"]
-CODE_PACKAGE_BASE_VERSION = os.environ.get("CODE_PACKAGE_BASE_VERSION", "base-1.1")
+CODE_PACKAGE_BASE_VERSION = os.environ.get("CODE_PACKAGE_BASE_VERSION", "base-1.2")
 REMOTE_CONFIG_PATH = "/home/hieupt/projects/3T_Reader/phase1-backend/data/admin-config.json"
 REMOTE_DOWNLOADS_DIR = "/home/hieupt/projects/3T_Reader/phase1-backend/downloads"
 BASE_URL = "https://reader.3tcomputer.com/downloads"
