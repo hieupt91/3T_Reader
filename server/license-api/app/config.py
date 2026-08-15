@@ -16,6 +16,9 @@ class Settings:
     data_dir: str = os.getenv("THREET_DATA_DIR", "/data")
     state_file: str = os.getenv("THREET_STATE_FILE", "license-api-state.json")
     api_version: str = "v1"
+    # B53: route delta-update riêng, song song với api_version ("v1") - route
+    # cũ không đụng gì, chỉ thêm route mới. Xem docs/PLAN_B53_DELTA_UPDATE_2026-08-15.md.
+    api_version_delta: str = "v2"
 
 
 settings = Settings()

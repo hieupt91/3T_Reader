@@ -98,6 +98,19 @@ class AdminConfig:
             "portable_sha256": "",
             "release_notes": "",
             "mandatory": False,
+            # B53 (docs/PLAN_B53_DELTA_UPDATE_2026-08-15.md) - field delta
+            # update, chỉ dùng khi "update" key CHƯA tồn tại trong file config
+            # (máy mới/lần đầu). Với config đã có sẵn "update" key (VPS thật
+            # hiện tại), .get("update", {...}) trả nguyên dict đã lưu, không
+            # merge default này vào - mọi nơi đọc field mới đều phải tự
+            # .get(key, default) thay vì tin dict luôn đủ field.
+            "win_base_version": "base-1.0",
+            "win_code_url": "",
+            "win_code_sha256": "",
+            "mac_base_version": "base-1.0",
+            "mac_code_url": "",
+            "mac_code_sha256": "",
+            "delta_enabled": False,
         })
 
     def set_update_config(self, cfg: dict) -> None:
@@ -125,6 +138,13 @@ class AdminConfig:
             "social_zalo",
             "social_facebook",
             "social_telegram",
+            "win_base_version",
+            "win_code_url",
+            "win_code_sha256",
+            "mac_base_version",
+            "mac_code_url",
+            "mac_code_sha256",
+            "delta_enabled",
         )
         current.update({k: v for k, v in cfg.items() if k in allowed})
         data["update"] = current

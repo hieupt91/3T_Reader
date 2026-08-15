@@ -29,6 +29,7 @@ from .schemas import (
     PeekResponse,
     ReleaseManifestResponse,
     UpdateCheckResponse,
+    UpdateCheckV2Response,
     ValidateRequest,
     ValidateResponse,
 )
@@ -1180,6 +1181,15 @@ def update_check_v1(platform: str, current_version: str) -> UpdateCheckResponse:
     return update_check(platform, current_version)
 
 
+@app.get(f"/api/{settings.api_version_delta}/update/check", response_model=UpdateCheckV2Response)
+def update_check_v2(platform: str, current_version: str, current_base_version: str = "base-1.0") -> UpdateCheckV2Response:
+    """B53: route delta-update riêng, song song với update_check/update_check_v1
+    ở trên - KHÔNG được sửa 2 hàm đó khi thêm route này. Xem
+    docs/PLAN_B53_DELTA_UPDATE_2026-08-15.md."""
+    manifest = update_service.build_manifest_v2(platform, current_version, current_base_version)
+    return UpdateCheckV2Response(**manifest)
+
+
 @app.get("/api/releases/{platform}/{version}", response_model=ReleaseManifestResponse)
 def release_manifest(platform: str, version: str) -> ReleaseManifestResponse:
     manifest = update_service.build_manifest(platform, version)
@@ -1296,6 +1306,14 @@ class UpdateConfigRequest(BaseModel):
     social_telegram: str | None = None
     signature: str | None = None
     prices: dict[str, int] | None = None
+    # B53 (docs/PLAN_B53_DELTA_UPDATE_2026-08-15.md)
+    win_base_version: str | None = None
+    win_code_url: str | None = None
+    win_code_sha256: str | None = None
+    mac_base_version: str | None = None
+    mac_code_url: str | None = None
+    mac_code_sha256: str | None = None
+    delta_enabled: bool | None = None
 
 
 @app.post("/api/admin/update-config")

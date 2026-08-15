@@ -87,6 +87,27 @@ class UpdateCheckResponse(BaseModel):
     signature: str = ""
 
 
+class UpdateCheckV2Response(BaseModel):
+    """B53: response route delta-update (/api/v2/update/check) - hoàn toàn
+    tách biệt UpdateCheckResponse (v1) ở trên, không dùng chung field nào để
+    đổi field v2 không bao giờ ảnh hưởng response v1. Xem
+    docs/PLAN_B53_DELTA_UPDATE_2026-08-15.md."""
+    platform: str
+    current_version: str
+    current_base_version: str = ""
+    latest_version: str
+    update_type: str = "none"  # "full" | "delta" | "none"
+    download_url: str = ""
+    sha256: str = ""
+    base_version: str = ""
+    code_package_url: str = ""
+    code_package_sha256: str = ""
+    mandatory: bool = False
+    release_notes: str = ""
+    signature: str = ""
+    code_signature: str = ""
+
+
 class ReleaseManifestResponse(BaseModel):
     platform: str
     version: str
