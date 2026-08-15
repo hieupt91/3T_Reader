@@ -3,7 +3,7 @@
 ; ================================================================
 #define MyAppName      "3T Reader"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.33"
+  #define MyAppVersion "1.0.34"
 #endif
 #ifndef BuildSource
   #define BuildSource "dist\\3T_Reader_Secure"
