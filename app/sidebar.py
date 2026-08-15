@@ -375,9 +375,19 @@ class ThumbnailSidebar(QDockWidget):
         index = page_number - 1
         if 0 <= index < self.list.count():
             self.list.setCurrentRow(index)
+            # ScrollHint.PositionAtCenter dùng đường cuộn "tối ưu" (cuộn/blit
+            # ảnh cũ rồi chỉ vẽ lại đúng dải mới lộ ra) nhưng tính sai dải đó,
+            # luôn bỏ sót đúng 1 item ngay TRÊN item vừa chọn - item đó có icon
+            # đã set sẵn trong dữ liệu (đúng, không null) nhưng hiện trắng vì
+            # không nằm trong vùng được vẽ lại, gọi update()/repaint()/
+            # doItemsLayout()/gán lại QIcon mới bao nhiêu lần cũng không ăn
+            # thua vì đó không phải nơi xảy ra lỗi (xác nhận thật qua QA GUI
+            # test 15/08/2026: đổi sang ScrollHint.EnsureVisible - không dùng
+            # đường cuộn tối ưu đó - hết lỗi ngay, xem QA_REPORT/BUG_REPORT.md
+            # mục BUG-01).
             self.list.scrollToItem(
                 self.list.item(index),
-                QListWidget.ScrollHint.PositionAtCenter
+                QListWidget.ScrollHint.EnsureVisible
             )
             self._schedule_visible_load()
 

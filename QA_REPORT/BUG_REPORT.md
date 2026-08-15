@@ -61,47 +61,67 @@ trang đang chọn, khả năng cao đang tính range kiểu `[current-N, curren
 nhưng lệch 1 ở biên trên, hoặc thumbnail của trang N-1 bị "unload" nhầm khi
 trang N được chọn nhưng chưa kịp "load" lại.
 
-### ✅ ĐÃ SỬA VÀ XÁC MINH (15/08/2026)
+### ⚠️ Fix lần 1 (15/08/2026, đã lên bản 1.0.34) — KHÔNG ĐỦ, bug vẫn còn
 
-**Nguyên nhân gốc xác nhận:** `app/sidebar.py::ThumbnailSidebar._start_loader()`
+**Nguyên nhân từng nghi:** `app/sidebar.py::ThumbnailSidebar._start_loader()`
 **GHI ĐÈ** `self._pending_pages` thay vì **GỘP** khi có yêu cầu tải mới trong
-lúc loader cũ còn chạy (vd. `scrollToItem()` lúc chọn trang kích hoạt nhiều
-signal liên tiếp: `verticalScrollBar().valueChanged` + `highlight_page()` tự
-gọi `_schedule_visible_load()`). Trang đã yêu cầu ở lần gọi trước nhưng chưa
-kịp render bị rơi mất nếu lần tính lại phạm vi hiển thị sau không còn tính
-trang đó vào — đúng khớp pattern "trang liền kề trang đang chọn luôn trắng"
-quan sát được (biên của phạm vi hiển thị là nơi dễ lệch nhất giữa 2 lần tính
-liên tiếp).
+lúc loader cũ còn chạy. Đã sửa (gộp bằng `dict.fromkeys`) và có test
+`tests/test_sidebar_thumbnail_race.py` (3 test, PASS). Fix này **có thật và
+đúng** cho 1 race điều kiện phụ (mất trang khỏi hàng đợi tải khi bị interrupt
+giữa chừng) — nhưng **KHÔNG PHẢI nguyên nhân của BUG-01**. Bản 1.0.34 đã lên
+VPS/cài thật với fix này, nhưng khi re-test trực tiếp trên app đã cài (không
+chỉ code review) thì **bug tái hiện y hệt** — icon vẫn được set đúng vào model
+(`_append_thumbnail` chạy đúng, dữ liệu pixel xác nhận hợp lệ qua debug log)
+nhưng vẫn không hiện lên màn hình. → Bài học: fix hợp lý + có unit test PASS
+không đồng nghĩa đã sửa đúng bug quan sát được — phải verify lại bằng GUI thật.
 
-**Fix:** gộp `_pending_pages` (dùng `dict.fromkeys` giữ thứ tự, loại trùng),
-chỉ bỏ trang đã thực sự render xong (`_loaded_pages`).
+### ✅ Fix lần 2 (15/08/2026) — nguyên nhân gốc thật sự, đã xác minh hết bug
 
-**Test:** `tests/test_sidebar_thumbnail_race.py` (3 test) — xác nhận cả 3 đều
-**FAIL** trên code cũ (chưa fix) và **PASS** trên code đã fix, chứng minh test
-bắt đúng bug, không phải test vô nghĩa.
+**Nguyên nhân gốc xác nhận:** `QListWidget::scrollToItem()` với
+`ScrollHint.PositionAtCenter` dùng đường cuộn "tối ưu" nội bộ của Qt (cuộn/blit
+phần ảnh cũ sang vị trí mới rồi CHỈ vẽ lại đúng dải pixel mới lộ ra, thay vì vẽ
+lại toàn bộ viewport) — nhưng Qt tính sai dải "mới lộ ra" đó, luôn bỏ sót đúng
+1 item: item ngay PHÍA TRÊN item vừa được chọn/cuộn tới. Icon của item đó đã
+tồn tại đúng trong model từ trước (`QListWidgetItem.setIcon()` đã chạy, dữ liệu
+pixel hợp lệ — xác nhận qua debug print `min=0 max=255` cho mọi trang, kể cả
+trang bị trắng) nhưng nằm ngoài vùng Qt quyết định vẽ lại nên không bao giờ
+hiện, **bất kể gọi `viewport().update()`, `viewport().repaint()` (đồng bộ),
+`doItemsLayout()` (buộc tính lại toàn bộ layout), hay gán lại 1 `QIcon` hoàn
+toàn mới cho item đó bao nhiêu lần cũng không ăn thua** — vì vấn đề nằm ở
+chính logic nội bộ `scrollToItem(PositionAtCenter)` tính sai vùng cần vẽ lại,
+không phải ở dữ liệu, ở cache icon, hay ở việc thiếu 1 lệnh vẽ lại.
 
-**Verify bằng GUI thật, qua đúng luồng B53 delta-update (không rebuild
-installer, đúng theo yêu cầu):**
-1. Build lại `_internal` với fix → đóng gói code package delta (7.4MB, giảm
-   ~98.5% so với installer full 486MB) → upload VPS → bật `delta_enabled` tạm
-   thời trên admin-config.
-2. App 1.0.33 đang cài thật trên máy tự phát hiện bản vá qua
-   `/api/v2/update/check` → tải → verify SHA-256 + chữ ký Ed25519 → áp dụng
-   → tự khởi động lại. **Toàn bộ luồng B53 chạy thật lần đầu tiên, không
-   phải test giả lập.**
-3. Lần thử đầu bị gián đoạn giữa chừng (dừng đúng lúc ghi file `.pyd` đầu
-   tiên) → cơ chế rollback tự phát hiện và khôi phục đúng - **xác nhận an
-   toàn của thiết kế hoạt động đúng** dù lần áp dụng đó không thành công.
-4. Lần thử thứ 2 (kiên nhẫn hơn, không polling ngay sau khi bấm) → áp dụng
-   **thành công hoàn toàn** — xác nhận qua `sidebar.pyc` trong
-   `C:\Program Files\3T Reader\_internal\app\` có timestamp mới
-   (14:17:51) thay vì bản gốc (11:52:32), và `state.json` báo
-   `"status": "complete"`.
-5. Đã tắt lại `delta_enabled=False` trên VPS sau khi test xong (khôi phục mặc
-   định an toàn).
+**Cách xác nhận (loại trừ từng giả thuyết bằng debug thật, không đoán):**
+1. Debug print xác nhận `_append_thumbnail()` luôn chạy đúng, icon không null,
+   pixel data hợp lệ (`min=0 max=255`) — kể cả cho trang đang bị hiện trắng.
+2. Thử `self.list.viewport().update()` ngay sau `scrollToItem()` — không hết.
+3. Thử thêm `self.list.doItemsLayout()` sau mỗi lần set icon — không hết.
+4. Thử hoãn sang vòng lặp sự kiện kế tiếp (`QTimer.singleShot(0, ...)`) rồi
+   gọi `viewport().repaint()` đồng bộ — không hết.
+5. Dùng `self.list.viewport().grab()` (chụp trực tiếp từ bộ máy vẽ Qt, KHÔNG
+   qua chụp màn hình OS) để loại trừ khả năng đây chỉ là lỗi chụp
+   ảnh/compositing của Windows — vẫn trắng → xác nhận đây là lỗi vẽ thật bên
+   trong Qt, không phải lỗi công cụ QA.
+6. Điều hướng trực tiếp tới đúng trang đang bị trắng (bấm "Trang trước") — nó
+   HẾT trắng và hiện đúng, nhưng trang NGAY PHÍA TRÊN nó (giờ không còn được
+   chọn) lại trắng thay thế → xác nhận pattern là "item phía trên item vừa
+   được chọn/cuộn tới", không phải gắn với 1 số trang cụ thể nào.
+7. Đổi `ScrollHint.PositionAtCenter` → `ScrollHint.EnsureVisible` (không dùng
+   đường cuộn tối ưu blit đó) — **hết bug ngay, không cần thêm bất kỳ workaround
+   nào khác.**
 
-**Kết luận:** fix đã được xác nhận áp dụng thành công vào đúng bản cài thật
-trên máy, thông qua đúng cơ chế cập nhật sẽ dùng cho người dùng thật sau này.
+**Fix thật:** `app/sidebar.py::ThumbnailSidebar.highlight_page()` — đổi
+`QListWidget.ScrollHint.PositionAtCenter` → `QListWidget.ScrollHint.EnsureVisible`.
+Đã test thêm: nhảy xa (trang 1 → trang 40 qua ô nhập số trang) vẫn cuộn đúng,
+không còn thumbnail trắng ở trang liền kề.
+
+**Test:** đã chạy lại toàn bộ `tests/` (415 test) sau fix — không có regression
+(1 lần fail ở `test_single_instance.py` do tiến trình dev-mode debug còn sống
+giữ socket, không liên quan sidebar.py — chạy lại riêng PASS sau khi đóng tiến
+trình đó).
+
+**Kết luận:** đã xác minh hết bug bằng GUI thật (dev-mode, lặp lại nhiều lần,
+nhiều vị trí trang, cả nhảy trang gần lẫn xa) trước khi build lại bản cài đặt.
 
 ---
 
