@@ -7,6 +7,7 @@ from packages.qt_compat.QtWidgets import (
 )
 from packages.qt_compat.QtCore import Qt, QSize, Signal, QEvent
 from packages.qt_compat.QtGui import QAction
+from app.icon_utils import svg_icon
 
 
 class _RibbonTabButton(QToolButton):
@@ -345,15 +346,18 @@ class RibbonBar(QWidget):
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    def add_tab(self, label: str, panel: RibbonPanel) -> int:
+    def add_tab(self, label: str, panel: RibbonPanel, icon: str | None = None) -> int:
         idx = len(self._tabs)
         self._panels.append(panel)
 
         btn = _RibbonTabButton()
         btn.setText(label)
+        if icon:
+            btn.setIcon(svg_icon(icon, size=16))
+            btn.setIconSize(QSize(16, 16))
         btn.setCheckable(False)
-        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        btn.setFixedHeight(30)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        btn.setFixedHeight(32)
         btn.setProperty("sel", "0")
         btn.setToolTip(f"{label}  (double-click để ẩn/hiện ribbon)")
         btn.clicked.connect(lambda _checked=False, i=idx: self._select_tab(i))

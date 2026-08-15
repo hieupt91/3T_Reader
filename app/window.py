@@ -1018,6 +1018,15 @@ class PDFReaderApp(QMainWindow):
         self.g_nav.add(make_action_btn(self.act_next, "Sau"))
         p0.add_group(self.g_nav)
 
+        # Zoom is a primary viewer workflow and must remain visible on the
+        # ribbon (it was accidentally dropped while reorganising the Mac tabs).
+        self.g_zoom = RibbonGroup("Thu phóng")
+        self.g_zoom.add(make_action_btn(self.act_zoom_in,  "Phóng to"))
+        self.g_zoom.add(self.zoom_spin)
+        self.g_zoom.add(make_action_btn(self.act_zoom_out, "Thu nhỏ"))
+        self.g_zoom.add(make_action_btn(self.act_fit,      "Vừa trang"))
+        p0.add_group(self.g_zoom)
+
         g_view = RibbonGroup("Giao diện")
         g_view.add(make_action_btn(self.act_toggle_sidebar_btn, "Thumb"))
         g_view.add(make_action_btn(self.act_toggle_toc_btn,     "Mục lục"))
@@ -1055,7 +1064,7 @@ class PDFReaderApp(QMainWindow):
         p0.add_group(self.g_view, add_sep=False)
         p0.add_stretch()
 
-        self.ribbon.add_tab(self._t("tab.file_view", "Tệp & Xem"), p0)
+        self.ribbon.add_tab(self._t("tab.file_view", "Tệp & Xem"), p0, "folder_open.svg")
 
         # ─── Tab 1: Chú thích ─────────────────────────────────────────────
         p1 = RibbonPanel()
@@ -1103,7 +1112,7 @@ class PDFReaderApp(QMainWindow):
         p1.add_group(self.g_undo, add_sep=False)
         p1.add_stretch()
 
-        self.ribbon.add_tab(self._t("tab.annotate", "Chú thích"), p1)
+        self.ribbon.add_tab(self._t("tab.annotate", "Chú thích"), p1, "highlight.svg")
 
         # ─── Tab 2: Trang ─────────────────────────────────────────────────
         p2 = RibbonPanel()
@@ -1131,7 +1140,13 @@ class PDFReaderApp(QMainWindow):
         p2.add_group(self.g_org, add_sep=False)
         p2.add_stretch()
 
-        self.ribbon.add_tab(self._t("tab.page", "Trang"), p2)
+        # Keep page insertion and multi-page deletion beside rotate/organize;
+        # these are frequently used Windows parity actions, not menu-only.
+        self._act_insert_blank = make("Trang trắng", "file_plus.svg", "Chèn trang trắng", None, lambda: insert_blank_page(self, self.viewer.get_current_page()))
+        self._act_delete_pages = make("Xóa nhiều", "trash.svg", "Xóa nhiều trang", None, lambda: delete_pages_action(self))
+        self.g_org.add(make_action_btn(self._act_insert_blank, "Trang trắng"))
+        self.g_org.add(make_action_btn(self._act_delete_pages, "Xóa nhiều"))
+        self.ribbon.add_tab(self._t("tab.page", "Trang"), p2, "file_plus.svg")
 
         # ─── Tab 3: Bảo mật & Xuất ────────────────────────────────────────
         p3 = RibbonPanel()
@@ -1161,7 +1176,7 @@ class PDFReaderApp(QMainWindow):
         p3.add_group(self.g_exp, add_sep=False)
         p3.add_stretch()
 
-        self.ribbon.add_tab(self._t("tab.security_export", "Bảo mật & Xuất"), p3)
+        self.ribbon.add_tab(self._t("tab.security_export", "Bảo mật & Xuất"), p3, "signature_check.svg")
 
         # ─── Tab 4: OCR & AI ──────────────────────────────────────────────
         p4 = RibbonPanel()
@@ -1193,7 +1208,7 @@ class PDFReaderApp(QMainWindow):
         
         p4.add_stretch()
 
-        self.ribbon.add_tab(self._t("tab.ocr_ai", "OCR & AI"), p4)
+        self.ribbon.add_tab(self._t("tab.ocr_ai", "OCR & AI"), p4, "search.svg")
 
         # ─── Tab 5: Ký số ─────────────────────────────────────────────────
         p5 = RibbonPanel()
@@ -1226,7 +1241,7 @@ class PDFReaderApp(QMainWindow):
         self.act_sign_file   = self._act_sign3
         self.act_signature_field = self._act_field
 
-        self.ribbon.add_tab(self._t("tab.sign", "Ký số"), p5)
+        self.ribbon.add_tab(self._t("tab.sign", "Ký số"), p5, "usb.svg")
 
         # ─── Tab 6: Cài đặt ───────────────────────────────────────────────
         # Gom các nút thuần "cài đặt/tuỳ chỉnh" (chủ đề, ngôn ngữ) tách khỏi
@@ -1298,7 +1313,7 @@ class PDFReaderApp(QMainWindow):
         p6.add_group(self.g_help, add_sep=False)
         p6.add_stretch()
 
-        self.ribbon.add_tab(self._t("tab.settings", "Cài đặt"), p6)
+        self.ribbon.add_tab(self._t("tab.settings", "Cài đặt"), p6, "settings.svg")
 
         # ── Thêm ribbon vào toolbar ───────────────────────────────────────
         self.ribbon.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
