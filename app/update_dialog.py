@@ -3,9 +3,6 @@ from __future__ import annotations
 
 import sys
 import threading
-import hashlib
-import tempfile
-from pathlib import Path
 
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
@@ -102,37 +99,23 @@ class UpdateDialog(QDialog):
         self._bar.show()
 
         sigs = self._sigs
-        url  = self._info.download_url
 
         def _worker():
             try:
-                import requests
-                resp = requests.get(
-                    url,
-                    headers={"User-Agent": "3T-Reader-Updater/1.0"},
-                    timeout=120,
-                    stream=True,
+                # Vá lỗ hổng bảo mật thật (15/08/2026, xem
+                # packages/update_client/checker.py đầu file): trước đây tải
+                # thẳng bằng requests.get() ở đây, KHÔNG verify SHA-256 hay
+                # chữ ký gì cả - tin tưởng mù quáng vào download_url. Dùng
+                # download_update() đã verify đầy đủ (cùng logic Windows).
+                from packages.update_client import download_update
+
+                result = download_update(
+                    self._info,
+                    progress_cb=lambda pct: sigs.progress.emit(int(pct)),
                 )
-                resp.raise_for_status()
-                total = int(resp.headers.get("content-length", 0))
-                suffix = Path(url.split("?")[0]).suffix or (
-                    ".dmg" if sys.platform == "darwin" else ".exe"
-                )
-                tmp = tempfile.NamedTemporaryFile(
-                    delete=False, suffix=suffix, prefix="3TReader_upd_"
-                )
-                done = 0
-                hasher = hashlib.sha256()
-                for chunk in resp.iter_content(chunk_size=65536):
-                    if chunk:
-                        tmp.write(chunk)
-                        hasher.update(chunk)
-                        done += len(chunk)
-                        if total > 0:
-                            sigs.progress.emit(int(done * 100 / total))
-                tmp.close()
-                sigs.progress.emit(100)
-                sigs.finished.emit(tmp.name)
+                if not result.success:
+                    raise RuntimeError(result.error or "Không tải được bản cập nhật.")
+                sigs.finished.emit(result.path)
             except Exception as exc:
                 sigs.error.emit(str(exc))
 
