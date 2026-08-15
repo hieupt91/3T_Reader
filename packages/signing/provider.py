@@ -9,6 +9,14 @@ class TokenInfo:
     driver: str
     signer_name: str = ""
     tax_code: str = ""
+    driver_path: str = ""
+    token_index: int = 0
+    token_label: str = ""
+    serial: str = ""
+    manufacturer: str = ""
+    model: str = ""
+    issuer_name: str = ""
+    cert_serial: str = ""
 
 
 class SigningProvider(Protocol):
@@ -16,6 +24,12 @@ class SigningProvider(Protocol):
         ...
 
     def detect_driver(self) -> str | None:
+        ...
+
+    def list_tokens(self, pin: str | None = None) -> list[TokenInfo]:
+        ...
+
+    def select_token(self, token_info: TokenInfo | None) -> None:
         ...
 
     def get_token_info(self, pin: str | None = None) -> TokenInfo | None:
@@ -30,5 +44,22 @@ class SigningProvider(Protocol):
         signer_name: str,
         page_number: int,
         box: tuple[float, float, float, float],
+        field_name: str | None = None,
+        reason: str | None = None,
+        location: str | None = None,
+        contact_info: str | None = None,
+        tsa_url: str | None = None,
+        enable_ltv: bool = False,
     ) -> None:
         ...
+
+    async def sign_pdf_batch(
+        self,
+        jobs: list[dict],
+        pin: str,
+        *,
+        tsa_url: str | None = None,
+        enable_ltv: bool = False,
+    ) -> None:
+        ...
+

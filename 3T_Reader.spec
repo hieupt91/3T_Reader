@@ -1,11 +1,77 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
+import os
+
+# Single source of truth for the app version (ARCH-01).
+_version_ns = {}
+with open(os.path.join(os.path.dirname(os.path.abspath(SPEC)), 'app', 'version.py'), encoding='utf-8') as _f:
+    exec(_f.read(), _version_ns)
+APP_VERSION = _version_ns['APP_VERSION']
 
 datas = []
 binaries = []
-hiddenimports = ['pypdfium2', 'pikepdf', 'PySide6.QtPrintSupport', 'PySide6.QtWebEngineWidgets']
+hiddenimports = ['pypdfium2', 'pikepdf', 'pyhanko.network', 'pyhanko.network.requests', 'pyhanko_certvalidator', 'pyhanko_certvalidator.fetchers.requests_fetchers', 'PySide6.QtPrintSupport', 'PySide6.QtWebEngineWidgets', 'pdf2docx', 'pdfplumber', 'openpyxl', 'openai', 'anthropic', 'huggingface_hub', 'google.genai', 'requests', 'keyring']
+# build_secure.py Nuitka-compiles these to ABI-tagged .pyd (e.g. annotate.cp313-win_amd64.pyd) and
+# removes the .py source; collect_submodules() below walks the filesystem and does not recognize
+# that tagged suffix, so they get silently dropped from the frozen build unless listed explicitly here.
+# Keep in sync with build_secure.py's `sensitive_files`.
+hiddenimports += ['app.window', 'app.actions.annotate', 'app.actions.pages', 'packages.license_client.vps_client']
 datas += [('assets', 'assets')]
+datas += [('styles', 'styles')]
 datas += [('third_party/pdfjs', 'third_party/pdfjs')]
+if os.path.isdir('app/locales'):
+    datas += [('app/locales', 'app/locales')]
+if os.path.isdir('third_party/tesseract'):
+    datas += [('third_party/tesseract', 'Tesseract-OCR')]
+elif os.path.isdir(r'C:\Program Files\Tesseract-OCR'):
+    datas += [(r'C:\Program Files\Tesseract-OCR', 'Tesseract-OCR')]
+
+import sys
+if sys.platform == 'darwin':
+    if os.path.isdir('venv_piper'):
+        datas += [('venv_piper', 'venv_piper')]
+else:
+    if os.path.isdir('piper_bin'):
+        datas += [('piper_bin', 'piper_bin')]
+
+
+
+def _merge_collected(package_name):
+    collected_datas, collected_binaries, collected_hiddenimports = collect_all(package_name)
+    datas.extend(collected_datas)
+    binaries.extend(collected_binaries)
+    hiddenimports.extend(collected_hiddenimports)
+
+from PyInstaller.utils.hooks import collect_submodules
+hiddenimports.extend(collect_submodules('app'))
+hiddenimports.extend(collect_submodules('packages'))
+hiddenimports.extend(collect_submodules('styles'))
+hiddenimports.extend(collect_submodules('core'))
+
+
+# Native PDF backends can require package-provided binaries/data at runtime.
+for _package in ('pypdfium2', 'pikepdf', 'pyhanko', 'pyhanko_certvalidator', 'keyring'):
+    _merge_collected(_package)
+
+# google.genai (Gemini) and huggingface_hub (HuggingFace) are optional AI
+# providers imported directly by packages/ai/provider.py. A plain string in
+# hiddenimports above is not enough for them in this project's full
+# dependency graph (verified empirically: reproduced with a real PyInstaller
+# build against main.py - neither ends up in dist/*/_internal despite being
+# listed there) - collect_all() walks their real submodules/metadata the
+# same way already relied on for the packages above.
+for _package in ('google.genai', 'huggingface_hub'):
+    _merge_collected(_package)
+
+# aiortc (WebRTC cho truyền P2P ScanDoc) chỉ được import ở top-level của
+# packages/transfer/webrtc_transport.py, nhưng module đó tự nó chỉ được
+# packages/transfer/{send,receive}_dialog.py import kiểu lazy (trong hàm,
+# xem app/transfer_send_dialog.py). collect_submodules('packages') phía
+# trên chỉ đảm bảo webrtc_transport.py được đóng gói, không kéo theo
+# aiortc/aioice - xác nhận thực nghiệm: build 1.0.29 thật thiếu hẳn cả 2,
+# dù cryptography/av/pylibsrtp (dependency khác của aiortc) vẫn có mặt.
+for _package in ('aiortc', 'aioice'):
+    _merge_collected(_package)
 
 
 a = Analysis(
@@ -18,7 +84,13 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    noarchive=False,
+    # B53: keep our pure-Python application modules as individual .pyc files
+    # in _internal instead of sealing them inside the executable's PYZ archive.
+    # That creates a clearly bounded, patchable "code layer" while native
+    # runtime libraries (Qt/Python/Tesseract) remain in the base install.
+    # The delta updater only ever writes a verified allow-list beneath
+    # _internal; the executable and bootstrap are never delta-patched.
+    noarchive=True,
     optimize=0,
 )
 pyz = PYZ(a.pure)
@@ -39,6 +111,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='assets/app.ico',
 )
 coll = COLLECT(
     exe,
@@ -49,3 +122,26 @@ coll = COLLECT(
     upx_exclude=[],
     name='3T_Reader',
 )
+
+import sys
+if sys.platform == 'darwin':
+    app = BUNDLE(
+        coll,
+        name='3T Reader.app',
+        icon='assets/app.icns' if os.path.exists('assets/app.icns') else None,
+        bundle_identifier='com.3t.reader',
+        info_plist={
+            'CFBundleShortVersionString': APP_VERSION,
+            'CFBundleVersion': APP_VERSION,
+            'NSHighResolutionCapable': True,
+            'NSMicrophoneUsageDescription': 'Used for audio recording',
+            'CFBundleDocumentTypes': [
+                {
+                    'CFBundleTypeName': 'PDF Document',
+                    'CFBundleTypeRole': 'Editor',
+                    'LSHandlerRank': 'Owner',
+                    'LSItemContentTypes': ['com.adobe.pdf']
+                }
+            ]
+        }
+    )

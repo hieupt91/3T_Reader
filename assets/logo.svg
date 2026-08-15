@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF7700"/>
+      <stop offset="100%" style="stop-color:#FF3300"/>
+    </linearGradient>
+    <filter id="docShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="rgba(0,0,0,0.35)"/>
+    </filter>
+    <filter id="textShadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="rgba(0,0,0,0.4)"/>
+    </filter>
+    <clipPath id="roundedRect">
+      <rect width="512" height="512" rx="112" ry="112"/>
+    </clipPath>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect width="512" height="512" rx="112" ry="112" fill="url(#bgGrad)"/>
+
+  <!-- Inner highlight at top -->
+  <rect width="512" height="256" rx="112" ry="112" fill="rgba(255,255,255,0.06)" clip-path="url(#roundedRect)"/>
+
+  <!-- Document body -->
+  <g filter="url(#docShadow)">
+    <rect x="118" y="80" width="276" height="340" rx="18" ry="18" fill="#ffffff"/>
+  </g>
+
+  <!-- Dog-ear fold (top-right corner) -->
+  <polygon points="340,80 394,134 340,134" fill="#f0f0f0"/>
+  <polygon points="340,80 394,80 394,134" fill="#e0e0e0"/>
+
+  <!-- Document text lines -->
+  <rect x="148" y="160" width="172" height="10" rx="5" fill="#E8EDF5"/>
+  <rect x="148" y="183" width="196" height="10" rx="5" fill="#E8EDF5"/>
+  <rect x="148" y="206" width="156" height="10" rx="5" fill="#E8EDF5"/>
+  <rect x="148" y="229" width="180" height="10" rx="5" fill="#E8EDF5"/>
+  <rect x="148" y="252" width="140" height="10" rx="5" fill="#E8EDF5"/>
+
+  <!-- Separator line before 3T text area -->
+  <rect x="118" y="290" width="276" height="1" fill="#E0E6F0" opacity="0.7"/>
+
+  <!-- Bottom section of document — colored band -->
+  <rect x="118" y="291" width="276" height="129" rx="0" fill="#FF6200" opacity="0.08"/>
+  <rect x="118" y="291" width="276" height="129" rx="0" ry="0"
+        style="border-bottom-left-radius:18px;border-bottom-right-radius:18px" fill="none"/>
+
+  <!-- Rounded bottom corners mask -->
+  <rect x="118" y="291" width="276" height="129" rx="0" ry="0" fill="rgba(255,98,0,0.07)"/>
+  <rect x="118" y="360" width="276" height="60" rx="18" ry="18" fill="rgba(255,98,0,0.07)"/>
+
+  <!-- "3T" text on document -->
+  <text
+    x="256"
+    y="368"
+    font-family="'Inter', 'Arial Black', Arial, sans-serif"
+    font-size="88"
+    font-weight="800"
+    fill="#FF5500"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    letter-spacing="-3"
+    filter="url(#textShadow)"
+    opacity="0.9"
+  >3T</text>
+
+  <!-- Small "READER" label -->
+  <text
+    x="256"
+    y="412"
+    font-family="'Inter', Arial, sans-serif"
+    font-size="18"
+    font-weight="600"
+    fill="#FF6600"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    letter-spacing="5"
+    opacity="0.7"
+  >READER</text>
+</svg>

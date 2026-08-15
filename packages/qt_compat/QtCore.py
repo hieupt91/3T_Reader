@@ -1,4 +1,4 @@
-from . import _QTCORE
+﻿from . import _QTCORE
 from . import pyqtSignal, pyqtSlot
 
 

@@ -1,4 +1,4 @@
-from . import _QTWEBENGINEWIDGETS
+﻿from . import _QTWEBENGINEWIDGETS
 
 
 def __getattr__(name):

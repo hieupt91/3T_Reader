@@ -1,0 +1,36 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0.5" y2="1">
+    <stop offset="0" stop-color="#b45309"/>
+    <stop offset="1" stop-color="#78350f"/>
+  </linearGradient>
+  <linearGradient id="bgHL" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#fff" stop-opacity="0.14"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="shield" x1="0" y1="0" x2="0.4" y2="1">
+    <stop offset="0" stop-color="#fde68a"/>
+    <stop offset="1" stop-color="#fbbf24"/>
+  </linearGradient>
+  <linearGradient id="shieldHL" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#fff" stop-opacity="0.4"/>
+    <stop offset="0.5" stop-color="#fff" stop-opacity="0"/>
+  </linearGradient>
+  <filter id="s"><feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#000" flood-opacity="0.35"/></filter>
+  <filter id="ss"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#5c2d00" flood-opacity="0.35"/></filter>
+</defs>
+<!-- Card -->
+<rect width="64" height="64" rx="16" fill="url(#bg)" filter="url(#s)"/>
+<rect width="64" height="64" rx="16" fill="url(#bgHL)"/>
+<!-- Shield body -->
+<path d="M32 9 L53 17 L53 34 C53 46 44 55 32 59 C20 55 11 46 11 34 L11 17 Z"
+      fill="url(#shield)" filter="url(#ss)"/>
+<!-- Shield highlight -->
+<path d="M32 9 L53 17 L53 24 C48 22 42 20 32 20 C22 20 16 22 11 24 L11 17 Z"
+      fill="url(#shieldHL)"/>
+<!-- Check mark -->
+<path d="M21 34 L29 42 L44 25" stroke="#92400e" stroke-width="3.5"
+      stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/>
+<path d="M21 34 L29 42 L44 25" stroke="#fff" stroke-width="3"
+      stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

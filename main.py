@@ -1,5 +1,10 @@
 import sys
 import platform as _platform
+import os
+import threading
+import traceback
+import faulthandler
+import gc
 
 # ================================================================
 # BƯỚC 1: Xử lý subprocess của QtWebEngine TRƯỚC TIÊN
@@ -15,13 +20,112 @@ if getattr(sys, 'frozen', False):
     if any(arg.startswith('--type=') for arg in sys.argv):
         sys.exit(0)
 
+# B53: this private helper mode intentionally runs before any UI/Qt/native
+# application module import.  A second process waits for the GUI to exit and
+# applies the already verified code package with a journal + backup.
+from packages.updater.delta_runtime import recover_incomplete_updates, run_apply_helper_from_argv
+
+_delta_helper_result = run_apply_helper_from_argv(sys.argv)
+if _delta_helper_result is not None:
+    sys.exit(0 if _delta_helper_result else 1)
+
+# A power loss or forced shutdown during a previous patch must never leave the
+# app booting mixed old/new files.  Restore the old complete layer first.
+recover_incomplete_updates()
+
+# Auto-OCR uses a separate process so a native OCR/PDF backend failure cannot
+# take down the Qt document viewer. This is intentionally before UI imports.
+if len(sys.argv) == 5 and sys.argv[1] == "--auto-ocr-worker":
+    from packages.ocr.auto_worker import main as _auto_ocr_worker_main
+
+    sys.exit(_auto_ocr_worker_main(sys.argv[2:]))
+
+if len(sys.argv) >= 3 and sys.argv[1] == "--usb-sign-worker":
+    from packages.signing.usb_worker import main as _usb_sign_worker_main
+
+    sys.exit(_usb_sign_worker_main(sys.argv[2:]))
+
+if len(sys.argv) >= 5 and sys.argv[1] == "--export-worker":
+    from packages.document_core.export_runner import main as _export_main
+    sys.exit(_export_main(sys.argv[2:]))
+
+if len(sys.argv) >= 3 and sys.argv[1] == "--pkcs11-probe-token":
+    from packages.signing.windows_provider import probe_driver_for_token_worker_main
+
+    sys.exit(probe_driver_for_token_worker_main(sys.argv[2:]))
+
+if len(sys.argv) >= 3 and sys.argv[1] == "--pkcs11-list-tokens":
+    from packages.signing.windows_provider import probe_driver_tokens_worker_main
+
+    sys.exit(probe_driver_tokens_worker_main(sys.argv[2:]))
+
+_crash_log_handle = None
+
+
+def get_app_log_path() -> str:
+    """Đường dẫn app_log.txt thật - dùng chung cho _install_crash_logging()
+    (ghi log) và app/window.py::_export_bug_report() (B13: đóng gói log gửi
+    báo cáo lỗi) để luôn trỏ đúng 1 file, không lệch giữa 2 nơi tính toán
+    riêng."""
+    return os.path.join(os.path.dirname(__file__), "app_log.txt")
+
+
+def _install_crash_logging() -> None:
+    global _crash_log_handle
+    try:
+        log_path = get_app_log_path()
+        _crash_log_handle = open(log_path, "a", encoding="utf-8", buffering=1)
+        # Chỉ bật faulthandler cho main thread — KHÔNG dùng all_threads=True
+        # vì all_threads=True sẽ khiến SIGSEGV ở QThread (do PySide6 GC race condition)
+        # lan ra và kill toàn bộ app thay vì chỉ log và tiếp tục.
+        faulthandler.enable(file=_crash_log_handle, all_threads=False)
+    except Exception:
+        return
+
+    def _excepthook(exc_type, exc, tb):
+        try:
+            traceback.print_exception(exc_type, exc, tb, file=_crash_log_handle)
+        except Exception:
+            pass
+        sys.__excepthook__(exc_type, exc, tb)
+
+    sys.excepthook = _excepthook
+
+    if hasattr(threading, "excepthook"):
+        def _thread_excepthook(args):
+            try:
+                traceback.print_exception(args.exc_type, args.exc_value, args.exc_traceback, file=_crash_log_handle)
+            except Exception:
+                pass
+            if threading.__excepthook__ is not None:
+                threading.__excepthook__(args)
+
+        threading.excepthook = _thread_excepthook
+
 # ================================================================
 # BƯỚC 2: Single-instance guard qua platform adapter
 # Chỉ cho phép 1 cửa sổ app chạy tại một thời điểm
 # ================================================================
 from packages.platform import acquire_single_instance
+from packages.platform.single_instance import send_paths_to_running_instance
+
+def _startup_pdf_paths(argv: list[str]) -> list[str]:
+    """Return PDF paths passed by file association / command line."""
+    paths: list[str] = []
+    for arg in argv[1:]:
+        if not arg or arg.startswith("-"):
+            continue
+        path = os.path.abspath(os.path.expanduser(arg.strip('"')))
+        if path.lower().endswith(".pdf") and os.path.isfile(path):
+            paths.append(path)
+    return paths
+
+
+_startup_pdf_paths_value = _startup_pdf_paths(sys.argv)
 
 if not acquire_single_instance():
+    if _startup_pdf_paths_value:
+        send_paths_to_running_instance(_startup_pdf_paths_value)
     sys.exit(0)
 
 # ================================================================
@@ -30,13 +134,26 @@ if not acquire_single_instance():
 from packages.qt_compat.QtWidgets import QApplication
 from packages.qt_compat.QtGui import QFont
 from packages.qt_compat.QtCore import QLocale, QLibraryInfo, QTranslator, Qt
-import qdarktheme
-
 from app.window import PDFReaderApp
 from app.config import APP_NAME
-from styles.theme import STYLESHEET
+from styles.theme import apply_theme
 
 if __name__ == "__main__":
+    _install_crash_logging()
+
+    # CPython's cyclic GC có thể tự chạy trên BẤT KỲ thread nào (kể cả các
+    # QThread nền như ThumbnailLoader/OCR/rotate) ngay khi ngưỡng phân bổ bị
+    # vượt. Nếu đúng lúc đó nó dọn 1 vòng tham chiếu vòng có đụng tới object
+    # Qt, việc hủy object Qt từ sai thread là không an toàn -> heap Qt hỏng,
+    # crash muộn (đã xác nhận qua Windows Event Log: exception 0xc0000409
+    # trong Qt6Core.dll, hàm QtPrivate::sizedFree, lặp lại hàng chục lần từ
+    # 05/2026). Đây là lỗi đã biết của PySide6/PyQt trên Windows (GC chạy sai
+    # thread), không phải lỗi trong code app. Tắt GC tự động, tự chủ động
+    # gc.collect() định kỳ CHỈ từ main/GUI thread (xem PDFReaderApp._start_gc_timer)
+    # để việc dọn vòng tham chiếu luôn chạy đúng thread, không còn phụ thuộc
+    # thời điểm ngẫu nhiên GC tự kích hoạt.
+    gc.disable()
+
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 
     app = QApplication(sys.argv)
@@ -46,12 +163,71 @@ if __name__ == "__main__":
     qt_translator.load(QLocale("vi_VN"), "qtbase", "_", qtbase_path)
     app.installTranslator(qt_translator)
 
-    app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
-    app.setStyleSheet(app.styleSheet() + STYLESHEET)
-    _ui_font = {"Darwin": "SF Pro Text", "Windows": "Segoe UI"}.get(_platform.system(), "")
-    app.setFont(QFont(_ui_font, 10))
+    # Tự detect theme macOS/Windows — theo hệ thống
+    import platform as _plt
+    _initial_theme = "dark"
+    try:
+        if _plt.system() == "Darwin":
+            import subprocess
+            r = subprocess.run(
+                ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                capture_output=True, text=True, timeout=2,
+            )
+            _initial_theme = "dark" if r.stdout.strip() == "Dark" else "light"
+        elif _plt.system() == "Windows":
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+            val, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            winreg.CloseKey(key)
+            _initial_theme = "light" if val == 1 else "dark"
+    except Exception:
+        pass
+    apply_theme(_initial_theme)
+    # macOS: ".AppleSystemUIFont" là tên Qt nhận được để map sang SF Pro
+    # Tránh dùng "SF Pro Text" hoặc "-apple-system" vì Qt không resolve được
+    if _platform.system() == "Darwin":
+        _ui_font = ".AppleSystemUIFont"
+    elif _platform.system() == "Windows":
+        _ui_font = "Segoe UI"
+    else:
+        _ui_font = ""
+    if _ui_font:
+        app.setFont(QFont(_ui_font, 10))
     app.setApplicationName(APP_NAME)
 
+    if _platform.system() == "Windows":
+        try:
+            from packages.platform.pdf_association import refresh_pdf_icon_if_default_changed
+            refresh_pdf_icon_if_default_changed()
+        except Exception:
+            pass
+
+    from app.icon_utils import app_logo_icon
+    app.setWindowIcon(app_logo_icon(256))
+
     window = PDFReaderApp()
-    window.show()
+    startup_pdfs = list(_startup_pdf_paths_value)
+    # Mặc định mở phóng to hết màn hình nhưng VẪN GIỮ thanh tiêu đề (thu
+    # nhỏ/khôi phục/đóng) - showFullScreen() (như F11) ẩn hết viền cửa sổ,
+    # không có nút đóng/thu nhỏ, gây khó dùng cho thao tác hàng ngày.
+    window.showMaximized()
+
+    from packages.qt_compat.QtCore import QTimer
+    from app.license_dialog import check_license_on_startup
+    from packages.platform.single_instance import start_single_instance_server
+
+    start_single_instance_server(window.open_external_files)
+
+    def _finish_startup():
+        # check_license_on_startup() tự chạy phần gọi mạng (nếu có) trên
+        # thread nền, không chặn ở đây - mở file ngay, không cần đợi.
+        check_license_on_startup(window)
+        if startup_pdfs:
+            from app.actions.file import open_file
+
+            for path in startup_pdfs:
+                QTimer.singleShot(0, lambda p=path: open_file(window, p))
+
+    QTimer.singleShot(0, _finish_startup)
     sys.exit(app.exec())

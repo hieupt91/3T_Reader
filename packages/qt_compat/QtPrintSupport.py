@@ -1,4 +1,4 @@
-from . import _QTPRINTSUPPORT
+﻿from . import _QTPRINTSUPPORT
 
 
 def __getattr__(name):

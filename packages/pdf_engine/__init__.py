@@ -1,18 +1,11 @@
-import os
-
 from .base import PdfDocument, PdfEngine, RenderedPage
 from .pdfium_engine import PdfiumEngine
-from .pymupdf_engine import PyMuPdfEngine
 
-
-def _build_default_engine() -> PdfEngine:
-    engine_name = os.environ.get("THREET_READER_PDF_ENGINE", "pdfium").strip().lower()
-    if engine_name in {"pymupdf", "fitz", "legacy"}:
-        return PyMuPdfEngine()
-    return PdfiumEngine()
-
-
-_default_engine = _build_default_engine()
+# B2 (2026-08-14, Giai đoạn 3): PyMuPDF (AGPL-3.0) đã gỡ hoàn toàn khỏi
+# codebase - không còn engine thay thế qua biến môi trường
+# THREET_READER_PDF_ENGINE nữa, PdfiumEngine (pypdfium2, BSD-3) là engine
+# duy nhất. Xem docs/ROADMAP_PDF_ENGINE_MIGRATION.md.
+_default_engine = PdfiumEngine()
 
 
 def get_pdf_engine() -> PdfEngine:
@@ -23,7 +16,6 @@ __all__ = [
     "PdfDocument",
     "PdfEngine",
     "PdfiumEngine",
-    "PyMuPdfEngine",
     "RenderedPage",
     "get_pdf_engine",
 ]
