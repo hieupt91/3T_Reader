@@ -30,6 +30,9 @@ class PdfDocument(Protocol):
     def render_page_rgb(self, page_number: int, scale: float = 1.0) -> RenderedPage:
         ...
 
+    def page_size(self, page_number: int) -> tuple[float, float]:
+        ...
+
     def close(self) -> None:
         ...
 

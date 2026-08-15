@@ -1,28 +1,84 @@
-from app.actions._guard import require_document, require_webview
+from packages.qt_compat.QtCore import QTimer
+
+from app.actions._guard import require_webview
 
 _JS_ZOOM_IN = """
 (function() {
+    window.__3tZoomInProgress = true;
+    setTimeout(function() { window.__3tZoomInProgress = false; }, 800);
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
-    if (typeof app.zoomIn === 'function') {
-        app.zoomIn(1);
-    } else {
-        app.pdfViewer.currentScale = Math.min(10, app.pdfViewer.currentScale * 1.1);
+    var viewer = app.pdfViewer;
+    var container = document.getElementById('viewerContainer');
+    var pointer = window.__3tLastPointer || null;
+    var before = Number(viewer.currentScale || 1);
+    var anchor = null;
+    if (container) {
+        var vr = container.getBoundingClientRect();
+        var px = vr.left + vr.width / 2;
+        var py = vr.top + vr.height / 2;
+        if (pointer && Date.now() - (pointer.timestamp || 0) < 2000 &&
+            pointer.x >= vr.left && pointer.x <= vr.right && pointer.y >= vr.top && pointer.y <= vr.bottom) {
+            px = pointer.x;
+            py = pointer.y;
+        }
+        anchor = {
+            viewX: px - vr.left,
+            viewY: py - vr.top,
+            docX: container.scrollLeft + px - vr.left,
+            docY: container.scrollTop + py - vr.top
+        };
     }
-    return Math.round((app.pdfViewer.currentScale || 1) * 100);
+    var current = Number(viewer.currentScale || 1);
+    var target = Math.min(4.0, current * 1.1);
+    viewer.currentScaleValue = String(target);
+    if (container && anchor && before > 0) {
+        var after = Number(viewer.currentScale || target);
+        var ratio = after / before;
+        container.scrollLeft = Math.max(0, anchor.docX * ratio - anchor.viewX);
+        container.scrollTop = Math.max(0, anchor.docY * ratio - anchor.viewY);
+    }
+    return Math.round((Number(viewer.currentScale || 0) || target) * 100);
 })()
 """
 
 _JS_ZOOM_OUT = """
 (function() {
+    window.__3tZoomInProgress = true;
+    setTimeout(function() { window.__3tZoomInProgress = false; }, 800);
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
-    if (typeof app.zoomOut === 'function') {
-        app.zoomOut(1);
-    } else {
-        app.pdfViewer.currentScale = Math.max(0.1, app.pdfViewer.currentScale / 1.1);
+    var viewer = app.pdfViewer;
+    var container = document.getElementById('viewerContainer');
+    var pointer = window.__3tLastPointer || null;
+    var before = Number(viewer.currentScale || 1);
+    var anchor = null;
+    if (container) {
+        var vr = container.getBoundingClientRect();
+        var px = vr.left + vr.width / 2;
+        var py = vr.top + vr.height / 2;
+        if (pointer && Date.now() - (pointer.timestamp || 0) < 2000 &&
+            pointer.x >= vr.left && pointer.x <= vr.right && pointer.y >= vr.top && pointer.y <= vr.bottom) {
+            px = pointer.x;
+            py = pointer.y;
+        }
+        anchor = {
+            viewX: px - vr.left,
+            viewY: py - vr.top,
+            docX: container.scrollLeft + px - vr.left,
+            docY: container.scrollTop + py - vr.top
+        };
     }
-    return Math.round((app.pdfViewer.currentScale || 1) * 100);
+    var current = Number(viewer.currentScale || 1);
+    var target = Math.max(0.25, current / 1.1);
+    viewer.currentScaleValue = String(target);
+    if (container && anchor && before > 0) {
+        var after = Number(viewer.currentScale || target);
+        var ratio = after / before;
+        container.scrollLeft = Math.max(0, anchor.docX * ratio - anchor.viewX);
+        container.scrollTop = Math.max(0, anchor.docY * ratio - anchor.viewY);
+    }
+    return Math.round((Number(viewer.currentScale || 0) || target) * 100);
 })()
 """
 
@@ -30,25 +86,41 @@ _JS_FIT_PAGE = """
 (function() {
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
-    app.pdfViewer.currentScaleValue = 'page-width';
-    return Math.round((app.pdfViewer.currentScale || 1) * 100);
+    app.pdfViewer.currentScaleValue = '1.0';
+    return 100;
 })()
 """
 
 
 def _update_spinner(window, pct):
     if pct and pct > 0:
-        window.zoom_spin.setValue(int(pct))
+        try:
+            window.zoom_spin.blockSignals(True)
+            window.zoom_spin.setValue(max(25, min(400, int(pct))))
+        finally:
+            window.zoom_spin.blockSignals(False)
+
+
+def _run_zoom_js(window, wv, js: str, *, attempts: int = 3):
+    def _handle(pct, remaining: int):
+        if pct and pct > 0:
+            _update_spinner(window, pct)
+            return
+        if remaining <= 0:
+            return
+        QTimer.singleShot(150, lambda: wv.page().runJavaScript(js, lambda r: _handle(r, remaining - 1)))
+
+    wv.page().runJavaScript(js, lambda pct: _handle(pct, attempts - 1))
 
 
 @require_webview
 def zoom_in(window, wv):
-    wv.page().runJavaScript(_JS_ZOOM_IN, lambda pct: _update_spinner(window, pct))
+    _run_zoom_js(window, wv, _JS_ZOOM_IN)
 
 
 @require_webview
 def zoom_out(window, wv):
-    wv.page().runJavaScript(_JS_ZOOM_OUT, lambda pct: _update_spinner(window, pct))
+    _run_zoom_js(window, wv, _JS_ZOOM_OUT)
 
 
 @require_webview
@@ -59,13 +131,40 @@ def apply_zoom(window, wv):
 (function() {{
     var app = window.PDFViewerApplication;
     if (!app || !app.pdfViewer) return 0;
-    app.pdfViewer.currentScaleValue = '{scale}';
-    return Math.round((app.pdfViewer.currentScale || 1) * 100);
+    var viewer = app.pdfViewer;
+    var container = document.getElementById('viewerContainer');
+    var before = Number(viewer.currentScale || 1);
+    var anchor = null;
+    if (container) {{
+        var vr = container.getBoundingClientRect();
+        var pointer = window.__3tLastPointer || null;
+        var px = vr.left + vr.width / 2;
+        var py = vr.top + vr.height / 2;
+        if (pointer && Date.now() - (pointer.timestamp || 0) < 2000 &&
+            pointer.x >= vr.left && pointer.x <= vr.right && pointer.y >= vr.top && pointer.y <= vr.bottom) {{
+            px = pointer.x;
+            py = pointer.y;
+        }}
+        anchor = {{
+            viewX: px - vr.left,
+            viewY: py - vr.top,
+            docX: container.scrollLeft + px - vr.left,
+            docY: container.scrollTop + py - vr.top
+        }};
+    }}
+    viewer.currentScaleValue = '{scale}';
+    if (container && anchor && before > 0) {{
+        var after = Number(viewer.currentScale || {scale});
+        var ratio = after / before;
+        container.scrollLeft = Math.max(0, anchor.docX * ratio - anchor.viewX);
+        container.scrollTop = Math.max(0, anchor.docY * ratio - anchor.viewY);
+    }}
+    return Math.round((Number(viewer.currentScale || 0) || {scale}) * 100);
 }})()
 """
-    wv.page().runJavaScript(js, lambda r: _update_spinner(window, r))
+    _run_zoom_js(window, wv, js)
 
 
 @require_webview
 def zoom_fit(window, wv):
-    wv.page().runJavaScript(_JS_FIT_PAGE, lambda pct: _update_spinner(window, pct))
+    _run_zoom_js(window, wv, _JS_FIT_PAGE)

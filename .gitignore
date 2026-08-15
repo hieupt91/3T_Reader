@@ -14,11 +14,21 @@ env/
 # Build artifacts
 /build/
 /dist/
+/build_obf/
+/build_secure_tmp/
+/build_modules/
+/dist_obf/
+/tmp_portable_check/
+/tmp_portable_check_new/
+docs/api/_build/
 *.manifest
 *.pkg
 *.dmg
 *.exe
 *.msi
+
+# Bundled OCR runtime — local build asset, fetched via packaging script
+/third_party/tesseract/
 
 # Local app/runtime data
 recent_files.json
@@ -27,10 +37,19 @@ recent_files.json
 *.bak
 pytest_tmp/
 app_log.txt
+cloudflared.err
+cloudflared.log
+crash_log.txt
+output.log
+debug/
 doc_content.txt
 read_doc.py
 make_icon.py
 tai_lieu_moi.pdf
+docs.zip
+original_index.html
+static/index_backup.html
+static/original_vps_index.html
 
 # IDE / OS
 .DS_Store
@@ -46,3 +65,20 @@ skills-lock.json
 .env
 .env.*
 !.env.example
+admin-config.json
+pass.txt
+venv_piper/
+piper_bin/
+piper_voices/
+piper_macos.tar.gz
+piper_whl/
+piper_tts*.whl
+
+# Secrets & generated deploy configs — never commit
+pass.txt
+admin-config-update.json
+
+# Dữ liệu cá nhân/giấy tờ dùng để test cục bộ — KHÔNG commit (rủi ro PII)
+cccd_temp.pdf
+*cccd*.pdf
+*_temp.pdf

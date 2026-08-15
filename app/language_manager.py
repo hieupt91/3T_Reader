@@ -3,21 +3,41 @@ from __future__ import annotations
 import json
 import os
 import urllib.request
+from urllib.error import HTTPError, URLError
+from contextlib import closing
 from pathlib import Path
 
 from packages.qt_compat.QtCore import QSettings
 from packages.qt_compat.QtWidgets import QProgressDialog
 
-from app.config import APP_DATA_DIR_NAME, LANGUAGE_PACK_BASE_URL
+from app.config import APP_DATA_DIR_NAME, LANGUAGE_PACK_BASE_URL, VPS_LICENSE_BASE_URL
 
 
 LANGUAGE_SETTINGS_KEY = "3TReader/language"
 DEFAULT_LANGUAGE = "vi"
 
 LANGUAGE_LABELS = {
-    "vi": "Tiếng Việt",
-    "en": "English",
+    "vi": "Tiếng Việt", "en": "English", "fr": "Français", "zh": "中文", "ko": "한국어", "th": "ไทย",
+    "ja": "日本語", "es": "Español", "de": "Deutsch", "ru": "Русский", "ar": "العربية", "pt": "Português",
+    "it": "Italiano", "hi": "हिन्दी", "tr": "Türkçe", "nl": "Nederlands", "pl": "Polski", "id": "Bahasa Indonesia",
+    "ms": "Bahasa Melayu", "fil": "Filipino", "sv": "Svenska", "no": "Norsk", "da": "Dansk", "fi": "Suomi",
+    "el": "Ελληνικά", "he": "עברית", "cs": "Čeština", "hu": "Magyar", "ro": "Română", "uk": "Українська",
+    "bn": "বাংলা", "ur": "اردو", "fa": "فارسی", "ta": "தமிழ்", "te": "తెలుగు", "mr": "मराठी", "gu": "ગુજરાતી",
+    "kn": "ಕನ್ನಡ", "ml": "മലയാളം", "pa": "ਪੰਜਾਬੀ", "jv": "Basa Jawa", "su": "Basa Sunda", "km": "ខ្មែរ",
+    "my": "မြန်မာ", "lo": "ລາວ", "am": "አማርኛ", "sw": "Kiswahili", "yo": "Yorùbá", "ig": "Igbo", "zu": "isiZulu",
+    "af": "Afrikaans", "sq": "Shqip", "hy": "Հայերեն", "az": "Azərbaycan", "eu": "Euskara", "be": "Беларуская",
+    "bs": "Bosanski", "bg": "Български", "ca": "Català", "hr": "Hrvatski", "et": "Eesti", "gl": "Galego",
+    "ka": "ქართული", "is": "Íslenska", "kk": "Қазақ тілі", "ky": "Кыргызча", "lv": "Latviešu", "lt": "Lietuvių",
+    "mk": "Македонски", "mn": "Монгол", "ne": "नेपाली", "sr": "Српски", "sk": "Slovenčina", "sl": "Slovenščina",
+    "tg": "Тоҷикӣ", "uz": "Oʻzbekcha", "cy": "Cymraeg", "yi": "ייִדיש", "xh": "isiXhosa"
 }
+
+# Byte sequences that only occur when UTF-8 text was mis-decoded as Latin-1.
+# Deliberately limited to multi-char sequences — single chars like "Ã", "ì", "í"
+# appear in legitimate French/Italian/Vietnamese text.
+_MOJIBAKE_MARKERS = (
+    "áº", "á»", "à¸", "à¹", "è¯", "Ã¡", "Ã©", "Ã­", "Ã³", "Ãº", "Ã¢", "Ã´", "Ãª",
+)
 
 BUILTIN_TRANSLATIONS = {
     "vi": {
@@ -35,15 +55,79 @@ BUILTIN_TRANSLATIONS = {
         "menu.help": "Trợ giúp",
         "lang.vietnamese": "Tiếng Việt",
         "lang.english": "English",
-        "lang.download": "Tải gói ngôn ngữ...",
+        "lang.french": "Tiếng Pháp",
+        "lang.chinese": "Tiếng Trung",
+        "lang.korean": "Tiếng Hàn",
+        "lang.thai": "Tiếng Thái",
+        "lang.download": "Chọn gói ngôn ngữ...",
         "tab.file_view": "Tệp & Xem",
         "tab.annotate": "Chú thích",
         "tab.page": "Trang",
         "tab.security_export": "Bảo mật & Xuất",
         "tab.ocr_ai": "OCR & AI",
         "tab.sign": "Ký số",
+        "tab.settings": "Cài đặt",
         "status.no_file": "Chưa mở tệp",
         "status.page": "Trang: -",
+        "action.comment": "Ghi chú",
+        "action.rotate_cw": "Xoay phải",
+        "action.rotate_ccw": "Xoay trái",
+        "action.rotate_pages": "Xoay trang",
+        "action.delete_page": "Xóa trang",
+        "action.merge_pdf": "Ghép PDF",
+        "action.extract_page": "Tách PDF",
+        "action.page_number": "Số trang",
+        "group.file": "TỆP",
+        "group.share": "CHIA SẺ",
+        "group.navigate": "ĐIỀU HƯỚNG",
+        "group.zoom": "THU PHÓNG",
+        "group.view": "CHẾ ĐỘ XEM",
+        "group.mark": "ĐÁNH DẤU",
+        "group.edit": "CHỈNH SỬA",
+        "group.undo": "LỊCH SỬ",
+        "group.rotate": "XOAY / XÓA",
+        "group.organize": "TỔ CHỨC",
+        "group.security": "BẢO MẬT",
+        "group.export": "XUẤT",
+        "group.ocr": "OCR",
+        "group.ai": "AI",
+        "group.read": "ĐỌC SÁCH",
+        "group.usbsign": "CHỮ KÝ SỐ",
+        "group.verify": "KIỂM TRA",
+        "welcome.read_everywhere": "ĐỌC MỌI LÚC  •  HIỂU MỌI NƠI",
+        "welcome.btn_open": "Mở tệp PDF",
+        "welcome.btn_new": "Tạo PDF mới",
+        "welcome.btn_recent": "Mở gần đây",
+        "welcome.lbl_recent": "Tệp gần đây",
+        "welcome.version": "Phiên bản",
+        "welcome.whats_new": "Có gì mới",
+        "welcome.drag_drop": "hoặc kéo & thả tệp PDF vào cửa sổ này",
+        "welcome.card1.title": "Đọc PDF mượt mà",
+        "welcome.card1.desc": "Hỗ trợ file lớn, xem toàn trang",
+        "welcome.card2.title": "Chỉnh sửa trực tiếp",
+        "welcome.card2.desc": "Chèn text, ảnh, vẽ, tô sáng",
+        "welcome.card3.title": "Ký số USB Token",
+        "welcome.card3.desc": "Viettel CA, VNPT CA, FPT CA",
+        "welcome.card4.title": "Bảo mật cao",
+        "welcome.card4.desc": "Mã hoá, che nội dung nhạy cảm",
+        "action.tts": "Đọc sách",
+        "action.theme": "Chủ đề",
+        "action.fullscreen": "Toàn màn",
+        "action.transfer_device": "Nhận từ ĐT",
+        "action.thumbnail": "Thumbnail",
+        "action.toc": "Mục lục",
+        "action.fill_color": "Màu tô",
+        "action.annotations": "Chú thích",
+        "action.sidebar": "Thumb",
+        "action.check_usb": "Kiểm tra USB",
+        "action.sign_settings": "Cài đặt",
+        "action.sign_pfx": "Ký PFX",
+        "action.sign_batch": "Ký lô",
+        "action.export_word": "Word",
+        "action.export_excel": "Excel",
+        "action.underline": "Gạch dưới",
+        "action.strikeout": "Gạch ngang",
+        "action.redact": "Xóa trắng",
     },
     "en": {
         "menu.file": "File",
@@ -60,17 +144,459 @@ BUILTIN_TRANSLATIONS = {
         "menu.help": "Help",
         "lang.vietnamese": "Vietnamese",
         "lang.english": "English",
-        "lang.download": "Download language pack...",
+        "lang.french": "French",
+        "lang.chinese": "Chinese",
+        "lang.korean": "Korean",
+        "lang.thai": "Thai",
+        "lang.download": "Choose language packs...",
         "tab.file_view": "File & View",
         "tab.annotate": "Annotate",
         "tab.page": "Page",
         "tab.security_export": "Security & Export",
         "tab.ocr_ai": "OCR & AI",
         "tab.sign": "Sign",
+        "tab.settings": "Settings",
         "status.no_file": "No file opened",
         "status.page": "Page: -",
+        "action.comment": "Add note",
+        "action.rotate_cw": "Rotate right",
+        "action.rotate_ccw": "Rotate left",
+        "action.rotate_pages": "Rotate pages",
+        "action.delete_page": "Delete page",
+        "action.merge_pdf": "Merge PDF",
+        "action.extract_page": "Extract",
+        "action.page_number": "Page number",
+        "group.file": "FILE",
+        "group.share": "SHARE",
+        "group.navigate": "NAVIGATE",
+        "group.zoom": "ZOOM",
+        "group.view": "VIEW",
+        "group.mark": "ANNOTATE",
+        "group.edit": "EDIT",
+        "group.undo": "HISTORY",
+        "group.rotate": "ROTATE/DELETE",
+        "group.organize": "ORGANIZE",
+        "group.security": "SECURITY",
+        "group.export": "EXPORT",
+        "group.ocr": "OCR",
+        "group.ai": "AI",
+        "group.read": "READ",
+        "group.usbsign": "DIGITAL SIGN",
+        "group.verify": "VERIFY",
+        "welcome.read_everywhere": "READ ANYWHERE · UNDERSTAND EVERYWHERE",
+        "welcome.btn_open": "Open PDF",
+        "welcome.btn_new": "New PDF",
+        "welcome.btn_recent": "Recent",
+        "welcome.lbl_recent": "Recent files",
+        "welcome.version": "Version",
+        "welcome.whats_new": "What's new",
+        "welcome.drag_drop": "or drag & drop PDF files here",
+        "welcome.card1.title": "Smooth PDF reading",
+        "welcome.card1.desc": "Supports large files, full-page view",
+        "welcome.card2.title": "Direct editing",
+        "welcome.card2.desc": "Insert text, images, draw, highlight",
+        "welcome.card3.title": "USB Token signing",
+        "welcome.card3.desc": "Viettel CA, VNPT CA, FPT CA",
+        "welcome.card4.title": "High security",
+        "welcome.card4.desc": "Encryption, redaction of sensitive content",
+        "action.tts": "Read aloud",
+        "action.theme": "Theme",
+        "action.fullscreen": "Full screen",
+        "action.transfer_device": "Receive from phone",
+        "action.thumbnail": "Thumbnail",
+        "action.toc": "Contents",
+        "action.fill_color": "Fill color",
+        "action.annotations": "Annotations",
+        "action.sidebar": "Thumbnail",
+        "action.check_usb": "Check USB",
+        "action.sign_settings": "Settings",
+        "action.sign_pfx": "Sign PFX",
+        "action.sign_batch": "Batch sign",
+        "action.export_word": "Word",
+        "action.export_excel": "Excel",
+        "action.underline": "Underline",
+        "action.strikeout": "Strikethrough",
+        "action.redact": "Redact",
+    },
+    "fr": {
+        "menu.file": "Fichier",
+        "menu.navigate": "Navigation",
+        "menu.view": "Affichage",
+        "menu.tools": "Outils",
+        "menu.page": "Page",
+        "menu.security": "Sécurité",
+        "menu.sign": "Signature",
+        "menu.ocr": "OCR",
+        "menu.ai": "IA",
+        "menu.license": "Licence",
+        "menu.language": "Langue",
+        "menu.help": "Aide",
+        "lang.vietnamese": "Vietnamien",
+        "lang.english": "Anglais",
+        "lang.french": "Français",
+        "lang.chinese": "Chinois",
+        "lang.korean": "Coréen",
+        "lang.thai": "Thaï",
+        "lang.download": "Choisir les paquets de langue...",
+        "tab.file_view": "Fichier et affichage",
+        "tab.annotate": "Annotations",
+        "tab.page": "Page",
+        "tab.security_export": "Sécurité et export",
+        "tab.ocr_ai": "OCR et IA",
+        "tab.sign": "Signature",
+        "tab.settings": "Paramètres",
+        "status.no_file": "Aucun fichier ouvert",
+        "status.page": "Page : -",
+    },
+    "zh": {
+        "menu.file": "文件",
+        "menu.navigate": "导航",
+        "menu.view": "视图",
+        "menu.tools": "工具",
+        "menu.page": "页面",
+        "menu.security": "安全",
+        "menu.sign": "签名",
+        "menu.ocr": "OCR",
+        "menu.ai": "AI",
+        "menu.license": "许可证",
+        "menu.language": "语言",
+        "menu.help": "帮助",
+        "lang.vietnamese": "越南语",
+        "lang.english": "英语",
+        "lang.french": "法语",
+        "lang.chinese": "中文",
+        "lang.korean": "韩语",
+        "lang.thai": "泰语",
+        "lang.download": "选择语言包...",
+        "tab.file_view": "文件和查看",
+        "tab.annotate": "批注",
+        "tab.page": "页面",
+        "tab.security_export": "安全和导出",
+        "tab.ocr_ai": "OCR 和 AI",
+        "tab.sign": "签名",
+        "tab.settings": "设置",
+        "status.no_file": "未打开文件",
+        "status.page": "页面：-",
+    },
+    "ko": {
+        "menu.file": "파일",
+        "menu.navigate": "탐색",
+        "menu.view": "보기",
+        "menu.tools": "도구",
+        "menu.page": "페이지",
+        "menu.security": "보안",
+        "menu.sign": "서명",
+        "menu.ocr": "OCR",
+        "menu.ai": "AI",
+        "menu.license": "라이선스",
+        "menu.language": "언어",
+        "menu.help": "도움말",
+        "lang.vietnamese": "베트남어",
+        "lang.english": "영어",
+        "lang.french": "프랑스어",
+        "lang.chinese": "중국어",
+        "lang.korean": "한국어",
+        "lang.thai": "태국어",
+        "lang.download": "언어 팩 선택...",
+        "tab.file_view": "파일 및 보기",
+        "tab.annotate": "주석",
+        "tab.page": "페이지",
+        "tab.security_export": "보안 및 내보내기",
+        "tab.ocr_ai": "OCR 및 AI",
+        "tab.sign": "서명",
+        "tab.settings": "설정",
+        "status.no_file": "열린 파일 없음",
+        "status.page": "페이지: -",
+    },
+    "th": {
+        "menu.file": "ไฟล์",
+        "menu.navigate": "นำทาง",
+        "menu.view": "มุมมอง",
+        "menu.tools": "เครื่องมือ",
+        "menu.page": "หน้า",
+        "menu.security": "ความปลอดภัย",
+        "menu.sign": "ลายเซ็น",
+        "menu.ocr": "OCR",
+        "menu.ai": "AI",
+        "menu.license": "License",
+        "menu.language": "ภาษา",
+        "menu.help": "ช่วยเหลือ",
+        "lang.vietnamese": "เวียดนาม",
+        "lang.english": "อังกฤษ",
+        "lang.french": "ฝรั่งเศส",
+        "lang.chinese": "จีน",
+        "lang.korean": "เกาหลี",
+        "lang.thai": "ไทย",
+        "lang.download": "เลือกแพ็กภาษา...",
+        "tab.file_view": "ไฟล์และมุมมอง",
+        "tab.annotate": "คำอธิบายประกอบ",
+        "tab.page": "หน้า",
+        "tab.security_export": "ความปลอดภัยและส่งออก",
+        "tab.ocr_ai": "OCR และ AI",
+        "tab.sign": "ลายเซ็น",
+        "tab.settings": "ตั้งค่า",
+        "status.no_file": "ยังไม่ได้เปิดไฟล์",
+        "status.page": "หน้า: -",
     },
 }
+
+ACTION_TRANSLATIONS = {
+    "vi": {
+        "action.open": "Mở tệp",
+        "action.new_pdf": "PDF mới",
+        "action.recent": "Gần đây",
+        "action.save": "Lưu",
+        "action.save_as": "Lưu mới",
+        "action.print": "In",
+        "action.prev": "Trang trước",
+        "action.next": "Trang sau",
+        "action.zoom_in": "Phóng to",
+        "action.zoom_out": "Thu nhỏ",
+        "action.fit": "Vừa trang",
+        "action.theme": "Giao diện",
+        "action.fullscreen": "Toàn màn",
+        "action.transfer_device": "Nhận từ ĐT",
+        "action.highlight": "Tô sáng",
+        "action.insert_text": "Chèn chữ",
+        "action.insert_image": "Chèn ảnh",
+        "action.draw": "Vẽ tự do",
+        "action.redact": "Xóa trắng",
+        "action.delete_object": "Xóa obj",
+        "action.select_object": "Chọn & Xoay",
+        "action.undo": "Hoàn tác",
+        "action.watermark": "Watermark",
+        "action.remove_watermark": "Xóa watermark",
+        "action.set_password": "Đặt mật khẩu",
+        "action.remove_password": "Xóa mật khẩu",
+        "action.compress": "Nén PDF",
+        "action.export_image": "Ảnh",
+        "action.export_text": "Văn bản",
+        "action.ocr_page": "OCR trang",
+        "action.ocr_document": "OCR tài liệu",
+        "action.chat_pdf": "Chat PDF",
+        "action.summary": "Tóm tắt",
+        "action.translate": "Dịch",
+        "action.semantic_search": "Tìm nghĩa",
+        "action.ai_settings": "Cài đặt AI",
+        "action.sign": "Ký số",
+        "action.signature_field": "Ô ký",
+        "action.hand_sign": "Ký tay/dấu",
+        "action.verify": "Kiểm tra",
+    },
+    "en": {
+        "action.open": "Open file",
+        "action.new_pdf": "New PDF",
+        "action.recent": "Recent",
+        "action.save": "Save",
+        "action.save_as": "Save as",
+        "action.print": "Print",
+        "action.prev": "Previous page",
+        "action.next": "Next page",
+        "action.zoom_in": "Zoom in",
+        "action.zoom_out": "Zoom out",
+        "action.fit": "Fit page",
+        "action.theme": "Theme",
+        "action.fullscreen": "Full screen",
+        "action.transfer_device": "Receive from phone",
+        "action.highlight": "Highlight",
+        "action.insert_text": "Insert text",
+        "action.insert_image": "Insert image",
+        "action.draw": "Free draw",
+        "action.redact": "Redact",
+        "action.delete_object": "Delete obj",
+        "action.select_object": "Select & Rotate",
+        "action.undo": "Undo",
+        "action.watermark": "Watermark",
+        "action.remove_watermark": "Remove watermark",
+        "action.set_password": "Set password",
+        "action.remove_password": "Remove password",
+        "action.compress": "Compress PDF",
+        "action.export_image": "Image",
+        "action.export_text": "Text",
+        "action.ocr_page": "OCR page",
+        "action.ocr_document": "OCR document",
+        "action.chat_pdf": "Chat PDF",
+        "action.summary": "Summary",
+        "action.translate": "Translate",
+        "action.semantic_search": "Semantic search",
+        "action.ai_settings": "AI settings",
+        "action.sign": "Sign",
+        "action.signature_field": "Signature field",
+        "action.hand_sign": "Hand sign/stamp",
+        "action.verify": "Verify",
+    },
+    "fr": {
+        "action.open": "Ouvrir",
+        "action.new_pdf": "Nouveau PDF",
+        "action.recent": "Récents",
+        "action.save": "Enregistrer",
+        "action.save_as": "Enregistrer sous",
+        "action.print": "Imprimer",
+        "action.prev": "Page précédente",
+        "action.next": "Page suivante",
+        "action.zoom_in": "Agrandir",
+        "action.zoom_out": "Réduire",
+        "action.fit": "Ajuster",
+        "action.theme": "Thème",
+        "action.fullscreen": "Plein écran",
+        "action.transfer_device": "Recevoir du tél.",
+        "action.highlight": "Surligner",
+        "action.insert_text": "Insérer texte",
+        "action.insert_image": "Insérer image",
+        "action.draw": "Dessin libre",
+        "action.redact": "Masquer",
+        "action.delete_object": "Supprimer obj",
+        "action.select_object": "Sélectionner",
+        "action.undo": "Annuler",
+        "action.watermark": "Filigrane",
+        "action.remove_watermark": "Supprimer filigrane",
+        "action.set_password": "Définir mot de passe",
+        "action.remove_password": "Supprimer mot de passe",
+        "action.compress": "Compresser PDF",
+        "action.export_image": "Image",
+        "action.export_text": "Texte",
+        "action.ocr_page": "OCR page",
+        "action.ocr_document": "OCR document",
+        "action.chat_pdf": "Chat PDF",
+        "action.summary": "Résumé",
+        "action.translate": "Traduire",
+        "action.semantic_search": "Recherche sémantique",
+        "action.ai_settings": "Réglages IA",
+        "action.sign": "Signer",
+        "action.signature_field": "Champ signature",
+        "action.hand_sign": "Signature/cachet",
+        "action.verify": "Vérifier",
+    },
+    "zh": {
+        "action.open": "打开文件",
+        "action.new_pdf": "新建 PDF",
+        "action.recent": "最近",
+        "action.save": "保存",
+        "action.save_as": "另存为",
+        "action.print": "打印",
+        "action.prev": "上一页",
+        "action.next": "下一页",
+        "action.zoom_in": "放大",
+        "action.zoom_out": "缩小",
+        "action.fit": "适合页面",
+        "action.theme": "主题",
+        "action.fullscreen": "全屏",
+        "action.transfer_device": "从手机接收",
+        "action.highlight": "高亮",
+        "action.insert_text": "插入文本",
+        "action.insert_image": "插入图片",
+        "action.draw": "自由绘制",
+        "action.redact": "遮盖",
+        "action.delete_object": "删除对象",
+        "action.select_object": "选择/旋转",
+        "action.undo": "撤销",
+        "action.watermark": "水印",
+        "action.remove_watermark": "删除水印",
+        "action.set_password": "设置密码",
+        "action.remove_password": "删除密码",
+        "action.compress": "压缩 PDF",
+        "action.export_image": "图片",
+        "action.export_text": "文本",
+        "action.ocr_page": "OCR 当前页",
+        "action.ocr_document": "OCR 文档",
+        "action.chat_pdf": "PDF 聊天",
+        "action.summary": "摘要",
+        "action.translate": "翻译",
+        "action.semantic_search": "语义搜索",
+        "action.ai_settings": "AI 设置",
+        "action.sign": "签名",
+        "action.signature_field": "签名框",
+        "action.hand_sign": "手写/印章",
+        "action.verify": "验证",
+    },
+    "ko": {
+        "action.open": "파일 열기",
+        "action.new_pdf": "새 PDF",
+        "action.recent": "최근",
+        "action.save": "저장",
+        "action.save_as": "다른 이름 저장",
+        "action.print": "인쇄",
+        "action.prev": "이전 페이지",
+        "action.next": "다음 페이지",
+        "action.zoom_in": "확대",
+        "action.zoom_out": "축소",
+        "action.fit": "페이지 맞춤",
+        "action.theme": "테마",
+        "action.fullscreen": "전체 화면",
+        "action.transfer_device": "휴대폰에서 받기",
+        "action.highlight": "강조",
+        "action.insert_text": "텍스트 삽입",
+        "action.insert_image": "이미지 삽입",
+        "action.draw": "자유 그리기",
+        "action.redact": "가리기",
+        "action.delete_object": "개체 삭제",
+        "action.select_object": "선택/회전",
+        "action.undo": "실행 취소",
+        "action.watermark": "워터마크",
+        "action.remove_watermark": "워터마크 삭제",
+        "action.set_password": "비밀번호 설정",
+        "action.remove_password": "비밀번호 삭제",
+        "action.compress": "PDF 압축",
+        "action.export_image": "이미지",
+        "action.export_text": "텍스트",
+        "action.ocr_page": "OCR 페이지",
+        "action.ocr_document": "OCR 문서",
+        "action.chat_pdf": "PDF 채팅",
+        "action.summary": "요약",
+        "action.translate": "번역",
+        "action.semantic_search": "의미 검색",
+        "action.ai_settings": "AI 설정",
+        "action.sign": "서명",
+        "action.signature_field": "서명 필드",
+        "action.hand_sign": "수기/도장",
+        "action.verify": "검증",
+    },
+    "th": {
+        "action.open": "เปิดไฟล์",
+        "action.new_pdf": "PDF ใหม่",
+        "action.recent": "ล่าสุด",
+        "action.save": "บันทึก",
+        "action.save_as": "บันทึกเป็น",
+        "action.print": "พิมพ์",
+        "action.prev": "หน้าก่อน",
+        "action.next": "หน้าถัดไป",
+        "action.zoom_in": "ซูมเข้า",
+        "action.zoom_out": "ซูมออก",
+        "action.fit": "พอดีหน้า",
+        "action.theme": "ธีม",
+        "action.fullscreen": "เต็มจอ",
+        "action.transfer_device": "รับจากโทรศัพท์",
+        "action.highlight": "ไฮไลต์",
+        "action.insert_text": "แทรกข้อความ",
+        "action.insert_image": "แทรกรูป",
+        "action.draw": "วาดอิสระ",
+        "action.redact": "ปิดทับ",
+        "action.delete_object": "ลบวัตถุ",
+        "action.select_object": "เลือก/หมุน",
+        "action.undo": "ย้อนกลับ",
+        "action.watermark": "ลายน้ำ",
+        "action.remove_watermark": "ลบลายน้ำ",
+        "action.set_password": "ตั้งรหัสผ่าน",
+        "action.remove_password": "ลบรหัสผ่าน",
+        "action.compress": "บีบอัด PDF",
+        "action.export_image": "รูปภาพ",
+        "action.export_text": "ข้อความ",
+        "action.ocr_page": "OCR หน้า",
+        "action.ocr_document": "OCR เอกสาร",
+        "action.chat_pdf": "แชท PDF",
+        "action.summary": "สรุป",
+        "action.translate": "แปล",
+        "action.semantic_search": "ค้นหาเชิงความหมาย",
+        "action.ai_settings": "ตั้งค่า AI",
+        "action.sign": "ลงนาม",
+        "action.signature_field": "ช่องลงนาม",
+        "action.hand_sign": "ลายเซ็น/ตรา",
+        "action.verify": "ตรวจสอบ",
+    },
+}
+
+for _code, _strings in ACTION_TRANSLATIONS.items():
+    BUILTIN_TRANSLATIONS.setdefault(_code, {}).update(_strings)
 
 
 def _settings() -> QSettings:
@@ -99,6 +625,21 @@ def language_pack_url(code: str) -> str:
     return f"{LANGUAGE_PACK_BASE_URL.rstrip('/')}/{code}.json"
 
 
+def language_pack_urls(code: str) -> list[str]:
+    code = code if code in LANGUAGE_LABELS else DEFAULT_LANGUAGE
+    primary = language_pack_url(code)
+    urls = [primary]
+
+    static_base = f"{VPS_LICENSE_BASE_URL.rstrip('/')}/downloads/language"
+    static_alt_base = static_base.replace("reader.3tcomputer.com", "license.3tcomputer.com")
+
+    for base in (static_base, static_alt_base):
+        alt = f"{base}/{code}.json"
+        if alt not in urls:
+            urls.append(alt)
+    return urls
+
+
 def language_pack_dir() -> Path:
     from app.config import APP_DATA_DIR_NAME  # local import to avoid cycles
     from packages.platform import get_app_data_dir
@@ -119,9 +660,8 @@ def load_language_pack(code: str) -> dict[str, str]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, dict) and isinstance(data.get("strings"), dict):
-            data = data["strings"]
-        return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+        normalized = _normalize_language_pack_payload(data, expected_code=code)
+        return normalized if normalized is not None else {}
     except Exception:
         return {}
 
@@ -134,18 +674,37 @@ def save_language_pack(code: str, data: dict[str, str]) -> Path:
     return path
 
 
+def _normalize_language_pack_payload(data, *, expected_code: str) -> dict[str, str] | None:
+    if isinstance(data, dict) and data.get("code") and str(data.get("code")) != expected_code:
+        return None
+    if isinstance(data, dict) and isinstance(data.get("strings"), dict):
+        data = data["strings"]
+    if not isinstance(data, dict):
+        return None
+    strings = {str(k): str(v) for k, v in data.items()}
+    sample = "\n".join(strings.values())
+    if any(marker in sample for marker in _MOJIBAKE_MARKERS):
+        return None
+    return strings
+
+
 def get_translation(code: str, key: str, fallback: str) -> str:
-    code = code if code in LANGUAGE_LABELS else DEFAULT_LANGUAGE
+    builtin = BUILTIN_TRANSLATIONS.get(code, {})
+    if code in BUILTIN_TRANSLATIONS and key in builtin:
+        return builtin[key]
+
     pack = load_language_pack(code)
     if key in pack:
         return pack[key]
-    return BUILTIN_TRANSLATIONS.get(code, {}).get(key, fallback)
+
+    en_builtin = BUILTIN_TRANSLATIONS.get("en", {})
+    return builtin.get(key, en_builtin.get(key, fallback))
 
 
 def download_language_pack(code: str, parent=None) -> tuple[bool, str]:
     code = code if code in LANGUAGE_LABELS else DEFAULT_LANGUAGE
-    url = language_pack_url(code)
     save_path = language_pack_path(code)
+    tmp_path = save_path.with_suffix(save_path.suffix + ".download")
 
     progress = None
     if parent is not None:
@@ -162,18 +721,92 @@ def download_language_pack(code: str, parent=None) -> tuple[bool, str]:
                 percent = min(100, int(block_num * block_size * 100 / total_size))
                 progress.setValue(percent)
 
+    def _headers(url: str) -> dict[str, str]:
+        origin = url.rsplit("/", 1)[0]
+        return {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json,text/plain,*/*",
+            "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Referer": f"{origin}/",
+            "Origin": origin,
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+        }
+
+    def _describe_error(url: str, exc: Exception) -> str:
+        if isinstance(exc, HTTPError):
+            return f"HTTPError {exc.code} {exc.reason} for {url}"
+        if isinstance(exc, URLError):
+            return f"URLError {exc.reason} for {url}"
+        return f"{exc.__class__.__name__} for {url}: {exc}"
+
     try:
-        urllib.request.urlretrieve(url, save_path, _reporthook)
-        if progress is not None:
-            progress.setValue(100)
-            progress.close()
-        return True, str(save_path)
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+        from packages.net_utils import make_ssl_context
+        ssl_context = make_ssl_context()
+        
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            urllib.request.HTTPHandler(),
+            urllib.request.HTTPSHandler(context=ssl_context),
+        )
+        last_exc: Exception | None = None
+        attempted: list[str] = []
+        for url in language_pack_urls(code):
+            attempted.append(url)
+            try:
+                req = urllib.request.Request(url, headers=_headers(url))
+                with closing(opener.open(req, timeout=30)) as resp, open(tmp_path, "wb") as out:
+                    total_size = int(resp.headers.get("Content-Length", "0") or "0")
+                    if progress is not None and total_size > 0:
+                        progress.setValue(0)
+                    block_num = 0
+                    while True:
+                        chunk = resp.read(64 * 1024)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        block_num += 1
+                        _reporthook(block_num, len(chunk), total_size)
+                if tmp_path.exists() and tmp_path.stat().st_size > 0:
+                    with open(tmp_path, "r", encoding="utf-8") as f:
+                        payload = json.load(f)
+                    normalized = _normalize_language_pack_payload(payload, expected_code=code)
+                    if normalized is None:
+                        raise RuntimeError("Downloaded language pack failed validation")
+                    tmp_path.replace(save_path)
+                    if progress is not None:
+                        progress.setValue(100)
+                        progress.close()
+                    return True, str(save_path)
+                last_exc = RuntimeError("Downloaded language pack is empty")
+            except (HTTPError, URLError, TimeoutError, OSError, RuntimeError) as exc:
+                if str(exc) == "Cancelled":
+                    raise exc
+                last_exc = RuntimeError(_describe_error(url, exc))
+                if tmp_path.exists():
+                    try:
+                        tmp_path.unlink()
+                    except OSError:
+                        pass
+                continue
+        tried = ", ".join(attempted) if attempted else "(none)"
+        raise last_exc or RuntimeError(f"Unable to download language pack. Tried: {tried}")
     except Exception as exc:
         if progress is not None:
             progress.close()
-        if save_path.exists():
+        if tmp_path.exists():
             try:
-                save_path.unlink()
+                tmp_path.unlink()
             except OSError:
                 pass
-        return False, str(exc)
+        tried = ", ".join(language_pack_urls(code))
+        return False, f"{exc} | tried={tried}"

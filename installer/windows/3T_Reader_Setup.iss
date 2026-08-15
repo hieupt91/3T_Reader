@@ -27,6 +27,9 @@ SolidCompression=yes
 WizardStyle=modern
 ; Hiển thị tiếng Việt
 ShowLanguageDialog=no
+SignedUninstaller=yes
+; Configure 3t_signtool in Inno Setup when a code signing certificate is available.
+; SignTool=3t_signtool
 
 [Languages]
 Name: "vietnamese"; MessagesFile: "compiler:Languages\Default.isl"

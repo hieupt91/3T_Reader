@@ -44,5 +44,22 @@ class SigningProvider(Protocol):
         signer_name: str,
         page_number: int,
         box: tuple[float, float, float, float],
+        field_name: str | None = None,
+        reason: str | None = None,
+        location: str | None = None,
+        contact_info: str | None = None,
+        tsa_url: str | None = None,
+        enable_ltv: bool = False,
     ) -> None:
         ...
+
+    async def sign_pdf_batch(
+        self,
+        jobs: list[dict],
+        pin: str,
+        *,
+        tsa_url: str | None = None,
+        enable_ltv: bool = False,
+    ) -> None:
+        ...
+

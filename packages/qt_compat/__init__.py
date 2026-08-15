@@ -1,4 +1,4 @@
-﻿"""Qt binding compatibility layer.
+"""Qt binding compatibility layer.
 
 Commercial target is PySide6. Application code imports Qt through this module
 so Windows and macOS can share the same UI code without depending on PyQt.
@@ -10,6 +10,7 @@ from PySide6 import QtPrintSupport as _QTPRINTSUPPORT
 from PySide6 import QtSvg as _QTSVG
 from PySide6 import QtSvgWidgets as _QTSVGWIDGETS
 from PySide6 import QtWebChannel as _QTWEBCHANNEL
+from PySide6 import QtWebEngineCore as _QTWEBENGINECORE
 from PySide6 import QtWebEngineWidgets as _QTWEBENGINEWIDGETS
 from PySide6 import QtWidgets as _QTWIDGETS
 from PySide6.QtCore import Signal as pyqtSignal
@@ -23,6 +24,7 @@ QtPrintSupport = _QTPRINTSUPPORT
 QtSvg = _QTSVG
 QtSvgWidgets = _QTSVGWIDGETS
 QtWebChannel = _QTWEBCHANNEL
+QtWebEngineCore = _QTWEBENGINECORE
 QtWebEngineWidgets = _QTWEBENGINEWIDGETS
 QtWidgets = _QTWIDGETS
 
@@ -33,6 +35,7 @@ __all__ = [
     "QtPrintSupport",
     "QtSvg",
     "QtWebChannel",
+    "QtWebEngineCore",
     "QtWebEngineWidgets",
     "QtWidgets",
     "pyqtSignal",
@@ -44,6 +47,7 @@ __all__ = [
     "_QTSVGWIDGETS",
     "QtSvgWidgets",
     "_QTWEBCHANNEL",
+    "_QTWEBENGINECORE",
     "_QTWEBENGINEWIDGETS",
     "_QTWIDGETS",
 ]

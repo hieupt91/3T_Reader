@@ -1,6 +1,12 @@
-import asyncio
+import base64
 import json
 import os
+# USB PIN CACHE
+_cached_usb_pin = ""
+import asyncio
+import subprocess
+import sys
+import tempfile
 import traceback
 from datetime import datetime
 from packages.qt_compat.QtWidgets import (
@@ -29,7 +35,14 @@ from packages.qt_compat.QtWebChannel import QWebChannel
 from packages.signing import get_signing_provider
 from packages.signing.shared import sign_pdf_with_pkcs12, validate_signed_pdf_status
 from app.actions._guard import require_document
-from app.dialogs import show_warning, show_info
+from app.actions._pdf_save import (
+    collect_active_pdf_temp_paths,
+    make_staged_pdf_path,
+    pdf_write_slot,
+    prune_stale_app_temp_files,
+    replace_document_with_staged,
+)
+from app.dialogs import show_warning, show_info, ask_yes_no
 from app.signature_templates import find_signature_template, list_signature_templates
 
 
@@ -52,39 +65,315 @@ def _teardown_webchannel(web_view):
     if web_view is None:
         return
     try:
-        web_view.page().setWebChannel(None)
+        from app.webchannel import unregister_webchannel_object
+
+        unregister_webchannel_object(web_view)
     except RuntimeError:
         pass
 
 
-def _format_signature_report(report: dict, path: str | None = None) -> str:
-    lines = []
-    if path:
-        lines.append(f"File: {path}")
-    lines.append(f"Kết luận: {report.get('overall_status') or report.get('message') or 'Không rõ'}")
-    lines.append(f"Tính toàn vẹn: {'Đạt' if report.get('integrity_ok') else 'Không đạt'}")
-    lines.append(f"Chuỗi tin cậy: {'Đã xác minh' if report.get('trusted') else 'Chưa xác minh'}")
-    if report.get("subject_name"):
-        lines.append(f"Chủ thể: {report.get('subject_name')}")
-    if report.get("issuer_name"):
-        lines.append(f"Nhà cung cấp: {report.get('issuer_name')}")
-    if report.get("serial_hex"):
-        lines.append(f"Serial: {report.get('serial_hex')}")
-    if report.get("valid_from") or report.get("valid_to"):
-        lines.append(
-            f"Hiệu lực: {report.get('valid_from') or 'Khong ro'} - {report.get('valid_to') or 'Khong ro'}"
+def _cleanup_signature_preview(window, web_view=None):
+    """Remove temporary signature preview UI and detach its WebChannel bridge."""
+    _set_signature_preview(window, None)
+    if web_view is None:
+        web_view = _get_web_view(window)
+    if web_view is not None:
+        web_view.page().runJavaScript("if (window.__readerPdfSignaturePickCleanup) window.__readerPdfSignaturePickCleanup();")
+    _teardown_webchannel(web_view)
+
+
+def _confirm_signature_selection(window) -> bool:
+    reply = ask_yes_no(
+        window,
+        "Xác nhận vị trí ký",
+        "Bạn có đồng ý ký văn bản này tại vị trí đã chọn không?\n\n"
+        "Chọn Không nếu muốn kéo lại vùng ký.",
+    )
+    return reply == QMessageBox.StandardButton.Yes
+
+
+def _refresh_document_view(window, output_path: str, *, page_number: int = 1):
+    """Update the active document paths and reopen the rendered PDF on the next tick."""
+    try:
+        state = window._state_or_global() if hasattr(window, "_state_or_global") else None
+    except Exception:
+        state = None
+
+    if state is not None:
+        state["source_path"] = output_path
+        state["display_path"] = output_path
+
+    try:
+        window.current_path = output_path
+    except Exception:
+        pass
+
+    def _load():
+        viewer = getattr(window, "viewer", None)
+        if not viewer:
+            return
+        try:
+            zoom = str(getattr(getattr(window, "zoom_spin", None), "value", lambda: 100)())
+            viewer.load_pdf(
+                output_path,
+                page=max(1, int(page_number or 1)),
+                zoom=zoom,
+            )
+        except Exception:
+            traceback.print_exc()
+            show_warning(window, "Lỗi mở file đã ký", "Không thể hiển thị file vừa ký.")
+
+    QTimer.singleShot(0, _load)
+
+
+class _SigningWorker(QObject):
+    succeeded = pyqtSignal()
+    failed = pyqtSignal(str, str, str)
+
+    def __init__(self, fn):
+        super().__init__()
+        self._fn = fn
+
+    def run(self):
+        try:
+            self._fn()
+        except Exception as exc:
+            self.failed.emit(type(exc).__name__, str(exc), traceback.format_exc())
+        else:
+            self.succeeded.emit()
+
+
+class _SigningLoopRelay(QObject):
+    """Nhận kết quả từ worker thread và thoát QEventLoop trên main thread.
+
+    Slot bound-method của QObject này (sống ở main thread) được Qt tự queue
+    khi signal emit từ worker thread. Nhờ vậy loop.quit() luôn chạy trên main
+    thread và chỉ sau khi loop.exec() bắt đầu -> tránh trường hợp worker xong
+    trước exec() làm quit bị bỏ qua và treo UI vĩnh viễn.
+    """
+
+    def __init__(self, loop, result: dict):
+        super().__init__()
+        self._loop = loop
+        self._result = result
+
+    @pyqtSlot()
+    def on_success(self):
+        self._result["ok"] = True
+        if self._loop.isRunning():
+            self._loop.quit()
+
+    @pyqtSlot(str, str, str)
+    def on_error(self, exc_type: str, exc_message: str, tb_text: str):
+        self._result["ok"] = False
+        self._result["error"] = (exc_type, exc_message, tb_text)
+        if self._loop.isRunning():
+            self._loop.quit()
+
+
+def _run_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[str, str, str] | None]:
+    existing = getattr(window, "_signing_thread", None)
+    if existing is not None and (getattr(existing, "isRunning", lambda: False)() or getattr(existing, "is_alive", lambda: False)()):
+        show_warning(window, "Đang ký số", "Vui lòng chờ thao tác ký hiện tại hoàn tất.")
+        return False, ("SigningBusy", "Đang có thao tác ký đang chạy.", "")
+
+    pause_token_monitor = getattr(window, "_pause_token_monitor", None)
+    resume_token_monitor = getattr(window, "_resume_token_monitor", None)
+    if callable(pause_token_monitor):
+        pause_token_monitor()
+
+    import threading
+    worker = _SigningWorker(fn)
+
+    loop = QEventLoop(window)
+    result: dict[str, object] = {"ok": False, "error": None}
+
+    relay = _SigningLoopRelay(loop, result)
+    worker.succeeded.connect(relay.on_success)
+    worker.failed.connect(relay.on_error)
+
+    thread = threading.Thread(target=worker.run, daemon=True)
+    window._signing_thread = thread
+    try:
+        if hasattr(window, "status"):
+            window.status.showMessage(status_message, 0)
+        thread.start()
+        loop.exec()
+        thread.join(timeout=2.0)
+    finally:
+        setattr(window, "_signing_thread", None)
+        if hasattr(window, "status"):
+            window.status.clearMessage()
+        if callable(resume_token_monitor):
+            resume_token_monitor()
+
+    return bool(result["ok"]), result["error"]
+
+
+def _run_usb_signing_task(window, fn, *, status_message: str) -> tuple[bool, tuple[str, str, str] | None]:
+    """Run USB signing in the main process without a Qt worker thread.
+
+    The PKCS#11 work itself already happens in a subprocess. Keeping the parent
+    on the GUI thread avoids native Qt/Shiboken crashes observed while tearing
+    down background thread objects immediately after the USB worker exits.
+    """
+    pause_token_monitor = getattr(window, "_pause_token_monitor", None)
+    resume_token_monitor = getattr(window, "_resume_token_monitor", None)
+    if callable(pause_token_monitor):
+        pause_token_monitor()
+
+    try:
+        if hasattr(window, "status"):
+            window.status.showMessage(status_message, 0)
+        fn()
+        return True, None
+    except Exception as exc:
+        return False, (type(exc).__name__, str(exc), traceback.format_exc())
+    finally:
+        if hasattr(window, "status"):
+            window.status.clearMessage()
+        if callable(resume_token_monitor):
+            resume_token_monitor()
+
+
+def _token_info_payload(token_info) -> dict[str, object]:
+    if token_info is None:
+        return {}
+    return {
+        "driver": getattr(token_info, "driver", ""),
+        "signer_name": getattr(token_info, "signer_name", ""),
+        "tax_code": getattr(token_info, "tax_code", ""),
+        "driver_path": getattr(token_info, "driver_path", ""),
+        "token_index": getattr(token_info, "token_index", 0),
+        "token_label": getattr(token_info, "token_label", ""),
+        "serial": getattr(token_info, "serial", ""),
+        "manufacturer": getattr(token_info, "manufacturer", ""),
+        "model": getattr(token_info, "model", ""),
+        "issuer_name": getattr(token_info, "issuer_name", ""),
+        "cert_serial": getattr(token_info, "cert_serial", ""),
+    }
+
+
+
+def _get_tsa_url() -> str | None:
+    try:
+        cfg_path = os.path.expanduser("~/.3t_reader/signing_config.json")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+            tsa_mode = cfg.get("tsa_mode")
+            saved_url = cfg.get("tsa_url", "")
+            if not tsa_mode:
+                if saved_url == f"{VPS_LICENSE_BASE_URL}/api/v1/tsa":
+                    tsa_mode = "server"
+                elif saved_url:
+                    tsa_mode = "custom"
+                else:
+                    tsa_mode = "system"
+            
+            if tsa_mode == "system":
+                return None
+            elif tsa_mode == "server":
+                return f"{VPS_LICENSE_BASE_URL}/api/v1/tsa"
+            else:
+                return saved_url or None
+    except Exception:
+        return None
+
+
+def _get_ltv_setting() -> bool:
+    try:
+        cfg_path = os.path.expanduser("~/.3t_reader/signing_config.json")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+            return bool(cfg.get("enable_ltv", False))
+    except Exception:
+        return False
+
+def _run_usb_signing_subprocess(
+    token_info,
+    input_path: str,
+    output_path: str,
+    pin: str,
+    *,
+    signer_name: str,
+    page_number: int,
+    box: tuple[float, float, float, float],
+    field_name: str | None = None,
+    reason: str | None = None,
+    location: str | None = None,
+    contact_info: str | None = None,
+    tsa_url: str | None = None,
+    enable_ltv: bool = False,
+) -> None:
+    payload = {
+        "token": _token_info_payload(token_info),
+        "input_path": input_path,
+        "output_path": output_path,
+        "pin": pin,
+        "signer_name": signer_name,
+        "page_number": page_number,
+        "box": list(box),
+        "field_name": field_name or "",
+        "reason": reason or "",
+        "location": location or "",
+        "contact_info": contact_info or "",
+        "tsa_url": tsa_url or "",
+        "enable_ltv": enable_ltv,
+    }
+
+    # Truyền payload (kèm PIN) qua stdin thay vì file tạm để PIN chữ ký số
+    # không bao giờ nằm trên đĩa (kể cả khi tiến trình bị kill giữa chừng).
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "--usb-sign-worker", "-"]
+    else:
+        cmd = [
+            sys.executable,
+            "-m",
+            "packages.signing.usb_worker",
+            "-",
+        ]
+    result = subprocess.run(
+        cmd,
+        input=payload_json,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+    )
+
+    stdout = (result.stdout or "").strip().splitlines()
+    if not stdout:
+        raise RuntimeError(
+            "USB signing worker did not return a result.\n"
+            f"Return code: {result.returncode}\n"
+            f"stderr: {(result.stderr or '').strip()}"
         )
-    if report.get("certificate_status"):
-        lines.append(f"Trạng thái chứng thư: {report.get('certificate_status')}")
-    signing_time = report.get("signing_time")
-    if signing_time:
-        lines.append(f"Thời điểm ký: {signing_time}")
-    signing_time_ok = report.get("signing_time_ok")
-    if signing_time_ok is True:
-        lines.append("Thời điểm ký nằm trong thời hạn hiệu lực.")
-    elif signing_time_ok is False:
-        lines.append("Thời điểm ký nằm ngoài thời hạn hiệu lực.")
-    return "\n".join(lines)
+
+    try:
+        data = json.loads(stdout[-1])
+    except Exception as exc:
+        raise RuntimeError(
+            "USB signing worker returned invalid output.\n"
+            f"Return code: {result.returncode}\n"
+            f"stdout: {(result.stdout or '').strip()}\n"
+            f"stderr: {(result.stderr or '').strip()}"
+        ) from exc
+
+    if not data.get("ok"):
+        error_type = str(data.get("error_type") or "RuntimeError")
+        error_message = str(data.get("error_message") or "USB signing failed.")
+        tb_text = str(data.get("traceback") or "")
+        raise RuntimeError(f"{error_type}: {error_message}\n{tb_text}".strip())
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            "USB signing worker exited with a non-zero code despite reporting success.\n"
+            f"Return code: {result.returncode}\n"
+            f"stderr: {(result.stderr or '').strip()}"
+        )
 
 
 def _show_signature_report(window, title: str, report: dict, *, path: str | None = None):
@@ -1061,75 +1350,114 @@ def check_token(window):
 
 @require_document(show_message=True)
 def create_signature_field(window):
-    """Create a reusable empty signature field on the current PDF."""
+    """Create one or more reusable empty signature fields on the current PDF."""
     from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
     from pyhanko.sign import fields
+    import re
+    import unicodedata
 
-    placement = _pick_signature_placement(window)
-    if not placement:
-        return
+    def _safe_signature_field_name(value: str, fallback: str) -> str:
+        raw = (value or "").strip() or fallback
+        ascii_name = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+        ascii_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", ascii_name).strip("_")
+        return (ascii_name or fallback)[:96]
 
-    default_name = f"Signature_{os.path.splitext(os.path.basename(window.current_path))[0]}"
-    field_name, ok = QInputDialog.getText(
-        window,
-        "Tạo ô ký số",
-        "Tên ô ký số:",
-        QLineEdit.EchoMode.Normal,
-        default_name,
+    placements: list[dict] = []
+    base_name = _safe_signature_field_name(
+        os.path.splitext(os.path.basename(window.current_path))[0],
+        "Document",
     )
-    if not ok:
-        return
 
-    field_name = (field_name or "").strip()
-    if not field_name:
-        show_warning(window, "Thiếu tên ô ký", "Vui lòng nhập tên ô ký số.")
-        return
+    while True:
+        placement = _pick_signature_placement(window)
+        if not placement:
+            break
 
-    field_name = field_name.replace(" ", "_")
+        default_name = f"Signature_{base_name}_{len(placements) + 1}"
+        field_name, ok = QInputDialog.getText(
+            window,
+            "Tạo ô ký số",
+            "Tên ô ký số:",
+            QLineEdit.EchoMode.Normal,
+            default_name,
+        )
+        if not ok:
+            break
 
-    default_output = f"{os.path.splitext(window.current_path)[0]}_sigfield.pdf"
-    output_path, _ = QFileDialog.getSaveFileName(
-        window,
-        "Lưu file có ô ký số",
-        default_output,
-        "PDF Files (*.pdf)",
-    )
-    if not output_path:
+        display_name = (field_name or "").strip()
+        field_name = _safe_signature_field_name(display_name, default_name)
+        if not field_name:
+            show_warning(window, "Thiếu tên ô ký", "Vui lòng nhập tên ô ký số.")
+            continue
+
+        placements.append(
+            {
+                "field_name": field_name,
+                "display_name": display_name or field_name,
+                "box": placement["box"],
+                "page_number": placement["page_number"],
+            }
+        )
+        _set_signature_field_marks(window, placements)
+
+        reply = ask_yes_no(
+            window,
+            "Thêm ô ký",
+            "Đã ghi nhận ô ký tạm.\n\nBạn có muốn đặt thêm ô ký khác trên tài liệu này không?",
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            break
+
+    if not placements:
+        _clear_signature_field_marks(window)
         return
 
     try:
-        with open(window.current_path, "rb") as f:
-            writer = IncrementalPdfFileWriter(f, strict=False)
-            fields.append_signature_field(
-                writer,
-                sig_field_spec=fields.SigFieldSpec(
-                    sig_field_name=field_name,
-                    box=placement["box"],
-                    on_page=max(0, placement["page_number"] - 1),
-                ),
-            )
-            with open(output_path, "wb") as out:
-                writer.write(out)
+        with pdf_write_slot(window.current_path):
+            output_path = make_staged_pdf_path(window.current_path, prefix=".3t_sigfields_", suffix=".pdf")
+            with open(window.current_path, "rb") as f:
+                writer = IncrementalPdfFileWriter(f, strict=False)
+                try:
+                    used_names: set[str] = {
+                        str(name)
+                        for name, _value, _ref in fields.enumerate_sig_fields(writer)
+                        if name
+                    }
+                except Exception:
+                    used_names: set[str] = set()
 
-        validation = {"ok": True, "message": "Đã tạo ô ký số thành công."}
-        reply = QMessageBox.question(
-            window,
-            "Đã tạo ô ký số",
-            "Đã tạo ô ký số thành công.\n\n"
-            f"Tên ô: {field_name}\n"
-            f"File lưu tại:\n{output_path}\n\n"
-            "Mở file vừa tạo ngay?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            window.current_path = output_path
-            window.viewer.load_pdf(
+                def _unique_field_name(base: str) -> str:
+                    candidate = base
+                    idx = 2
+                    while candidate in used_names:
+                        candidate = f"{base}_{idx}"
+                        idx += 1
+                    used_names.add(candidate)
+                    return candidate
+
+                for item in placements:
+                    field_name = _unique_field_name(item["field_name"])
+                    fields.append_signature_field(
+                        writer,
+                        sig_field_spec=fields.SigFieldSpec(
+                            sig_field_name=field_name,
+                            box=item["box"],
+                            on_page=max(0, item["page_number"] - 1),
+                        ),
+                    )
+                with open(output_path, "wb") as out:
+                    writer.write(out)
+
+            replace_document_with_staged(
+                window,
                 output_path,
-                page=placement["page_number"],
-                zoom="page-width",
+                target_path=window.current_path,
+                page=placements[-1]["page_number"],
             )
-        window.status.showMessage(validation["message"], 3000)
+        _clear_signature_field_marks(window)
+        window.status.showMessage(f"Đã tạo {len(placements)} ô ký số trên file đang mở", 3000)
     except Exception:
+        _clear_signature_field_marks(window)
         traceback.print_exc()
         msg = QMessageBox(window)
         msg.setIcon(QMessageBox.Icon.Critical)
@@ -1142,112 +1470,18 @@ def create_signature_field(window):
 @require_document(show_message=True)
 def sign_with_pfx(window):
     """Sign current PDF using a local PKCS#12 / PFX certificate file."""
-    placement = _pick_signature_placement(window)
-
-    page_count = 1
-    current_page = 1
-    if window.viewer:
-        try:
-            page_count = max(1, window.viewer.get_page_count())
-            current_page = max(1, window.viewer.get_current_page())
-        except Exception:
-            page_count = 1
-            current_page = 1
-
-    placement_dialog = SignaturePlacementDialog(
-        window,
-        page_count=page_count,
-        current_page=placement["page_number"] if placement else current_page,
-        initial_placement=placement,
+    _pfx_stamp_html = _build_stamp_preview_html(
+        "(Người ký sẽ xác định)",
+        signed_at=_format_local_timestamp(),
     )
-
-    web_view = _get_web_view(window)
-    preview_channel = None
-    preview_bridge = None
-    if web_view is not None:
-        preview_bridge = SignaturePreviewAdjustBridge(placement_dialog)
-        preview_channel = _setup_webchannel(web_view, placement_dialog, "sigPreviewBridge", preview_bridge)
-        placement_dialog._sig_preview_bridge = preview_bridge
-        placement_dialog._sig_preview_channel = preview_channel
-
-        def _apply_preview_adjustment(page_number, left, bottom, right, top):
-            width = max(1.0, right - left)
-            height = max(1.0, top - bottom)
-            page_number = max(1, int(page_number))
-
-            for spin in (
-                placement_dialog.page_spin,
-                placement_dialog.x_spin,
-                placement_dialog.y_spin,
-                placement_dialog.width_spin,
-                placement_dialog.height_spin,
-            ):
-                spin.blockSignals(True)
-
-            try:
-                placement_dialog.page_spin.setValue(
-                    min(page_number, placement_dialog.page_spin.maximum())
-                )
-                placement_dialog.x_spin.setValue(left / MM_TO_PT)
-                placement_dialog.y_spin.setValue(bottom / MM_TO_PT)
-                placement_dialog.width_spin.setValue(width / MM_TO_PT)
-                placement_dialog.height_spin.setValue(height / MM_TO_PT)
-            finally:
-                for spin in (
-                    placement_dialog.page_spin,
-                    placement_dialog.x_spin,
-                    placement_dialog.y_spin,
-                    placement_dialog.width_spin,
-                    placement_dialog.height_spin,
-                ):
-                    spin.blockSignals(False)
-
-        preview_bridge.adjusted.connect(_apply_preview_adjustment)
-
-    def _navigate_to_page(page_no: int):
-        wv = _get_web_view(window)
-        if wv:
-            wv.page().runJavaScript(
-                f"(function(){{var app=window.PDFViewerApplication;"
-                f"if(app&&app.pdfViewer){{app.pdfViewer.currentPageNumber={int(page_no)};}}}})()"
-            )
-
-    last_preview_page = {"value": None}
-
-    def _refresh_preview(*_args):
-        pl = placement_dialog.placement()
-        _set_signature_preview(window, pl)
-        page_no = int(pl["page_number"])
-        if last_preview_page["value"] != page_no:
-            last_preview_page["value"] = page_no
-            _navigate_to_page(page_no)
-
-    placement_dialog.page_spin.valueChanged.connect(_refresh_preview)
-    placement_dialog.x_spin.valueChanged.connect(_refresh_preview)
-    placement_dialog.y_spin.valueChanged.connect(_refresh_preview)
-    placement_dialog.width_spin.valueChanged.connect(_refresh_preview)
-    placement_dialog.height_spin.valueChanged.connect(_refresh_preview)
-
-    _refresh_preview()
-    accepted_placement = False
-    try:
-        loop = QEventLoop(placement_dialog)
-        placement_dialog.finished.connect(
-            lambda _code: loop.quit() if loop.isRunning() else None
-        )
-        placement_dialog.show()
-        placement_dialog.raise_()
-        placement_dialog.activateWindow()
-        loop.exec()
-
-        if placement_dialog.result() != QDialog.DialogCode.Accepted:
-            return
-        placement = placement_dialog.placement()
-        accepted_placement = True
-    finally:
-        if not accepted_placement:
-            _set_signature_preview(window, None)
-        _teardown_webchannel(web_view)
+    placement = _pick_signature_placement(window, sig_text_html=_pfx_stamp_html)
+    if not placement or "box" not in placement or "page_number" not in placement:
+        _cleanup_signature_preview(window)
+        return
+    _set_signature_preview(window, placement, sig_text_html=_pfx_stamp_html)
+    if not _confirm_signature_selection(window):
+        _cleanup_signature_preview(window)
+        return
 
     pfx_path, _ = QFileDialog.getOpenFileName(
         window,
@@ -1256,7 +1490,7 @@ def sign_with_pfx(window):
         "PKCS#12 Files (*.p12 *.pfx);;All Files (*)",
     )
     if not pfx_path:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
         return
 
     pin, ok = QInputDialog.getText(
@@ -1266,7 +1500,7 @@ def sign_with_pfx(window):
         QLineEdit.EchoMode.Password,
     )
     if not ok:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
         return
 
     identity_dialog = SignatureIdentityDialog(
@@ -1274,7 +1508,7 @@ def sign_with_pfx(window):
         default_signer_name=os.path.splitext(os.path.basename(pfx_path))[0],
     )
     if identity_dialog.exec() != QDialog.DialogCode.Accepted:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
         return
     signer_name = identity_dialog.signer_name()
 
@@ -1286,50 +1520,80 @@ def sign_with_pfx(window):
         "PDF Files (*.pdf)",
     )
     if not output_path:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
         return
 
-    try:
-        asyncio.run(
-            sign_pdf_with_pkcs12(
-                pfx_path,
-                pin,
-                window.current_path,
-                output_path,
-                signer_name=signer_name,
-                page_number=placement["page_number"],
-                box=placement["box"],
-            )
-        )
+    in_place_output = os.path.normcase(os.path.abspath(output_path)) == os.path.normcase(os.path.abspath(window.current_path))
+    actual_output_path = (
+        make_staged_pdf_path(window.current_path, prefix=".3t_pfx_signed_", suffix=".pdf")
+        if in_place_output
+        else output_path
+    )
 
-        with open(output_path, "rb") as f:
+    try:
+        ok, error = _run_signing_task(
+            window,
+            lambda: asyncio.run(
+                sign_pdf_with_pkcs12(
+                    pfx_path,
+                    pin,
+                    window.current_path,
+                    actual_output_path,
+                    signer_name=signer_name,
+                    page_number=placement["page_number"],
+                    box=placement["box"],
+                    enable_ltv=_get_ltv_setting(),
+                )
+            ),
+            status_message="Đang ký tài liệu bằng file chứng thư…",
+        )
+        if not ok:
+            exc_type_name, exc_message, tb_text = error or ("RuntimeError", "Ký số thất bại.", "")
+            raise RuntimeError(f"{exc_type_name}: {exc_message}\n{tb_text}".strip())
+
+        with open(actual_output_path, "rb") as f:
             header = f.read(5)
         if header != b"%PDF-":
-            os.remove(output_path)
+            os.remove(actual_output_path)
             raise RuntimeError(
                 "File ký xong không hợp lệ (thiếu %PDF header).\n"
                 "Vui lòng thử lại."
             )
 
-        validation = validate_signed_pdf_status(output_path)
+        final_output_path = output_path
+        if in_place_output:
+            with pdf_write_slot(window.current_path):
+                replace_document_with_staged(
+                    window,
+                    actual_output_path,
+                    target_path=window.current_path,
+                    page=placement["page_number"],
+                    soft_reload=True,
+                )
+            final_output_path = window.current_path
+
+        validation = validate_signed_pdf_status(final_output_path)
         validation_line = str(validation.get("message") or "")
 
-        reply = QMessageBox.question(
-            window,
-            "Ký từ file chứng thư thành công",
-            "Ký từ file chứng thư thành công!\n\n"
-            f"Trạng thái: {validation_line}\n\n"
-            f"File lưu tại:\n{output_path}\n\n"
-            "Mở file đã ký ngay?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            window.current_path = output_path
-            window.viewer.load_pdf(
-                output_path,
-                page=placement["page_number"],
-                zoom="page-width",
+        if in_place_output:
+            QMessageBox.information(
+                window,
+                "Ký từ file chứng thư thành công",
+                "Ký từ file chứng thư thành công!\n\n"
+                f"Trạng thái: {validation_line}\n\n"
+                f"File đã được cập nhật tại:\n{final_output_path}",
             )
+        else:
+            reply = ask_yes_no(
+                window,
+                "Ký từ file chứng thư thành công",
+                "Ký từ file chứng thư thành công!\n\n"
+                f"Trạng thái: {validation_line}\n\n"
+                f"File lưu tại:\n{final_output_path}\n\n"
+                "Mở file đã ký ngay?",
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                _refresh_document_view(window, final_output_path, page_number=placement["page_number"])
 
     except Exception:
         traceback.print_exc()
@@ -1340,7 +1604,7 @@ def sign_with_pfx(window):
         msg.setDetailedText(traceback.format_exc())
         msg.exec()
     finally:
-        _set_signature_preview(window, None)
+        _cleanup_signature_preview(window)
 
 
 @require_document(show_message=True)
@@ -1609,43 +1873,26 @@ def _show_signature_report_vn(window, title: str, report: dict, *, path: str | N
     msg.exec()
 
 
-def verify_signed_document(window):
-    """Check PDF signature validity and show a detailed report."""
-    default_path = getattr(window, "current_path", "") or ""
-    start_path = default_path if os.path.isfile(default_path) else ""
-    if default_path and os.path.exists(default_path):
-        report = validate_signed_pdf_status(default_path)
-        _show_signature_report_vn(window, "Kiểm tra chữ ký số", report, path=default_path)
-        return
-    path, _ = QFileDialog.getOpenFileName(
-        window,
-        "Chọn file PDF cần kiểm tra chữ ký",
-        start_path,
-        "PDF Files (*.pdf);;All Files (*)",
-    )
-    if not path:
-        return
-
-    report = validate_signed_pdf_status(path)
-    _show_signature_report_vn(window, "Kiểm tra chữ ký số", report, path=path)
-
-
 @require_document(show_message=True)
 def sign_handwritten(window):
     """Draw or import a signature image and place it on the current PDF."""
     
     import shutil
-    import tempfile
     import uuid
     import os as _os
 
-    from app.signature_pad import SignaturePadDialog
+    from app.signature_pad import SignaturePadDialog, SignatureTemplateManagerDialog
+
+    try:
+        prune_stale_app_temp_files(active_paths=collect_active_pdf_temp_paths(window))
+    except Exception:
+        pass
 
     source, ok = QInputDialog.getItem(
         window,
         "Chọn kiểu ký",
         "Nguồn chữ ký:",
-        ["Vẽ tay", "Nhập mã mẫu", "Chọn từ danh sách", "Chọn ảnh chữ ký", "Chọn con dấu PNG"],
+        ["Vẽ tay", "Nhập mã mẫu", "Chọn từ danh sách", "Quản lý mẫu chữ ký", "Chọn ảnh chữ ký", "Chọn con dấu PNG"],
         0,
         False,
     )
@@ -1690,23 +1937,37 @@ def sign_handwritten(window):
     elif source == "Chọn từ danh sách":
         templates = list_signature_templates()
         if not templates:
-            show_warning(window, "Chưa có mẫu", "Chưa có mẫu chữ ký nào được lưu.")
+            manager = SignatureTemplateManagerDialog(window)
+            if manager.exec() != QDialog.DialogCode.Accepted or not manager.selected_path:
+                return
+            sig_img_path = manager.selected_path
+        else:
+            labels = ["+ Quản lý / thêm / sửa / xóa mẫu..."] + [item["label"] for item in templates]
+            chosen, ok = QInputDialog.getItem(
+                window,
+                "Chọn mẫu chữ ký",
+                "Mẫu đã lưu:",
+                labels,
+                0,
+                False,
+            )
+            if not ok:
+                return
+            if chosen == labels[0]:
+                manager = SignatureTemplateManagerDialog(window)
+                if manager.exec() != QDialog.DialogCode.Accepted or not manager.selected_path:
+                    return
+                sig_img_path = manager.selected_path
+            else:
+                chosen_item = next((item for item in templates if item["label"] == chosen), None)
+                if not chosen_item:
+                    return
+                sig_img_path = chosen_item["path"]
+    elif source == "Quản lý mẫu chữ ký":
+        manager = SignatureTemplateManagerDialog(window)
+        if manager.exec() != QDialog.DialogCode.Accepted or not manager.selected_path:
             return
-        labels = [item["label"] for item in templates]
-        chosen, ok = QInputDialog.getItem(
-            window,
-            "Chọn mẫu chữ ký",
-            "Mẫu đã lưu:",
-            labels,
-            0,
-            False,
-        )
-        if not ok:
-            return
-        chosen_item = next((item for item in templates if item["label"] == chosen), None)
-        if not chosen_item:
-            return
-        sig_img_path = chosen_item["path"]
+        sig_img_path = manager.selected_path
     else:
         image_path, _ = QFileDialog.getOpenFileName(
             window,
@@ -1848,10 +2109,39 @@ def verify_signed_document(window):
         show_warning(window, "Chưa có tệp", "Vui lòng mở file PDF trước khi kiểm tra chữ ký.")
         return
 
-    report = validate_signed_pdf_status(default_path)
-    _show_signature_report_vn(window, "Kiểm tra chữ ký số", report, path=default_path)
+    page_no = placement["page_number"]
+    box = placement["box"]
 
+    try:
+        from packages.pdf_engine import get_pdf_engine
 
+        with pdf_write_slot(window.current_path):
+            out_path = make_staged_pdf_path(window.current_path, prefix=".3t_handwritten_", suffix=".pdf")
+            get_pdf_engine().rebuild_pdf_with_ops(
+                window.current_path,
+                out_path,
+                [{
+                    "type": "image",
+                    "page_number": page_no,
+                    "box": box,
+                    "image_path": sig_img_path,
+                    "rotation": 0,
+                }],
+            )
+
+            replace_document_with_staged(
+                window,
+                out_path,
+                target_path=window.current_path,
+                page=page_no,
+            )
+        if hasattr(window, "status"):
+            window.status.showMessage("Đã đặt chữ ký tay lên PDF", 3000)
+    except Exception:
+        import traceback
+        show_warning(window, "Lỗi chèn chữ ký", traceback.format_exc())
+    finally:
+        _cleanup_signature_preview(window)
 class SignatureStatusDialog(QDialog):
     def __init__(self, parent, report: dict, *, path: str | None = None):
         super().__init__(parent)
@@ -1859,7 +2149,7 @@ class SignatureStatusDialog(QDialog):
         self._path = path
         self.setWindowTitle("Chữ ký số")
         self.setModal(True)
-        self.setMinimumWidth(380)
+        self.setMinimumWidth(520)
 
         root = QVBoxLayout(self)
         root.setSpacing(10)
@@ -1875,14 +2165,20 @@ class SignatureStatusDialog(QDialog):
         top.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
 
         title_wrap = QVBoxLayout()
-        title = QLabel("Hợp lệ Chữ ký" if report.get("ok") else "Chữ ký không hợp lệ")
+        title = QLabel("Hợp lệ chữ ký" if report.get("ok") else "Chữ ký không hợp lệ")
         title.setStyleSheet(
             "font-size: 17px; font-weight: 700; color: %s;"
             % ("#168038" if report.get("ok") else "#c23b22")
         )
         title_wrap.addWidget(title)
+        field_signed = bool(report.get("field_signed"))
 
-        signer = str(report.get("subject_name") or "Không rõ")
+        signer = str(
+            report.get("display_signer")
+            or report.get("signer_reported_name")
+            or report.get("subject_name")
+            or "Không rõ"
+        )
         signer_label = QLabel(signer)
         signer_label.setWordWrap(True)
         signer_label.setStyleSheet("font-size: 12px; color: #2b2b2b;")
@@ -1914,44 +2210,102 @@ class SignatureStatusDialog(QDialog):
         modify_value = QLabel("Không" if report.get("integrity_ok") else "Có")
         cert_value = QLabel(str(report.get("certificate_status") or "Không rõ"))
         issuer_value = QLabel(str(report.get("issuer_name") or "Không rõ"))
+        if not bool(report.get("field_signed")):
+            if not report.get("trusted"):
+                identity_value.setText("Chưa ký")
+            if not str(report.get("certificate_status") or "").strip():
+                cert_value.setText("Không có chứng thư")
+            if not str(report.get("issuer_name") or "").strip():
+                issuer_value.setText("Không có chứng thư")
+        signer_value = QLabel(signer)
+        reason_value = QLabel(str(report.get("reason") or "Không có"))
+        when_value = QLabel(str(report.get("signing_time") or "Không rõ"))
+        location_value = QLabel(str(report.get("location") or "Không có"))
+        contact_value = QLabel(str(report.get("contact_info") or "Không có"))
+        serial_value = QLabel(str(report.get("serial_hex") or "Không rõ"))
+        valid_range_value = QLabel(
+            f"{report.get('valid_from') or 'Không rõ'} - {report.get('valid_to') or 'Không rõ'}"
+        )
 
-        for widget in (identity_value, modify_value, cert_value, issuer_value):
+        for widget in (
+            identity_value,
+            modify_value,
+            cert_value,
+            issuer_value,
+            signer_value,
+            reason_value,
+            when_value,
+            location_value,
+            contact_value,
+            serial_value,
+            valid_range_value,
+        ):
             widget.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            widget.setWordWrap(True)
 
+        clicked_page = int(report.get("clicked_page") or 0)
+        clicked_field = str(report.get("clicked_field") or report.get("selected_field_name") or "").strip()
+        if clicked_page:
+            form.addRow("Vị trí đã bấm", QLabel(f"Trang {clicked_page}"))
+        if clicked_field:
+            field_value = QLabel(clicked_field)
+            field_value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            field_value.setWordWrap(True)
+            form.addRow("Trường chữ ký", field_value)
+
+        form.addRow("Người ký", signer_value)
+        form.addRow("Lý do", reason_value)
+        form.addRow("Ngày ký", when_value)
+        form.addRow("Địa điểm", location_value)
+        form.addRow("Liên hệ", contact_value)
         form.addRow("Danh tính người ký", identity_value)
         form.addRow("Đã sửa đổi tài liệu", modify_value)
         form.addRow("Trạng thái chứng thư", cert_value)
         form.addRow("Nhà cung cấp", issuer_value)
+        form.addRow("Serial chứng thư", serial_value)
+        form.addRow("Hiệu lực chứng thư", valid_range_value)
         root.addLayout(form)
 
-        validation_error = str(report.get("validation_error") or "").strip()
-        if validation_error:
-            error_label = QLabel(
-                ("Thông tin kiểm tra: " if report.get("ok") else "Lỗi kiểm tra: ")
-                + validation_error
+        summary_lines = report.get("validation_summary_lines") or []
+        if summary_lines:
+            validation_box = QLabel("\n".join(f"- {line}" for line in summary_lines))
+            validation_box.setWordWrap(True)
+            validation_box.setStyleSheet(
+                "background:#fcfcfe; border:1px solid #d9e0ea; border-radius:8px; "
+                "padding:8px 10px; color:#223; font-size:11px;"
             )
-            error_label.setWordWrap(True)
-            error_label.setStyleSheet(
-                "color:#b07a00; font-size:11px;" if report.get("ok") else "color:#b03030; font-size:11px;"
-            )
-            root.addWidget(error_label)
-
-        policy_warning = str(report.get("policy_warning") or "").strip()
-        if policy_warning:
-            warning_label = QLabel(f"Cảnh báo chính sách: {policy_warning}")
-            warning_label.setWordWrap(True)
-            warning_label.setStyleSheet("color:#b07a00; font-size:11px;")
-            root.addWidget(warning_label)
+            root.addWidget(validation_box)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         self._detail_btn = QPushButton("Thuộc tính")
+        self._cert_btn = QPushButton("Chứng thư")
         buttons.addButton(self._detail_btn, QDialogButtonBox.ButtonRole.ActionRole)
+        buttons.addButton(self._cert_btn, QDialogButtonBox.ButtonRole.ActionRole)
         self._detail_btn.clicked.connect(self._show_details)
+        self._cert_btn.clicked.connect(self._show_certificate_details)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
     def _show_details(self):
         _show_signature_report_vn(self, "Chi tiết chữ ký số", self._report, path=self._path)
+
+    def _show_certificate_details(self):
+        if not bool(self._report.get("field_signed")):
+            lines = [
+                f"Trường chữ ký: {self._report.get('selected_field_name') or self._report.get('clicked_field') or 'Không rõ'}",
+                f"Vị trí: Trang {self._report.get('clicked_page') or 'Không rõ'}",
+                "Trạng thái: Ô ký chưa được ký số.",
+            ]
+            QMessageBox.information(self, "Chứng thư số", "\n".join(lines))
+            return
+        lines = [
+            f"Người ký: {self._report.get('display_signer') or self._report.get('subject_name') or 'Không rõ'}",
+            f"Nhà cung cấp: {self._report.get('issuer_name') or 'Không rõ'}",
+            f"Serial: {self._report.get('serial_hex') or 'Không rõ'}",
+            f"Hiệu lực: {self._report.get('valid_from') or 'Không rõ'} - {self._report.get('valid_to') or 'Không rõ'}",
+            f"Trạng thái chứng thư: {self._report.get('certificate_status') or 'Không rõ'}",
+        ]
+        QMessageBox.information(self, "Chứng thư số", "\n".join(lines))
 
 
 def verify_signed_document(window):
@@ -1964,3 +2318,175 @@ def verify_signed_document(window):
     report = validate_signed_pdf_status(default_path)
     dlg = SignatureStatusDialog(window, report, path=default_path)
     dlg.exec()
+
+def _run_usb_signing_batch_subprocess(
+    token_info,
+    jobs: list[dict],
+    pin: str,
+    *,
+    tsa_url: str | None = None,
+    enable_ltv: bool = False,
+) -> None:
+    payload = {
+        "token": _token_info_payload(token_info),
+        "pin": pin,
+        "jobs": jobs,
+        "tsa_url": tsa_url or "",
+        "enable_ltv": enable_ltv,
+    }
+
+    # Truyền payload (kèm PIN) qua stdin thay vì file tạm để PIN không nằm trên đĩa.
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "--usb-sign-worker", "-"]
+    else:
+        cmd = [
+            sys.executable,
+            "-m",
+            "packages.signing.usb_worker",
+            "-",
+        ]
+    result = subprocess.run(
+        cmd,
+        input=payload_json,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        err_msg = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"Tien trinh ky so that bai (Ma loi: {result.returncode}):\n{err_msg}")
+
+    try:
+        out_data = json.loads(result.stdout)
+    except Exception:
+        raise RuntimeError(f"Khong the phan tich ket qua tu tien trinh ky so:\n{result.stdout}")
+
+    if not out_data.get("ok"):
+        err_type = out_data.get("error_type", "Error")
+        err_msg = out_data.get("error_message", "Unknown error")
+        raise RuntimeError(f"{err_type}: {err_msg}")
+
+
+def sign_document_batch(window):
+    from app.license_dialog import require_plan
+    if not require_plan(window, "Ký tài liệu hàng loạt (Batch Sign)", ["personal", "enterprise"]):
+        return
+
+    if not window.current_path:
+        from packages.qt_compat.QtWidgets import QMessageBox
+        QMessageBox.warning(window, "Lỗi", "Vui lòng mở một tài liệu mẫu trước để làm căn cứ chọn vị trí ký.")
+        return
+
+    global _cached_usb_pin
+    signing_provider = get_signing_provider()
+    signer_info = _choose_signing_token(
+        window,
+        signing_provider,
+        title="Chọn USB ký số để ký hàng loạt",
+        required=True,
+    )
+    if not signer_info:
+        return
+
+    _token_stamp_html = _build_stamp_preview_html(
+        _token_display_name(signer_info),
+        tax_code=_token_text(signer_info, "tax_code"),
+        issuer_name=_token_text(signer_info, "issuer_name"),
+        token_serial=_token_text(signer_info, "serial"),
+        cert_serial=_token_text(signer_info, "cert_serial"),
+        signed_at=_format_local_timestamp(),
+    )
+    
+    from packages.qt_compat.QtWidgets import QMessageBox
+    QMessageBox.information(window, "Hướng dẫn", "Hãy chọn vị trí chữ ký trên tài liệu ĐANG MỞ. Vị trí này sẽ được áp dụng cho toàn bộ các file trong thư mục.")
+
+    placement = _pick_signature_placement(window, sig_text_html=_token_stamp_html)
+    if not placement or "box" not in placement or "page_number" not in placement:
+        _cleanup_signature_preview(window)
+        return
+    _set_signature_preview(window, placement, sig_text_html=_token_stamp_html)
+    if not _confirm_signature_selection(window):
+        _cleanup_signature_preview(window)
+        return
+
+    default_signer_name = signer_info.signer_name if signer_info else ""
+    identity_dialog = SignatureIdentityDialog(
+        window,
+        default_signer_name=default_signer_name,
+    )
+    if identity_dialog.exec() != QDialog.DialogCode.Accepted:
+        _cleanup_signature_preview(window)
+        return
+    signer_name = identity_dialog.signer_name()
+
+    from packages.qt_compat.QtWidgets import QFileDialog, QInputDialog, QLineEdit
+    input_dir = QFileDialog.getExistingDirectory(window, "Chọn thư mục chứa các file PDF CẦN KÝ", window.current_path)
+    if not input_dir:
+        _cleanup_signature_preview(window)
+        return
+
+    output_dir = QFileDialog.getExistingDirectory(window, "Chọn thư mục ĐÍCH để lưu các file ĐÃ KÝ", input_dir)
+    if not output_dir:
+        _cleanup_signature_preview(window)
+        return
+
+    pdf_files = [f for f in os.listdir(input_dir) if f.lower().endswith(".pdf")]
+    if not pdf_files:
+        QMessageBox.warning(window, "Lỗi", "Không tìm thấy file PDF nào trong thư mục nguồn.")
+        _cleanup_signature_preview(window)
+        return
+
+    pin = _cached_usb_pin
+    if not pin:
+        pin, ok = QInputDialog.getText(
+            window, "Nhập mã PIN", f"PIN của USB ký số (Sẽ áp dụng cho {len(pdf_files)} file):",
+            QLineEdit.EchoMode.Password
+        )
+        if not ok or not pin:
+            _cleanup_signature_preview(window)
+            return
+    _cached_usb_pin = pin
+
+    jobs = []
+    for f in pdf_files:
+        in_path = os.path.join(input_dir, f)
+        base, ext = os.path.splitext(f)
+        out_path = os.path.join(output_dir, f"{base}_signed{ext}")
+        jobs.append({
+            "input_path": in_path,
+            "output_path": out_path,
+            "signer_name": signer_name,
+            "page_number": placement["page_number"],
+            "box": placement["box"]
+        })
+
+    tsa_url = _get_tsa_url()
+
+    try:
+        ok, error = _run_usb_signing_task(
+            window,
+            lambda: _run_usb_signing_batch_subprocess(
+                signer_info,
+                jobs,
+                pin,
+                tsa_url=tsa_url,
+                enable_ltv=_get_ltv_setting(),
+            ),
+            status_message=f"Đang ký hàng loạt {len(pdf_files)} tài liệu...",
+        )
+        if not ok:
+            exc_type_name, exc_message, tb_text = error or ("RuntimeError", "Ký số thất bại.", "")
+            raise RuntimeError(f"{exc_type_name}: {exc_message}\n{tb_text}".strip())
+
+        QMessageBox.information(
+            window,
+            "Hoàn tất",
+            f"Ký số hàng loạt thành công {len(pdf_files)} tài liệu!\n\n"
+            f"Thư mục lưu: {output_dir}",
+        )
+    except Exception as e:
+        QMessageBox.critical(window, "Lỗi Ký Lô", f"Lỗi trong quá trình ký hàng loạt:\n{e}")
+    finally:
+        _cleanup_signature_preview(window)

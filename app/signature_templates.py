@@ -49,13 +49,13 @@ def list_signature_templates() -> list[dict[str, str]]:
     return items
 
 
-def save_signature_template(code: str, pixmap) -> str:
+def save_signature_template(code: str, pixmap, *, overwrite: bool = False) -> str:
     root = _ensure_dir()
     base = _safe_name(code)
     if not base:
         raise ValueError("Ma mau chu ky khong hop le.")
     path = root / f"{base}.png"
-    if path.exists():
+    if path.exists() and not overwrite:
         idx = 2
         while True:
             candidate = root / f"{base}_{idx}.png"
@@ -67,6 +67,16 @@ def save_signature_template(code: str, pixmap) -> str:
     if not pixmap.save(str(path), "PNG"):
         raise RuntimeError("Khong luu duoc mau chu ky.")
     return str(path)
+
+
+def delete_signature_template(path: str) -> None:
+    target = Path(path)
+    root = _ensure_dir().resolve()
+    resolved = target.resolve()
+    if root not in resolved.parents or resolved.suffix.lower() != ".png":
+        raise ValueError("Duong dan mau chu ky khong hop le.")
+    if resolved.exists():
+        resolved.unlink()
 
 
 def load_signature_template(path: str):

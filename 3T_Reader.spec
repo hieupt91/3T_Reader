@@ -25,7 +25,6 @@ hiddenimports = [
     # Requests / network
     'requests', 'urllib3', 'certifi',
     # Internal packages
-    'packages.platform.macos',
     'packages.signing.macos_provider',
     'packages.license_client.keychain',
     'packages.ai.provider',

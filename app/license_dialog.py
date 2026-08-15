@@ -11,11 +11,14 @@ from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QFrame, QApplication,
 )
+from styles.theme import is_dark
 
 
 # ── stylesheet ──────────────────────────────────────────────────────────────
 
-_STYLE = """
+def _build_style(dark: bool) -> str:
+    if dark:
+        return """
 QDialog {
     background: #16162A;
 }
@@ -110,6 +113,193 @@ QLabel#status_info { color: #8080B0; font-size: 12px; }
 QFrame#divider { background: #2A2A4A; }
 QFrame#or_line { background: #2A2A4A; }
 """
+    return """
+QDialog {
+    background: #F8FAFF;
+}
+QLabel#title {
+    color: #0F172A;
+    font-size: 18px;
+    font-weight: 700;
+}
+QLabel#subtitle {
+    color: #64748B;
+    font-size: 12px;
+}
+QLabel#field_label {
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+}
+QLabel#trial_info {
+    color: #b45309;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(245,158,11,0.12);
+    border: 1px solid rgba(245,158,11,0.35);
+    border-radius: 6px;
+    padding: 6px 12px;
+}
+QLabel#trial_expired {
+    color: #DC2626;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(220,38,38,0.08);
+    border: 1px solid rgba(220,38,38,0.3);
+    border-radius: 6px;
+    padding: 6px 12px;
+}
+QLabel#or_label {
+    color: #94A3B8;
+    font-size: 11px;
+    font-weight: 600;
+}
+QLineEdit {
+    background: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-family: monospace;
+    letter-spacing: 1px;
+}
+QLineEdit:focus {
+    border-color: #FF6600;
+}
+QPushButton#btn_activate {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+        stop:0 #FF7700, stop:1 #FF4400);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 28px;
+    font-size: 13px;
+    font-weight: 700;
+}
+QPushButton#btn_activate:hover { background: #FF9900; }
+QPushButton#btn_activate:pressed { background: #DD4400; }
+QPushButton#btn_activate:disabled { background: #E2E8F0; color: #94A3B8; }
+QPushButton#btn_trial {
+    background: transparent;
+    color: #b45309;
+    border: 1px solid rgba(245,158,11,0.5);
+    border-radius: 8px;
+    padding: 9px 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QPushButton#btn_trial:hover {
+    background: rgba(245,158,11,0.12);
+    border-color: #f59e0b;
+}
+QPushButton#btn_quit {
+    background: transparent;
+    color: #475569;
+    border: 1px solid #CBD5E1;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 13px;
+}
+QPushButton#btn_quit:hover { color: #DC2626; border-color: #DC2626; }
+QLabel#status_ok  { color: #15803D; font-size: 12px; }
+QLabel#status_err { color: #DC2626; font-size: 12px; }
+QLabel#status_info { color: #64748B; font-size: 12px; }
+QFrame#divider { background: #E2E8F0; }
+QFrame#or_line { background: #E2E8F0; }
+"""
+
+
+_PLAN_NAMES = {
+    "free": "Miễn Phí", "personal": "Cá Nhân", "enterprise": "Doanh Nghiệp",
+    "3tr-b": "Cơ Bản", "3tr-p": "Cá Nhân", "3tr-e": "Doanh Nghiệp",
+}
+_HIGHEST_PLAN_CODES = {"enterprise", "3tr-e"}
+
+
+def _plan_label(plan_code: str) -> str:
+    code = (plan_code or "free").lower().strip()
+    return _PLAN_NAMES.get(code, code.upper())
+
+
+def _is_highest_plan(plan_code: str) -> bool:
+    return (plan_code or "").lower().strip() in _HIGHEST_PLAN_CODES
+
+
+# ── info dialog (B42) ───────────────────────────────────────────────────────
+
+class LicenseInfoDialog(QDialog):
+    """Hiện khi license ĐANG active và người dùng bấm vào dòng/badge license
+    - trước đây bấm vào đó luôn mở thẳng form nhập key (trống), khiến người
+    dùng tưởng phải nhập lại key. Dialog này chỉ hiện thông tin đã kích hoạt
+    + gói hiện tại; chỉ hiện nút "Nâng cấp / Đổi key" nếu CHƯA phải gói cao
+    nhất (enterprise/3tr-e)."""
+
+    def __init__(self, parent, status, show_trial_option: bool = False):
+        super().__init__(parent)
+        self._status = status
+        self._show_trial_option = show_trial_option
+        self._want_upgrade = False
+        self.setWindowTitle("Thông tin License")
+        self.setModal(True)
+        self.setStyleSheet(_build_style(is_dark()))
+        self.setWindowFlags(
+            Qt.WindowType.Dialog |
+            Qt.WindowType.CustomizeWindowHint |
+            Qt.WindowType.WindowTitleHint
+        )
+        self.setMinimumSize(420, 220)
+        self._build_ui()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(32, 28, 32, 24)
+        root.setSpacing(0)
+
+        title = QLabel("✓  Đã kích hoạt thành công")
+        title.setObjectName("title")
+        root.addWidget(title)
+        root.addSpacing(10)
+
+        plan_label = _plan_label(self._status.plan_code)
+        exp = getattr(self._status, "expires_at", None)
+        exp_str = exp.strftime("%d/%m/%Y") if exp else "không xác định"
+        info = QLabel(f"Gói hiện tại: {plan_label}\nHết hạn: {exp_str}")
+        info.setObjectName("subtitle")
+        info.setWordWrap(True)
+        root.addWidget(info)
+
+        root.addStretch()
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        root.addWidget(div)
+        root.addSpacing(16)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+
+        btn_close = QPushButton("Đóng")
+        btn_close.setObjectName("btn_quit")
+        btn_close.clicked.connect(self.accept)
+        btn_row.addWidget(btn_close)
+        btn_row.addStretch()
+
+        if not _is_highest_plan(self._status.plan_code):
+            btn_upgrade = QPushButton("Nâng cấp / Đổi key")
+            btn_upgrade.setObjectName("btn_activate")
+            btn_upgrade.clicked.connect(self._on_upgrade)
+            btn_row.addWidget(btn_upgrade)
+
+        root.addLayout(btn_row)
+
+    def _on_upgrade(self):
+        self._want_upgrade = True
+        self.accept()
+
+    def wants_upgrade(self) -> bool:
+        return self._want_upgrade
 
 
 # ── dialog ───────────────────────────────────────────────────────────────────
@@ -124,11 +314,11 @@ class LicenseActivationDialog(QDialog):
     _sig_ok  = Signal(object)  # ActivationResult
     _sig_err = Signal(str)     # error message
 
-    def __init__(self, parent=None, show_trial_option: bool = True, quit_on_close: bool = False):
+    def __init__(self, parent=None, show_trial_option: bool = True, quit_on_close: bool = False, current_status=None):
         super().__init__(parent)
-        self.setWindowTitle("Kích hoạt 3T Reader")
+        self.setWindowTitle("Kích hoạt / Nâng cấp 3T Reader")
         self.setModal(True)
-        self.setStyleSheet(_STYLE)
+        self.setStyleSheet(_build_style(is_dark()))
         self.setWindowFlags(
             Qt.WindowType.Dialog |
             Qt.WindowType.CustomizeWindowHint |
@@ -139,6 +329,7 @@ class LicenseActivationDialog(QDialog):
         self._trial_chosen = False
         self._show_trial_option = show_trial_option
         self._quit_on_close = quit_on_close
+        self._current_status = current_status
         self._trial_info = self._load_trial_info()
         self._sig_ok.connect(self._finish_ok)
         self._sig_err.connect(self._finish_err)
@@ -165,19 +356,30 @@ class LicenseActivationDialog(QDialog):
             elif not ti.get("started"):
                 extra_h = 80  # nút dùng thử + divider
 
-        self.setFixedSize(480, 340 + extra_h)
+        # setMinimumSize (không setFixedSize): giữ kích thước mặc định như cũ
+        # nhưng cho phép dialog giãn cao hơn nếu nội dung lỗi dài bị tràn (M2).
+        self.setMinimumSize(480, 340 + extra_h)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 24)
         root.setSpacing(0)
 
         # Header
-        title = QLabel("Kích hoạt 3T Reader")
+        title = QLabel("Kích hoạt / Nâng cấp 3T Reader")
         title.setObjectName("title")
         root.addWidget(title)
 
         root.addSpacing(4)
-        sub = QLabel("Nhập license key để sử dụng đầy đủ tính năng.")
+        if self._current_status and self._current_status.active:
+            plan_names = {"free": "Miễn Phí", "personal": "Cá Nhân", "enterprise": "Doanh Nghiệp", "3tr-b": "Cơ Bản", "3tr-p": "Cá Nhân", "3tr-e": "Doanh Nghiệp"}
+            code = (self._current_status.plan_code or "free").lower().strip()
+            plan_label = plan_names.get(code, code.upper())
+            if code in ["enterprise", "3tr-e"]:
+                sub = QLabel(f"Bạn đang dùng gói: {plan_label} (Cao cấp nhất).\nNhập mã để Gia hạn thời gian sử dụng.")
+            else:
+                sub = QLabel(f"Bạn đang dùng gói: {plan_label}.\nNhập mã mới để Nâng cấp hoặc Gia hạn.")
+        else:
+            sub = QLabel("Nhập license key để sử dụng đầy đủ tính năng.")
         sub.setObjectName("subtitle")
         root.addWidget(sub)
 
@@ -336,9 +538,11 @@ class LicenseActivationDialog(QDialog):
         self._status.setText(text)
         obj = {"ok": "status_ok", "err": "status_err"}.get(level, "status_info")
         self._status.setObjectName(obj)
-        self._status.setStyleSheet(
-            {"ok": "color:#4fc080;", "err": "color:#E05050;"}.get(level, "color:#8080B0;")
-        )
+        if is_dark():
+            colors = {"ok": "color:#4fc080;", "err": "color:#E05050;"}
+        else:
+            colors = {"ok": "color:#15803D;", "err": "color:#DC2626;"}
+        self._status.setStyleSheet(colors.get(level, "color:#8080B0;" if is_dark() else "color:#64748B;"))
 
     def was_activated(self) -> bool:
         return self._activated
@@ -354,97 +558,136 @@ class LicenseActivationDialog(QDialog):
 
 def check_license_on_startup(window) -> bool:
     """
-    Kiểm tra license khi khởi động.
-    Luồng:
-      1. License hợp lệ → chạy bình thường
-      2. Chưa có license:
-         a. Trial chưa bắt đầu → hiện dialog (có nút Dùng thử + Kích hoạt)
-         b. Trial đang chạy   → chạy bình thường + banner đếm ngược
-         c. Trial hết hạn     → hiện dialog chỉ có Kích hoạt (bắt buộc)
+    Kiểm tra license khi khởi động. (Freemium Model)
+    Nếu không có license hợp lệ -> Chạy ở chế độ FREE.
+
+    validate_cached() có thể phải gọi mạng đồng bộ tới VPS khi token cache
+    không xác minh offline được (token cũ/không đúng định dạng Ed25519) -
+    đã đo thực tế mất tới ~0.9-14s tuỳ mạng. Chạy trên thread nền để không
+    chặn main/GUI thread lúc khởi động (trước đây gọi trực tiếp ở đây từng
+    làm mở file/hiện UI chậm hẳn theo đúng thời gian gọi mạng này). Badge/
+    heartbeat vẫn phải dựng trên main thread nên marshal lại qua
+    QTimer.singleShot(0, ...) - cùng pattern đã dùng trong _start_heartbeat.
     """
     from app.config import VPS_LICENSE_BASE_URL
     if not VPS_LICENSE_BASE_URL:
-        return True  # bypass mode — không cần license
+        # We don't bypass anymore. We just treat it as free mode if there's no URL configured
+        pass
 
     from packages.license_client import get_license_client
     client = get_license_client()
-    status = client.validate_cached()
 
-    if status.active:
-        _show_license_badge(window, status.plan_code or "", status.expires_at)
-        _start_heartbeat(window, client)
-        return True
-
-    # Không có license — kiểm tra trial
-    from packages.license_client.trial import has_trial_started, get_or_init_trial
-
-    if not has_trial_started():
-        # Lần đầu dùng app → hiện dialog cho người dùng chọn
-        dlg = LicenseActivationDialog(window, show_trial_option=True, quit_on_close=False)
-        dlg.exec()
-
-        if dlg.was_activated():
-            r = dlg.get_activation_result()
-            _show_license_badge(window, r.status.plan_code or "" if r else "", r.status.expires_at if r else None)
-            _start_heartbeat(window, get_license_client())
-            return True
-
-        if dlg.was_trial_chosen():
-            trial = get_or_init_trial()
-            _show_trial_banner(window, trial["days_remaining"])
-            return True
-
-        # Bấm "Để sau" → tự động bắt đầu trial, app chạy bình thường
-        from packages.license_client.trial import start_trial
+    def _worker():
         try:
-            start_trial()
+            status = client.validate_cached()
         except Exception:
-            pass
-        trial = get_or_init_trial()
-        _show_trial_banner(window, trial["days_remaining"])
-        return True
+            return
 
-    # Trial đã bắt đầu — kiểm tra còn hạn không
-    trial = get_or_init_trial()
+        def _apply_status():
+            if status.active:
+                _show_license_badge(window, status.plan_code or "free", status.expires_at)
+                _start_heartbeat(window, client)
+            else:
+                _show_license_badge(window, "free", None)
+            _update_license_menu_rows(window, status)
 
-    if not trial["expired"]:
-        # Vẫn trong thời gian dùng thử
-        _show_trial_banner(window, trial["days_remaining"])
-        return True
+        QTimer.singleShot(0, _apply_status)
 
-    # Trial hết hạn → bắt buộc kích hoạt, Thoát = thoát hẳn app
-    dlg = LicenseActivationDialog(window, show_trial_option=False, quit_on_close=True)
-    dlg.exec()
+    threading.Thread(target=_worker, daemon=True).start()
+    return True
 
-    if dlg.was_activated():
-        r = dlg.get_activation_result()
-        _remove_trial_banner(window)
-        _show_license_badge(window, r.status.plan_code or "" if r else "", r.status.expires_at if r else None)
-        _start_heartbeat(window, get_license_client())
-        return True
-
-    return False  # user bấm "Thoát ứng dụng"
-
-
-def open_license_dialog(window):
-    """Mở dialog từ menu License — dùng khi app đang chạy."""
+def get_current_plan() -> str:
     from packages.license_client import get_license_client
     status = get_license_client().validate_cached()
     if status.active:
-        exp = status.expires_at
-        from app.dialogs import show_info
-        exp_str = exp.strftime("%d/%m/%Y") if exp else "không xác định"
-        show_info(window, "Bản quyền đang hoạt động",
-                  f"License key đã kích hoạt.\nHết hạn: {exp_str}")
-        return
+        plan_code = (status.plan_code or "free").lower().strip()
+        if plan_code.startswith("3tr-e") or "enterprise" in plan_code or "doanh nghiệp" in plan_code:
+            return "enterprise"
+        if plan_code.startswith("3tr-p") or "personal" in plan_code or "cá nhân" in plan_code:
+            return "personal"
+        if plan_code.startswith("3tr-b") or "basic" in plan_code or "cơ bản" in plan_code:
+            return "basic"
+        return plan_code
+    return "free"
 
-    dlg = LicenseActivationDialog(window, show_trial_option=True)
+def require_plan(window, feature_name: str, allowed_plans: list[str]) -> bool:
+    plan = get_current_plan().lower().strip()
+    allowed_plans_lower = [p.lower().strip() for p in allowed_plans]
+    if plan in allowed_plans_lower or plan == "enterprise":
+        return True
+        
+    from packages.qt_compat.QtWidgets import QMessageBox
+    from app.dialogs import ask_yes_no
+    if "personal" in allowed_plans:
+        req = "Cá Nhân"
+    else:
+        req = "Doanh Nghiệp"
+
+    reply = ask_yes_no(
+        window,
+        "Nâng cấp tính năng",
+        f"Tính năng {feature_name} yêu cầu gói {req} hoặc cao hơn.\n\n"
+        "Bạn có muốn nhập mã Nâng cấp Bản quyền ngay bây giờ không?",
+    )
+    if reply == QMessageBox.StandardButton.Yes:
+        open_license_dialog(window, force_key_form=True)
+    return False
+
+
+def open_license_dialog(window, *, force_key_form: bool = False):
+    """Mở dialog từ menu License / badge / ribbon — dùng khi app đang chạy.
+
+    B42: nếu license ĐANG active và không bị ép mở form nhập key
+    (force_key_form), hiện LicenseInfoDialog (chỉ thông tin + nút nâng cấp
+    có điều kiện) thay vì mở thẳng form nhập key trống - trước đây bấm vào
+    badge/dòng license đã kích hoạt vẫn luôn bắt nhập lại key."""
+    from packages.license_client import get_license_client
+    status = get_license_client().validate_cached()
+
+    if status.active and not force_key_form:
+        info_dlg = LicenseInfoDialog(window, status)
+        info_dlg.exec()
+        if not info_dlg.wants_upgrade():
+            return
+        # Người dùng bấm "Nâng cấp / Đổi key" trong info dialog -> mở tiếp
+        # form nhập key thật (rơi xuống nhánh dưới).
+
+    dlg = LicenseActivationDialog(window, show_trial_option=not status.active, current_status=status)
     dlg.exec()
     if dlg.was_activated():
         r = dlg.get_activation_result()
         _remove_trial_banner(window)
-        _show_license_badge(window, r.status.plan_code or "" if r else "", r.status.expires_at if r else None)
+        new_status = r.status if r else status
+        _show_license_badge(window, new_status.plan_code or "", new_status.expires_at)
+        _update_license_menu_rows(window, new_status)
         _start_heartbeat(window, get_license_client())
+
+
+def _update_license_menu_rows(window, status=None):
+    """B42: đổi nhãn dòng 'Kích hoạt / Nhập key...' (menu License + ribbon
+    'Kiểm tra key') thành dòng trạng thái đã kích hoạt khi license active,
+    và ngược lại khi hết hạn/thu hồi - để dòng "mời kích hoạt" không còn
+    hiện ra mời nhập lại key khi người dùng đã có license hợp lệ."""
+    active = bool(status and status.active)
+    plan_label = _plan_label(getattr(status, "plan_code", "")) if active else ""
+
+    menu_action = getattr(window, "_act_license_menu", None)
+    if menu_action is not None:
+        if active:
+            menu_action.setText(f"✓  Đã kích hoạt — {plan_label}")
+            menu_action.setToolTip("Xem thông tin license đã kích hoạt")
+        else:
+            menu_action.setText("🔑  Kích hoạt / Nhập key...")
+            menu_action.setToolTip("Kích hoạt / kiểm tra key license (Ctrl+Shift+L)")
+
+    ribbon_action = getattr(window, "_act_license_check", None)
+    if ribbon_action is not None:
+        if active:
+            ribbon_action.setText("Đã kích hoạt")
+            ribbon_action.setToolTip(f"License đang hoạt động — {plan_label}. Bấm để xem chi tiết")
+        else:
+            ribbon_action.setText("Kiểm tra key")
+            ribbon_action.setToolTip("Kích hoạt / kiểm tra key license (Ctrl+Shift+L)")
 
 
 def _show_license_badge(window, plan_code: str = "", expires_at=None):
@@ -455,8 +698,8 @@ def _show_license_badge(window, plan_code: str = "", expires_at=None):
     _remove_trial_banner(window)
     _remove_license_badge(window)
 
-    plan_names = {"3TR-B": "Cơ Bản", "3TR-P": "Cá Nhân", "3TR-E": "Doanh Nghiệp"}
-    plan_label = plan_names.get(plan_code[:5] if plan_code else "", "")
+    plan_names = {"free": "Miễn Phí", "personal": "Cá Nhân", "enterprise": "Doanh Nghiệp", "3TR-B": "Cơ Bản", "3TR-P": "Cá Nhân", "3TR-E": "Doanh Nghiệp"}
+    plan_label = plan_names.get(plan_code, plan_names.get(plan_code[:5] if plan_code else "", ""))
     plan_str = f" — {plan_label}" if plan_label else ""
 
     exp_str = ""
@@ -535,6 +778,7 @@ def _remove_trial_banner(window):
 def _start_heartbeat(window, client):
     """Gửi heartbeat mỗi 6 giờ trong background."""
     from packages.qt_compat.QtCore import QTimer
+    _stop_heartbeat(window)
     timer = QTimer(window)
     timer.setInterval(6 * 3600 * 1000)  # 6h
 
@@ -542,7 +786,7 @@ def _start_heartbeat(window, client):
         def _worker():
             try:
                 status = client.heartbeat()
-                if not status.active:
+                if not status.active and not getattr(window, "_closing", False):
                     QTimer.singleShot(0, lambda: _warn_expired(window))
             except Exception:
                 pass
@@ -553,8 +797,24 @@ def _start_heartbeat(window, client):
     window._license_heartbeat_timer = timer
 
 
+def _stop_heartbeat(window):
+    timer = getattr(window, "_license_heartbeat_timer", None)
+    if timer is None:
+        return
+    try:
+        timer.stop()
+    except Exception:
+        pass
+    try:
+        timer.deleteLater()
+    except Exception:
+        pass
+    window._license_heartbeat_timer = None
+
+
 def _warn_expired(window):
     from app.dialogs import show_warning
+    _update_license_menu_rows(window, None)
     show_warning(
         window,
         "License hết hạn",

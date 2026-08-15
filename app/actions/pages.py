@@ -1,6 +1,4 @@
 import os
-import shutil
-import tempfile
 
 from packages.qt_compat.QtCore import Qt
 from packages.qt_compat.QtWidgets import (
@@ -11,8 +9,33 @@ from packages.qt_compat.QtWidgets import (
 )
 from packages.pdf_engine import get_pdf_engine
 from app.actions._guard import require_document
-from app.dialogs import show_info, show_warning
+from app.actions._pdf_save import make_staged_pdf_path, pdf_write_slot, remove_path_quietly, replace_document_with_staged
+from app.dialogs import show_info, show_warning, ask_yes_no
 from app.actions.file import open_file
+
+
+def _is_temp_converted_document(window, path: str) -> bool:
+    state = window._active_state() if hasattr(window, "_active_state") else None
+    if not state:
+        return False
+    temp_path = state.get("temp_path")
+    display_path = state.get("display_path") or ""
+    try:
+        if temp_path and os.path.abspath(temp_path) == os.path.abspath(path):
+            return os.path.splitext(display_path)[1].lower() != ".pdf"
+    except Exception:
+        return False
+    return False
+
+
+def _auto_commit_edit_state(window) -> bool:
+    try:
+        from app.actions.edit import _get_edit_state, save_edits_quiet
+        if _get_edit_state(window):
+            return save_edits_quiet(window)
+    except Exception:
+        pass
+    return True
 
 
 def _current_pdf_path(window) -> str | None:
@@ -35,7 +58,8 @@ def _reload(window, path: str):
     except Exception:
         page = 1
     window.current_path = path
-    window.viewer.load_pdf(path, page=max(1, page), zoom="page-width")
+    zoom = str(getattr(getattr(window, "zoom_spin", None), "value", lambda: 100)())
+    window.viewer.load_pdf(path, page=max(1, page), zoom=zoom)
     if hasattr(window, "_active_state") and window._active_state() is not None:
         window._active_state()["source_path"] = path
         window._active_state()["display_path"] = path
@@ -104,6 +128,8 @@ class _WatermarkDialog(QDialog):
 
 @require_document(show_message=True)
 def watermark_document(window):
+    if not _auto_commit_edit_state(window):
+        return
     path = _current_pdf_path(window)
     if not path:
         return
@@ -141,10 +167,9 @@ def watermark_document(window):
         show_warning(window, "Lỗi watermark", str(e))
         return
 
-    if QMessageBox.question(
+    if ask_yes_no(
         window, "Mở file mới?",
         f"Đã tạo:\n{out_path}\n\nMở file này không?",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
     ) == QMessageBox.StandardButton.Yes:
         open_file(window, out_path)
     else:
@@ -194,6 +219,8 @@ class _PageRangeDialog(QDialog):
 
 @require_document(show_message=True)
 def delete_pages_action(window):
+    if not _auto_commit_edit_state(window):
+        return
     path = _current_pdf_path(window)
     if not path:
         return
@@ -222,34 +249,42 @@ def delete_pages_action(window):
         show_warning(window, "Không thể xóa", "Không thể xóa tất cả các trang.")
         return
 
-    confirm = QMessageBox.question(
+    confirm = ask_yes_no(
         window, "Xác nhận xóa",
         f"Xóa trang {start}–{end} ({len(pages_to_del)} trang)?\nThao tác này không thể hoàn tác.",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        default_no=True,
     )
     if confirm != QMessageBox.StandardButton.Yes:
         return
 
-    tmp = path + ".del_tmp.pdf"
+    temp_converted = _is_temp_converted_document(window, path)
+    tmp = make_staged_pdf_path(path)
+    new_page = min(start, total - len(pages_to_del))
     try:
-        get_pdf_engine().delete_pages(path, tmp, pages_to_del)
-        shutil.move(tmp, path)
+        with pdf_write_slot(path):
+            get_pdf_engine().delete_pages(path, tmp, pages_to_del)
+            if temp_converted:
+                from app.actions._pdf_save import reload_document
+
+                state = window._active_state() if hasattr(window, "_active_state") else None
+                display_path = state.get("display_path") if state else path
+                reload_document(window, tmp, page=max(1, new_page), display_path=display_path, temp_path=tmp, soft_reload=False)
+            else:
+                replace_document_with_staged(window, tmp, target_path=path, page=max(1, new_page), soft_reload=False)
     except Exception as e:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        remove_path_quietly(tmp)
         show_warning(window, "Lỗi xóa trang", str(e))
         return
 
-    new_page = min(start, total - len(pages_to_del))
-    window.current_path = path
-    window.viewer.load_pdf(path, page=max(1, new_page), zoom="page-width")
     if hasattr(window, "_active_state") and window._active_state():
-        window._active_state()["source_path"] = path
+        window._active_state()["source_path"] = tmp if temp_converted else path
     window.status.showMessage(f"Đã xóa trang {start}–{end}", 4000)
 
 
 @require_document(show_message=True)
 def rotate_pages_action(window):
+    if not _auto_commit_edit_state(window):
+        return
     path = _current_pdf_path(window)
     if not path:
         return
@@ -303,21 +338,31 @@ def rotate_pages_action(window):
     else:
         rotations = {page_spin.value(): deg}
 
-    tmp = path + ".rot_tmp.pdf"
+    # Xoay THẬT vào tài liệu (ghi /Rotate) rồi reload MỀM (giữ zoom + vị trí, chỉ
+    # phủ nhẹ trong tích tắc). Đây là cách duy nhất đúng layout cho mọi tài liệu:
+    # CSS transform gây méo/tràn; pagesRotation không hiện ổn định với setup này.
+    keep_page = current if _all_pages[0] else page_spin.value()
+    temp_converted = _is_temp_converted_document(window, path)
+    tmp = make_staged_pdf_path(path)
     try:
         get_pdf_engine().rotate_pages(path, tmp, rotations)
-        shutil.move(tmp, path)
+        if temp_converted:
+            from app.actions._pdf_save import reload_document
+            state = window._active_state() if hasattr(window, "_active_state") else None
+            display_path = state.get("display_path") if state else path
+            reload_document(window, tmp, page=max(1, keep_page),
+                            display_path=display_path, temp_path=tmp, soft_reload=True)
+        else:
+            replace_document_with_staged(window, tmp, target_path=path,
+                                         page=max(1, keep_page), soft_reload=True)
     except Exception as e:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        remove_path_quietly(tmp)
         show_warning(window, "Lỗi xoay trang", str(e))
         return
 
-    window.current_path = path
-    window.viewer.load_pdf(path, page=max(1, page_spin.value()), zoom="page-width")
     if hasattr(window, "_active_state") and window._active_state():
-        window._active_state()["source_path"] = path
-    window.status.showMessage(f"Đã xoay {len(rotations)} trang {deg}°", 4000)
+        window._active_state()["source_path"] = tmp if temp_converted else path
+    window.status.showMessage(f"Đã xoay trang {keep_page} {deg}°", 4000)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -351,10 +396,9 @@ def merge_pdfs_action(window):
         return
 
     total_files = len(all_paths)
-    if QMessageBox.question(
+    if ask_yes_no(
         window, "Mở file đã gộp?",
         f"Đã gộp {total_files} file thành:\n{os.path.basename(out_path)}\n\nMở không?",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
     ) == QMessageBox.StandardButton.Yes:
         open_file(window, out_path)
     else:
@@ -460,6 +504,8 @@ class _SplitDialog(QDialog):
 
 @require_document(show_message=True)
 def split_pdf_action(window):
+    if not _auto_commit_edit_state(window):
+        return
     path = _current_pdf_path(window)
     if not path:
         return
@@ -495,3 +541,66 @@ def split_pdf_action(window):
         f"Đã tạo {len(out_paths)} file tại:\n{out_dir}"
     )
     window.status.showMessage(f"Đã tách thành {len(out_paths)} file PDF", 5000)
+
+def extract_single_page(window, page_num: int):
+    if not _auto_commit_edit_state(window):
+        return
+    path = _current_pdf_path(window)
+    if not path:
+        return
+    import os
+    import pikepdf
+    from packages.qt_compat.QtWidgets import QFileDialog
+    
+    default_name = f"{os.path.splitext(os.path.basename(path))[0]}_trang_{page_num}.pdf"
+    out_path, _ = QFileDialog.getSaveFileName(
+        window, f"Lưu trang {page_num}", default_name, "PDF Files (*.pdf)"
+    )
+    if not out_path:
+        return
+        
+    try:
+        with pikepdf.open(path) as pdf:
+            dst = pikepdf.Pdf.new()
+            dst.pages.append(pdf.pages[page_num - 1])
+            dst.save(out_path)
+            
+        show_info(window, "Thành công", f"Đã trích xuất trang {page_num} ra:\n{os.path.basename(out_path)}")
+        window.status.showMessage(f"Đã trích xuất trang {page_num} ra {os.path.basename(out_path)}", 4000)
+    except Exception as e:
+        show_warning(window, "Lỗi trích xuất", str(e))
+
+def insert_blank_page(window, target_page_num: int):
+    if not _auto_commit_edit_state(window):
+        return
+    path = _current_pdf_path(window)
+    if not path:
+        return
+        
+    try:
+        import pikepdf
+        from app.actions.annotate import _flush_annotations_before_heavy_op, _save_pikepdf_reload
+        if not _flush_annotations_before_heavy_op(window, path, "chen trang trang"):
+            return
+            
+        with pdf_write_slot(path):
+            with pikepdf.open(path) as pdf:
+                # We want to insert AFTER the target_page_num.
+                # In pikepdf, index is 0-based.
+                index_to_insert = target_page_num
+
+                # Find the size of the current page to match it
+                current_page = pdf.pages[target_page_num - 1]
+                box = current_page.mediabox
+                width = float(box[2] - box[0])
+                height = float(box[3] - box[1])
+
+                blank_doc = pikepdf.Pdf.new()
+                blank_doc.add_blank_page(page_size=(width, height))
+                pdf.pages.insert(index_to_insert, blank_doc.pages[0])
+
+                _save_pikepdf_reload(window, pdf, keep_page=True)
+            
+        window.status.showMessage(f"Đã chèn trang trắng sau trang {target_page_num}", 4000)
+    except Exception as e:
+        show_warning(window, "Lỗi chèn trang", str(e))

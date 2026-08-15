@@ -26,13 +26,6 @@ def get_pdf_engine() -> PdfEngine:
     return _default_engine
 
 
-def __getattr__(name: str):
-    if name == "PyMuPdfEngine":
-        from .pymupdf_engine import PyMuPdfEngine
-        return PyMuPdfEngine
-    raise AttributeError(name)
-
-
 __all__ = [
     "PdfDocument",
     "PdfEngine",

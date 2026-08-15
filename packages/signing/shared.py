@@ -2,11 +2,101 @@
 from __future__ import annotations
 
 import os
-import shutil
 import tempfile
 import unicodedata
 import uuid
+import urllib.request
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from collections import OrderedDict
+
+
+_VALIDATE_STATUS_CACHE: OrderedDict[tuple[str, int, int, str], dict[str, object]] = OrderedDict()
+_VALIDATE_STATUS_CACHE_MAX = 24
+
+
+def _make_output_staged_pdf_path(output_path: str, *, prefix: str = ".3t_sign_", suffix: str = ".pdf") -> str:
+    directory = os.path.dirname(os.path.abspath(output_path)) or os.getcwd()
+    os.makedirs(directory, exist_ok=True)
+    fd, staged_path = tempfile.mkstemp(prefix=prefix, suffix=suffix, dir=directory)
+    os.close(fd)
+    return staged_path
+
+
+def _replace_signed_output(staged_path: str, output_path: str) -> None:
+    if not staged_path or not os.path.exists(staged_path):
+        raise FileNotFoundError(staged_path or output_path)
+    os.replace(staged_path, output_path)
+
+
+def _burn_stamp_onto_pdf(input_path: str, page_number: int, box, stamp_pdf: str) -> str:
+    """Dán ảnh con dấu chữ ký (`stamp_pdf`, PDF 1 trang do
+    build_vietnamese_stamp_style() tự sinh bằng reportlab) đè lên trang
+    `page_number` (1-indexed) của `input_path`, đúng vùng `box` (toạ độ PDF
+    gốc, bottom-up: left, bottom, right, top). Trả đường dẫn file tạm đã
+    dán - caller (PKCS11Signer/PFX signer) tự đọc file này để ký thật bằng
+    pyHanko ngay sau, không đổi luồng ký.
+
+    B2 (2026-08-14): thay PyMuPDF `page.show_pdf_page()` bằng pikepdf
+    `page.add_overlay(rect=...)` - cùng cơ chế overlay đã dùng ổn định cho
+    watermark (packages/pdf_engine/pdfium_engine.py::watermark_pdf) và đã
+    fix lỗi lệch hướng khi trang đích đang xoay (B16, 2026-08-14) - áp dụng
+    luôn safeguard đó ở đây cho nhất quán, dù hộp ký số hiếm khi rơi vào
+    trang đã xoay. Đây là đường ký số THẬT (chữ ký pháp lý) - đã test kỹ
+    bằng file tổng hợp + đối chiếu bytes trước khi coi là xong, xem
+    tests/test_signing_stamp_burn.py."""
+    import shutil
+
+    import pikepdf
+
+    burn_path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
+    shutil.copy2(input_path, burn_path)
+
+    with pikepdf.Pdf.open(burn_path, allow_overwriting_input=True) as pdf:
+        page = pdf.pages[page_number - 1]
+        with pikepdf.Pdf.open(stamp_pdf) as stamp_doc:
+            stamp_page = stamp_doc.pages[0]
+            # B16: khớp /Rotate overlay với trang đích TRƯỚC khi merge, tránh
+            # add_overlay() tự bake compensation sai nếu trang đích đang xoay.
+            stamp_page["/Rotate"] = int(page.get("/Rotate", 0))
+            rect = pikepdf.Rectangle(float(box[0]), float(box[1]), float(box[2]), float(box[3]))
+            page.add_overlay(stamp_page, rect)
+        pdf.save(burn_path)
+    return burn_path
+
+
+class _TemporaryImportedPdfPage:
+    """Imported PDF page that cleans up its source file after rendering."""
+
+    def __init__(self, file_name: str):
+        from pyhanko.pdf_utils.content import ImportedPdfPage
+
+        self._page = ImportedPdfPage(file_name)
+        self.file_name = file_name
+
+    def set_writer(self, writer):
+        self._page.set_writer(writer)
+
+    @property
+    def resources(self):
+        return self._page.resources
+
+    @property
+    def box(self):
+        return self._page.box
+
+    @box.setter
+    def box(self, value):
+        self._page.box = value
+
+    def render(self) -> bytes:
+        try:
+            return self._page.render()
+        finally:
+            try:
+                os.remove(self.file_name)
+            except OSError:
+                pass
 
 
 def _safe_get_pkcs11_attr(obj, attr):
@@ -226,69 +316,635 @@ def build_vietnamese_stamp_style(
     issuer_name: str | None = None,
     token_serial: str | None = None,
     cert_serial: str | None = None,
+    appearance_box: tuple[float, float, float, float] | None = None,
 ):
-    import textwrap
-    from pyhanko.pdf_utils.layout import AxisAlignment, Margins, SimpleBoxLayoutRule
-    from pyhanko.pdf_utils.text import TextBoxStyle
-    from pyhanko.stamp import TextStampStyle
+    from pyhanko.stamp import StaticStampStyle
+    from packages.platform.fonts import get_vietnamese_font_path
+    import json
+    from reportlab.pdfgen import canvas
+    from reportlab.lib import colors
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.lib.utils import simpleSplit
 
     safe_name = str(signer_display_name or "").strip() or "Khong ro"
     display_tax = tax_code or _extract_tax_code_from_text(safe_name)
-
-    def _wrap_value(label: str, value: str, *, width: int = 33, max_lines: int = 2) -> list[str]:
-        value = (value or "Khong ro").strip()
-        chunks = textwrap.wrap(
-            value,
-            width=width,
-            break_long_words=True,
-            break_on_hyphens=False,
-        )[:max_lines] or ["Khong ro"]
-        return [f"{label}: {chunks[0]}"] + [f"  {chunk}" for chunk in chunks[1:]]
-
     subject = safe_name or "Khong ro"
     issuer = str(issuer_name or "").strip() or "Khong ro"
-    serial = token_serial or cert_serial or ""
-    stamp_lines = [
-        "ĐÃ KÝ SỐ",
-        *_wrap_value("Tên chủ thể chứng thư số", subject, width=31, max_lines=2),
-        *_wrap_value("Tên nhà cung cấp chữ ký số", issuer, width=34, max_lines=1),
-        f"Thời điểm ký: {signed_at or 'Không rõ'}",
-        f"Mã số thuế / CCCD: {display_tax or 'Không có'}",
-    ]
-    if serial:
-        stamp_lines.extend(_wrap_value("Số serial chứng thư số", serial, width=34, max_lines=1))
-    stamp_lines.append("Trạng thái: Hợp lệ; tài liệu chưa bị sửa")
-    stamp_text = "\n".join(stamp_lines)
+    serial = str(token_serial or cert_serial or "").strip()
 
-    layout_rule = SimpleBoxLayoutRule(
-        x_align=AxisAlignment.ALIGN_MIN,
-        y_align=AxisAlignment.ALIGN_MIN,
-        margins=Margins(left=4, right=4, top=4, bottom=4),
+    box = appearance_box or (0, 0, 300, 100)
+    page_width = box[2] - box[0]
+    page_height = box[3] - box[1]
+
+    padding_x = 4.0
+    padding_y = 4.0
+
+    img_path = ""
+    img_mode = "left"
+    try:
+        cfg_path = os.path.expanduser("~/.3t_reader/signing_config.json")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+            active_id = cfg.get("active_profile_id", "")
+            profiles = cfg.get("profiles", [])
+            for p in profiles:
+                if p.get("id") == active_id:
+                    img_path = p.get("path", "")
+                    img_mode = p.get("mode", "left")
+                    break
+            else:
+                img_path = cfg.get("signature_image_path", "")
+                img_mode = cfg.get("signature_image_mode", "left")
+    except Exception:
+        pass
+
+    has_img = bool(img_path and os.path.exists(img_path))
+    draw_text = True
+
+    logo_size = page_height - (padding_y * 2)
+    if has_img and img_mode == "left":
+        max_text_width = page_width - padding_x * 2 - logo_size - 10
+    elif has_img and img_mode == "only":
+        max_text_width = 0
+        draw_text = False
+    else:
+        max_text_width = page_width - padding_x * 2
+
+    max_text_height = page_height - padding_y * 2
+
+    font_path = get_vietnamese_font_path()
+    title_font_path = get_vietnamese_font_path(bold=True)
+    font_name = "StampVN"
+    title_font_name = "StampVN-Bold"
+    try:
+        pdfmetrics.registerFont(TTFont(font_name, font_path))
+        pdfmetrics.registerFont(TTFont(title_font_name, title_font_path))
+    except Exception:
+        font_name = title_font_name = "Helvetica"
+
+    if draw_text:
+        full_lines = [
+            "Người ký: " + subject,
+            "Đơn vị CA: " + issuer,
+            "MST/CCCD: " + (display_tax or "Không có"),
+            "Thời điểm: " + (signed_at or "Không rõ"),
+        ]
+        if serial:
+            full_lines.append("Serial: " + serial)
+        full_lines.append("Trạng thái: Hợp lệ; tài liệu chưa bị sửa")
+
+        title_size = max(6.5, min(18.0, page_height / 7.4))
+        body_lines = []
+        font_size = 6.0
+        leading = 7.0
+
+        _max_body = max(7.8, min(24.0, page_height / 8.0, max_text_width / 18.0 if max_text_width > 0 else 10))
+        sizes = tuple(round(s, 1) for s in [_max_body - i * 0.4 for i in range(int((_max_body - 5.0) / 0.4) + 1)] if s >= 5.0) or (7.8, 7.4, 7.0, 6.6, 6.2, 5.8, 5.4)
+
+        for size in sizes:
+            candidate_lines = []
+            candidate_leading = max(size + 0.9, size * 1.16)
+            for raw_line in full_lines:
+                candidate_lines.extend(simpleSplit(raw_line, font_name, size, max_text_width) or [raw_line])
+            block_height = title_size + 2.0 + len(candidate_lines) * candidate_leading
+            if candidate_lines and block_height <= max_text_height:
+                body_lines = candidate_lines
+                font_size = size
+                leading = candidate_leading
+                break
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    tmp_path = tmp.name
+    tmp.close()
+
+    c = canvas.Canvas(tmp_path, pagesize=(page_width, page_height))
+
+    if has_img:
+        try:
+            import reportlab
+            reportlab.rl_config.useA85 = 0
+            from reportlab.lib.utils import ImageReader
+            from PIL import Image
+            pil_img = Image.open(img_path).convert("RGBA")
+            img = ImageReader(pil_img)
+            # mask='auto' uses alpha channel for transparency (no white background box)
+            if img_mode == "only":
+                c.drawImage(img, padding_x, padding_y, width=page_width - (padding_x * 2), height=page_height - (padding_y * 2), preserveAspectRatio=True, mask='auto')
+            elif img_mode == "bg":
+                c.drawImage(img, padding_x, padding_y, width=page_width - (padding_x * 2), height=page_height - (padding_y * 2), preserveAspectRatio=True, mask='auto')
+            else:  # "left"
+                c.drawImage(img, padding_x, padding_y, width=logo_size, height=logo_size, preserveAspectRatio=True, mask='auto')
+                padding_x += logo_size + 10
+        except Exception as e:
+            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Image draw err: {e}\n")
+
+    if draw_text:
+        content_height = title_size + 2.0 + len(body_lines) * leading
+        y = page_height - padding_y - max(0.0, (max_text_height - content_height) / 2.0) - title_size
+        c.setFillColor(colors.HexColor("#052e51"))
+        c.setFont(title_font_name, title_size)
+        c.drawString(padding_x, y, "ĐÃ KÝ SỐ")
+        y -= title_size + 2.0
+        for line in body_lines:
+            if y < padding_y:
+                break
+            text = str(line)
+            if "Trạng thái" in text:
+                c.setFillColor(colors.HexColor("#166534"))
+                c.setFont(font_name, font_size)
+                c.drawString(padding_x, y, text)
+            elif ":" in text:
+                label, value = text.split(":", 1)
+                label_text = label.strip() + ": "
+                c.setFillColor(colors.HexColor("#475569"))
+                c.setFont(title_font_name, font_size)
+                c.drawString(padding_x, y, label_text)
+                c.setFillColor(colors.HexColor("#0f172a"))
+                c.setFont(font_name, font_size)
+                label_width = pdfmetrics.stringWidth(label_text, title_font_name, font_size)
+                c.drawString(padding_x + label_width, y, value.strip())
+            else:
+                c.setFillColor(colors.HexColor("#0f172a"))
+                c.setFont(font_name, font_size)
+                c.drawString(padding_x, y, text)
+            y -= leading
+    c.save()
+
+    # Tra ve duong dan stamp PDF duy nhat (UUID) de consumer burn
+    out_stamp_pdf = os.path.join(
+        tempfile.gettempdir(), f"3t_stamp_{uuid.uuid4().hex[:12]}.pdf"
     )
-    return TextStampStyle(
-        stamp_text=stamp_text,
-        background_opacity=0.0,
-        border_width=0,
-        text_box_style=TextBoxStyle(
-            font_size=7,
-            leading=9,
-            border_width=0,
-            box_layout_rule=layout_rule,
-        ),
-    )
+    try:
+        import shutil
+        shutil.copy2(tmp_path, out_stamp_pdf)
+    except Exception as e:
+        open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Stamp copy error: {e}\n")
+        out_stamp_pdf = None
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+    return StaticStampStyle(background=None, border_width=0), out_stamp_pdf
+
+def _compact_signature_stamp_value(value: object, *, head: int = 12, tail: int = 8, limit: int = 28) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[:head]}...{text[-tail:]}"
 
 
-def _invisible_sig_field_spec(fields, field_name: str, page_number: int):
-    return fields.SigFieldSpec(
-        sig_field_name=field_name,
-        box=None,
-        on_page=max(0, page_number - 1),
-        invis_sig_settings=fields.InvisSigSettings(
-            set_print_flag=False,
-            set_hidden_flag=True,
-            box_out_of_bounds=True,
-        ),
-    )
+@contextmanager
+def _normal_form_xobject_bbox_for_signature_appearance():
+    """Use a normal bottom-left-origin BBox for visible signatures."""
+    from pyhanko.pdf_utils import generic
+    from pyhanko.pdf_utils import writer as writer_mod
+    from pyhanko.pdf_utils.generic import pdf_name
+
+    original = writer_mod.init_xobject_dictionary
+
+    def _fixed_init_xobject_dictionary(command_stream: bytes, box_width, box_height, resources=None):
+        resources = resources or generic.DictionaryObject()
+        return generic.StreamObject(
+            {
+                pdf_name("/BBox"): generic.ArrayObject(
+                    list(map(generic.FloatObject, (0.0, 0.0, box_width, box_height)))
+                ),
+                pdf_name("/Resources"): resources,
+                pdf_name("/Type"): pdf_name("/XObject"),
+                pdf_name("/Subtype"): pdf_name("/Form"),
+            },
+            stream_data=command_stream,
+        )
+
+    writer_mod.init_xobject_dictionary = _fixed_init_xobject_dictionary
+    try:
+        yield
+    finally:
+        writer_mod.init_xobject_dictionary = original
+
+
+def _format_pdf_sig_date(value) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.startswith("D:") and len(text) >= 16:
+        try:
+            return f"{text[2:6]}-{text[6:8]}-{text[8:10]} {text[10:12]}:{text[12:14]}:{text[14:16]} {text[16:] or ''}".strip()
+        except Exception:
+            return text
+    return text
+
+
+def _signature_rect_from_pdf_obj(obj) -> list[float] | None:
+    try:
+        rect = [float(v) for v in obj.get("/Rect") or []]
+        if len(rect) != 4:
+            return None
+        left, bottom, right, top = (
+            min(rect[0], rect[2]),
+            min(rect[1], rect[3]),
+            max(rect[0], rect[2]),
+            max(rect[1], rect[3]),
+        )
+        if right - left < 1 or top - bottom < 1:
+            return None
+        return [left, bottom, right, top]
+    except Exception:
+        return None
+
+
+def _extract_ca_issuer_urls_from_der(cert_der: bytes | None) -> list[str]:
+    if not cert_der:
+        return []
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import AuthorityInformationAccessOID
+
+        cert = x509.load_der_x509_certificate(cert_der)
+        aia = cert.extensions.get_extension_for_class(x509.AuthorityInformationAccess).value
+        urls: list[str] = []
+        for access_desc in aia:
+            if access_desc.access_method != AuthorityInformationAccessOID.CA_ISSUERS:
+                continue
+            location = getattr(access_desc, "access_location", None)
+            value = getattr(location, "value", "") if location is not None else ""
+            if isinstance(value, str) and value.strip():
+                urls.append(value.strip())
+        return urls
+    except Exception:
+        return []
+
+
+def _load_der_certs_from_aia_url(url: str) -> list[bytes]:
+    try:
+        with urllib.request.urlopen(url, timeout=8) as response:
+            payload = response.read()
+    except Exception:
+        return []
+
+    if not payload:
+        return []
+
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+
+        cert = x509.load_der_x509_certificate(payload)
+        return [cert.public_bytes(encoding=serialization.Encoding.DER)]
+    except Exception:
+        pass
+
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+
+        cert = x509.load_pem_x509_certificate(payload)
+        return [cert.public_bytes(encoding=serialization.Encoding.DER)]
+    except Exception:
+        pass
+
+    try:
+        from asn1crypto import cms, pem, x509
+
+        if pem.detect(payload):
+            _type_name, _headers, payload = pem.unarmor(payload)
+        content_info = cms.ContentInfo.load(payload)
+        signed_data = content_info["content"]
+        certs = signed_data["certificates"]
+        result: list[bytes] = []
+        for cert_choice in certs:
+            if cert_choice.name != "certificate":
+                continue
+            cert_obj = cert_choice.chosen
+            if isinstance(cert_obj, x509.Certificate):
+                result.append(cert_obj.dump())
+        return result
+    except Exception:
+        return []
+
+
+def _fetch_issuer_chain_from_aia(cert_der: bytes | None, *, max_depth: int = 3) -> list[object]:
+    if not cert_der or max_depth <= 0:
+        return []
+
+    from asn1crypto import x509 as asn1_x509
+
+    fetched: list[object] = []
+    seen_urls: set[str] = set()
+    pending: list[tuple[bytes, int]] = [(cert_der, 0)]
+    seen_subject_issuers: set[tuple[str, str]] = set()
+
+    while pending:
+        current_der, depth = pending.pop(0)
+        if depth >= max_depth:
+            continue
+        for url in _extract_ca_issuer_urls_from_der(current_der):
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            for issuer_der in _load_der_certs_from_aia_url(url):
+                try:
+                    cert_obj = asn1_x509.Certificate.load(issuer_der)
+                except Exception:
+                    continue
+                key = (
+                    cert_obj.subject.human_friendly,
+                    cert_obj.issuer.human_friendly,
+                )
+                if key in seen_subject_issuers:
+                    continue
+                seen_subject_issuers.add(key)
+                fetched.append(cert_obj)
+                pending.append((issuer_der, depth + 1))
+    return fetched
+
+
+def _pdf_obj_ref_key(obj) -> tuple[int, int] | None:
+    try:
+        objgen = getattr(obj, "objgen", None)
+        if objgen and len(objgen) == 2:
+            return int(objgen[0]), int(objgen[1])
+    except Exception:
+        return None
+    return None
+
+
+def _find_signature_field_instance(pdf, field_name: str) -> dict[str, object] | None:
+    target_name = str(field_name or "").strip()
+    if not target_name:
+        return None
+
+    page_ref_to_number: dict[tuple[int, int], int] = {}
+    annot_ref_to_page: dict[tuple[int, int], int] = {}
+    annot_candidates: list[dict[str, object]] = []
+
+    for page_number, page in enumerate(pdf.pages, start=1):
+        page_key = _pdf_obj_ref_key(page.obj)
+        if page_key is not None:
+            page_ref_to_number[page_key] = page_number
+        annots = page.obj.get("/Annots") or []
+        for annot in annots:
+            annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
+            annot_key = _pdf_obj_ref_key(annot_obj)
+            if annot_key is not None:
+                annot_ref_to_page[annot_key] = page_number
+            parent = annot_obj.get("/Parent")
+            parent_obj = parent.get_object() if hasattr(parent, "get_object") else parent
+            annot_name = str(annot_obj.get("/T") or "").strip()
+            parent_name = str(parent_obj.get("/T") or "").strip() if parent_obj is not None else ""
+            if target_name not in {annot_name, parent_name}:
+                continue
+            rect = _signature_rect_from_pdf_obj(annot_obj)
+            if rect is None:
+                continue
+            sig = annot_obj.get("/V") or (parent_obj.get("/V") if parent_obj is not None else None)
+            annot_candidates.append({"page_number": page_number, "rect": rect, "sig": sig})
+
+    if annot_candidates:
+        for item in annot_candidates:
+            if item.get("sig") is not None:
+                return item
+        return annot_candidates[0]
+
+    def _page_for_obj(obj) -> int:
+        try:
+            page_obj = obj.get("/P")
+            page_obj = page_obj.get_object() if hasattr(page_obj, "get_object") else page_obj
+            page_key = _pdf_obj_ref_key(page_obj)
+            if page_key in page_ref_to_number:
+                return int(page_ref_to_number[page_key])
+        except Exception:
+            pass
+        obj_key = _pdf_obj_ref_key(obj)
+        if obj_key in annot_ref_to_page:
+            return int(annot_ref_to_page[obj_key])
+        return 0
+
+    def _walk_fields(fields, inherited_name: str = "", inherited_sig: bool = False):
+        for field in fields or []:
+            try:
+                field_obj = field.get_object() if hasattr(field, "get_object") else field
+            except Exception:
+                continue
+            current_name = str(field_obj.get("/T") or "").strip() or inherited_name
+            current_sig = (
+                inherited_sig
+                or str(field_obj.get("/FT") or "") == "/Sig"
+                or field_obj.get("/V") is not None
+            )
+            if current_name == target_name and current_sig:
+                rect = _signature_rect_from_pdf_obj(field_obj)
+                page_number = _page_for_obj(field_obj)
+                if rect is not None and page_number:
+                    return {"page_number": page_number, "rect": rect, "sig": field_obj.get("/V")}
+            kids = field_obj.get("/Kids") or []
+            if kids:
+                found = _walk_fields(kids, current_name, current_sig)
+                if found is not None:
+                    return found
+        return None
+
+    acroform = pdf.Root.get("/AcroForm")
+    if acroform is None:
+        return None
+    return _walk_fields(acroform.get("/Fields") or [])
+
+
+def _extract_signature_field_report(path: str, field_name: str) -> dict[str, object] | None:
+    try:
+        from asn1crypto import cms
+        import pikepdf
+
+        with pikepdf.Pdf.open(path) as pdf:
+            field_instance = _find_signature_field_instance(pdf, field_name)
+            if field_instance is None:
+                return None
+            page_number = int(field_instance.get("page_number") or 0)
+            rect = list(field_instance.get("rect") or [])
+            sig = field_instance.get("sig")
+            if len(rect) != 4:
+                return None
+            left, bottom, right, top = [float(v) for v in rect]
+            if sig is None:
+                return {
+                    "clicked_page": page_number,
+                    "clicked_field": field_name,
+                    "selected_field_name": field_name,
+                    "field_rect": [left, bottom, right, top],
+                    "field_signed": False,
+                    "display_signer": "Chưa ký",
+                    "reason": "",
+                    "location": "",
+                    "contact_info": "",
+                    "signature_type": "",
+                    "signing_time": "",
+                    "validation_summary_lines": ["Ô ký này chưa được ký số."],
+                    "overall_status": "Ô ký này chưa được ký số.",
+                    "message": "Ô ký này chưa được ký số.",
+                    "ok": False,
+                    "integrity_ok": False,
+                    "intact": False,
+                    "valid": False,
+                    "trusted": False,
+                    "revoked": False,
+                }
+            cert_details = None
+            contents = sig.get("/Contents")
+            if contents is not None:
+                try:
+                    cms_bytes = bytes(contents).rstrip(b"\x00")
+                    if cms_bytes:
+                        content_info = cms.ContentInfo.load(cms_bytes)
+                        signed_data = content_info["content"]
+                        certs = signed_data["certificates"]
+                        if certs:
+                            first_cert = certs[0].chosen
+                            if hasattr(first_cert, "dump"):
+                                cert_details = extract_certificate_details_from_der(first_cert.dump())
+                except Exception:
+                    cert_details = None
+            return {
+                "clicked_page": page_number,
+                "clicked_field": field_name,
+                "selected_field_name": field_name,
+                "field_rect": [left, bottom, right, top],
+                "field_signed": True,
+                "display_signer": str(sig.get("/Name") or "").strip() or "Không rõ",
+                "signer_reported_name": str(sig.get("/Name") or "").strip(),
+                "reason": str(sig.get("/Reason") or "").strip(),
+                "location": str(sig.get("/Location") or "").strip(),
+                "contact_info": str(sig.get("/ContactInfo") or "").strip(),
+                "signature_type": str(sig.get("/SubFilter") or "").strip(),
+                "signing_time": _format_pdf_sig_date(sig.get("/M")),
+                "subject_name": str(cert_details.get("subject_name") or "") if cert_details else "",
+                "issuer_name": str(cert_details.get("issuer_provider") or "") if cert_details else "",
+                "serial_hex": str(cert_details.get("serial_hex") or "") if cert_details else "",
+                "valid_from": str(cert_details.get("valid_from") or "") if cert_details else "",
+                "valid_to": str(cert_details.get("valid_to") or "") if cert_details else "",
+                "certificate_status": str(cert_details.get("certificate_status") or "") if cert_details else "",
+            }
+            for page_number, page in enumerate(pdf.pages, start=1):
+                annots = page.obj.get("/Annots") or []
+                for annot in annots:
+                    annot_obj = annot.get_object() if hasattr(annot, "get_object") else annot
+                    parent = annot_obj.get("/Parent")
+                    parent_obj = parent.get_object() if hasattr(parent, "get_object") else parent
+                    annot_name = str(annot_obj.get("/T") or "").strip()
+                    parent_name = str(parent_obj.get("/T") or "").strip() if parent_obj is not None else ""
+                    if field_name not in {annot_name, parent_name}:
+                        continue
+                    rect = [float(v) for v in annot_obj.get("/Rect") or []]
+                    if len(rect) != 4:
+                        continue
+                    left, bottom, right, top = (
+                        min(rect[0], rect[2]),
+                        min(rect[1], rect[3]),
+                        max(rect[0], rect[2]),
+                        max(rect[1], rect[3]),
+                    )
+                    sig = annot_obj.get("/V") or (parent_obj.get("/V") if parent_obj is not None else None)
+                    if sig is None:
+                        return {
+                            "clicked_page": page_number,
+                            "clicked_field": field_name,
+                            "selected_field_name": field_name,
+                            "field_rect": [left, bottom, right, top],
+                            "field_signed": False,
+                            "display_signer": "Chưa ký",
+                            "reason": "",
+                            "location": "",
+                            "contact_info": "",
+                            "signature_type": "",
+                            "signing_time": "",
+                            "validation_summary_lines": ["Ô ký này chưa được ký số."],
+                            "overall_status": "Ô ký này chưa được ký số.",
+                            "message": "Ô ký này chưa được ký số.",
+                            "ok": False,
+                            "integrity_ok": False,
+                            "intact": False,
+                            "valid": False,
+                            "trusted": False,
+                            "revoked": False,
+                        }
+                    cert_details = None
+                    contents = sig.get("/Contents")
+                    if contents is not None:
+                        try:
+                            cms_bytes = bytes(contents).rstrip(b"\x00")
+                            if cms_bytes:
+                                content_info = cms.ContentInfo.load(cms_bytes)
+                                signed_data = content_info["content"]
+                                certs = signed_data["certificates"]
+                                if certs:
+                                    first_cert = certs[0].chosen
+                                    if hasattr(first_cert, "dump"):
+                                        cert_details = extract_certificate_details_from_der(first_cert.dump())
+                        except Exception:
+                            cert_details = None
+                    return {
+                        "clicked_page": page_number,
+                        "clicked_field": field_name,
+                        "selected_field_name": field_name,
+                        "field_rect": [left, bottom, right, top],
+                        "field_signed": True,
+                        "display_signer": str(sig.get("/Name") or "").strip() or "Không rõ",
+                        "signer_reported_name": str(sig.get("/Name") or "").strip(),
+                        "reason": str(sig.get("/Reason") or "").strip(),
+                        "location": str(sig.get("/Location") or "").strip(),
+                        "contact_info": str(sig.get("/ContactInfo") or "").strip(),
+                        "signature_type": str(sig.get("/SubFilter") or "").strip(),
+                        "signing_time": _format_pdf_sig_date(sig.get("/M")),
+                        "subject_name": str(cert_details.get("subject_name") or "") if cert_details else "",
+                        "issuer_name": str(cert_details.get("issuer_provider") or "") if cert_details else "",
+                        "serial_hex": str(cert_details.get("serial_hex") or "") if cert_details else "",
+                        "valid_from": str(cert_details.get("valid_from") or "") if cert_details else "",
+                        "valid_to": str(cert_details.get("valid_to") or "") if cert_details else "",
+                        "certificate_status": str(cert_details.get("certificate_status") or "") if cert_details else "",
+                    }
+    except Exception:
+        return None
+    return None
+
+
+def _pick_signing_certificate(session, attribute_mod, object_class_mod):
+    certs = list(session.get_objects({attribute_mod.CLASS: object_class_mod.CERTIFICATE}))
+    if not certs:
+        raise RuntimeError("Khong tim thay certificate tren USB Token!")
+
+    private_key_ids = {
+        _safe_get_pkcs11_attr(key_obj, attribute_mod.ID)
+        for key_obj in session.get_objects({attribute_mod.CLASS: object_class_mod.PRIVATE_KEY})
+    }
+    private_key_ids.discard(None)
+
+    scored_candidates: list[tuple[tuple[int, int, int, float, int], object, bytes | None, dict[str, object] | None]] = []
+    for index, cert in enumerate(certs):
+        cert_id = _safe_get_pkcs11_attr(cert, attribute_mod.ID)
+        cert_der = _safe_get_pkcs11_attr(cert, attribute_mod.VALUE)
+        cert_details = extract_certificate_details_from_der(cert_der)
+        subject_raw = str(cert_details.get("subject_raw") if cert_details else "")
+        issuer_raw = str(cert_details.get("issuer_raw") if cert_details else "")
+        matches_private_key = cert_id in private_key_ids if private_key_ids else True
+        likely_leaf = bool(subject_raw) and subject_raw != issuer_raw
+        has_subject = bool(str(cert_details.get("subject_name") if cert_details else "").strip())
+        cert_status = str(cert_details.get("certificate_status") if cert_details else "")
+        valid_to_dt = cert_details.get("valid_to_dt") if cert_details else None
+        valid_to_ts = valid_to_dt.timestamp() if hasattr(valid_to_dt, "timestamp") else 0.0
+        score = (
+            1 if matches_private_key else 0,
+            1 if cert_status == "Con han" else 0,
+            1 if likely_leaf else 0,
+            1 if has_subject else 0,
+            valid_to_ts,
+            -index,
+        )
+        scored_candidates.append((score, cert, cert_id, cert_details))
+
+    _score, signing_cert, cert_id, cert_details = max(scored_candidates, key=lambda item: item[0])
+    return signing_cert, cert_id, cert_details
 
 
 async def sign_pdf_with_session(
@@ -301,6 +957,12 @@ async def sign_pdf_with_session(
     page_number: int = 1,
     box: tuple[float, float, float, float] | None = None,
     token_serial: str | None = None,
+    field_name: str | None = None,
+    reason: str | None = None,
+    location: str | None = None,
+    contact_info: str | None = None,
+    tsa_url: str | None = None,
+    enable_ltv: bool = False,
 ) -> None:
     """Core pyHanko signing - OS-agnostic. Caller manages the PKCS#11 session."""
     from datetime import datetime
@@ -314,74 +976,115 @@ async def sign_pdf_with_session(
     if box is None:
         box = (50, 50, 300, 100)
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    tmp_path = tmp.name
-    tmp.close()
-    stamped_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    stamped_tmp_path = stamped_tmp.name
-    stamped_tmp.close()
+    tmp_path = _make_output_staged_pdf_path(output_path)
 
     try:
-        certs = list(session.get_objects({Attribute.CLASS: ObjectClass.CERTIFICATE}))
-        if not certs:
-            raise RuntimeError("Khong tim thay certificate tren USB Token!")
-
-        signing_cert = certs[-1]
-        cert_id = signing_cert[Attribute.ID]
-        cert_details = extract_certificate_details_from_der(
-            _safe_get_pkcs11_attr(signing_cert, Attribute.VALUE)
+        _signing_cert, cert_id, cert_details = _pick_signing_certificate(
+            session,
+            Attribute,
+            ObjectClass,
         )
+        if cert_id is None:
+            raise RuntimeError("Khong tim thay khoa bi mat phu hop voi chung thu so tren USB Token!")
         cert_name = str(cert_details.get("subject_name") if cert_details else "")
         cert_tax = str(cert_details.get("tax_code") if cert_details else "") or ""
         cert_issuer = str(cert_details.get("issuer_provider") if cert_details else "") or ""
         cert_serial = str(cert_details.get("serial_hex") if cert_details else "") or ""
-        cert_valid_from = str(cert_details.get("valid_from") if cert_details else "")
-        cert_valid_to = str(cert_details.get("valid_to") if cert_details else "")
-        cert_status = str(cert_details.get("certificate_status") if cert_details else "")
+        signing_cert_der = _safe_get_pkcs11_attr(_signing_cert, Attribute.VALUE)
+        fetched_issuer_chain = _fetch_issuer_chain_from_aia(signing_cert_der) if enable_ltv else []
 
-        signer_obj = PKCS11Signer(session, cert_id=cert_id)
+        # Pull all token certificates so pyHanko can build the issuer path
+        # during presign validation when LTV embedding is enabled.
+        signer_obj = PKCS11Signer(
+            session,
+            cert_id=cert_id,
+            ca_chain=fetched_issuer_chain or None,
+            other_certs_to_pull=None,
+        )
         display_name = (signer_name or "").strip() or cert_name or "Khong ro"
         visible_subject = cert_name or display_name
         signed_at_vn = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        field_name = f"Signature_{uuid.uuid4().hex[:12]}"
-        stamp_text = build_signature_info_text(
-            subject_name=visible_subject,
+        target_field_name = field_name or f"Signature_{uuid.uuid4().hex[:12]}"
+        stamp_style, stamp_pdf = build_vietnamese_stamp_style(
+            visible_subject,
             tax_code=cert_tax,
-            issuer_provider=cert_issuer,
-            serial_hex=cert_serial,
-            valid_from=cert_valid_from,
-            valid_to=cert_valid_to,
-            certificate_status=cert_status,
             signed_at=signed_at_vn,
+            issuer_name=cert_issuer,
+            token_serial=token_serial,
+            cert_serial=cert_serial,
+            appearance_box=box,
         )
-        _render_signature_info_page(
-            input_path,
-            stamped_tmp_path,
-            page_number=page_number,
-            box=box,
-            text=stamp_text,
-        )
+        burn_input_path = input_path
+        if stamp_pdf and os.path.exists(stamp_pdf):
+            try:
+                burn_input_path = _burn_stamp_onto_pdf(input_path, page_number, box, stamp_pdf)
+            except Exception as e:
+                open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burn error: {e}\n")
+                burn_input_path = input_path
+            finally:
+                if stamp_pdf and os.path.exists(stamp_pdf):
+                    try:
+                        os.remove(stamp_pdf)
+                    except OSError:
+                        pass
+            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burned successfully to {burn_input_path}\n")
+        else:
+            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Stamp PDF not found at {stamp_pdf}\n")
 
-        with open(stamped_tmp_path, "rb") as f:
+        with open(burn_input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
-            fields.append_signature_field(
-                writer,
-                sig_field_spec=_invisible_sig_field_spec(fields, field_name, page_number),
+            validation_context = None
+            if enable_ltv:
+                from pyhanko.sign.validation import ValidationContext
+                from pyhanko_certvalidator.fetchers.requests_fetchers import RequestsFetcherBackend
+
+                validation_context = ValidationContext(
+                    other_certs=[*fetched_issuer_chain, *list(signer_obj.cert_registry)],
+                    allow_fetching=True,
+                    fetcher_backend=RequestsFetcherBackend(),
+                )
+                
+            meta = PdfSignatureMetadata(
+                field_name=target_field_name,
+                name=visible_subject,
+                reason=(reason or "").strip() or None,
+                location=(location or "").strip() or None,
+                contact_info=(contact_info or "").strip() or None,
+                validation_context=validation_context,
+                embed_validation_info=enable_ltv,
             )
-            meta = PdfSignatureMetadata(field_name=field_name, name=visible_subject)
+            timestamper = None
+            if tsa_url:
+                from pyhanko.sign.timestamps import HTTPTimeStamper
+                timestamper = HTTPTimeStamper(url=tsa_url)
+                
+            pyhanko_box = None
+            if box and not field_name:
+                pyhanko_box = tuple(box)
+            from pyhanko.stamp import NoOpStampStyle
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer_obj,
+                stamp_style=NoOpStampStyle(),
+                timestamper=timestamper,
+                new_field_spec=None if field_name else fields.SigFieldSpec(
+                    sig_field_name=target_field_name,
+                    box=pyhanko_box,
+                    on_page=max(0, page_number - 1),
+                ),
             )
             with open(tmp_path, "wb") as out:
-                await pdf_signer.async_sign_pdf(writer, output=out)
+                with _normal_form_xobject_bbox_for_signature_appearance():
+                    await pdf_signer.async_sign_pdf(
+                        writer,
+                        existing_fields_only=bool(field_name),
+                        output=out,
+                    )
 
-        shutil.copy2(tmp_path, output_path)
+        _replace_signed_output(tmp_path, output_path)
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
-        if os.path.exists(stamped_tmp_path):
-            os.remove(stamped_tmp_path)
 
 
 async def sign_pdf_with_pkcs12(
@@ -393,6 +1096,11 @@ async def sign_pdf_with_pkcs12(
     signer_name: str = "Khong ro",
     page_number: int = 1,
     box: tuple[float, float, float, float] | None = None,
+    field_name: str | None = None,
+    reason: str | None = None,
+    location: str | None = None,
+    contact_info: str | None = None,
+    enable_ltv: bool = False,
 ) -> None:
     """Sign a PDF using a local PKCS#12/PFX file."""
     from datetime import datetime
@@ -404,12 +1112,7 @@ async def sign_pdf_with_pkcs12(
     if box is None:
         box = (50, 50, 300, 100)
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    tmp_path = tmp.name
-    tmp.close()
-    stamped_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    stamped_tmp_path = stamped_tmp.name
-    stamped_tmp.close()
+    tmp_path = _make_output_staged_pdf_path(output_path)
 
     try:
         passphrase_bytes = passphrase.encode("utf-8") if isinstance(passphrase, str) else passphrase
@@ -434,9 +1137,6 @@ async def sign_pdf_with_pkcs12(
         cert_tax = str(cert_details.get("tax_code") if cert_details else "") or ""
         cert_issuer = str(cert_details.get("issuer_provider") if cert_details else "") or ""
         cert_serial = str(cert_details.get("serial_hex") if cert_details else "") or ""
-        cert_valid_from = str(cert_details.get("valid_from") if cert_details else "")
-        cert_valid_to = str(cert_details.get("valid_to") if cert_details else "")
-        cert_status = str(cert_details.get("certificate_status") if cert_details else "")
 
         display_name = (
             (signer_name or "").strip()
@@ -445,46 +1145,77 @@ async def sign_pdf_with_pkcs12(
             or "Khong ro"
         )
         visible_subject = cert_name or display_name
-        field_name = f"Signature_{uuid.uuid4().hex[:12]}"
+        target_field_name = field_name or f"Signature_{uuid.uuid4().hex[:12]}"
         signed_at_vn = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        stamp_text = build_signature_info_text(
-            subject_name=visible_subject,
+        stamp_style, stamp_pdf = build_vietnamese_stamp_style(
+            visible_subject,
             tax_code=cert_tax,
-            issuer_provider=cert_issuer,
-            serial_hex=cert_serial,
-            valid_from=cert_valid_from,
-            valid_to=cert_valid_to,
-            certificate_status=cert_status,
             signed_at=signed_at_vn,
+            issuer_name=cert_issuer,
+            cert_serial=cert_serial,
+            appearance_box=box,
         )
-        _render_signature_info_page(
-            input_path,
-            stamped_tmp_path,
-            page_number=page_number,
-            box=box,
-            text=stamp_text,
-        )
+        burn_input_path = input_path
+        if stamp_pdf and os.path.exists(stamp_pdf):
+            try:
+                burn_input_path = _burn_stamp_onto_pdf(input_path, page_number, box, stamp_pdf)
+            except Exception as e:
+                open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burn error: {e}\n")
+                burn_input_path = input_path
+            finally:
+                if stamp_pdf and os.path.exists(stamp_pdf):
+                    try:
+                        os.remove(stamp_pdf)
+                    except OSError:
+                        pass
+            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burned successfully to {burn_input_path}\n")
+        else:
+            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Stamp PDF not found at {stamp_pdf}\n")
 
-        with open(stamped_tmp_path, "rb") as f:
+        with open(burn_input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
-            fields.append_signature_field(
-                writer,
-                sig_field_spec=_invisible_sig_field_spec(fields, field_name, page_number),
+            validation_context = None
+            if enable_ltv:
+                from pyhanko.sign.validation import ValidationContext
+                from pyhanko_certvalidator.fetchers.requests_fetchers import RequestsFetcherBackend
+                
+                validation_context = ValidationContext(fetcher_backend=RequestsFetcherBackend())
+                
+            meta = PdfSignatureMetadata(
+                field_name=target_field_name,
+                name=visible_subject,
+                reason=(reason or "").strip() or None,
+                location=(location or "").strip() or None,
+                contact_info=(contact_info or "").strip() or None,
+                validation_context=validation_context,
+                embed_validation_info=enable_ltv,
             )
-            meta = PdfSignatureMetadata(field_name=field_name, name=visible_subject)
+            pyhanko_box = None
+            if box and not field_name:
+                pyhanko_box = tuple(box)
+            from pyhanko.stamp import NoOpStampStyle
             pdf_signer = signers.PdfSigner(
                 signature_meta=meta,
                 signer=signer,
+                stamp_style=NoOpStampStyle(),
+                new_field_spec=None if field_name else fields.SigFieldSpec(
+                    sig_field_name=target_field_name,
+                    box=pyhanko_box,
+                    on_page=max(0, page_number - 1),
+                ),
             )
             with open(tmp_path, "wb") as out:
-                await pdf_signer.async_sign_pdf(writer, output=out)
+                with _normal_form_xobject_bbox_for_signature_appearance():
+                    await pdf_signer.async_sign_pdf(
+                        writer,
+                        existing_fields_only=bool(field_name),
+                        output=out,
+                    )
 
-        shutil.copy2(tmp_path, output_path)
+        _replace_signed_output(tmp_path, output_path)
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
-        if os.path.exists(stamped_tmp_path):
-            os.remove(stamped_tmp_path)
 
 
 def validate_signed_pdf_status(path: str) -> dict[str, object]:
@@ -627,6 +1358,22 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
 def validate_signed_pdf_status(path: str) -> dict[str, object]:
     """Validate the PDF signature integrity first, then best-effort trust."""
     try:
+        stat = os.stat(path)
+        cache_key = (
+            os.path.normcase(os.path.abspath(path)),
+            int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))),
+            int(stat.st_size),
+            str(field_name or "").strip(),
+        )
+        cached = _VALIDATE_STATUS_CACHE.get(cache_key)
+        if cached is not None:
+            _VALIDATE_STATUS_CACHE.move_to_end(cache_key)
+            return dict(cached)
+    except OSError:
+        cache_key = None
+
+    field_report = _extract_signature_field_report(path, field_name) if field_name else None
+    try:
         import asyncio
 
         from pyhanko.pdf_utils.reader import PdfFileReader
@@ -639,6 +1386,8 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
             reader = PdfFileReader(f, strict=False)
             signatures = list(reader.embedded_signatures)
             if not signatures:
+                if field_report is not None:
+                    return field_report
                 return {
                     "ok": False,
                     "integrity_ok": False,
@@ -650,7 +1399,37 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
                     "message": "Không tìm thấy chữ ký số hợp lệ trong PDF đã lưu. Nếu chỉ chèn ảnh hoặc text thì đây không phải chữ ký số.",
                 }
 
+            selected_field_name = (field_name or "").strip()
             embedded_sig = signatures[-1]
+            found_selected_signature = not selected_field_name
+            if selected_field_name:
+                for candidate in signatures:
+                    try:
+                        candidate_name = str(getattr(candidate, "field_name", "") or "").strip()
+                    except Exception:
+                        candidate_name = ""
+                    if candidate_name == selected_field_name:
+                        embedded_sig = candidate
+                        found_selected_signature = True
+                        break
+                if not found_selected_signature and field_report is not None:
+                    return field_report
+
+            sig_object = getattr(embedded_sig, "sig_object", None)
+
+            def _pdf_text(value) -> str:
+                if value is None:
+                    return ""
+                try:
+                    return str(value).strip()
+                except Exception:
+                    return ""
+
+            signer_reported_name = _pdf_text(sig_object.get("/Name")) if sig_object is not None else ""
+            reason = _pdf_text(sig_object.get("/Reason")) if sig_object is not None else ""
+            location = _pdf_text(sig_object.get("/Location")) if sig_object is not None else ""
+            contact_info = _pdf_text(sig_object.get("/ContactInfo")) if sig_object is not None else ""
+            signature_type = _pdf_text(sig_object.get("/SubFilter")) if sig_object is not None else ""
             cert_details = None
             signer_cert = getattr(embedded_sig, "signer_cert", None)
             if signer_cert is not None and hasattr(signer_cert, "dump"):
@@ -698,7 +1477,9 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
             revoked = False
             if intact and valid:
                 try:
-                    status = asyncio.run(async_validate_pdf_signature(embedded_sig))
+                    from pyhanko_certvalidator import ValidationContext
+                    vc = ValidationContext(trust_roots=[], allow_fetching=False)
+                    status = asyncio.run(async_validate_pdf_signature(embedded_sig, signer_validation_context=vc))
                     trusted = bool(getattr(status, "trusted", False))
                     revoked = bool(getattr(status, "revoked", False))
                 except Exception as exc:
@@ -721,7 +1502,14 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
 
             integrity_ok = intact and valid
             overall_ok = integrity_ok and not revoked
-            if overall_ok and trusted:
+            if overall_ok and policy_warning:
+                # Khóa/thuật toán yếu (vd RSA < 2048 bit) có thể bị giả mạo:
+                # đưa cảnh báo lên kết luận thay vì để chữ ký hiện "hợp lệ" trơn.
+                overall_status = (
+                    "Chữ ký hợp lệ về mặt kỹ thuật nhưng dùng khóa/thuật toán yếu "
+                    f"({policy_warning}) nên không bảo đảm an toàn cho văn bản pháp lý."
+                )
+            elif overall_ok and trusted:
                 overall_status = "Chữ ký số hợp lệ và đã được xác minh."
             elif overall_ok and signing_time_ok is False:
                 overall_status = "Chữ ký hợp lệ về mặt kỹ thuật nhưng thời điểm ký ngoài thời hạn hiệu lực."
@@ -731,8 +1519,6 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
                 overall_status = "Chữ ký bị thu hồi."
             else:
                 overall_status = "Chữ ký không hợp lệ hoặc tài liệu đã bị sửa đổi."
-                if trust_error:
-                    overall_status = f"{overall_status} {trust_error}"
 
             # B5: đưa cảnh báo khóa yếu (RSA<2048) lên dòng trạng thái chính.
             if overall_ok and policy_warning:
@@ -744,29 +1530,102 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
             valid_from = str(cert_details.get("valid_from") if cert_details else "")
             valid_to = str(cert_details.get("valid_to") if cert_details else "")
             cert_status = str(cert_details.get("certificate_status") if cert_details else "")
+            display_signer = signer_reported_name or subject_name or "Khong ro"
+            if field_report:
+                display_signer = str(field_report.get("display_signer") or display_signer or "Khong ro")
+                signer_reported_name = str(field_report.get("signer_reported_name") or signer_reported_name or "")
+                reason = str(field_report.get("reason") or reason or "")
+                location = str(field_report.get("location") or location or "")
+                contact_info = str(field_report.get("contact_info") or contact_info or "")
+                signature_type = str(field_report.get("signature_type") or signature_type or "")
+                signing_time = field_report.get("signing_time") or signing_time
+                subject_name = str(field_report.get("subject_name") or subject_name or "")
+                issuer_name = str(field_report.get("issuer_name") or issuer_name or "")
+                serial_hex = str(field_report.get("serial_hex") or serial_hex or "")
+                valid_from = str(field_report.get("valid_from") or valid_from or "")
+                valid_to = str(field_report.get("valid_to") or valid_to or "")
+                cert_status = str(field_report.get("certificate_status") or cert_status or "")
+            validation_summary = [
+                "Tai lieu chua bi sua doi sau khi ap chu ky." if integrity_ok
+                else "Tai lieu da bi thay doi hoac chu ky khong con toan ven.",
+                "Chuoi tin cay chung thu da duoc xac minh." if trusted
+                else "Chua xac minh duoc day du chuoi tin cay chung thu.",
+            ]
+            if signing_time_ok is False:
+                validation_summary.append("Thoi diem ky nam ngoai thoi han hieu luc chung thu.")
+            elif signing_time is not None:
+                validation_summary.append("Thoi diem ky nam trong thoi han hieu luc chung thu.")
+            if cert_status:
+                validation_summary.append(f"Trang thai chung thu hien tai: {cert_status}.")
+            if field_report and not integrity_ok:
+                validation_summary.insert(0, "Đã lấy thông tin trực tiếp từ đúng ô ký được bấm.")
 
-            return {
+            result = {
                 "ok": integrity_ok and not revoked,
                 "integrity_ok": integrity_ok,
                 "intact": intact,
                 "valid": valid,
                 "trusted": trusted,
                 "revoked": revoked,
+                "field_signed": bool(field_report.get("field_signed")) if field_report else True,
+                "clicked_page": field_report.get("clicked_page") if field_report else None,
+                "clicked_field": field_report.get("clicked_field") if field_report else "",
+                "field_rect": field_report.get("field_rect") if field_report else None,
                 "signing_time": signing_time,
                 "signing_time_ok": signing_time_ok,
+                "signature_count": len(signatures),
+                "selected_field_name": str(
+                    (field_report.get("selected_field_name") if field_report else "")
+                    or getattr(embedded_sig, "field_name", "")
+                    or ""
+                ),
+                "display_signer": display_signer,
+                "signer_reported_name": signer_reported_name,
                 "subject_name": subject_name,
                 "issuer_name": issuer_name,
                 "serial_hex": serial_hex,
                 "valid_from": valid_from,
                 "valid_to": valid_to,
                 "certificate_status": cert_status,
+                "reason": reason,
+                "location": location,
+                "contact_info": contact_info,
+                "signature_type": signature_type,
+                "validation_summary_lines": validation_summary,
                 "overall_status": overall_status,
                 "message": overall_status,
                 "validation_error": trust_error,
                 "policy_warning": policy_warning,
             }
+            if cache_key is not None:
+                _VALIDATE_STATUS_CACHE[cache_key] = dict(result)
+                _VALIDATE_STATUS_CACHE.move_to_end(cache_key)
+                while len(_VALIDATE_STATUS_CACHE) > _VALIDATE_STATUS_CACHE_MAX:
+                    _VALIDATE_STATUS_CACHE.popitem(last=False)
+            return result
     except Exception as exc:
-        return {
+        if field_report is not None:
+            fallback = dict(field_report)
+            fallback.setdefault("ok", False)
+            fallback.setdefault("integrity_ok", False)
+            fallback.setdefault("intact", False)
+            fallback.setdefault("valid", False)
+            fallback.setdefault("trusted", False)
+            fallback.setdefault("revoked", False)
+            fallback["overall_status"] = f"Chưa kiểm tra được đầy đủ: {exc}"
+            fallback["message"] = fallback["overall_status"]
+            fallback["validation_error"] = str(exc)
+            lines = list(fallback.get("validation_summary_lines") or [])
+            if fallback.get("field_signed"):
+                lines.insert(0, "Đã lấy thông tin trực tiếp từ đúng ô ký được bấm.")
+            fallback["validation_summary_lines"] = lines
+            if cache_key is not None:
+                _VALIDATE_STATUS_CACHE[cache_key] = dict(fallback)
+                _VALIDATE_STATUS_CACHE.move_to_end(cache_key)
+                while len(_VALIDATE_STATUS_CACHE) > _VALIDATE_STATUS_CACHE_MAX:
+                    _VALIDATE_STATUS_CACHE.popitem(last=False)
+            return fallback
+        result = {
             "ok": False,
             "integrity_ok": False,
             "intact": False,
@@ -776,3 +1635,9 @@ def validate_signed_pdf_status(path: str) -> dict[str, object]:
             "overall_status": f"Chua kiem tra duoc: {exc}",
             "message": f"Chua kiem tra duoc trang thai chu ky: {exc}",
         }
+        if cache_key is not None:
+            _VALIDATE_STATUS_CACHE[cache_key] = dict(result)
+            _VALIDATE_STATUS_CACHE.move_to_end(cache_key)
+            while len(_VALIDATE_STATUS_CACHE) > _VALIDATE_STATUS_CACHE_MAX:
+                _VALIDATE_STATUS_CACHE.popitem(last=False)
+        return result

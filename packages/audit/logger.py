@@ -25,6 +25,28 @@ ACT_PAGE_EDIT = "PAGE_EDIT"
 _lock = threading.Lock()
 
 
+def _lock_file_handle(fh):
+    try:
+        import msvcrt
+    except Exception:
+        return lambda: None
+
+    try:
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+    except Exception:
+        return lambda: None
+
+    def _unlock():
+        try:
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        except Exception:
+            pass
+
+    return _unlock
+
+
 def get_audit_log_path() -> str:
     """Return the absolute path to the audit log file."""
     return os.path.join(get_app_data_dir(), "audit.log")
@@ -41,8 +63,11 @@ def log_action(action: str, path: str = "", details: str = "") -> None:
     line = f"{timestamp} | {action:<20} | {path} | {details}\n"
     try:
         with _lock:
-            with open(get_audit_log_path(), "a", encoding="utf-8") as fh:
+            with open(get_audit_log_path(), "a+", encoding="utf-8") as fh:
+                unlock = _lock_file_handle(fh)
                 fh.write(line)
+                fh.flush()
+                unlock()
     except Exception:
         pass  # silent ignore — never crash the app
 
@@ -54,8 +79,11 @@ def read_recent_logs(n: int = 200) -> list[str]:
     """
     log_path = get_audit_log_path()
     try:
-        with open(log_path, "r", encoding="utf-8") as fh:
+        with open(log_path, "a+", encoding="utf-8") as fh:
+            unlock = _lock_file_handle(fh)
+            fh.seek(0)
             lines = fh.readlines()
+            unlock()
         return lines[-n:] if len(lines) > n else lines
     except Exception:
         return []

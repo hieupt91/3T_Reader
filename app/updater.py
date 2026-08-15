@@ -1,23 +1,75 @@
-import sys
+import json
 import os
 import subprocess
-import tempfile
+import sys
 import threading
+import urllib.parse
 import urllib.request
-import json
 
-from app.config import UPDATE_CHANNEL, UPDATE_MANIFEST_URL
-from app.version import APP_VERSION, PRODUCT_CODE
+from packages.qt_compat.QtCore import QObject, pyqtSignal
+
+from app.config import UPDATE_MANIFEST_URL
+from app.version import APP_VERSION
+from packages.updater.base_version import get_installed_base_version
+from packages.updater.update_client import UpdateInfo, check_for_update_v2, download_update
+
+
+class UpdateCheckWorker(QObject):
+    finished = pyqtSignal()
+    available = pyqtSignal(object)
+    up_to_date = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, base_url: str, current_version: str, channel: str):
+        super().__init__()
+        self._base_url = base_url
+        self._current_version = current_version
+        self._channel = channel
+
+    def run(self):
+        try:
+            from app.config import VPS_LICENSE_BASE_URL
+            from app.version import APP_VERSION
+            from packages.updater.update_client import check_for_update
+
+            base_url = self._base_url or VPS_LICENSE_BASE_URL
+            current_version = self._current_version or APP_VERSION
+            platform = "win" if sys.platform == "win32" else "mac"
+            # B53 uses a separate endpoint.  Any unavailable/error response
+            # deliberately falls back to the proven v1 full-installer flow.
+            if sys.platform == "win32":
+                v2_info = check_for_update_v2(
+                    base_url, current_version, get_installed_base_version(), platform="windows"
+                )
+                if v2_info.available:
+                    info = v2_info
+                else:
+                    info = check_for_update(base_url, current_version, platform=platform)
+            else:
+                # B53's helper/bootstrap is Windows-specific.  macOS remains
+                # on the verified v1 installer path until its equivalent is built.
+                info = check_for_update(base_url, current_version, platform=platform)
+            if info.available:
+                self.available.emit(info)
+            else:
+                self.up_to_date.emit(info)
+        except Exception as exc:
+            self.error.emit(str(exc))
+        finally:
+            self.finished.emit()
 
 
 def _get_latest_release() -> dict | None:
-    """Fetch the signed update manifest from the future VPS update API."""
     if not UPDATE_MANIFEST_URL:
         return None
-    url = (
-        f"{UPDATE_MANIFEST_URL}?product={PRODUCT_CODE}"
-        f"&channel={UPDATE_CHANNEL}&version={APP_VERSION}"
+    platform = "win" if sys.platform == "win32" else "mac"
+    query = urllib.parse.urlencode(
+        {
+            "platform": platform,
+            "current_version": APP_VERSION,
+        }
     )
+    url = f"{UPDATE_MANIFEST_URL}?{query}"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "3T-Reader-Updater"})
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -27,96 +79,96 @@ def _get_latest_release() -> dict | None:
 
 
 def _parse_version(v: str) -> tuple:
-    """'1.2.3' → (1, 2, 3)"""
     try:
         return tuple(int(x) for x in v.lstrip("v").split("."))
     except Exception:
         return (0,)
 
 
+def _pick_manifest_version(data: dict) -> str:
+    return data.get("version") or data.get("latest_version") or data.get("tag_name") or ""
+
+
+def _pick_manifest_url(data: dict) -> str:
+    return data.get("url") or data.get("download_url") or data.get("browser_download_url") or ""
+
+
 def check_and_prompt_update(parent_window):
-    """
-    Chạy trong thread riêng để không block UI.
-    Nếu có bản mới → hiện dialog hỏi user.
-    """
     def _worker():
         data = _get_latest_release()
         if not data:
             return
 
-        latest_version = data.get("version") or data.get("tag_name", "")
-        if not latest_version:
+        latest_version = _pick_manifest_version(data)
+        if not latest_version or _parse_version(latest_version) <= _parse_version(APP_VERSION):
             return
 
-        if _parse_version(latest_version) <= _parse_version(APP_VERSION):
-            return  # Đang dùng bản mới nhất rồi
-
-        installer_url = data.get("url")
-        installer_name = data.get("filename")
-
+        installer_url = _pick_manifest_url(data)
         if not installer_url:
             assets = data.get("assets", [])
             for asset in assets:
                 name = asset.get("name", "")
                 if name.endswith(".exe") and "setup" in name.lower():
                     installer_url = asset.get("browser_download_url")
-                    installer_name = name
                     break
-
         if not installer_url:
             return
 
-        # Hiện dialog trên main thread
-        from packages.qt_compat.QtCore import QMetaObject, Qt, Q_ARG
+        info = UpdateInfo(
+            available=True,
+            current_version=APP_VERSION,
+            latest_version=latest_version,
+            download_url=installer_url,
+            sha256=data.get("sha256", ""),
+            signature=data.get("signature", ""),
+            release_notes=data.get("release_notes", ""),
+        )
+
         from packages.qt_compat.QtWidgets import QMessageBox
+        from packages.qt_compat.QtCore import QTimer
+        from app.dialogs import ask_yes_no
 
         def _show_dialog():
-            reply = QMessageBox.question(
+            reply = ask_yes_no(
                 parent_window,
-                "Có bản cập nhật mới",
-                f"Phiên bản mới: {latest_version}\n"
-                f"Phiên bản hiện tại: {APP_VERSION}\n\n"
-                f"Bạn có muốn cập nhật ngay không?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                "Co ban cap nhat moi",
+                f"Phien ban moi: {latest_version}\n"
+                f"Phien ban hien tai: {APP_VERSION}\n\n"
+                "Ban co muon cap nhat ngay khong?",
             )
             if reply == QMessageBox.StandardButton.Yes:
-                _download_and_run(installer_url, installer_name, parent_window)
+                _download_and_run(info, parent_window)
 
-        # Gọi dialog từ main thread
-        from packages.qt_compat.QtCore import QTimer
         QTimer.singleShot(0, _show_dialog)
 
-    thread = threading.Thread(target=_worker, daemon=True)
-    thread.start()
+    threading.Thread(target=_worker, daemon=True).start()
 
 
-def _download_and_run(url: str, filename: str, parent_window):
-    """Tải installer về temp rồi chạy."""
-    from packages.qt_compat.QtWidgets import QProgressDialog, QMessageBox
+def _download_and_run(info: UpdateInfo, parent_window):
     from packages.qt_compat.QtCore import Qt
+    from packages.qt_compat.QtWidgets import QMessageBox, QProgressDialog
 
-    tmp_dir = tempfile.mkdtemp()
-    save_path = os.path.join(tmp_dir, filename)
-
-    progress = QProgressDialog("Đang tải bản cập nhật...", "Hủy", 0, 100, parent_window)
-    progress.setWindowTitle("Cập nhật")
+    progress = QProgressDialog("Dang tai ban cap nhat...", "Huy", 0, 100, parent_window)
+    progress.setWindowTitle("Cap nhat")
     progress.setWindowModality(Qt.WindowModality.WindowModal)
     progress.show()
 
-    def _reporthook(block_num, block_size, total_size):
-        if progress.wasCanceled():
-            raise Exception("Cancelled")
-        if total_size > 0:
-            percent = min(100, int(block_num * block_size * 100 / total_size))
+    try:
+        def _progress(percent: int) -> None:
+            if progress.wasCanceled():
+                raise RuntimeError("Cancelled")
             progress.setValue(percent)
 
-    try:
-        urllib.request.urlretrieve(url, save_path, _reporthook)
+        result = download_update(info, progress_cb=_progress)
         progress.close()
-        # Chạy installer và thoát app hiện tại
-        subprocess.Popen([save_path], shell=False)
+        if not result.success:
+            raise RuntimeError(result.error or "Khong tai duoc ban cap nhat.")
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", result.path])
+        else:
+            subprocess.Popen([result.path], shell=False)
         parent_window.close()
-    except Exception as e:
+    except Exception as exc:
         progress.close()
-        if "Cancelled" not in str(e):
-            QMessageBox.warning(parent_window, "Lỗi tải xuống", f"Không tải được bản cập nhật:\n{e}")
+        if "Cancelled" not in str(exc):
+            QMessageBox.warning(parent_window, "Loi tai xuong", f"Khong tai duoc ban cap nhat:\n{exc}")

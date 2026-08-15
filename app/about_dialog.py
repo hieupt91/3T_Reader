@@ -7,6 +7,7 @@ from packages.qt_compat.QtWidgets import (
 )
 from packages.qt_compat.QtCore import Qt, QSize
 from packages.qt_compat.QtSvgWidgets import QSvgWidget
+from app.version import APP_VERSION
 
 _ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 
@@ -34,18 +35,39 @@ class AboutDialog(QDialog):
         h_layout = QHBoxLayout(header)
         h_layout.setContentsMargins(28, 12, 28, 12)
 
-        logo_path = os.path.join(_ASSETS, "brand_logo_dark.svg")
-        if not os.path.exists(logo_path):
-            logo_path = os.path.join(_ASSETS, "logo_full.svg")
-        if os.path.exists(logo_path):
-            logo_widget = QSvgWidget(logo_path)
-            logo_widget.setFixedSize(QSize(320, 91))
-            logo_widget.setStyleSheet("background: transparent;")
-            h_layout.addWidget(logo_widget)
+        logo_png_path = os.path.join(_ASSETS, "brand_3t_logo.png")
+        if os.path.exists(logo_png_path):
+            from packages.qt_compat.QtGui import QPixmap
+
+            pixmap = QPixmap(logo_png_path).scaled(
+                96, 96, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            )
+            logo_lbl = QLabel()
+            logo_lbl.setPixmap(pixmap)
+            logo_lbl.setFixedSize(96, 96)
+            logo_lbl.setStyleSheet("background: transparent;")
+            h_layout.addWidget(logo_lbl)
+
+            reader_lbl = QLabel("READER")
+            reader_lbl.setStyleSheet(
+                "color:white; font-size:26px; font-weight:900; letter-spacing:4px;"
+                " background: transparent;"
+            )
+            h_layout.addSpacing(14)
+            h_layout.addWidget(reader_lbl)
         else:
-            lbl = QLabel("3T READER")
-            lbl.setStyleSheet("color:white; font-size:30px; font-weight:900; letter-spacing:3px;")
-            h_layout.addWidget(lbl)
+            logo_path = os.path.join(_ASSETS, "brand_logo_dark.svg")
+            if not os.path.exists(logo_path):
+                logo_path = os.path.join(_ASSETS, "logo_full.svg")
+            if os.path.exists(logo_path):
+                logo_widget = QSvgWidget(logo_path)
+                logo_widget.setFixedSize(QSize(320, 91))
+                logo_widget.setStyleSheet("background: transparent;")
+                h_layout.addWidget(logo_widget)
+            else:
+                lbl = QLabel("3T READER")
+                lbl.setStyleSheet("color:white; font-size:30px; font-weight:900; letter-spacing:3px;")
+                h_layout.addWidget(lbl)
 
         h_layout.addStretch()
         root.addWidget(header)
@@ -67,7 +89,7 @@ class AboutDialog(QDialog):
             row.addWidget(val, 1)
             body.addLayout(row)
 
-        _row("Phiên bản:",  "1.0.0 Beta")
+        _row("Phiên bản:",  APP_VERSION)
         _row("Nền tảng:",   "macOS · Windows")
         _row("Chức năng:",  "Đọc, chỉnh sửa và ký số tài liệu PDF")
         _row("Công nghệ:",  "Python · PySide6 · pypdfium2 · pikepdf · PDF.js")
@@ -82,7 +104,10 @@ class AboutDialog(QDialog):
 
         body.addSpacing(10)
 
-        copyright_lbl = QLabel("© 2024–2025 3T Technology. All rights reserved.")
+        from datetime import date
+        _current_year = date.today().year
+        _copyright_years = "2024" if _current_year <= 2024 else f"2024–{_current_year}"
+        copyright_lbl = QLabel(f"© {_copyright_years} 3T Technology. All rights reserved.")
         copyright_lbl.setStyleSheet("color:#556688; font-size:11px;")
         copyright_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         body.addWidget(copyright_lbl)

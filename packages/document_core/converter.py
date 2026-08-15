@@ -17,6 +17,114 @@ def convert_pdf_to_docx(
     )
 
 
+def convert_pdf_to_docx_layout(
+    pdf_path: str,
+    output_path: str,
+    *,
+    progress_cb: Callable[[str], None] | None = None,
+) -> None:
+    """Convert PDF to Word (Layout preserving: page renders as images)."""
+    try:
+        from docx import Document
+        from docx.shared import Inches
+        import pypdfium2 as pdfium
+        import tempfile
+    except ImportError:
+        raise ImportError("Thieu thu vien. Vui long cai dat: pip install python-docx pypdfium2 Pillow")
+
+    if progress_cb:
+        progress_cb("Dang mo file PDF...")
+
+    from packages.pdf_engine.pdfium_engine import PDFIUM_LOCK
+
+    doc = Document()
+    with PDFIUM_LOCK:
+        pdf = pdfium.PdfDocument(pdf_path)
+        total_pages = len(pdf)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for i, page in enumerate(pdf):
+                if progress_cb:
+                    progress_cb(f"Dang xuat trang {i+1}/{total_pages} (Layout-preserving)...")
+
+                bitmap = page.render(scale=150/72)
+                img_path = os.path.join(tmpdir, f"page_{i}.png")
+                bitmap.to_pil().save(img_path)
+
+                doc.add_picture(img_path, width=Inches(6.5))
+                if i < total_pages - 1:
+                    doc.add_page_break()
+
+        pdf.close()
+    
+    if progress_cb:
+        progress_cb("Dang luu file Word...")
+    doc.save(output_path)
+    
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        raise RuntimeError("File Word khong duoc tao ra - chuyen doi that bai.")
+        
+    if progress_cb:
+        progress_cb("Hoan tat xuat Word (Layout)!")
+
+
+def convert_pdf_to_docx_structured(
+    pdf_path: str,
+    output_path: str,
+    *,
+    progress_cb: Callable[[str], None] | None = None,
+) -> None:
+    """Convert PDF to Word (Text structured: text flow & tables using pdfplumber)."""
+    try:
+        import pdfplumber
+        from docx import Document
+    except ImportError:
+        raise ImportError("Thieu thu vien. Vui long cai dat: pip install pdfplumber python-docx")
+
+    doc = Document()
+
+    if progress_cb:
+        progress_cb("Dang mo file PDF...")
+
+    with pdfplumber.open(pdf_path) as pdf:
+        total_pages = len(pdf.pages)
+        for i, page in enumerate(pdf.pages):
+            if progress_cb:
+                progress_cb(f"Dang xuat trang {i+1}/{total_pages} (Text-structured)...")
+
+            text = page.extract_text()
+            if text:
+                doc.add_paragraph(text)
+
+            tables = page.extract_tables()
+            if tables:
+                for table in tables:
+                    if not table or not table[0]:
+                        continue
+                    rows = len(table)
+                    cols = max(len(r) for r in table if r)
+                    docx_table = doc.add_table(rows=rows, cols=cols)
+                    docx_table.style = 'Table Grid'
+                    for r_idx, row in enumerate(table):
+                        for c_idx, cell_val in enumerate(row):
+                            if c_idx < cols:
+                                docx_table.cell(r_idx, c_idx).text = str(cell_val or "").strip()
+                    doc.add_paragraph("")
+
+            if i < total_pages - 1:
+                doc.add_page_break()
+
+    if progress_cb:
+        progress_cb("Dang luu file Word...")
+    doc.save(output_path)
+    
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        raise RuntimeError("File Word khong duoc tao ra - chuyen doi that bai.")
+        
+    if progress_cb:
+        progress_cb("Hoan tat xuat Word (Structured)!")
+
+
 def _build_rows_from_words(words: list[dict]) -> list[list[str]]:
     if not words:
         return []

@@ -6,7 +6,10 @@ import json
 import re
 import struct
 import subprocess
+import concurrent.futures
 import sys
+import threading
+import time
 from pathlib import Path
 
 from .provider import TokenInfo
@@ -50,6 +53,16 @@ WINDOWS_VENDOR_DIR_HINTS = (
     "vnpt",
     "fpt",
     "bkav",
+    "newca",
+    "easyca",
+    "efy",
+    "nacencomm",
+    "cyberlotus",
+    "smartsign",
+    "mobifone",
+    "vinaphone",
+    "vietnampost",
+    "ca2",
     "safenet",
     "etoken",
     "token",
@@ -62,10 +75,23 @@ WINDOWS_VENDOR_DIR_HINTS = (
 WINDOWS_GENERIC_DLL_HINTS = (
     "pkcs",
     "csp11",
+    "cryptoki",
     "etoken",
     "aetpk",
     "idprime",
     "bit4",
+    "pki",
+    "usbtoken",
+    "viettel",
+    "vnpt",
+    "fpt",
+    "bkav",
+    "newca",
+    "easyca",
+    "efy",
+    "nacencomm",
+    "cyberlotus",
+    "smartsign",
 )
 WINDOWS_REGISTRY_HINTS = WINDOWS_VENDOR_DIR_HINTS + (
     "cryptoki",
@@ -273,7 +299,7 @@ def _candidate_paths() -> list[str]:
         for directory in _candidate_vendor_dirs(root_dir):
             for dll in WINDOWS_PKCS11_CANDIDATES:
                 add(os.path.join(directory, dll))
-            for path in _generic_pkcs11_dlls(directory):
+            for path in _generic_pkcs11_dlls(directory, recursive=True):
                 add(path)
 
     for dll in WINDOWS_PKCS11_CANDIDATES:
@@ -289,29 +315,38 @@ def _candidate_paths() -> list[str]:
     return paths
 
 
-def _generic_pkcs11_dlls(directory: str) -> list[str]:
-    try:
-        entries = list(os.scandir(directory))
-    except OSError:
-        return []
-
+def _generic_pkcs11_dlls(directory: str, *, recursive: bool = False, max_depth: int = 4) -> list[str]:
     matches: list[str] = []
-    for entry in entries:
-        if not entry.is_file():
-            continue
-        name = entry.name.lower()
-        if not name.endswith(".dll"):
-            continue
-        stem = name[:-4]
-        if (
-            any(hint in name for hint in WINDOWS_GENERIC_DLL_HINTS)
+
+    def looks_like_pkcs11_dll(name: str) -> bool:
+        lowered = name.lower()
+        if not lowered.endswith(".dll"):
+            return False
+        stem = lowered[:-4]
+        return (
+            any(hint in lowered for hint in WINDOWS_GENERIC_DLL_HINTS)
             or stem.endswith("p11")
             or "_p11" in stem
             or "-p11" in stem
             or "p11_" in stem
             or "p11-" in stem
-        ):
-            matches.append(entry.path)
+        )
+
+    def scan(path: str, depth: int) -> None:
+        try:
+            entries = list(os.scandir(path))
+        except OSError:
+            return
+        for entry in entries:
+            try:
+                if entry.is_file() and looks_like_pkcs11_dll(entry.name):
+                    matches.append(entry.path)
+                elif recursive and depth < max_depth and entry.is_dir():
+                    scan(entry.path, depth + 1)
+            except OSError:
+                continue
+
+    scan(directory, 0)
     return matches
 
 
@@ -364,9 +399,14 @@ def _probe_driver_for_token(path: str) -> tuple[bool, str]:
         "except Exception as exc:\n"
         "    print('ERROR:' + str(exc))\n"
     )
+    command = (
+        [sys.executable, "--pkcs11-probe-token", path]
+        if getattr(sys, "frozen", False)
+        else [sys.executable, "-c", code, path]
+    )
     try:
         result = subprocess.run(
-            [sys.executable, "-c", code, path],
+            command,
             capture_output=True,
             text=True,
             timeout=8,
@@ -389,6 +429,22 @@ def _probe_driver_for_token(path: str) -> tuple[bool, str]:
     if combined.startswith("ERROR:"):
         return False, combined[6:][:160]
     return False, combined[:160] if combined else "NO_TOKEN"
+
+
+def probe_driver_for_token_worker_main(argv: list[str] | None = None) -> int:
+    args = argv if argv is not None else sys.argv[1:]
+    if not args:
+        print("ERROR:missing driver path")
+        return 2
+    try:
+        import pkcs11 as p11
+
+        lib = p11.lib(args[0])
+        print("TOKEN" if any(True for _ in lib.get_tokens()) else "NO_TOKEN")
+        return 0
+    except Exception as exc:
+        print("ERROR:" + str(exc))
+        return 1
 
 
 def _probe_driver_tokens(path: str) -> tuple[list[dict], str]:
@@ -448,9 +504,14 @@ try:
 except Exception as exc:
     print(json.dumps({"error": str(exc)}, ensure_ascii=True))
 '''
+    command = (
+        [sys.executable, "--pkcs11-list-tokens", path]
+        if getattr(sys, "frozen", False)
+        else [sys.executable, "-c", code, path]
+    )
     try:
         result = subprocess.run(
-            [sys.executable, "-c", code, path],
+            command,
             capture_output=True,
             text=True,
             timeout=10,
@@ -473,6 +534,53 @@ except Exception as exc:
     if payload.get("error"):
         return [], str(payload["error"])[:160]
     return list(payload.get("tokens") or []), ""
+
+
+def probe_driver_tokens_worker_main(argv: list[str] | None = None) -> int:
+    args = argv if argv is not None else sys.argv[1:]
+    if not args:
+        print(json.dumps({"error": "missing driver path"}, ensure_ascii=True))
+        return 2
+    try:
+        import pkcs11 as p11
+        from pkcs11.constants import Attribute, ObjectClass
+
+        lib = p11.lib(args[0])
+        tokens = []
+        for index, token in enumerate(lib.get_tokens()):
+            signer_name = ""
+            tax_code = ""
+            issuer_name = ""
+            cert_serial = ""
+            try:
+                with token.open(rw=False) as session:
+                    certs = list(session.get_objects({Attribute.CLASS: ObjectClass.CERTIFICATE}))
+                    for cert in reversed(certs):
+                        identity = extract_signer_identity_from_der(_safe_get_pkcs11_attr(cert, Attribute.VALUE))
+                        if identity:
+                            signer_name = identity.get("name", "")
+                            tax_code = identity.get("tax_code", "")
+                            issuer_name = identity.get("issuer_name", "")
+                            cert_serial = identity.get("serial_hex", "")
+                            break
+            except Exception:
+                pass
+            tokens.append({
+                "index": index,
+                "label": _clean_token_value(getattr(token, "label", "")),
+                "serial": _clean_token_value(getattr(token, "serial", "")),
+                "manufacturer": _clean_token_value(getattr(token, "manufacturer_id", "")),
+                "model": _clean_token_value(getattr(token, "model", "")),
+                "signer_name": signer_name,
+                "tax_code": tax_code,
+                "issuer_name": issuer_name,
+                "cert_serial": cert_serial,
+            })
+        print(json.dumps({"tokens": tokens}, ensure_ascii=True))
+        return 0
+    except Exception as exc:
+        print(json.dumps({"error": str(exc)}, ensure_ascii=True))
+        return 1
 
 
 def _clean_token_value(value) -> str:
@@ -525,6 +633,28 @@ class WindowsPkcs11Provider:
     def __init__(self) -> None:
         self._last_error: str = ""
         self._selected_token: TokenInfo | None = None
+        self._tokens_cache: list[TokenInfo] = []
+        self._tokens_cache_error: str = ""
+        self._tokens_cache_until: float = 0.0
+        # PDFReaderApp._start_token_monitor() (app/window.py) already re-scans
+        # tokens on a background thread every 15s via is_token_present() ->
+        # list_tokens(). TTL must stay >= that interval so UI-thread callers
+        # (UnsignedSignatureSetupDialog, check_token, sign_document*) almost
+        # always hit the warm cache from that background scan instead of
+        # paying for a synchronous PKCS11 probe (which, in a frozen build,
+        # relaunches the whole packaged .exe once per candidate driver DLL).
+        self._tokens_cache_ttl_seconds: float = 20.0
+        # get_signing_provider() (packages/signing/__init__.py) is a module-
+        # level singleton shared between the UI thread (check_token,
+        # sign_document*, UnsignedSignatureSetupDialog) and the background
+        # _TokenPresenceWorker QThread (app/window.py, polls every 15s) - both
+        # read/write _tokens_cache*. Without a lock, both can see the cache
+        # expired at once and run a full duplicate PKCS11 probe, or one can
+        # observe a half-updated cache. Plain Lock is safe here (unlike
+        # app/actions/_pdf_save.py's pdf_write_slot): list_tokens() below does
+        # no Qt event pumping, so there is no reentrancy path that could
+        # deadlock a thread on a lock it already holds.
+        self._tokens_lock = threading.Lock()
 
     def get_last_error(self) -> str:
         return self._last_error
@@ -539,43 +669,71 @@ class WindowsPkcs11Provider:
         return None
 
     def list_tokens(self, pin: str | None = None) -> list[TokenInfo]:
-        self._last_error = ""
-        errors: list[str] = []
-        tokens: list[TokenInfo] = []
+        with self._tokens_lock:
+            now = time.monotonic()
+            if now < self._tokens_cache_until:
+                self._last_error = self._tokens_cache_error
+                return list(self._tokens_cache)
 
-        for path in _candidate_paths():
-            arch_ok, arch_error = _dll_arch_matches_process(path)
-            if not arch_ok:
-                _append_unique_error(errors, f"{os.path.basename(path)}: {arch_error}")
-                continue
-            try:
-                token_payloads, detail = _probe_driver_tokens(path)
-                if token_payloads:
-                    tokens.extend(_token_info_from_payload(path, payload) for payload in token_payloads)
-                    continue
-                if detail:
-                    raise RuntimeError(detail)
-            except Exception as exc:
-                msg = str(exc).lower()
-                name = os.path.basename(path)
-                if "error 126" in msg:
-                    _append_unique_error(errors, f"{name}: loi 126 (thieu DLL phu thuoc hoac sai x86/x64)")
-                elif "not a valid win32" in msg or "bad exe format" in msg or "%1 is not a valid win32" in msg:
-                    _append_unique_error(errors, f"{name}: sai kien truc x86/x64 so voi Python/app dang chay")
-                elif "module could not be found" in msg:
-                    _append_unique_error(errors, f"{name}: khong tim thay module")
+            self._last_error = ""
+            errors: list[str] = []
+            tokens: list[TokenInfo] = []
+
+            paths = list(_candidate_paths())
+            valid_paths = []
+            for path in paths:
+                arch_ok, arch_error = _dll_arch_matches_process(path)
+                if not arch_ok:
+                    _append_unique_error(errors, f"{os.path.basename(path)}: {arch_error}")
                 else:
-                    _append_unique_error(errors, f"{name}: {str(exc)[:120]}")
+                    valid_paths.append(path)
 
-        self._last_error = "" if tokens else (
-            "\n".join(errors[:8])
-            if errors
-            else "Khong tim thay thu vien PKCS#11 phu hop trong he thong."
-        )
-        return tokens
+            def probe_path(path):
+                try:
+                    return path, _probe_driver_tokens(path), None
+                except Exception as exc:
+                    return path, None, exc
+
+            if valid_paths:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(valid_paths)) as executor:
+                    futures = [executor.submit(probe_path, p) for p in valid_paths]
+                    for future in concurrent.futures.as_completed(futures):
+                        path, result, exc = future.result()
+                        name = os.path.basename(path)
+                        if exc:
+                            msg = str(exc).lower()
+                            if "error 126" in msg:
+                                _append_unique_error(errors, f"{name}: loi 126 (thieu DLL phu thuoc hoac sai x86/x64)")
+                            elif "not a valid win32" in msg or "bad exe format" in msg or "%1 is not a valid win32" in msg:
+                                _append_unique_error(errors, f"{name}: sai kien truc x86/x64 so voi Python/app dang chay")
+                            elif "module could not be found" in msg:
+                                _append_unique_error(errors, f"{name}: khong tim thay module")
+                            else:
+                                _append_unique_error(errors, f"{name}: {str(exc)[:120]}")
+                        else:
+                            token_payloads, detail = result
+                            if token_payloads:
+                                tokens.extend(_token_info_from_payload(path, payload) for payload in token_payloads)
+                            if detail:
+                                _append_unique_error(errors, f"{name}: {detail}")
+
+            self._last_error = "" if tokens else (
+                "\n".join(errors[:8])
+                if errors
+                else "Khong tim thay thu vien PKCS#11 phu hop trong he thong."
+            )
+            self._tokens_cache = list(tokens)
+            self._tokens_cache_error = self._last_error
+            self._tokens_cache_until = now + self._tokens_cache_ttl_seconds
+            return tokens
 
     def select_token(self, token_info: TokenInfo | None) -> None:
         self._selected_token = token_info
+
+    def invalidate_token_cache(self) -> None:
+        self._tokens_cache = []
+        self._tokens_cache_error = ""
+        self._tokens_cache_until = 0.0
 
     def _tokens_from_driver(self, lib_path: str, *, pin: str | None = None) -> list[TokenInfo]:
         import pkcs11 as p11
@@ -663,6 +821,12 @@ class WindowsPkcs11Provider:
         signer_name: str,
         page_number: int,
         box: tuple[float, float, float, float],
+        field_name: str | None = None,
+        reason: str | None = None,
+        location: str | None = None,
+        contact_info: str | None = None,
+        tsa_url: str | None = None,
+        enable_ltv: bool = False,
     ) -> None:
         import pkcs11 as p11
 
@@ -680,8 +844,9 @@ class WindowsPkcs11Provider:
         if token is None:
             raise RuntimeError("USB Token da chon khong con duoc phat hien. Vui long cam lai token va thu lai.")
 
-        session = token.open(user_pin=pin, rw=False)
+        session = None
         try:
+            session = token.open(user_pin=pin, rw=False)
             await sign_pdf_with_session(
                 session,
                 lib_path,
@@ -691,6 +856,65 @@ class WindowsPkcs11Provider:
                 page_number=page_number,
                 box=box,
                 token_serial=token_info.serial or token_info.cert_serial,
+                field_name=field_name,
+                reason=reason,
+                location=location,
+                contact_info=contact_info,
+                tsa_url=tsa_url,
+                enable_ltv=enable_ltv,
             )
         finally:
-            session.close()
+            if session is not None:
+                session.close()
+
+    async def sign_pdf_batch(
+        self,
+        jobs: list[dict],
+        pin: str,
+        *,
+        tsa_url: str | None = None,
+        enable_ltv: bool = False,
+    ) -> None:
+        import pkcs11 as p11
+
+        token_info = self._selected_token or self.get_token_info()
+        if not token_info or not token_info.driver_path:
+            raise RuntimeError(
+                "Khong tim thay USB Token!\n"
+                "Vui long cam thiet bi chu ky va thu lai.\n\n"
+                f"Chi tiet: {self.get_last_error()}"
+            )
+
+        lib_path = token_info.driver_path
+        lib = p11.lib(lib_path)
+        token = _get_token_by_info(lib, token_info)
+        if token is None:
+            raise RuntimeError("USB Token da chon khong con duoc phat hien. Vui long cam lai token va thu lai.")
+
+        session = None
+        try:
+            session = token.open(user_pin=pin, rw=False)
+            for job in jobs:
+                try:
+                    await sign_pdf_with_session(
+                        session,
+                        lib_path,
+                        job["input_path"],
+                        job["output_path"],
+                        signer_name=job.get("signer_name", ""),
+                        page_number=job.get("page_number", 1),
+                        box=job.get("box", (50, 50, 300, 100)),
+                        token_serial=token_info.serial or token_info.cert_serial,
+                        field_name=job.get("field_name"),
+                        reason=job.get("reason"),
+                        location=job.get("location"),
+                        contact_info=job.get("contact_info"),
+                        tsa_url=tsa_url,
+                        enable_ltv=enable_ltv,
+                    )
+                except Exception as e:
+                    raise RuntimeError(f"Loi khi ky file {job.get('input_path')}: {e}")
+        finally:
+            if session is not None:
+                session.close()
+

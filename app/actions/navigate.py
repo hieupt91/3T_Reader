@@ -19,3 +19,13 @@ def next_page(window):
 @require_document()
 def jump_to_page(window):
     window.viewer.goto_page(window.page_spin.value())
+
+
+@require_document()
+def first_page(window):
+    window.viewer.goto_page(1)
+
+
+@require_document()
+def last_page(window):
+    window.viewer.goto_page(window.viewer.get_page_count())

@@ -1,0 +1,186 @@
+/* 3T Reader signature UI stylesheet.
+   Applied to Qt widgets via QApplication/QWidget.setStyleSheet.
+   Goal: clear status hierarchy, compact details, readable warnings. */
+
+#signatureCenterDock,
+#signatureStatusDialog,
+#unsignedSignatureDialog,
+#signatureDetailDialog {
+    background: #f6f7fb;
+    color: #1d2433;
+}
+
+#signatureCenterDock QListWidget {
+    background: #ffffff;
+    border: 1px solid #d9e1ee;
+    border-radius: 8px;
+    padding: 6px;
+    color: #1d2433;
+}
+
+#signatureCenterDock QListWidget::item {
+    background: #ffffff;
+    border: 1px solid #e3e8f3;
+    border-radius: 8px;
+    margin: 4px 0;
+    padding: 8px;
+}
+
+#signatureCenterDock QListWidget::item:selected {
+    background: #eaf1ff;
+    border-color: #7aa7ff;
+}
+
+#signatureCenterDock QLabel#signatureCenterTitle {
+    font-size: 15px;
+    font-weight: 700;
+    color: #162033;
+}
+
+#signatureCenterDock QLabel#signatureCenterSubtitle {
+    color: #5b667a;
+}
+
+#signatureCenterDock QLabel#signatureCenterSummary {
+    background: #ffffff;
+    border: 1px solid #d9e1ee;
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #243049;
+}
+
+#signatureStatusDialog QLabel#signatureDialogTitle,
+#unsignedSignatureDialog QLabel#unsignedSignatureDialogTitle {
+    font-size: 18px;
+    font-weight: 700;
+    color: #162033;
+}
+
+#signatureStatusDialog QLabel#signatureDialogSubtitle,
+#unsignedSignatureDialog QLabel#unsignedSignatureDialogSubtitle {
+    color: #596273;
+}
+
+#signatureStatusDialog QLabel#signatureSummary,
+#unsignedSignatureDialog QLabel#signatureSummary {
+    background: #f9fbff;
+    border: 1px solid #d9e1ee;
+    border-radius: 8px;
+    padding: 9px 10px;
+    color: #223049;
+}
+
+#signatureStatusDialog QTextEdit#signaturePreviewBox,
+#unsignedSignatureDialog QTextEdit#signaturePreviewBox {
+    background: #f4f7ff;
+    border: 1px solid #b8d5ff;
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #0f2347;
+    font-family: Consolas, "Cascadia Mono", monospace;
+}
+
+#signatureStatusDialog QTextEdit#signaturePreviewBox::viewport,
+#unsignedSignatureDialog QTextEdit#signaturePreviewBox::viewport {
+    background: transparent;
+}
+
+#signatureStatusDialog QLabel#signatureBannerInfo,
+#unsignedSignatureDialog QLabel#signatureBannerInfo {
+    background: #eff6ff;
+    border: 1px solid #b8d5ff;
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #1c4f8f;
+}
+
+#signatureStatusDialog QLabel#signatureBannerWarning,
+#unsignedSignatureDialog QLabel#signatureBannerWarning {
+    background: #fff7e8;
+    border: 1px solid #f3cc82;
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #9a5b00;
+}
+
+#signatureStatusDialog QLabel#signatureBannerError,
+#unsignedSignatureDialog QLabel#signatureBannerError {
+    background: #fff1f2;
+    border: 1px solid #f2b8be;
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #a11e2b;
+}
+
+#signatureStatusDialog QFrame#signatureDetailFrame,
+#unsignedSignatureDialog QFrame#signatureDetailFrame {
+    background: #ffffff;
+    border: 1px solid #d9e1ee;
+    border-radius: 8px;
+}
+
+#signatureStatusDialog QLabel.sig-label,
+#unsignedSignatureDialog QLabel.sig-label {
+    color: #5b667a;
+    font-size: 11px;
+}
+
+#signatureStatusDialog QLabel.sig-value,
+#unsignedSignatureDialog QLabel.sig-value {
+    color: #182133;
+    font-size: 12px;
+}
+
+#signatureStatusDialog QLabel.sig-pill,
+#unsignedSignatureDialog QLabel.sig-pill,
+#signatureCenterDock QLabel.sig-pill {
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-weight: 700;
+    font-size: 11px;
+}
+
+#signatureStatusDialog QLabel.sig-pill--ok,
+#signatureCenterDock QLabel.sig-pill--ok {
+    background: #e8fff0;
+    color: #146c34;
+    border: 1px solid #a8e0bb;
+}
+
+#signatureStatusDialog QLabel.sig-pill--warn,
+#signatureCenterDock QLabel.sig-pill--warn {
+    background: #fff7e8;
+    color: #975900;
+    border: 1px solid #f0cf8e;
+}
+
+#signatureStatusDialog QLabel.sig-pill--error,
+#signatureCenterDock QLabel.sig-pill--error {
+    background: #fff1f2;
+    color: #a11e2b;
+    border: 1px solid #f1b6be;
+}
+
+#signatureStatusDialog QPushButton,
+#unsignedSignatureDialog QPushButton,
+#signatureCenterDock QPushButton {
+    min-height: 30px;
+    border-radius: 8px;
+    padding: 6px 12px;
+}
+
+#signatureStatusDialog QPushButton:default,
+#unsignedSignatureDialog QPushButton:default,
+#signatureCenterDock QPushButton:default {
+    background: #6c63ff;
+    color: #ffffff;
+    border: 1px solid #5c54e8;
+}
+
+#signatureCenterDock QLineEdit {
+    background: #ffffff;
+    border: 1px solid #d9e1ee;
+    border-radius: 8px;
+    padding: 7px 10px;
+    color: #182133;
+}

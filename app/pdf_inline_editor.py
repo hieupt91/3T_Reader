@@ -4,24 +4,49 @@ Flow:
   Text:  click tool → click on PDF page → type in overlay → Ctrl+Enter / panel button → insert
   Image: click tool → pick file → click on PDF → drag/resize preview → Enter / panel button → insert
 
-Bridge reconnection strategy:
-  Every injection always re-creates the QWebChannel connection so the bridge is never stale.
+Bridge strategy:
+  Inline tools use the stable shared viewer QWebChannel helper/proxy.
   The JS overlay is NOT removed on commit — the PDF viewer reload naturally cleans it up,
   which removes the blank "flash" between overlay disappearing and rebuilt PDF appearing.
 """
 from __future__ import annotations
 
 import base64
+import json
 import os
 
 from packages.qt_compat.QtCore import QObject, QEventLoop, Qt, pyqtSignal, pyqtSlot
 from packages.qt_compat.QtGui import QColor, QImage
 from packages.qt_compat.QtWidgets import (
     QColorDialog, QFrame, QHBoxLayout, QLabel,
-    QPushButton, QSlider, QSpinBox, QToolButton, QVBoxLayout,
+    QPushButton, QSlider, QSpinBox, QToolButton, QVBoxLayout, QFontComboBox
 )
 
 from app.dialogs import show_warning
+from styles.theme import is_dark
+
+
+def _place_near_parent(parent, width: int, height: int, *, dx: int = 24, dy: int = 80):
+    if parent is None:
+        return 0, 0
+    try:
+        screen = parent.windowHandle().screen() if parent.windowHandle() else None
+    except Exception:
+        screen = None
+    if screen is None:
+        from packages.qt_compat.QtWidgets import QApplication
+        screen = QApplication.primaryScreen()
+    if screen is None:
+        return 0, 0
+    geo = screen.availableGeometry()
+    parent_geo = parent.frameGeometry()
+    target_x = parent_geo.right() - width - dx
+    target_y = parent_geo.top() + dy
+    max_x = max(geo.left(), geo.right() - width)
+    max_y = max(geo.top(), geo.bottom() - height)
+    x = min(max(geo.left(), target_x), max_x)
+    y = min(max(geo.top(), target_y), max_y)
+    return int(x), int(y)
 
 
 # ── Bridges (JS ↔ Python via QWebChannel) ────────────────────────────────────
@@ -63,7 +88,7 @@ class InlineImageBridge(QObject):
 class InlineEditPanel(QFrame):
     committed = pyqtSignal()
     cancelled = pyqtSignal()
-    font_changed = pyqtSignal(int, str, bool, bool)   # size, hex color, bold, underline
+    font_changed = pyqtSignal(int, str, bool, bool, bool, str)   # size, hex color, bold, underline, italic, font_family
     rotation_changed = pyqtSignal(int)
 
     def __init__(self, parent=None, *, mode: str = "text"):
@@ -71,13 +96,24 @@ class InlineEditPanel(QFrame):
         self._color = QColor(0, 0, 0)
         self._mode  = mode
         self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setStyleSheet(
-            "QFrame { background:#1A1E30; border:1.5px solid #2A5090; border-radius:10px; }"
-            "QLabel { color:#B0C8F0; font-size:12px; background:transparent; border:none; padding:0; }"
-            "QSpinBox { background:#10121C; color:#D8E8FF; border:1px solid #304080; "
-            "           border-radius:4px; padding:2px 6px; }"
-            "QPushButton { border-radius:5px; padding:5px 14px; font-size:12px; font-weight:600; }"
-        )
+        dark = is_dark()
+        self._panel_dark = dark
+        if dark:
+            self.setStyleSheet(
+                "QFrame { background:#1A1E30; border:1.5px solid #2A5090; border-radius:8px; }"
+                "QLabel { color:#B0C8F0; font-size:12px; background:transparent; border:none; padding:0; }"
+                "QSpinBox { background:#10121C; color:#D8E8FF; border:1px solid #304080; "
+                "           border-radius:4px; padding:2px 6px; }"
+                "QPushButton { border-radius:5px; padding:5px 14px; font-size:12px; font-weight:600; }"
+            )
+        else:
+            self.setStyleSheet(
+                "QFrame { background:#F8FAFC; border:1.5px solid #CBD5E1; border-radius:8px; }"
+                "QLabel { color:#334155; font-size:12px; background:transparent; border:none; padding:0; }"
+                "QSpinBox { background:#FFFFFF; color:#0F172A; border:1px solid #CBD5E1; "
+                "           border-radius:4px; padding:2px 6px; }"
+                "QPushButton { border-radius:5px; padding:5px 14px; font-size:12px; font-weight:600; }"
+            )
         self._setup_ui()
         self.adjustSize()
 
@@ -90,18 +126,27 @@ class InlineEditPanel(QFrame):
         title = "Chèn văn bản vào PDF" if self._mode == "text" else "Chèn ảnh vào PDF"
         lbl   = QLabel(f"{icon}  {title}")
         lbl.setStyleSheet(
-            "color:#7AAAE8; font-size:11px; font-weight:700; background:transparent; border:none;"
+            ("color:#7AAAE8;" if self._panel_dark else "color:#1D4ED8;")
+            + " font-size:11px; font-weight:700; background:transparent; border:none;"
         )
         root.addWidget(lbl)
 
         if self._mode == "text":
             row = QHBoxLayout(); row.setSpacing(8)
+            row.addWidget(QLabel("Font:"))
+            from packages.qt_compat.QtWidgets import QComboBox
+            self._font_combo = QComboBox()
+            self._font_combo.addItems(["Arial", "Times New Roman", "Calibri", "Tahoma", "Segoe UI", "Cambria", "Consolas", "Verdana", "Courier New", "Comic Sans MS"])
+            self._font_combo.setFixedWidth(120)
+            self._font_combo.currentTextChanged.connect(lambda _: self._emit_font())
+            row.addWidget(self._font_combo)
+
             row.addWidget(QLabel("Cỡ chữ:"))
             self._size_spin = QSpinBox()
             self._size_spin.setRange(6, 96)
             self._size_spin.setValue(14)
             self._size_spin.setFixedWidth(64)
-            self._size_spin.valueChanged.connect(self._emit_font)
+            self._size_spin.valueChanged.connect(lambda _: self._emit_font())
             row.addWidget(self._size_spin)
             self._color_btn = QPushButton()
             self._color_btn.setFixedSize(72, 26)
@@ -109,12 +154,20 @@ class InlineEditPanel(QFrame):
             self._refresh_color_btn()
             row.addWidget(self._color_btn)
 
-            _fmt_ss = (
-                "QToolButton{background:#10121C;color:#D8E8FF;border:1px solid #304080;"
-                "border-radius:4px;font-size:13px;font-weight:700;}"
-                "QToolButton:checked{background:#2A4080;border-color:#6080C0;color:#FFFFFF;}"
-                "QToolButton:hover{border-color:#4060A0;}"
-            )
+            if self._panel_dark:
+                _fmt_ss = (
+                    "QToolButton{background:#10121C;color:#D8E8FF;border:1px solid #304080;"
+                    "border-radius:4px;font-size:13px;font-weight:700;}"
+                    "QToolButton:checked{background:#2A4080;border-color:#6080C0;color:#FFFFFF;}"
+                    "QToolButton:hover{border-color:#4060A0;}"
+                )
+            else:
+                _fmt_ss = (
+                    "QToolButton{background:#FFFFFF;color:#0F172A;border:1px solid #CBD5E1;"
+                    "border-radius:4px;font-size:13px;font-weight:700;}"
+                    "QToolButton:checked{background:#DBEAFE;border-color:#2563EB;color:#1D4ED8;}"
+                    "QToolButton:hover{border-color:#2563EB;}"
+                )
             self._bold_btn = QToolButton()
             self._bold_btn.setText("B")
             self._bold_btn.setCheckable(True)
@@ -122,6 +175,16 @@ class InlineEditPanel(QFrame):
             self._bold_btn.setStyleSheet(_fmt_ss)
             self._bold_btn.toggled.connect(lambda _: self._emit_font())
             row.addWidget(self._bold_btn)
+
+            self._italic_btn = QToolButton()
+            self._italic_btn.setText("I")
+            self._italic_btn.setCheckable(True)
+            self._italic_btn.setFixedSize(30, 26)
+            self._italic_btn.setStyleSheet(
+                _fmt_ss.replace("font-weight:700", "font-weight:400; font-style:italic")
+            )
+            self._italic_btn.toggled.connect(lambda _: self._emit_font())
+            row.addWidget(self._italic_btn)
 
             self._under_btn = QToolButton()
             self._under_btn.setText("U")
@@ -172,25 +235,39 @@ class InlineEditPanel(QFrame):
             else QLabel("Kéo di chuyển  ·  Kéo góc resize  ·  Enter xác nhận  ·  Esc hủy")
         )
 
-        hint.setStyleSheet("color:#3A4E6A; font-size:10px; background:transparent; border:none;")
+        hint.setStyleSheet(
+            ("color:#7C8DB8;" if self._panel_dark else "color:#64748B;")
+            + " font-size:10px; background:transparent; border:none;"
+        )
         root.addWidget(hint)
 
         row2 = QHBoxLayout(); row2.setSpacing(8); row2.addStretch()
         btn_cancel = QPushButton("Hủy")
-        btn_cancel.setStyleSheet(
-            "QPushButton{background:transparent;color:#FF6655;border:1.5px solid #FF6655;}"
-            "QPushButton:hover{background:#3A1010;}"
-        )
+        if self._panel_dark:
+            btn_cancel.setStyleSheet(
+                "QPushButton{background-color:transparent;color:#FF6655;border:1.5px solid #FF6655;}"
+                "QPushButton:hover{background-color:#3A1010;}"
+            )
+        else:
+            btn_cancel.setStyleSheet(
+                "QPushButton{background-color:#FFFFFF;color:#B91C1C;border:1.5px solid #FCA5A5;}"
+                "QPushButton:hover{background-color:#FEE2E2;}"
+            )
         btn_cancel.clicked.connect(self.cancelled)
         row2.addWidget(btn_cancel)
 
         ok_lbl = "Chèn vào PDF" if self._mode == "text" else "Đặt ảnh vào PDF"
         btn_ok = QPushButton(ok_lbl)
-        btn_ok.setStyleSheet(
-            "QPushButton{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #FF7700,stop:1 #FF4400);color:white;border:none;}"
-            "QPushButton:hover{background:#FF9900;}"
-        )
+        if self._panel_dark:
+            btn_ok.setStyleSheet(
+                "QPushButton{background-color:#FF6600;color:white;border:none;}"
+                "QPushButton:hover{background-color:#FF9900;}"
+            )
+        else:
+            btn_ok.setStyleSheet(
+                "QPushButton{background-color:#2563EB;color:white;border:none;}"
+                "QPushButton:hover{background-color:#1D4ED8;}"
+            )
         btn_ok.setDefault(True)
         btn_ok.clicked.connect(self.committed)
         row2.addWidget(btn_ok)
@@ -208,16 +285,18 @@ class InlineEditPanel(QFrame):
         luma = 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()
         txt  = "#000" if luma > 128 else "#FFF"
         self._color_btn.setStyleSheet(
-            f"QPushButton{{background:{c.name()};color:{txt};border:1px solid #555;"
-            "border-radius:4px;font-size:11px;}}"
+            f"background-color:{c.name()};color:{txt};border:1px solid #555555;"
+            "border-radius:4px;font-size:11px;"
         )
         self._color_btn.setText("Màu chữ")
 
     def _emit_font(self):
         if hasattr(self, "_size_spin"):
-            bold  = self._bold_btn.isChecked()  if hasattr(self, "_bold_btn")  else False
-            under = self._under_btn.isChecked() if hasattr(self, "_under_btn") else False
-            self.font_changed.emit(self._size_spin.value(), self._color.name(), bold, under)
+            bold   = self._bold_btn.isChecked()  if hasattr(self, "_bold_btn")  else False
+            italic = self._italic_btn.isChecked() if hasattr(self, "_italic_btn") else False
+            under  = self._under_btn.isChecked() if hasattr(self, "_under_btn") else False
+            ff     = self._font_combo.currentText() if hasattr(self, "_font_combo") else "Arial"
+            self.font_changed.emit(self._size_spin.value(), self._color.name(), bold, under, italic, ff)
 
     def get_font_size(self) -> int:
         return self._size_spin.value() if hasattr(self, "_size_spin") else 14
@@ -225,11 +304,21 @@ class InlineEditPanel(QFrame):
     def get_bold(self) -> bool:
         return self._bold_btn.isChecked() if hasattr(self, "_bold_btn") else False
 
+    def get_italic(self) -> bool:
+        return self._italic_btn.isChecked() if hasattr(self, "_italic_btn") else False
+
+    def get_font_family(self) -> str:
+        if not hasattr(self, "_font_combo"):
+            return "sans-serif"
+        current_text = self._font_combo.currentText()
+        return current_text.strip() or "sans-serif"
+
     def get_underline(self) -> bool:
         return self._under_btn.isChecked() if hasattr(self, "_under_btn") else False
 
     def set_font_state(self, font_size: int, color_hex: str,
-                       bold: bool = False, underline: bool = False):
+                       bold: bool = False, underline: bool = False,
+                       italic: bool = False, font_family: str = ""):
         """Pre-set font controls when editing existing text."""
         if hasattr(self, "_size_spin"):
             self._size_spin.setValue(font_size)
@@ -241,6 +330,12 @@ class InlineEditPanel(QFrame):
             self._bold_btn.setChecked(bold)
         if hasattr(self, "_under_btn"):
             self._under_btn.setChecked(underline)
+        if hasattr(self, "_italic_btn"):
+            self._italic_btn.setChecked(italic)
+        if hasattr(self, "_font_combo") and font_family:
+            idx = self._font_combo.findText(font_family)
+            if idx >= 0:
+                self._font_combo.setCurrentIndex(idx)
 
     def get_color_tuple(self) -> tuple:
         c = self._color
@@ -255,451 +350,18 @@ class InlineEditPanel(QFrame):
 
     def position_near(self, window):
         self.adjustSize()
-        geo = window.frameGeometry()
-        self.move(max(0, geo.right() - self.width() - 24), max(0, geo.top() + 80))
+        x, y = _place_near_parent(window, self.width(), self.height(), dx=24, dy=80)
+        self.move(x, y)
 
 
 # ── JavaScript: inline text overlay ──────────────────────────────────────────
-# Always re-injects fresh: clears old state, reconnects bridge via new QWebChannel.
+# Always re-injects fresh: clears old state and uses the shared bridge helper.
 # Does NOT remove overlay on commit — page reload naturally clears it (no flash).
 
-INLINE_TEXT_JS = r"""
-(function () {
-    /* ── clear any leftover overlay from previous call ── */
-    if (window.__3TTextState) {
-        var _old = window.__3TTextState;
-        if (_old.overlay && _old.overlay.parentNode)
-            _old.overlay.parentNode.removeChild(_old.overlay);
-    }
-    window.__3TTextState   = { overlay: null, textarea: null, pageNumber: null, pageView: null };
-    window.__3TTextBridge  = null;   /* will be set by fresh QWebChannel below */
-
-    var S = window.__3TTextState;
-
-    function getBox() {
-        var ov = S.overlay;
-        var l  = parseFloat(ov.style.left)  || 0;
-        var t  = parseFloat(ov.style.top)   || 0;
-        var w  = parseFloat(ov.style.width) || 200;
-        var h  = parseFloat(ov.style.height)|| 44;
-        var p1 = S.pageView.viewport.convertToPdfPoint(l,     t);
-        var p2 = S.pageView.viewport.convertToPdfPoint(l + w, t + h);
-        return { l:Math.min(p1[0],p2[0]), b:Math.min(p1[1],p2[1]),
-                 r:Math.max(p1[0],p2[0]), t:Math.max(p1[1],p2[1]) };
-    }
-
-    /* called by Python panel "Chèn" button OR Ctrl+Enter in textarea */
-    window.__3TTextCommit = function () {
-        if (!S.textarea || !S.pageView) return;
-        var text = S.textarea.value.trim();
-        var br   = window.__3TTextBridge;
-        if (!br) return;
-        if (!text) { br.cancelEdit(); return; }
-        var box = getBox();
-        /* Keep overlay visible — page reload will remove it naturally */
-        br.confirmText(S.pageNumber, box.l, box.b, box.r, box.t, text);
-    };
-
-    window.__3TTextCancel = function () {
-        var br = window.__3TTextBridge;
-        if (S.overlay && S.overlay.parentNode)
-            S.overlay.parentNode.removeChild(S.overlay);
-        S.overlay = null;
-        document.body.style.cursor = '';
-        if (br) br.cancelEdit();
-    };
-
-    /* update textarea font live when panel controls change */
-    window.__3TTextUpdateFont = function (size, colorHex, bold, underline) {
-        if (S.textarea) {
-            S.textarea.style.fontSize       = size + 'px';
-            S.textarea.style.color          = colorHex;
-            S.textarea.style.fontWeight     = bold ? 'bold' : 'normal';
-            S.textarea.style.textDecoration = underline ? 'underline' : 'none';
-        }
-    };
-
-    window.__3TTextUpdateRotation = function (angle) {
-        if (S.overlay) {
-            S.overlay.style.transformOrigin = 'center center';
-            S.overlay.style.transform = 'rotate(' + angle + 'deg)';
-        }
-    };
-
-    function startListen() {
-        document.body.style.cursor = 'text';
-
-        function clickHandler(e) {
-            var page = e.target.closest('.page');
-            if (!page) return;
-            e.preventDefault(); e.stopPropagation();
-            document.removeEventListener('click', clickHandler, true);
-            document.body.style.cursor = '';
-
-            var pn  = parseInt(page.dataset.pageNumber, 10);
-            var app = window.PDFViewerApplication;
-            var pv  = app && app.pdfViewer;
-            if (!pv) {
-                var br = window.__3TTextBridge;
-                if (br) br.cancelEdit();
-                return;
-            }
-            var pgv = pv.getPageView ? pv.getPageView(pn - 1) : (pv._pages && pv._pages[pn - 1]);
-            if (!pgv || !pgv.viewport) {
-                var br = window.__3TTextBridge;
-                if (br) br.cancelEdit();
-                return;
-            }
-            var canvas = page.querySelector('canvas') || page;
-            var pr  = canvas.getBoundingClientRect();
-            var cx  = e.clientX - pr.left;
-            var cy  = e.clientY - pr.top;
-
-            S.pageNumber = pn;
-            S.pageView   = pgv;
-
-            /* ── build overlay div ── */
-            var ov = document.createElement('div');
-            ov.style.cssText =
-                'position:absolute;left:' + cx + 'px;top:' + cy + 'px;' +
-                'width:260px;min-height:56px;' +
-                'border:2px solid #1A7AFF;' +
-                'background:rgba(255,255,255,0.97);' +
-                'z-index:9999;box-sizing:border-box;border-radius:4px;' +
-                'box-shadow:0 4px 20px rgba(26,122,255,0.4);cursor:move;';
-
-            /* badge label */
-            var badge = document.createElement('div');
-            badge.textContent = '✏️ Văn bản — Ctrl+Enter để chèn';
-            badge.style.cssText =
-                'position:absolute;top:-26px;left:0;white-space:nowrap;' +
-                'font-size:10px;color:#fff;background:#1A7AFF;' +
-                'padding:3px 10px;border-radius:10px;pointer-events:none;' +
-                'box-shadow:0 1px 6px rgba(0,0,0,0.3);';
-            ov.appendChild(badge);
-
-            /* textarea */
-            var ta = document.createElement('textarea');
-            ta.placeholder = 'Gõ văn bản…';
-            ta.style.cssText =
-                'display:block;width:calc(100% - 10px);min-height:36px;' +
-                'margin:5px;border:none;outline:none;background:transparent;' +
-                'resize:none;font-family:Arial,sans-serif;font-size:14px;' +
-                'color:#000;line-height:1.6;overflow:hidden;cursor:text;';
-            ta.addEventListener('input', function () {
-                ta.style.height = 'auto';
-                ta.style.height = ta.scrollHeight + 'px';
-                ov.style.height = (ta.scrollHeight + 20) + 'px';
-            });
-            ov.appendChild(ta);
-
-            /* resize corner */
-            var rh = document.createElement('div');
-            rh.style.cssText =
-                'position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;' +
-                'background:#1A7AFF;border:2px solid #fff;border-radius:3px;' +
-                'cursor:nwse-resize;z-index:10000;';
-            ov.appendChild(rh);
-
-            /* drag move */
-            ov.addEventListener('mousedown', function (ev) {
-                if (ev.target === rh || ev.target === ta) return;
-                var sl = parseFloat(ov.style.left), st = parseFloat(ov.style.top);
-                var sx = ev.clientX, sy = ev.clientY;
-                function onM(e) {
-                    ov.style.left = (sl + e.clientX - sx) + 'px';
-                    ov.style.top  = (st + e.clientY - sy) + 'px';
-                }
-                function onU() {
-                    document.removeEventListener('mousemove', onM, true);
-                    document.removeEventListener('mouseup',   onU, true);
-                }
-                document.addEventListener('mousemove', onM, true);
-                document.addEventListener('mouseup',   onU, true);
-                ev.preventDefault();
-            });
-
-            /* resize drag */
-            rh.addEventListener('mousedown', function (ev) {
-                ev.stopPropagation();
-                var sw = parseFloat(ov.style.width) || 220;
-                var sh = parseFloat(ov.style.height)|| 48;
-                var sx = ev.clientX, sy = ev.clientY;
-                function onM(e) {
-                    ov.style.width  = Math.max(80,  sw + e.clientX - sx) + 'px';
-                    var nh = Math.max(36, sh + e.clientY - sy);
-                    ov.style.height = nh + 'px';
-                    ta.style.height = (nh - 20) + 'px';
-                }
-                function onU() {
-                    document.removeEventListener('mousemove', onM, true);
-                    document.removeEventListener('mouseup',   onU, true);
-                }
-                document.addEventListener('mousemove', onM, true);
-                document.addEventListener('mouseup',   onU, true);
-                ev.preventDefault();
-            });
-
-            /* keyboard shortcuts */
-            ta.addEventListener('keydown', function (ev) {
-                if (ev.key === 'Enter' && ev.ctrlKey) {
-                    ev.preventDefault();
-                    window.__3TTextCommit();
-                }
-                if (ev.key === 'Escape') { window.__3TTextCancel(); }
-            });
-
-            page.appendChild(ov);
-            S.overlay  = ov;
-            S.textarea = ta;
-
-            /* Apply prefill when editing existing text */
-            if (window.__3TTextPrefill) {
-                var pf = window.__3TTextPrefill;
-                if (pf.text)      ta.value = pf.text;
-                if (pf.font_size) ta.style.fontSize = pf.font_size + 'px';
-                if (pf.color_hex) ta.style.color = pf.color_hex;
-                ta.style.fontWeight     = pf.bold ? 'bold' : 'normal';
-                ta.style.textDecoration = pf.underline ? 'underline' : 'none';
-                ta.dispatchEvent(new Event('input'));
-                if (typeof pf.rotation === 'number')
-                    window.__3TTextUpdateRotation(pf.rotation);
-                window.__3TTextPrefill = null;
-            }
-
-            ta.focus();
-
-            var br = window.__3TTextBridge;
-            if (br) br.reportReady(pn);
-        }
-
-        document.addEventListener('click', clickHandler, true);
-    }
-
-    /* ── Always re-connect to fresh bridge ── */
-    function attach() {
-        if (typeof QWebChannel === 'undefined') {
-            var s = document.createElement('script');
-            s.src = 'qrc:///qtwebchannel/qwebchannel.js';
-            s.onload = attach;
-            document.head.appendChild(s);
-            return;
-        }
-        if (!(window.qt && qt.webChannelTransport)) {
-            setTimeout(attach, 100);
-            return;
-        }
-        new QWebChannel(qt.webChannelTransport, function (ch) {
-            window.__3TTextBridge = ch.objects.inlineTextBridge || null;
-            startListen();
-        });
-    }
-    attach();
-})();
-"""
-
-
-# ── JavaScript: inline image overlay ─────────────────────────────────────────
-
-INLINE_IMAGE_JS = r"""
-(function () {
-    /* clear old overlay */
-    if (window.__3TImgState && window.__3TImgState.overlay) {
-        var _ov = window.__3TImgState.overlay;
-        if (_ov.parentNode) _ov.parentNode.removeChild(_ov);
-    }
-    window.__3TImgState  = { overlay: null, pageNumber: null, pageView: null };
-    window.__3TImgBridge = null;
-
-    var S = window.__3TImgState;
-
-    window.__3TImgConfirm = function () {
-        if (!S.overlay || !S.pageView) return;
-        var ov = S.overlay;
-        var l  = parseFloat(ov.style.left)  || 0;
-        var t  = parseFloat(ov.style.top)   || 0;
-        var w  = parseFloat(ov.style.width) || 200;
-        var h  = parseFloat(ov.style.height)|| 150;
-        var p1 = S.pageView.viewport.convertToPdfPoint(l,     t);
-        var p2 = S.pageView.viewport.convertToPdfPoint(l + w, t + h);
-        var br = window.__3TImgBridge;
-        /* keep overlay — page reload clears it */
-        if (br) br.confirmImage(
-            S.pageNumber,
-            Math.min(p1[0],p2[0]), Math.min(p1[1],p2[1]),
-            Math.max(p1[0],p2[0]), Math.max(p1[1],p2[1])
-        );
-    };
-
-    window.__3TImgCancel = function () {
-        if (S.overlay && S.overlay.parentNode)
-            S.overlay.parentNode.removeChild(S.overlay);
-        S.overlay = null;
-        document.body.style.cursor = '';
-        var br = window.__3TImgBridge;
-        if (br) br.cancelEdit();
-    };
-
-    function startListen(imgUrl) {
-        document.body.style.cursor = 'crosshair';
-
-        function getInitialSize() {
-            var info = window.__3TInlineImageInfo || {};
-            var nw = parseFloat(info.width || 0);
-            var nh = parseFloat(info.height || 0);
-            if (!(nw > 0 && nh > 0)) {
-                return { width: 200, height: 150 };
-            }
-
-            var maxW = 240;
-            var maxH = 180;
-            var width = nw;
-            var height = nh;
-            var ratio = nw / nh;
-            if (width > maxW) {
-                width = maxW;
-                height = width / ratio;
-            }
-            if (height > maxH) {
-                height = maxH;
-                width = height * ratio;
-            }
-            width = Math.max(80, Math.round(width));
-            height = Math.max(60, Math.round(height));
-            return { width: width, height: height };
-        }
-
-        function clickHandler(e) {
-            var page = e.target.closest('.page');
-            if (!page) return;
-            e.preventDefault(); e.stopPropagation();
-            document.removeEventListener('click', clickHandler, true);
-            document.body.style.cursor = '';
-
-            var pn  = parseInt(page.dataset.pageNumber, 10);
-            var app = window.PDFViewerApplication;
-            var pv  = app && app.pdfViewer;
-            if (!pv) {
-                var br = window.__3TImgBridge;
-                if (br) br.cancelEdit();
-                return;
-            }
-            var pgv = pv.getPageView ? pv.getPageView(pn - 1) : (pv._pages && pv._pages[pn - 1]);
-            if (!pgv || !pgv.viewport) {
-                var br = window.__3TImgBridge;
-                if (br) br.cancelEdit();
-                return;
-            }
-            var canvas = page.querySelector('canvas') || page;
-            var pr  = canvas.getBoundingClientRect();
-            var cx  = e.clientX - pr.left;
-            var cy  = e.clientY - pr.top;
-
-            S.pageNumber = pn;
-            S.pageView   = pgv;
-
-            var initial = getInitialSize();
-            var left = Math.max(0, Math.round(cx - (initial.width / 2)));
-            var top = Math.max(0, Math.round(cy - (initial.height / 2)));
-
-            var ov = document.createElement('div');
-            ov.style.cssText =
-                'position:absolute;left:' + left + 'px;top:' + top + 'px;' +
-                'width:' + initial.width + 'px;height:' + initial.height + 'px;' +
-                'border:2px solid #1A7AFF;z-index:9999;' +
-                'box-sizing:border-box;border-radius:4px;' +
-                'box-shadow:0 4px 20px rgba(26,122,255,0.4);' +
-                'cursor:move;overflow:hidden;';
-
-            var img = document.createElement('img');
-            img.src = imgUrl;
-            img.style.cssText = 'width:100%;height:100%;object-fit:contain;pointer-events:none;display:block;';
-            ov.appendChild(img);
-
-            window.__3TImgUpdateRotation = function (angle) {
-                if (S.overlay) {
-                    S.overlay.style.transformOrigin = 'center center';
-                    S.overlay.style.transform = 'rotate(' + angle + 'deg)';
-                }
-            };
-
-            var badge = document.createElement('div');
-            badge.textContent = '🖼️ Ảnh — kéo di chuyển · kéo góc resize · Enter xác nhận';
-            badge.style.cssText =
-                'position:absolute;top:-26px;left:0;white-space:nowrap;' +
-                'font-size:10px;color:#fff;background:#1A7AFF;' +
-                'padding:3px 10px;border-radius:10px;pointer-events:none;' +
-                'box-shadow:0 1px 6px rgba(0,0,0,0.3);';
-            ov.appendChild(badge);
-
-            var rh = document.createElement('div');
-            rh.style.cssText =
-                'position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;' +
-                'background:#1A7AFF;border:2px solid #fff;border-radius:3px;' +
-                'cursor:nwse-resize;z-index:10000;';
-            ov.appendChild(rh);
-
-            /* drag */
-            ov.addEventListener('mousedown', function (ev) {
-                if (ev.target === rh) return;
-                var sl=parseFloat(ov.style.left), st=parseFloat(ov.style.top);
-                var sx=ev.clientX, sy=ev.clientY;
-                function onM(e){ ov.style.left=(sl+e.clientX-sx)+'px'; ov.style.top=(st+e.clientY-sy)+'px'; }
-                function onU(){ document.removeEventListener('mousemove',onM,true); document.removeEventListener('mouseup',onU,true); }
-                document.addEventListener('mousemove',onM,true);
-                document.addEventListener('mouseup',onU,true);
-                ev.preventDefault();
-            });
-
-            /* resize */
-            rh.addEventListener('mousedown', function (ev) {
-                ev.stopPropagation();
-                var sw=parseFloat(ov.style.width)||200, sh=parseFloat(ov.style.height)||150;
-                var sx=ev.clientX, sy=ev.clientY;
-                function onM(e){ ov.style.width=Math.max(40,sw+e.clientX-sx)+'px'; ov.style.height=Math.max(30,sh+e.clientY-sy)+'px'; }
-                function onU(){ document.removeEventListener('mousemove',onM,true); document.removeEventListener('mouseup',onU,true); }
-                document.addEventListener('mousemove',onM,true);
-                document.addEventListener('mouseup',onU,true);
-                ev.preventDefault();
-            });
-
-            /* keyboard */
-            function kh(ev) {
-                if (ev.key === 'Enter')  { window.__3TImgConfirm(); document.removeEventListener('keydown',kh,true); }
-                if (ev.key === 'Escape') { window.__3TImgCancel();  document.removeEventListener('keydown',kh,true); }
-            }
-            document.addEventListener('keydown', kh, true);
-
-            page.appendChild(ov);
-            S.overlay = ov;
-
-            var br = window.__3TImgBridge;
-            if (br) br.reportReady(pn);
-        }
-
-        document.addEventListener('click', clickHandler, true);
-    }
-
-    function attach() {
-        if (typeof QWebChannel === 'undefined') {
-            var s = document.createElement('script');
-            s.src = 'qrc:///qtwebchannel/qwebchannel.js';
-            s.onload = attach;
-            document.head.appendChild(s);
-            return;
-        }
-        if (!(window.qt && qt.webChannelTransport)) {
-            setTimeout(attach, 100);
-            return;
-        }
-        new QWebChannel(qt.webChannelTransport, function (ch) {
-            window.__3TImgBridge = ch.objects.inlineImageBridge || null;
-            startListen(window.__3TInlineImageUrl || '');
-        });
-    }
-    attach();
-})();
-"""
+# Inline text/image JS loaded from external files.
+from app.js_loader import load_js as _load_js
+INLINE_TEXT_JS = _load_js("inline_text_bridge.js")
+INLINE_IMAGE_JS = _load_js("inline_image_bridge.js")
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -710,18 +372,18 @@ def _get_web_view(window):
 
 
 def _setup_webchannel(web_view, parent, name, bridge):
-    from packages.qt_compat.QtWebChannel import QWebChannel as _WC
-    ch = _WC(parent)
-    ch.registerObject(name, bridge)
-    web_view.page().setWebChannel(ch)
-    return ch
+    from app.webchannel import register_webchannel_object
+
+    return register_webchannel_object(web_view, parent, name, bridge)
 
 
 def _teardown_webchannel(web_view):
     if web_view is None:
         return
     try:
-        web_view.page().setWebChannel(None)
+        from app.webchannel import unregister_webchannel_object
+
+        unregister_webchannel_object(web_view)
     except RuntimeError:
         pass
 
@@ -746,6 +408,8 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
             prefill.get("color_hex", "#000000"),
             prefill.get("bold", False),
             prefill.get("underline", False),
+            prefill.get("italic", False),
+            prefill.get("font_family", "sans-serif"),
         )
         if "rotation" in prefill:
             panel.set_rotation(prefill.get("rotation", 0))
@@ -754,12 +418,20 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
     loop   = QEventLoop(window)
 
     # Panel font controls → update JS textarea styling live
-    def _on_font(size, hex_color, bold, underline):
-        b = "true" if bold else "false"
-        u = "true" if underline else "false"
+    def _on_font(size, hex_color, bold, underline, italic, font_family):
+        # JSON payload thay vì nội suy chuỗi: an toàn với font family có
+        # khoảng trắng/ký tự đặc biệt (TC31).
+        payload = json.dumps({
+            "size": int(size),
+            "color": str(hex_color or "#000000"),
+            "bold": bool(bold),
+            "underline": bool(underline),
+            "italic": bool(italic),
+            "font_family": str(font_family or "sans-serif"),
+        }, ensure_ascii=False)
         web_view.page().runJavaScript(
             f"typeof window.__3TTextUpdateFont === 'function' && "
-            f"window.__3TTextUpdateFont({size}, '{hex_color}', {b}, {u});"
+            f"window.__3TTextUpdateFont({payload});"
         )
     panel.font_changed.connect(_on_font)
 
@@ -776,6 +448,8 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
         result["color_tuple"] = panel.get_color_tuple()
         result["bold"]        = panel.get_bold()
         result["underline"]   = panel.get_underline()
+        result["italic"]      = panel.get_italic()
+        result["font_family"] = panel.get_font_family()
         result["rotation"]    = panel.get_rotation()
         panel.hide()
         web_view.page().runJavaScript(
@@ -805,6 +479,8 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
                 "color_tuple":  result.get("color_tuple", panel.get_color_tuple()),
                 "bold":         result.get("bold", panel.get_bold()),
                 "underline":    result.get("underline", panel.get_underline()),
+                "italic":       result.get("italic", panel.get_italic()),
+                "font_family":  result.get("font_family", panel.get_font_family()),
                 "rotation":     result.get("rotation", panel.get_rotation()),
             })
         if loop.isRunning(): loop.quit()
@@ -814,7 +490,15 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
         if loop.isRunning(): loop.quit()
 
     def _ready(page):
-        panel.show(); panel.raise_(); panel.activateWindow()
+        # KHÔNG gọi panel.activateWindow(): panel là 1 top-level window
+        # riêng (Qt.Tool), tự activate ngay sau khi JS vừa focus() ô nhập
+        # text trên trang sẽ cướp lại OS-level keyboard focus từ webview về
+        # panel - user gõ ngay sau khi click đặt vị trí sẽ không ra ký tự
+        # nào, phải click thêm 1 lần nữa vào ô mới gõ được. show()+raise_()
+        # vẫn đủ để panel hiện & nổi lên trên, nút bấm trong panel vẫn dùng
+        # chuột bình thường không cần activateWindow() trước.
+        panel.show(); panel.raise_()
+        panel._emit_font()
         _on_rotation(panel.get_rotation())
 
     bridge.ready.connect(_ready)
@@ -834,6 +518,8 @@ def run_inline_text(window, prefill: dict | None = None) -> dict | None:
                 "color_hex": prefill.get("color_hex", "#000000"),
                 "bold":      bool(prefill.get("bold", False)),
                 "underline": bool(prefill.get("underline", False)),
+                "italic":    bool(prefill.get("italic", False)),
+                "font_family": prefill.get("font_family", "sans-serif"),
                 "rotation":  int(prefill.get("rotation", 0)),
             })
             web_view.page().runJavaScript(f"window.__3TTextPrefill = {pf_js};")
@@ -866,7 +552,12 @@ def run_inline_image(window, image_path: str) -> dict | None:
         if image.isNull():
             show_warning(window, "Không đọc được ảnh", "Không thể mở file ảnh đã chọn. Vui lòng chọn file khác.")
             return None
-        image_info = {"width": int(image.width()), "height": int(image.height())}
+        image_info = {
+            "width": int(image.width()),
+            "height": int(image.height()),
+            "mime": mime,
+            "has_alpha": bool(image.hasAlphaChannel()),
+        }
         data_url = f"data:image/{mime};base64,{base64.b64encode(raw).decode()}"
     except Exception:
         show_warning(window, "Không đọc được ảnh", "Không thể mở file ảnh đã chọn. Vui lòng chọn file khác.")
@@ -913,7 +604,10 @@ def run_inline_image(window, image_path: str) -> dict | None:
         if loop.isRunning(): loop.quit()
 
     def _ready(page):
-        panel.show(); panel.raise_(); panel.activateWindow()
+        # Xem chú thích ở _ready() của run_inline_text() - không activateWindow()
+        # để tránh cướp keyboard focus khỏi webview (Enter/Esc xác nhận/hủy
+        # trên trang cũng đi qua JS keydown listener, cùng phụ thuộc focus).
+        panel.show(); panel.raise_()
         _on_rotation(panel.get_rotation())
 
     bridge.ready.connect(_ready)

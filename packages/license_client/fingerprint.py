@@ -1,17 +1,51 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import platform
 import socket
 import uuid
 
 
+def _stable_mac() -> str | None:
+    node = uuid.getnode()
+    if node & 0x010000000000:
+        return None
+    return f"{node:012x}"
+
+
+def _windows_machine_guid() -> str | None:
+    if platform.system() != "Windows":
+        return None
+    try:
+        import winreg
+
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Cryptography",
+        )
+        value, _ = winreg.QueryValueEx(key, "MachineGuid")
+        winreg.CloseKey(key)
+        value = str(value).strip()
+        return value or None
+    except Exception:
+        return None
+
+
 def get_device_fingerprint() -> str:
-    """Return a stable 32-char hex identifier for this machine."""
-    parts = [
-        hex(uuid.getnode()),
-        socket.gethostname(),
-        platform.system(),
-        platform.machine(),
-    ]
-    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:32]
+    win_guid = _windows_machine_guid()
+    if win_guid:
+        parts = [
+            win_guid,
+            platform.system(),
+            platform.machine(),
+        ]
+    else:
+        parts = [
+            _stable_mac(),
+            os.environ.get("COMPUTERNAME") or socket.gethostname(),
+            platform.system(),
+            platform.machine(),
+        ]
+    normalized = [part for part in parts if part]
+    return hashlib.sha256("|".join(normalized).encode("utf-8")).hexdigest()[:32]

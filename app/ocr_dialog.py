@@ -8,10 +8,13 @@ from packages.qt_compat.QtCore import Qt, QTimer, pyqtSignal, QObject
 from packages.qt_compat.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QPushButton, QProgressBar, QFrame, QFileDialog,
-    QApplication, QSizePolicy,
+    QApplication, QSizePolicy, QComboBox
 )
+from styles.theme import is_dark
 
-_STYLE = """
+def _build_style(dark: bool) -> str:
+    if dark:
+        return """
 QDialog { background: #16162A; }
 QLabel#title { color: #E8EEFF; font-size: 15px; font-weight: 700; }
 QLabel#info  { color: #8080B0; font-size: 11px; }
@@ -22,8 +25,8 @@ QTextEdit {
     color: #D0D8F8;
     border: 1px solid #2A2A4A;
     border-radius: 8px;
-    font-family: "SF Mono", "Consolas", monospace;
-    font-size: 12px;
+    font-family: Arial, Tahoma, sans-serif;
+    font-size: 13px;
     padding: 10px;
     line-height: 1.5;
 }
@@ -50,10 +53,49 @@ QProgressBar {
 QProgressBar::chunk { background: #6366f1; border-radius: 4px; }
 QFrame#divider { background: #2A2A4A; }
 """
+    return """
+QDialog { background: #F8FAFF; }
+QLabel#title { color: #0F172A; font-size: 15px; font-weight: 700; }
+QLabel#info  { color: #64748B; font-size: 11px; }
+QLabel#warn  { color: #b45309; font-size: 11px; }
+QLabel#err   { color: #DC2626; font-size: 11px; }
+QTextEdit {
+    background: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 8px;
+    font-family: Arial, Tahoma, sans-serif;
+    font-size: 13px;
+    padding: 10px;
+    line-height: 1.5;
+}
+QPushButton {
+    background: #E2E8F0;
+    color: #334155;
+    border: 1px solid #CBD5E1;
+    border-radius: 7px;
+    padding: 8px 18px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QPushButton:hover { background: #CBD5E1; border-color: #94A3B8; }
+QPushButton:disabled { color: #94A3B8; border-color: #E2E8F0; }
+QPushButton#btn_copy {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #3b6fd4,stop:1 #5b4fd4);
+    color: white; border: none;
+}
+QPushButton#btn_copy:hover { background: #4b7fe4; }
+QProgressBar {
+    background: #FFFFFF; border: 1px solid #CBD5E1;
+    border-radius: 5px; height: 8px; text-align: center;
+}
+QProgressBar::chunk { background: #6366f1; border-radius: 4px; }
+QFrame#divider { background: #E2E8F0; }
+"""
 
 
 class _Worker(QObject):
-    progress  = pyqtSignal(int, str)   # (page_done, text_so_far)
+    progress  = pyqtSignal(int, str)   # (page_done, latest_text_block)
     finished  = pyqtSignal(str, int)   # (full_text, total_pages)
     error     = pyqtSignal(str)
 
@@ -68,8 +110,11 @@ class _Worker(QObject):
         self._cancelled = True
 
     def run(self):
+        import time
         from packages.ocr.engine import ocr_pdf_page
         all_text = []
+        _last_emit = 0.0
+        total = len(self._pages)
         for i, pn in enumerate(self._pages, 1):
             if self._cancelled:
                 break
@@ -80,8 +125,10 @@ class _Worker(QObject):
             header = f"{'─'*40}\n📄 Trang {pn}\n{'─'*40}\n"
             block = header + (result.text or "(không nhận dạng được văn bản)")
             all_text.append(block)
-            combined = "\n\n".join(all_text)
-            self.progress.emit(i, combined)
+            now = time.monotonic()
+            if now - _last_emit >= 0.8 or i == total:
+                self.progress.emit(i, block)
+                _last_emit = now
         self.finished.emit("\n\n".join(all_text), len(self._pages))
 
 
@@ -89,12 +136,14 @@ class OCRDialog(QDialog):
     """Dialog OCR — chạy trong background thread, hiển thị kết quả cuộn."""
 
     def __init__(self, parent, pdf_path: str, pages: list[int],
-                 current_page: int = 1, high_quality: bool = False):
+                 current_page: int = 1, high_quality: bool = False, modal: bool = True):
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setWindowTitle("OCR Tiếng Việt – 3T Reader")
-        self.setModal(True)
+        self.setModal(modal)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal if modal else Qt.WindowModality.NonModal)
         self.resize(680, 560)
-        self.setStyleSheet(_STYLE)
+        self.setStyleSheet(_build_style(is_dark()))
 
         self._pdf_path = pdf_path
         self._pages = pages
@@ -102,6 +151,7 @@ class OCRDialog(QDialog):
         self._worker: _Worker | None = None
         self._thread = None
         self._final_text = ""
+        self._live_preview = False
 
         self._build_ui(current_page)
         self._start()
@@ -118,6 +168,17 @@ class OCRDialog(QDialog):
         title.setObjectName("title")
         hdr.addWidget(title)
         hdr.addStretch()
+
+        self._font_combo = QComboBox()
+        self._font_combo.addItems(["Arial", "Times New Roman", "Calibri", "Tahoma", "Segoe UI", "Cambria", "Consolas", "Verdana", "Courier New", "Comic Sans MS"])
+        self._font_combo.setFixedWidth(120)
+        if is_dark():
+            self._font_combo.setStyleSheet("QComboBox { background: #1E1E38; color: #B0B8E0; border: 1px solid #3A3A60; border-radius: 4px; padding: 2px 8px; }")
+        else:
+            self._font_combo.setStyleSheet("QComboBox { background: #E2E8F0; color: #334155; border: 1px solid #CBD5E1; border-radius: 4px; padding: 2px 8px; }")
+        self._font_combo.currentTextChanged.connect(self._change_font)
+        hdr.addWidget(self._font_combo)
+
         root.addLayout(hdr)
 
         info_text = "Đang nhận dạng văn bản tiếng Việt…"
@@ -139,6 +200,12 @@ class OCRDialog(QDialog):
         self._text_edit.setPlaceholderText("Văn bản sẽ xuất hiện ở đây…")
         self._text_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         root.addWidget(self._text_edit)
+        if not self._live_preview:
+            self._text_edit.setPlainText(
+                "Đang OCR toàn bộ tài liệu...\n\n"
+                "3T Reader chỉ cập nhật tiến độ và sẽ hiển thị kết quả sau khi xử lý xong "
+                "để tránh UI bị giật/chồng overlay."
+            )
 
         # Divider
         div = QFrame(); div.setObjectName("divider"); div.setFixedHeight(1)
@@ -165,6 +232,11 @@ class OCRDialog(QDialog):
         btn_row.addWidget(self._btn_copy)
         root.addLayout(btn_row)
 
+    def _change_font(self, font_name: str):
+        if hasattr(self, "_text_edit"):
+            from packages.qt_compat.QtGui import QFont
+            self._text_edit.setFont(QFont(font_name, 11))
+
     def _start(self):
         self._worker = _Worker(self._pdf_path, self._pages, self._hq)
         self._worker.progress.connect(self._on_progress)
@@ -174,22 +246,35 @@ class OCRDialog(QDialog):
         self._thread = threading.Thread(target=self._worker.run, daemon=True)
         self._thread.start()
 
-    def _on_progress(self, done: int, text_so_far: str):
+    def is_running(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
+    def _on_progress(self, done: int, latest_text_block: str):
         self._progress.setValue(done)
         self._lbl_info.setText(f"Đang xử lý trang {done}/{len(self._pages)}…")
-        self._text_edit.setPlainText(text_so_far)
+        if not self._live_preview:
+            return
+        if done == 1:
+            self._text_edit.setPlainText(latest_text_block)
+        else:
+            self._text_edit.append("\n\n" + latest_text_block)
         # Auto-scroll xuống
         sb = self._text_edit.verticalScrollBar()
         sb.setValue(sb.maximum())
 
     def _on_finished(self, full_text: str, total: int):
         self._final_text = full_text
+        try:
+            from packages.ai.chat_pdf import save_ocr_text_cache
+            save_ocr_text_cache(self._pdf_path, full_text)
+        except Exception:
+            pass
         words = len(full_text.split()) if full_text else 0
         self._lbl_info.setObjectName("info")
         self._lbl_info.setText(
             f"✓ Hoàn thành {total} trang — ~{words} từ nhận dạng được"
         )
-        self._lbl_info.setStyleSheet("color:#4fc080;font-size:11px")
+        self._lbl_info.setStyleSheet(f"color:{'#4fc080' if is_dark() else '#15803D'};font-size:11px")
         self._progress.setValue(len(self._pages))
         self._text_edit.setPlainText(full_text or "(Không tìm thấy văn bản)")
         self._btn_cancel.setText("Đóng")
@@ -198,8 +283,13 @@ class OCRDialog(QDialog):
 
     def _on_error(self, msg: str):
         self._lbl_info.setText(f"Lỗi: {msg}")
-        self._lbl_info.setStyleSheet("color:#E05050;font-size:11px")
+        self._lbl_info.setStyleSheet(f"color:{'#E05050' if is_dark() else '#DC2626'};font-size:11px")
         self._btn_cancel.setText("Đóng")
+
+    def closeEvent(self, event):
+        if self._worker:
+            self._worker.cancel()
+        super().closeEvent(event)
 
     def _on_cancel(self):
         if self._worker:

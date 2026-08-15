@@ -180,15 +180,6 @@ sudo systemctl reload nginx
 
 Khi có build mới (ví dụ `1.2.0`), làm theo 3 bước:
 
-### Lưu ý triển khai hiện tại
-
-- Backend deployment hiện đang ở branch `phase1-backend`.
-- Commit hardening gần nhất: `ccbe90c` (`hardening license backend deployment`).
-- Upload release .dmg/.exe giờ tự tính `sha256`.
-- Token lỗi hoặc sai format không còn làm API 500; server trả JSON `{"ok": false, "message": "Invalid token."}`.
-- Admin/staff password được hash bằng PBKDF2.
-- Không commit `.env`; repo chỉ nên giữ `.env.example`, còn secret thật ở VPS runtime file.
-
 ### Bước 1 — Upload file DMG/EXE lên VPS
 
 ```bash
@@ -197,8 +188,8 @@ sudo mkdir -p /data/downloads
 sudo chown threet:threet /data/downloads
 
 # Upload từ máy dev
-scp 3TReader-<version>-mac.dmg user@reader.3tcomputer.com:/data/downloads/
-scp 3TReader-<version>-win.exe user@reader.3tcomputer.com:/data/downloads/
+scp 3TReader-1.2.0-mac.dmg user@reader.3tcomputer.com:/data/downloads/
+scp 3TReader-1.2.0-win.exe user@reader.3tcomputer.com:/data/downloads/
 ```
 
 ### Bước 2 — Cập nhật biến môi trường
@@ -210,20 +201,8 @@ THREET_DEFAULT_UPDATE_VERSION=1.2.0
 THREET_DEFAULT_UPDATE_URL=https://reader.3tcomputer.com/downloads/3TReader-1.2.0-mac.dmg
 ```
 
-> **Lưu ý:** Release file nên đặt theo convention:
-> - `3TReader-<version>-mac.dmg`
-> - `3TReader-<version>-win.exe`
->
-> Nếu cần tách URL theo platform thì sửa `update_service.py` để trả đúng file cho từng `platform`.
-
-### 7.1 Language pack cho UI
-
-Neu ban muon host goi ngon ngu cho app desktop, lam theo:
-
-- doc [VPS_LANGUAGE_PACK_GUIDE.md](VPS_LANGUAGE_PACK_GUIDE.md)
-- dung URL static: `/downloads/language/{code}.json`
-- `code` thuong la `vi` hoac `en`
-- file pack nen luu trong `/data/downloads/language/`
+> **Lưu ý:** Hiện tại server trả cùng 1 URL cho cả mac và win.  
+> Nếu cần tách: sửa `update_service.py` để đọc URL theo `platform`.
 
 ### Bước 3 — Restart service
 
@@ -256,6 +235,121 @@ curl "https://reader.3tcomputer.com/api/v1/update/check?platform=mac&current_ver
 curl "https://reader.3tcomputer.com/api/v1/update/check?platform=mac&current_version=1.2.0"
 # → latest_version == current_version → app hiểu là "đã mới nhất"
 ```
+
+---
+
+## 8.1. Publish thư viện giọng Piper cho client Win/Mac
+
+Client `Đọc sách` đang lấy danh sách giọng từ `app/actions/piper_tts_manager.py`.
+
+### URL client sẽ thử
+
+Theo thứ tự:
+
+- `https://reader.3tcomputer.com/downloads/piper/index.json`
+- `https://reader.3tcomputer.com/piper/index.json`
+- `https://reader.3tcomputer.com/downloads/voices/index.json`
+- `https://reader.3tcomputer.com/voices/index.json`
+- `https://reader.3tcomputer.com/index.json`
+
+Khuyến nghị chuẩn hóa và chỉ dùng:
+
+- `https://reader.3tcomputer.com/downloads/piper/index.json`
+
+### Cấu trúc public trên VPS
+
+Đặt file tại:
+
+```text
+/home/hieupt/projects/3T_Reader/phase1-backend/downloads/piper/
+  index.json
+  vi_VN-vais1000-medium.onnx
+  vi_VN-vais1000-medium.onnx.json
+  en_US-ryan-medium.onnx
+  en_US-ryan-medium.onnx.json
+```
+
+### Format `index.json`
+
+Client đang expect một mảng JSON:
+
+```json
+[
+  {
+    "id": "vi_VN-vais1000-medium",
+    "name": "Vietnamese - VAI-S1000 Medium",
+    "language": "vi",
+    "size": "60.3 MB",
+    "onnx_url": "./vi_VN-vais1000-medium.onnx",
+    "json_url": "./vi_VN-vais1000-medium.onnx.json"
+  },
+  {
+    "id": "en_US-ryan-medium",
+    "name": "English (US) - Ryan Medium",
+    "language": "en",
+    "size": "60.3 MB",
+    "onnx_url": "./en_US-ryan-medium.onnx",
+    "json_url": "./en_US-ryan-medium.onnx.json"
+  }
+]
+```
+
+Ghi chú:
+
+- `onnx_url` và `json_url` có thể là relative path. Client sẽ tự resolve theo URL thật của `index.json`.
+- `id` sẽ được dùng làm tên file local ở client.
+
+### Client tải file về đâu
+
+Windows:
+
+```text
+%APPDATA%\3T_Reader\voices\
+```
+
+macOS:
+
+```text
+~/Library/Application Support/3T_Reader/voices/
+```
+
+### Win/Mac dùng chung cái gì
+
+Dùng chung:
+
+- `index.json`
+- model `.onnx`
+- config `.onnx.json`
+
+Khác nhau:
+
+- runtime để chạy model
+- Windows dùng `piper_bin/piper.exe`
+- macOS dùng `venv_piper/bin/piper` hoặc runtime tương đương
+
+Nói ngắn gọn: voice library trên VPS là shared cho cả Win và Mac, chỉ phần engine local là khác theo nền tảng.
+
+### Ví dụ thao tác deploy nhanh
+
+```bash
+mkdir -p /home/hieupt/projects/3T_Reader/phase1-backend/downloads/piper
+scp index.json \
+    vi_VN-vais1000-medium.onnx \
+    vi_VN-vais1000-medium.onnx.json \
+    en_US-ryan-medium.onnx \
+    en_US-ryan-medium.onnx.json \
+    hieupt@<vps>:/home/hieupt/projects/3T_Reader/phase1-backend/downloads/piper/
+```
+
+### Verify sau khi deploy
+
+```bash
+curl https://reader.3tcomputer.com/downloads/piper/index.json
+curl -I https://reader.3tcomputer.com/downloads/piper/vi_VN-vais1000-medium.onnx.json
+curl -I https://reader.3tcomputer.com/downloads/piper/en_US-ryan-medium.onnx.json
+```
+
+Nếu `index.json` trả `200` thì dialog `Cửa hàng Giọng AI` của Win/Mac sẽ nhìn thấy danh sách giọng.
 
 ---
 

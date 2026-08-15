@@ -122,6 +122,8 @@ class TestSigningProviderSelection:
 
 
 class TestWindowsSigningProviderPaths:
+    pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows-only provider path tests")
+
     def test_split_configured_paths_uses_os_separator(self):
         from packages.signing.windows_provider import _split_configured_paths
 

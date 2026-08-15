@@ -40,6 +40,7 @@ def _run_find(window, query: str, *, find_previous: bool, new_search: bool):
         if (!app || !app.eventBus) {{
             return "PDF.js chưa khởi tạo xong";
         }}
+        window.__3tFindState = 3;
         app.eventBus.dispatch("find", Object.assign({{ source: window }}, {json.dumps(payload)}));
         return "OK";
     }} catch (e) {{
@@ -62,6 +63,47 @@ def _run_find(window, query: str, *, find_previous: bool, new_search: bool):
             show_warning(window, "Không thể tìm kiếm", str(result))
 
     wv.page().runJavaScript(js, _after)
+
+
+def clear_search(window) -> None:
+    """Xóa toàn bộ highlight tìm kiếm của PDF.js (TC28).
+
+    Gửi query rỗng + findbarclose, reset findController nếu PDF.js expose API,
+    và dọn các class highlight còn sót trong .textLayer. Im lặng khi chưa mở
+    PDF (đóng thanh search lúc chưa có tài liệu không phải là lỗi).
+    """
+    window.search_query = ""
+    wv = window._get_webview() if hasattr(window, "_get_webview") else None
+    if not wv:
+        return
+    js = """
+(function() {
+    try {
+        var app = window.PDFViewerApplication;
+        if (app && app.eventBus) {
+            app.eventBus.dispatch("find", {
+                source: window, query: "", phraseSearch: true,
+                caseSensitive: false, entireWord: false,
+                highlightAll: false, findPrevious: false, type: ""
+            });
+            app.eventBus.dispatch("findbarclose", { source: window });
+        }
+        if (app && app.findController && typeof app.findController._reset === "function") {
+            app.findController._reset();
+        }
+        var marked = document.querySelectorAll(
+            ".textLayer .highlight, .textLayer .highlight.selected, .textLayer .appended"
+        );
+        for (var i = 0; i < marked.length; i++) {
+            marked[i].classList.remove("highlight", "selected", "appended");
+        }
+    } catch (e) {}
+})();
+"""
+    try:
+        wv.page().runJavaScript(js)
+    except Exception:
+        pass
 
 
 def execute_search(window, query: str, *, find_previous: bool = False, new_search: bool = True) -> bool:
