@@ -918,6 +918,32 @@ def _pick_signing_certificate(session, attribute_mod, object_class_mod):
     return signing_cert, cert_id, cert_details
 
 
+async def _run_sign_pdf(pdf_signer, writer, *, existing_fields_only: bool, out, enable_ltv: bool) -> None:
+    """Chạy pdf_signer.async_sign_pdf() - khi enable_ltv=True, pyhanko tự xác
+    minh chuỗi tin cậy của chứng thư để nhúng thông tin OCSP/CRL, và ném lỗi
+    kỹ thuật (InvalidCertificateError/PathBuildingError) khó hiểu nếu chứng
+    thư tự ký (self-signed) hoặc CA gốc không nằm trong trust store - biến
+    thành thông báo tiếng Việt rõ ràng, có hướng xử lý, thay vì để traceback
+    thô lộ ra UI (phát hiện thật khi tự tay test ký PFX với chứng thư tự ký
+    15/08/2026)."""
+    try:
+        await pdf_signer.async_sign_pdf(writer, existing_fields_only=existing_fields_only, output=out)
+    except Exception as e:
+        if not enable_ltv:
+            raise
+        from pyhanko_certvalidator.errors import ValidationError as _CertValidationError
+
+        if isinstance(e, _CertValidationError) or "InvalidCertificateError" in type(e).__name__:
+            raise RuntimeError(
+                "Không xác minh được chuỗi tin cậy của chứng thư (có thể là chứng "
+                "thư tự ký hoặc CA gốc chưa được hỗ trợ) trong khi tính năng Ký số "
+                "dài hạn (LTV) đang bật. Vui lòng tắt LTV trong Cài đặt > Ký số & "
+                "TSA, hoặc dùng chứng thư do CA hợp lệ cấp (Viettel CA, VNPT CA, "
+                "FPT CA)."
+            ) from e
+        raise
+
+
 async def sign_pdf_with_session(
     session,
     lib_path: str,
@@ -989,8 +1015,7 @@ async def sign_pdf_with_session(
         if stamp_pdf and os.path.exists(stamp_pdf):
             try:
                 burn_input_path = _burn_stamp_onto_pdf(input_path, page_number, box, stamp_pdf)
-            except Exception as e:
-                open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burn error: {e}\n")
+            except Exception:
                 burn_input_path = input_path
             finally:
                 if stamp_pdf and os.path.exists(stamp_pdf):
@@ -998,9 +1023,6 @@ async def sign_pdf_with_session(
                         os.remove(stamp_pdf)
                     except OSError:
                         pass
-            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burned successfully to {burn_input_path}\n")
-        else:
-            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Stamp PDF not found at {stamp_pdf}\n")
 
         with open(burn_input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
@@ -1046,10 +1068,8 @@ async def sign_pdf_with_session(
             )
             with open(tmp_path, "wb") as out:
                 with _normal_form_xobject_bbox_for_signature_appearance():
-                    await pdf_signer.async_sign_pdf(
-                        writer,
-                        existing_fields_only=bool(field_name),
-                        output=out,
+                    await _run_sign_pdf(
+                        pdf_signer, writer, existing_fields_only=bool(field_name), out=out, enable_ltv=enable_ltv,
                     )
 
         _replace_signed_output(tmp_path, output_path)
@@ -1130,8 +1150,7 @@ async def sign_pdf_with_pkcs12(
         if stamp_pdf and os.path.exists(stamp_pdf):
             try:
                 burn_input_path = _burn_stamp_onto_pdf(input_path, page_number, box, stamp_pdf)
-            except Exception as e:
-                open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burn error: {e}\n")
+            except Exception:
                 burn_input_path = input_path
             finally:
                 if stamp_pdf and os.path.exists(stamp_pdf):
@@ -1139,9 +1158,6 @@ async def sign_pdf_with_pkcs12(
                         os.remove(stamp_pdf)
                     except OSError:
                         pass
-            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Burned successfully to {burn_input_path}\n")
-        else:
-            open(os.path.join(tempfile.gettempdir(), "3t_error_log.txt"), "a").write(f"Stamp PDF not found at {stamp_pdf}\n")
 
         with open(burn_input_path, "rb") as f:
             writer = IncrementalPdfFileWriter(f, strict=False)
@@ -1177,10 +1193,8 @@ async def sign_pdf_with_pkcs12(
             )
             with open(tmp_path, "wb") as out:
                 with _normal_form_xobject_bbox_for_signature_appearance():
-                    await pdf_signer.async_sign_pdf(
-                        writer,
-                        existing_fields_only=bool(field_name),
-                        output=out,
+                    await _run_sign_pdf(
+                        pdf_signer, writer, existing_fields_only=bool(field_name), out=out, enable_ltv=enable_ltv,
                     )
 
         _replace_signed_output(tmp_path, output_path)
