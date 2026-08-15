@@ -269,21 +269,24 @@ Luồng full-install cũ (`check_for_update`/`download_update`) **giữ nguyên
 
 ## 3. macOS client (`packages/update_client/`, nhánh `phase1-mac`)
 
-**Việc bắt buộc làm TRƯỚC B53 trên Mac, không phải optional:** updater hiện
-tại trên Mac (`packages/update_client/checker.py`) **hoàn toàn không verify
-chữ ký** — không có bước nào tương đương `_verify_signature()` của Windows.
-Nếu thêm delta-patch (tự động ghi đè code vào app đang chạy) mà không có
-bước ký/verify, đây là lỗ hổng RCE thật (ai chiếm được domain/CDN có thể đẩy
-code độc hại qua "update"). Áp dụng nguyên `_verify_signature()` +
-`_EMBEDDED_PUBLIC_KEYS_B64` từ `packages/updater/update_client.py` (Windows)
-sang Mac trước, verify bằng chữ ký + SHA-256 giống Windows y hệt — CHỈ SAU
-ĐÓ mới thêm phần v2/delta.
+**✅ ĐÃ XONG (15/08/2026, commit `d187a20` trên nhánh `phase1-mac`):** vá lỗ
+hổng bảo mật thật — updater Mac trước đây **hoàn toàn không verify chữ ký
+hay SHA-256**, `app/update_dialog.py` tự tải thẳng bằng `requests.get()` nội
+tuyến rồi chạy ngay, tin tưởng 100% vào `download_url`. Đã áp dụng đúng
+`_verify_signature()` + `_EMBEDDED_PUBLIC_KEYS_B64` từ
+`packages/updater/update_client.py` (Windows) sang
+`packages/update_client/checker.py`, `download_update()` giờ bắt buộc
+SHA-256 + chữ ký hợp lệ, `update_dialog.py` gọi qua hàm đã verify thay vì tự
+tải thẳng. Test kỹ (10 test case, gồm cả mô phỏng chữ ký giả mạo ký bằng key
+không tin cậy). Đã push lên GitHub, **CHƯA build/deploy bản Mac thật** (nằm
+ngoài phạm vi session này — không có pipeline build Mac ở máy đang dùng).
 
-Sau khi có verify chữ ký, các bước còn lại **giống hệt mục 2** (base_version
-file tại `~/Library/Application Support/3T Reader/base_version.txt` thay vì
-`%APPDATA%`, còn lại đồng nhất logic). `_current_platform()` trong
-`checker.py` đã trả `"mac"` sẵn — khớp đúng `prefix = "mac"` ở backend mục
-1.4.
+Phần v2/delta cho Mac **chưa làm** — các bước còn lại **giống hệt mục 2**
+(base_version file tại `~/Library/Application Support/3T Reader/base_version.txt`
+thay vì `%APPDATA%`, còn lại đồng nhất logic), nhưng cũng cần chờ giải quyết
+xong bài toán tách kiến trúc build ở mục 2.2 trước (vấn đề PYZ/`.pyd` là của
+riêng PyInstaller/Nuitka trên Windows — cần kiểm tra xem py2app/PyInstaller
+cho Mac có gặp vấn đề tương tự không, CHƯA kiểm tra).
 
 ---
 
