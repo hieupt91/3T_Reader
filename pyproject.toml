@@ -42,9 +42,6 @@ ai = [
   "huggingface_hub>=0.25.0",
   "google-genai>=0.1.0",
 ]
-legacy-pymupdf = [
-  "PyMuPDF==1.27.2.2",
-]
 legacy-pykcs11 = [
   "PyKCS11==1.5.18",
 ]

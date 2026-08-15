@@ -93,6 +93,34 @@ def convert_via_office_com(input_path: str, output_pdf: str, *, suite: str | Non
     if not prog_id or not _com_progid_exists(prog_id):
         return False
 
+    # Retry có backoff tăng dần (tối đa 5 lần, tới 3s/lần chờ): xác nhận
+    # thật (14/08/2026) - chạy nhiều convert khác loại (Word rồi Excel) liên
+    # tiếp trên CÙNG thread, đặc biệt khi máy đang bận (chạy sau hàng trăm
+    # test khác), có thể khiến 1 lần ném lỗi "Property
+    # 'Excel.Application.Visible' can not be set" dù code đúng và dùng
+    # DispatchEx (không phải bám instance cũ) - nghi do apartment COM của
+    # thread hoặc tiến trình Office trước đó chưa kịp dọn xong giữa
+    # CoUninitialize()/Quit() lần trước và CoInitialize() lần sau, dễ xảy ra
+    # hơn khi hệ thống đang tải nặng. Đây là đặc tính vốn có của COM
+    # Automation trên Windows dưới tải cao (không có cách nào loại bỏ hoàn
+    # toàn 100%), backoff tăng dần cho tự phục hồi phần lớn trường hợp thay
+    # vì fail ngay - vẫn có fallback LibreOffice ở caller nếu retry hết mà
+    # vẫn lỗi."""
+    last_exc: Exception | None = None
+    for attempt in range(5):
+        if attempt > 0:
+            import time
+
+            time.sleep(min(3.0, 0.5 * (2 ** attempt)))
+        try:
+            if _convert_via_office_com_once(prog_id, kind, input_path, output_pdf):
+                return True
+        except Exception as exc:
+            last_exc = exc
+    return False
+
+
+def _convert_via_office_com_once(prog_id: str, kind: str, input_path: str, output_pdf: str) -> bool:
     import pythoncom
     import win32com.client
 
@@ -103,7 +131,16 @@ def convert_via_office_com(input_path: str, output_pdf: str, *, suite: str | Non
     app = None
     doc = None
     try:
-        app = win32com.client.Dispatch(prog_id)
+        # DispatchEx (không phải Dispatch thường) - Dispatch() có thể bám
+        # vào 1 instance CÓ SẴN đã đăng ký trong Running Object Table (vd
+        # user đang mở sẵn Excel thật, hoặc 1 tiến trình automation trước đó
+        # để lại chưa thoát hết) - nếu instance đó đang ở trạng thái lỗi/bị
+        # khoá, mọi lệnh gọi sau (kể cả set .Visible) ném lỗi khó hiểu dù
+        # code hoàn toàn đúng (xác nhận thật 14/08/2026: "Property
+        # 'Excel.Application.Visible' can not be set" từ 1 instance kẹt).
+        # DispatchEx luôn tạo tiến trình MỚI độc lập, né phần lớn lớp lỗi
+        # này (phần còn lại xử lý bằng retry ở convert_via_office_com()).
+        app = win32com.client.DispatchEx(prog_id)
         app.Visible = False
         if kind != "ppt":
             # Chặn popup "Save changes?"/"Repair document?" có thể treo COM
@@ -125,8 +162,6 @@ def convert_via_office_com(input_path: str, output_pdf: str, *, suite: str | Non
             doc.SaveAs(abs_out, fmt)
 
         return os.path.exists(abs_out) and os.path.getsize(abs_out) > 4
-    except Exception:
-        return False
     finally:
         if doc is not None:
             try:

@@ -392,12 +392,21 @@ class TestNoPyMuPdfInDefaultPath:
         if not fitz_loaded_before:
             assert not fitz_loaded_after, "PdfiumEngine must not import fitz/PyMuPDF"
 
-    def test_default_engine_is_not_pymupdf(self):
-        from packages.pdf_engine import get_pdf_engine
-        from packages.pdf_engine.pymupdf_engine import PyMuPdfEngine
+    def test_default_engine_is_pdfium(self):
+        from packages.pdf_engine import PdfiumEngine, get_pdf_engine
         engine = get_pdf_engine()
-        assert not isinstance(engine, PyMuPdfEngine), \
-            "Default engine must be PdfiumEngine, not PyMuPdfEngine (AGPL)"
+        assert isinstance(engine, PdfiumEngine)
+
+    def test_pymupdf_engine_module_no_longer_exists(self):
+        """B2 Giai đoạn 3 (2026-08-14): PyMuPDF (AGPL-3.0) đã gỡ hoàn toàn -
+        không còn packages/pdf_engine/pymupdf_engine.py, không còn engine
+        thay thế nào dùng fitz. Test này khoá lại kết luận đó - nếu ai vô
+        tình thêm lại module này, test sẽ fail để nhắc rà soát lại quyết
+        định pháp lý trước khi merge."""
+        import importlib
+
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module("packages.pdf_engine.pymupdf_engine")
 
     def test_package_wildcard_import_does_not_import_pymupdf(self):
         # Other test modules may legitimately import fitz (handwritten signing);

@@ -2376,9 +2376,10 @@ def _find_pdf_span(base_path: str, page_num: int, pick_box: tuple[float, float, 
     (BSD-3, đã là engine chính của app) - xem
     packages/pdf_engine/text_layout.py + docs/ROADMAP_PDF_ENGINE_MIGRATION.md
     + docs/ROADMAP_B52_B2_B13_2026-08-14.md mục B2. Đối chiếu kết quả 2 bản
-    đã pass trên file thật (tests/test_text_layout_vs_pymupdf.py) trước khi
-    đổi. Giữ NGUYÊN contract trả về (dict cùng key) - không đổi bất kỳ
-    caller nào."""
+    đã pass trên file thật (~40 span lấy mẫu tự động) trước khi đổi - test
+    đối chiếu đã xoá sau khi Giai đoạn 3 gỡ PyMuPDF hoàn toàn (không còn
+    bản cũ để so sánh nữa). Giữ NGUYÊN contract trả về (dict cùng key) -
+    không đổi bất kỳ caller nào."""
     import pypdfium2 as pdfium
 
     from packages.pdf_engine.text_layout import find_span_at, get_spans
