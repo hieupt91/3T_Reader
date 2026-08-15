@@ -62,6 +62,70 @@ def _fetch_sha256_sidecar(url: str) -> str:
         pass
     return ""
 
+class _ConversionThread(QThread):
+    """Chạy 1 hàm convert (COM Office/WPS hoặc subprocess LibreOffice) trên
+    thread nền - dùng chung cho mọi bước convert_*_to_pdf chặn lâu ở dưới.
+
+    Trước đây các hàm này (đặc biệt _try_convert_via_installed_office, B52)
+    bị gọi THẲNG trên main thread Qt trong lúc mở file lần đầu: COM
+    Automation khởi động Word/Excel lần đầu có thể mất vài giây tuỳ tải hệ
+    thống (đúng như comment trong packages/document_core/office_com.py tự
+    ghi rõ "BẮT BUỘC trên thread nền, không phải main thread Qt"), khiến cả
+    app treo không phản hồi ("overload") ngẫu nhiên khi mở Word/Excel lần
+    đầu - đúng triệu chứng người dùng báo (thấy lâu lâu có lúc có lúc
+    không, tuỳ tốc độ khởi động COM/LibreOffice lúc đó)."""
+
+    finished_conv = pyqtSignal(str, str)
+
+    def __init__(self, func, *args, **kwargs):
+        super().__init__()
+        self._func = func
+        self._args = args
+        self._kwargs = kwargs
+
+    def run(self):
+        try:
+            result = self._func(*self._args, **self._kwargs) or ""
+            self.finished_conv.emit(result, "")
+        except Exception as e:
+            self.finished_conv.emit("", str(e))
+
+
+def _run_conversion_with_progress(window, message: str, func, *args, **kwargs) -> str:
+    """Chạy `func` trên thread nền, hiện progress dialog và bơm event loop
+    Qt trong lúc chờ - giữ UI phản hồi thay vì treo cứng như subprocess.run/
+    COM call chặn thẳng trên main thread. Ném lại exception của `func` nếu
+    có, để caller giữ nguyên hành vi except Exception hiện có."""
+    progress_dlg = QProgressDialog(message, "", 0, 0, window)
+    progress_dlg.setWindowTitle(_t("doc.conv.title", "Xử lý tài liệu"))
+    progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
+    progress_dlg.setCancelButton(None)
+    progress_dlg.show()
+    _pump_qt_events()
+
+    thread = _ConversionThread(func, *args, **kwargs)
+    outcome = {"path": "", "error": ""}
+
+    def on_finished(path, error):
+        outcome["path"] = path
+        outcome["error"] = error
+
+    thread.finished_conv.connect(on_finished)
+    thread.start()
+
+    while thread.isRunning():
+        _pump_qt_events()
+        time.sleep(0.02)
+
+    thread.wait()
+    _pump_qt_events()
+    progress_dlg.close()
+
+    if outcome["error"]:
+        raise RuntimeError(outcome["error"])
+    return outcome["path"]
+
+
 class DownloadThread(QThread):
     progress = pyqtSignal(int)
     finished_dl = pyqtSignal(bool, str)
@@ -917,9 +981,46 @@ def _try_convert_via_installed_office(file_path: str) -> str:
     return str(expected_pdf) if ok and _validate_pdf(expected_pdf) else ""
 
 
+def _convert_via_libreoffice_once(lo_bin: str, file_path: str, out_dir: Path, expected_pdf: Path, profile_dir: Path) -> str:
+    cmd = [
+        lo_bin, "--headless", "--invisible", "--nodefault",
+        "--nofirststartwizard", "--nolockcheck", "--nologo", "--norestore",
+        f"-env:UserInstallation={profile_dir.as_uri()}",
+        "--convert-to", "pdf", "--outdir", str(out_dir), file_path
+    ]
+
+    if sys.platform == "win32":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            startupinfo=startupinfo,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=180,
+        )
+    else:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
+
+    return str(expected_pdf) if _validate_pdf(expected_pdf) else ""
+
+
 def convert_office_to_pdf(window, file_path: str) -> str:
-    # 0. B52: thử Office/WPS đã cài sẵn trước - nhanh hơn, không cần tải gì
-    via_office = _try_convert_via_installed_office(file_path)
+    # 0. B52: thử Office/WPS đã cài sẵn trước - chạy trên thread nền (xem
+    # _ConversionThread) vì COM Automation cold-start Word/Excel lần đầu có
+    # thể mất vài giây tuỳ tải hệ thống, gọi thẳng trên main thread trước
+    # đây khiến app treo không phản hồi ngẫu nhiên ("overload") - đúng lỗi
+    # người dùng báo khi mở Word/Excel lần đầu.
+    try:
+        via_office = _run_conversion_with_progress(
+            window,
+            _t("doc.conv.doing", "Đang chuyển đổi hiển thị (sẽ mất vài giây)..."),
+            _try_convert_via_installed_office, file_path,
+        )
+    except Exception:
+        via_office = ""
     if via_office:
         return via_office
 
@@ -938,61 +1039,36 @@ def convert_office_to_pdf(window, file_path: str) -> str:
                 return ""
         else:
             return ""
-            
+
     if not lo_bin:
         return ""
-        
-    # Show converting progress
-    progress_dlg = QProgressDialog(_t("doc.conv.doing", "Đang chuyển đổi hiển thị (sẽ mất vài giây)..."), "", 0, 0, window)
-    progress_dlg.setWindowTitle(_t("doc.conv.title", "Xử lý tài liệu"))
-    progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
-    progress_dlg.setCancelButton(None)
-    progress_dlg.show()
-    _pump_qt_events()
 
     out_dir = Path(tempfile.gettempdir()) / "3t_reader_docs"
     out_dir.mkdir(parents=True, exist_ok=True)
     expected_pdf = out_dir / (Path(file_path).stem + ".pdf")
     expected_pdf.unlink(missing_ok=True)
     profile_dir = Path(tempfile.mkdtemp(prefix="3t_lo_profile_"))
-    
+
     try:
-        # Optimize cold start speed by disabling all UI, locks, and recovery checks
-        cmd = [
-            lo_bin, "--headless", "--invisible", "--nodefault", 
-            "--nofirststartwizard", "--nolockcheck", "--nologo", "--norestore", 
-            f"-env:UserInstallation={profile_dir.as_uri()}",
-            "--convert-to", "pdf", "--outdir", str(out_dir), file_path
-        ]
-        
-        if sys.platform == "win32":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            subprocess.run(
-                cmd,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                startupinfo=startupinfo,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                timeout=180,
-            )
-        else:
-            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
-        
-        progress_dlg.close()
-        
-        if _validate_pdf(expected_pdf):
-            return str(expected_pdf)
+        # Chạy trên thread nền + bơm event loop (xem _ConversionThread) thay
+        # vì subprocess.run() chặn thẳng main thread tới 180s - LibreOffice
+        # cold-start (lần đầu trong ngày, disk cache nguội, antivirus quét
+        # profile mới) cũng là 1 nguồn "overload" ngẫu nhiên khác đã báo.
+        result = _run_conversion_with_progress(
+            window,
+            _t("doc.conv.doing", "Đang chuyển đổi hiển thị (sẽ mất vài giây)..."),
+            _convert_via_libreoffice_once, lo_bin, file_path, out_dir, expected_pdf, profile_dir,
+        )
+        if result:
+            return result
         QMessageBox.warning(
             window,
             _t("common.error", "Lỗi"),
             _t("doc.conv.fail", "Chuyển đổi thất bại: ") + "LibreOffice không tạo được PDF hợp lệ.",
         )
     except Exception as e:
-        progress_dlg.close()
         QMessageBox.warning(window, _t("common.error", "Lỗi"), _t("doc.conv.fail", "Chuyển đổi thất bại: ") + str(e))
-        
+
     finally:
         shutil.rmtree(profile_dir, ignore_errors=True)
 
