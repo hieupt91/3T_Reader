@@ -493,7 +493,18 @@ class PDFViewerWidget(QtWidgets.QWidget):
                     function onRender() {{
                         app.pdfViewer.eventBus.off('pagerendered', onRender);
                         restoreScroll();
-                        setTimeout(function() {{ restoreScroll(); removeFreeze(); }}, 80);
+                        // app.open() có thể đã dựng lại eventBus mới - hook cũ
+                        // của update_ops() (nếu gắn vào eventBus TRƯỚC đó) có
+                        // thể không còn tác dụng. Gọi thẳng __3tRenderOps() ở
+                        // đây đảm bảo ảnh/chữ đã chèn luôn hiện lại đúng sau
+                        // mỗi lần soft-reload, không phụ thuộc hook có còn
+                        // sống hay không (xem chú thích trong update_ops()).
+                        if (window.__3tRenderOps) window.__3tRenderOps();
+                        setTimeout(function() {{
+                            restoreScroll();
+                            if (window.__3tRenderOps) window.__3tRenderOps();
+                            removeFreeze();
+                        }}, 80);
                     }}
                     app.pdfViewer.eventBus.on('pagerendered', onRender);
                     try {{ app.pdfViewer.eventBus.on('pagesloaded', restoreScroll); }} catch (_) {{}}
@@ -503,6 +514,7 @@ class PDFViewerWidget(QtWidgets.QWidget):
                         app.pdfViewer.eventBus.off('pagerendered', onRender);
                         clearInterval(_restoreTimer);
                         restoreScroll();
+                        if (window.__3tRenderOps) window.__3tRenderOps();
                         removeFreeze();
                     }}, 900);
                 }}).catch(function(e) {{
@@ -534,8 +546,18 @@ class PDFViewerWidget(QtWidgets.QWidget):
         js = f"""
         (function() {{
             window.__3tOps = {ops_json};
-            
-            function renderOps() {{
+
+            // window.__3tRenderOps (không phải hàm cục bộ) để reload_soft()
+            // - 1 khối JS tiêm riêng, không cùng closure - có thể gọi lại
+            // TRỰC TIẾP ngay sau khi app.open() load xong tài liệu, thay vì
+            // chỉ trông cậy vào hook 'pagerendered' bên dưới (hook đó chỉ gắn
+            // ĐÚNG 1 LẦN - nếu app.open() khiến PDF.js dựng lại eventBus mới,
+            // hook cũ trỏ vào eventBus cũ không còn tác dụng, nhưng
+            // window.__3tOpsHooked vẫn = true nên không bao giờ gắn lại được
+            // nữa -> ảnh/chữ đã chèn "biến mất" sau 1 lần soft-reload tiếp
+            // theo, không hiện lại nữa dù dữ liệu ops vẫn còn đúng (lỗi thật:
+            // "chèn hình thành công nhưng hiển thị lại không ra").
+            window.__3tRenderOps = function renderOps() {{
                 if (!window.__3tOps) return;
                 var app = window.PDFViewerApplication;
                 if (!app || !app.pdfViewer) return;
@@ -620,13 +642,13 @@ class PDFViewerWidget(QtWidgets.QWidget):
                 }});
             }}
             
-            renderOps();
-            
+            window.__3tRenderOps();
+
             if (!window.__3tOpsHooked) {{
                 window.__3tOpsHooked = true;
                 if (window.PDFViewerApplication && window.PDFViewerApplication.pdfViewer) {{
-                    window.PDFViewerApplication.pdfViewer.eventBus.on('pagerendered', renderOps);
-                    window.PDFViewerApplication.pdfViewer.eventBus.on('scalechanged', function() {{ setTimeout(renderOps, 50); }});
+                    window.PDFViewerApplication.pdfViewer.eventBus.on('pagerendered', window.__3tRenderOps);
+                    window.PDFViewerApplication.pdfViewer.eventBus.on('scalechanged', function() {{ setTimeout(window.__3tRenderOps, 50); }});
                 }}
             }}
         }})();
