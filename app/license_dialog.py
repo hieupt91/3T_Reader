@@ -210,6 +210,98 @@ QFrame#or_line { background: #E2E8F0; }
 """
 
 
+_PLAN_NAMES = {
+    "free": "Miễn Phí", "personal": "Cá Nhân", "enterprise": "Doanh Nghiệp",
+    "3tr-b": "Cơ Bản", "3tr-p": "Cá Nhân", "3tr-e": "Doanh Nghiệp",
+}
+_HIGHEST_PLAN_CODES = {"enterprise", "3tr-e"}
+
+
+def _plan_label(plan_code: str) -> str:
+    code = (plan_code or "free").lower().strip()
+    return _PLAN_NAMES.get(code, code.upper())
+
+
+def _is_highest_plan(plan_code: str) -> bool:
+    return (plan_code or "").lower().strip() in _HIGHEST_PLAN_CODES
+
+
+# ── info dialog (B42) ───────────────────────────────────────────────────────
+
+class LicenseInfoDialog(QDialog):
+    """Hiện khi license ĐANG active và người dùng bấm vào dòng/badge license
+    - trước đây bấm vào đó luôn mở thẳng form nhập key (trống), khiến người
+    dùng tưởng phải nhập lại key. Dialog này chỉ hiện thông tin đã kích hoạt
+    + gói hiện tại; chỉ hiện nút "Nâng cấp / Đổi key" nếu CHƯA phải gói cao
+    nhất (enterprise/3tr-e)."""
+
+    def __init__(self, parent, status, show_trial_option: bool = False):
+        super().__init__(parent)
+        self._status = status
+        self._show_trial_option = show_trial_option
+        self._want_upgrade = False
+        self.setWindowTitle("Thông tin License")
+        self.setModal(True)
+        self.setStyleSheet(_build_style(is_dark()))
+        self.setWindowFlags(
+            Qt.WindowType.Dialog |
+            Qt.WindowType.CustomizeWindowHint |
+            Qt.WindowType.WindowTitleHint
+        )
+        self.setMinimumSize(420, 220)
+        self._build_ui()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(32, 28, 32, 24)
+        root.setSpacing(0)
+
+        title = QLabel("✓  Đã kích hoạt thành công")
+        title.setObjectName("title")
+        root.addWidget(title)
+        root.addSpacing(10)
+
+        plan_label = _plan_label(self._status.plan_code)
+        exp = getattr(self._status, "expires_at", None)
+        exp_str = exp.strftime("%d/%m/%Y") if exp else "không xác định"
+        info = QLabel(f"Gói hiện tại: {plan_label}\nHết hạn: {exp_str}")
+        info.setObjectName("subtitle")
+        info.setWordWrap(True)
+        root.addWidget(info)
+
+        root.addStretch()
+
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
+        root.addWidget(div)
+        root.addSpacing(16)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+
+        btn_close = QPushButton("Đóng")
+        btn_close.setObjectName("btn_quit")
+        btn_close.clicked.connect(self.accept)
+        btn_row.addWidget(btn_close)
+        btn_row.addStretch()
+
+        if not _is_highest_plan(self._status.plan_code):
+            btn_upgrade = QPushButton("Nâng cấp / Đổi key")
+            btn_upgrade.setObjectName("btn_activate")
+            btn_upgrade.clicked.connect(self._on_upgrade)
+            btn_row.addWidget(btn_upgrade)
+
+        root.addLayout(btn_row)
+
+    def _on_upgrade(self):
+        self._want_upgrade = True
+        self.accept()
+
+    def wants_upgrade(self) -> bool:
+        return self._want_upgrade
+
+
 # ── dialog ───────────────────────────────────────────────────────────────────
 
 class LicenseActivationDialog(QDialog):
@@ -497,6 +589,7 @@ def check_license_on_startup(window) -> bool:
                 _start_heartbeat(window, client)
             else:
                 _show_license_badge(window, "free", None)
+            _update_license_menu_rows(window, status)
 
         QTimer.singleShot(0, _apply_status)
 
@@ -537,22 +630,64 @@ def require_plan(window, feature_name: str, allowed_plans: list[str]) -> bool:
         "Bạn có muốn nhập mã Nâng cấp Bản quyền ngay bây giờ không?",
     )
     if reply == QMessageBox.StandardButton.Yes:
-        open_license_dialog(window)
+        open_license_dialog(window, force_key_form=True)
     return False
 
 
-def open_license_dialog(window):
-    """Mở dialog từ menu License — dùng khi app đang chạy."""
+def open_license_dialog(window, *, force_key_form: bool = False):
+    """Mở dialog từ menu License / badge / ribbon — dùng khi app đang chạy.
+
+    B42: nếu license ĐANG active và không bị ép mở form nhập key
+    (force_key_form), hiện LicenseInfoDialog (chỉ thông tin + nút nâng cấp
+    có điều kiện) thay vì mở thẳng form nhập key trống - trước đây bấm vào
+    badge/dòng license đã kích hoạt vẫn luôn bắt nhập lại key."""
     from packages.license_client import get_license_client
     status = get_license_client().validate_cached()
+
+    if status.active and not force_key_form:
+        info_dlg = LicenseInfoDialog(window, status)
+        info_dlg.exec()
+        if not info_dlg.wants_upgrade():
+            return
+        # Người dùng bấm "Nâng cấp / Đổi key" trong info dialog -> mở tiếp
+        # form nhập key thật (rơi xuống nhánh dưới).
 
     dlg = LicenseActivationDialog(window, show_trial_option=not status.active, current_status=status)
     dlg.exec()
     if dlg.was_activated():
         r = dlg.get_activation_result()
         _remove_trial_banner(window)
-        _show_license_badge(window, r.status.plan_code or "" if r else "", r.status.expires_at if r else None)
+        new_status = r.status if r else status
+        _show_license_badge(window, new_status.plan_code or "", new_status.expires_at)
+        _update_license_menu_rows(window, new_status)
         _start_heartbeat(window, get_license_client())
+
+
+def _update_license_menu_rows(window, status=None):
+    """B42: đổi nhãn dòng 'Kích hoạt / Nhập key...' (menu License + ribbon
+    'Kiểm tra key') thành dòng trạng thái đã kích hoạt khi license active,
+    và ngược lại khi hết hạn/thu hồi - để dòng "mời kích hoạt" không còn
+    hiện ra mời nhập lại key khi người dùng đã có license hợp lệ."""
+    active = bool(status and status.active)
+    plan_label = _plan_label(getattr(status, "plan_code", "")) if active else ""
+
+    menu_action = getattr(window, "_act_license_menu", None)
+    if menu_action is not None:
+        if active:
+            menu_action.setText(f"✓  Đã kích hoạt — {plan_label}")
+            menu_action.setToolTip("Xem thông tin license đã kích hoạt")
+        else:
+            menu_action.setText("🔑  Kích hoạt / Nhập key...")
+            menu_action.setToolTip("Kích hoạt / kiểm tra key license (Ctrl+Shift+L)")
+
+    ribbon_action = getattr(window, "_act_license_check", None)
+    if ribbon_action is not None:
+        if active:
+            ribbon_action.setText("Đã kích hoạt")
+            ribbon_action.setToolTip(f"License đang hoạt động — {plan_label}. Bấm để xem chi tiết")
+        else:
+            ribbon_action.setText("Kiểm tra key")
+            ribbon_action.setToolTip("Kích hoạt / kiểm tra key license (Ctrl+Shift+L)")
 
 
 def _show_license_badge(window, plan_code: str = "", expires_at=None):
@@ -679,6 +814,7 @@ def _stop_heartbeat(window):
 
 def _warn_expired(window):
     from app.dialogs import show_warning
+    _update_license_menu_rows(window, None)
     show_warning(
         window,
         "License hết hạn",

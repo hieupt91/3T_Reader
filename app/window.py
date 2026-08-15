@@ -2315,6 +2315,7 @@ class PDFReaderApp(QMainWindow):
         act_activate = menu_license.addAction("🔑  Kích hoạt / Nhập key...")
         act_activate.setShortcut(QKeySequence("Ctrl+Shift+L"))
         act_activate.triggered.connect(lambda: self._open_license_dialog())
+        self._act_license_menu = act_activate
 
         # Companion pairing (key doanh nghiệp 3TR-E) - Phase 1 theo
         # SPEC_TRANSFER_GATEWAY_V2.md. _open_transfer_pairing_dialog() tự
