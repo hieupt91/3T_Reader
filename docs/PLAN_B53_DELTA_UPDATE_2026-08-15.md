@@ -1,9 +1,8 @@
 # B53 — Kế hoạch triển khai Delta Update (VPS + Windows + macOS)
 
 **Ngày viết:** 15/08/2026
-**Trạng thái:** Chưa triển khai — tài liệu định hướng để làm, đã đọc source thật
-(nhánh `origin/phase1-backend`, `origin/phase1-win` = `piper-vps-sync`,
-`origin/phase1-mac`) chứ không suy đoán.
+**Trạng thái:** Windows client đã có check/stage/apply/recovery và công cụ tạo
+code package; VPS v2 và kiểm thử trên installer thật vẫn chưa triển khai.
 
 **Nguyên tắc cốt lõi (theo đúng đề xuất của anh):** API mới chạy **song
 song**, hoàn toàn tách biệt với API cũ. Không sửa 1 dòng nào trong luồng
@@ -202,10 +201,11 @@ def set_installed_base_version(value: str) -> None:
   verify SHA-256 + `code_signature`, giải nén vào 1 thư mục **TẠM RIÊNG**
   (`UpdateResult.path`). **Xong, đã test, đã commit.**
 
-**QUAN TRỌNG — CHƯA LÀM, phát hiện 1 vấn đề kỹ thuật thật cần thiết kế riêng
-trước khi làm tiếp:** hàm `stage_code_package()` ở trên CHỈ tải + verify +
-giải nén ra thư mục tạm — **KHÔNG ghi đè** vào bản cài hiện tại. Bước "apply"
-(ghi đè thật) cố tình CHƯA viết, vì:
+**ĐÃ LÀM (Windows):** gói đã xác thực được sao chép sang vùng pending ở
+AppData. Sau khi người dùng xác nhận, helper process riêng đợi GUI thoát rồi
+ghi đè theo journal + backup và khởi động lại app. Khi app khởi động, `main.py`
+khôi phục bản cũ nếu journal cho thấy lần áp dụng trước bị gián đoạn. Helper là
+cần thiết vì:
 
 `app/window.py`, `app/actions/pages.py`, `app/actions/annotate.py`,
 `packages/license_client/vps_client.py` được Nuitka compile thành `.pyd`

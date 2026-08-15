@@ -248,17 +248,9 @@ def check_for_update_v2(
     """B53: gọi /api/v2/update/check (route riêng, song song v1) - xem
     docs/PLAN_B53_DELTA_UPDATE_2026-08-15.md. Bất kỳ lỗi nào (mạng, JSON
     hỏng, thiếu field) đều rơi về available=False/update_type="none" - CHƯA
-    có hàm apply code package trong lần này (chỉ mới check_for_update_v2 +
-    stage_code_package: tải + verify + giải nén ra thư mục tạm). Bước "áp
-    dụng" (ghi đè file đang chạy) cần thiết kế riêng vì các module đã
-    Nuitka-compile (app/window.py, app/actions/pages.py,
-    app/actions/annotate.py, packages/license_client/vps_client.py - xem
-    build_secure.py) là .pyd thật, bị Windows khoá trong lúc app đang chạy,
-    không thể ghi đè trực tiếp như file .py thường - PHẢI có 1 bước app tự
-    thoát hẳn rồi 1 tiến trình riêng (hoặc chính main.py ở giai đoạn RẤT sớm,
-    trước khi import app.window) mới thực hiện ghi đè. Việc này CHƯA làm ở
-    đây, cố tình để lại rõ ràng thay vì che giấu bằng code "trông như hoàn
-    chỉnh" nhưng thật ra không dùng được."""
+    Việc ghi đè được thực hiện ở ``delta_runtime.py`` bởi helper process sau
+    khi GUI thoát; module này chỉ tải/xác thực/gỡ nén để UI có thể fallback về
+    full installer nếu bất kỳ bước nào thất bại."""
     try:
         url = f"{base_url.rstrip('/')}/api/v2/update/check"
         params = {
@@ -291,6 +283,33 @@ def check_for_update_v2(
         return UpdateInfoV2(available=False, update_type="none", current_version=current_version)
 
 
+def _safe_extract_code_package(archive_path: Path, extract_dir: Path) -> None:
+    """Extract without Zip Slip/symlink entries; a signed archive is still
+    untrusted input until its layout has been checked locally."""
+    import stat
+    import zipfile
+
+    with zipfile.ZipFile(archive_path) as zf:
+        members = zf.infolist()
+        if not members:
+            raise ValueError("Code package rong.")
+        for member in members:
+            candidate = Path(member.filename.replace("\\", "/"))
+            if candidate.is_absolute() or ".." in candidate.parts:
+                raise ValueError("Code package chua duong dan khong an toan.")
+            mode = member.external_attr >> 16
+            if stat.S_ISLNK(mode):
+                raise ValueError("Code package khong duoc chua symbolic link.")
+        for member in members:
+            if member.is_dir():
+                continue
+            destination = extract_dir / Path(member.filename)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(member) as source, destination.open("wb") as target:
+                while chunk := source.read(65536):
+                    target.write(chunk)
+
+
 def stage_code_package(
     update_info: UpdateInfoV2,
     progress_cb: Callable[[int], None] | None = None,
@@ -314,7 +333,6 @@ def stage_code_package(
     try:
         import json
         import requests
-        import zipfile
 
         url_path = update_info.code_package_url.split("?")[0]
         filename = url_path.split("/")[-1] or "code_package.zip"
@@ -357,8 +375,7 @@ def stage_code_package(
 
         extract_dir = tmp_dir / "extracted"
         extract_dir.mkdir()
-        with zipfile.ZipFile(archive_path) as zf:
-            zf.extractall(extract_dir)
+        _safe_extract_code_package(archive_path, extract_dir)
 
         if progress_cb:
             progress_cb(100)

@@ -10,7 +10,8 @@ from packages.qt_compat.QtCore import QObject, pyqtSignal
 
 from app.config import UPDATE_MANIFEST_URL
 from app.version import APP_VERSION
-from packages.updater.update_client import UpdateInfo, download_update
+from packages.updater.base_version import get_installed_base_version
+from packages.updater.update_client import UpdateInfo, check_for_update_v2, download_update
 
 
 class UpdateCheckWorker(QObject):
@@ -34,7 +35,20 @@ class UpdateCheckWorker(QObject):
             base_url = self._base_url or VPS_LICENSE_BASE_URL
             current_version = self._current_version or APP_VERSION
             platform = "win" if sys.platform == "win32" else "mac"
-            info = check_for_update(base_url, current_version, platform=platform)
+            # B53 uses a separate endpoint.  Any unavailable/error response
+            # deliberately falls back to the proven v1 full-installer flow.
+            if sys.platform == "win32":
+                v2_info = check_for_update_v2(
+                    base_url, current_version, get_installed_base_version(), platform="windows"
+                )
+                if v2_info.available:
+                    info = v2_info
+                else:
+                    info = check_for_update(base_url, current_version, platform=platform)
+            else:
+                # B53's helper/bootstrap is Windows-specific.  macOS remains
+                # on the verified v1 installer path until its equivalent is built.
+                info = check_for_update(base_url, current_version, platform=platform)
             if info.available:
                 self.available.emit(info)
             else:

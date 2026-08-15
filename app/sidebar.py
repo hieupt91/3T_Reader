@@ -303,7 +303,15 @@ class ThumbnailSidebar(QDockWidget):
             return
 
         if self._loader and self._loader.isRunning():
-            self._pending_pages = page_numbers
+            # Gộp (không ghi đè) - nếu 2 lần tính lại phạm vi hiển thị chồng
+            # nhau lúc loader cũ còn chạy (vd. scrollToItem lúc chọn trang
+            # kích hoạt nhiều signal liên tiếp), ghi đè sẽ làm rơi mất trang
+            # đã được yêu cầu ở lần trước nhưng chưa kịp render, nếu lần tính
+            # sau không còn tính trang đó vào phạm vi (đúng nguyên nhân
+            # thumbnail trang liền kề trang đang chọn luôn trắng - xác nhận
+            # thật qua QA GUI test 15/08/2026, xem QA_REPORT/BUG_REPORT.md).
+            merged = list(dict.fromkeys(self._pending_pages + page_numbers))
+            self._pending_pages = [p for p in merged if p not in self._loaded_pages]
             self._loader.requestInterruption()
             return
 

@@ -84,7 +84,13 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    noarchive=False,
+    # B53: keep our pure-Python application modules as individual .pyc files
+    # in _internal instead of sealing them inside the executable's PYZ archive.
+    # That creates a clearly bounded, patchable "code layer" while native
+    # runtime libraries (Qt/Python/Tesseract) remain in the base install.
+    # The delta updater only ever writes a verified allow-list beneath
+    # _internal; the executable and bootstrap are never delta-patched.
+    noarchive=True,
     optimize=0,
 )
 pyz = PYZ(a.pure)

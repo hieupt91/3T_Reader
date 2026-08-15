@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import os
 
 from packages.qt_compat.QtCore import QObject, Signal
 from packages.qt_compat.QtWidgets import (
@@ -97,15 +98,40 @@ class UpdateDialog(QDialog):
 
         def _worker():
             try:
-                from packages.updater.update_client import download_update
+                from packages.updater.update_client import UpdateInfo, UpdateInfoV2, download_update, stage_code_package
 
-                result = download_update(
-                    self._info,
-                    progress_cb=lambda pct: sigs.progress.emit(int(pct)),
-                )
+                if isinstance(self._info, UpdateInfoV2) and self._info.update_type == "delta":
+                    try:
+                        result = stage_code_package(self._info, progress_cb=lambda pct: sigs.progress.emit(int(pct)))
+                        if not result.success:
+                            raise RuntimeError(result.error or "Khong the chuan bi ban va delta.")
+                        from packages.updater.delta_runtime import prepare_pending_update
+
+                        target = getattr(sys, "_MEIPASS", "")
+                        if not target:
+                            raise RuntimeError("Delta update chi ho tro ban dong goi Windows.")
+                        extracted_dir = result.path
+                        result.path = prepare_pending_update(
+                            extracted_dir, target, version=self._info.latest_version, base_version=self._info.base_version
+                        )
+                        import shutil
+                        shutil.rmtree(os.path.dirname(extracted_dir), ignore_errors=True)
+                        result._delta = True
+                    except Exception:
+                        # The v2 response also contains a signed full package.
+                        # Never leave the user stuck because the smaller patch fails.
+                        full_info = UpdateInfo(
+                            available=True, current_version=self._info.current_version,
+                            latest_version=self._info.latest_version, download_url=self._info.download_url,
+                            sha256=self._info.sha256, signature=self._info.signature,
+                            release_notes=self._info.release_notes,
+                        )
+                        result = download_update(full_info, progress_cb=lambda pct: sigs.progress.emit(int(pct)))
+                else:
+                    result = download_update(self._info, progress_cb=lambda pct: sigs.progress.emit(int(pct)))
                 if not result.success:
                     raise RuntimeError(result.error or "Khong tai duoc ban cap nhat.")
-                sigs.finished.emit(result.path)
+                sigs.finished.emit("delta:" + result.path if getattr(result, "_delta", False) else result.path)
             except Exception as exc:
                 sigs.error.emit(str(exc))
 
@@ -117,10 +143,10 @@ class UpdateDialog(QDialog):
     def _on_finished(self, path: str):
         self._path = path
         self._bar.setValue(100)
-        self._status_lbl.setText("Tai xong! Nhan 'Cai dat ngay' de cap nhat.")
+        self._status_lbl.setText("Tai xong! Nhan 'Khoi dong lai de cap nhat' de ap dung." if path.startswith("delta:") else "Tai xong! Nhan 'Cai dat ngay' de cap nhat.")
         self._btn_later.setEnabled(True)
         self._btn_main.setEnabled(True)
-        self._btn_main.setText("Cai dat ngay")
+        self._btn_main.setText("Khoi dong lai de cap nhat" if path.startswith("delta:") else "Cai dat ngay")
         try:
             self._btn_main.clicked.disconnect()
         except Exception:
@@ -142,6 +168,17 @@ class UpdateDialog(QDialog):
         import subprocess
 
         path = self._path
+        if path.startswith("delta:"):
+            from packages.updater.delta_runtime import spawn_apply_helper
+
+            state_dir = path[len("delta:"):]
+            executable = sys.executable
+            spawn_apply_helper(state_dir, parent_pid=os.getpid(), executable=executable)
+            self.accept()
+            parent = self.parent()
+            if parent:
+                parent.close()
+            return
         if sys.platform == "darwin":
             subprocess.Popen(["open", path])
         elif sys.platform == "win32":

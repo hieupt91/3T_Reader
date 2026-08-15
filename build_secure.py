@@ -2,21 +2,28 @@ import os
 import sys
 import shutil
 import subprocess
+import argparse
+import tempfile
 from pathlib import Path
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Build 3T Reader without overwriting an existing artifact by accident.")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Destination for the finished one-dir build (default: dist/3T_Reader_Secure).",
+    )
+    args = parser.parse_args(argv)
     print("=== 3T READER SECURE BUILD PIPELINE ===")
     print("1. Preparing secure build environment...")
     
     # We will compile the sensitive files in-place (or rather, we backup, compile, and restore)
     # But to be safe, we'll create a temporary build directory
     src_dir = Path(os.getcwd())
-    build_dir = src_dir / "build_secure_tmp"
-    
-    if build_dir.exists():
-        shutil.rmtree(build_dir, ignore_errors=True)
-        
-    os.makedirs(build_dir, exist_ok=True)
+    # A unique directory means an interrupted build never blocks a later one
+    # and, importantly, we never need to delete a previous diagnostic build.
+    build_dir = Path(tempfile.mkdtemp(prefix="3t_reader_secure_build_", dir=src_dir))
     
     # Copy essential directories to build_secure_tmp
     build_items = ["app", "assets", "core", "packages", "styles", "third_party", "main.py", "3T_Reader.spec"]
@@ -82,7 +89,9 @@ def main():
     # Note: 3T_Reader.spec produces a directory by default. 
     # If it produces an EXE, we copy the EXE.
     built_dist = build_dir / "dist" / "3T_Reader"
-    target_dist = dist_dir / "3T_Reader_Secure"
+    target_dist = (args.output_dir or (dist_dir / "3T_Reader_Secure")).resolve()
+    if target_dist.parent != dist_dir.resolve() and args.output_dir is None:
+        raise ValueError("Default output must remain inside dist.")
     
     if target_dist.exists():
         shutil.rmtree(target_dist, ignore_errors=True)
