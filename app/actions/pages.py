@@ -32,6 +32,23 @@ def _auto_commit_edit_state(window) -> bool:
     try:
         from app.actions.edit import _get_edit_state, save_edits_quiet
         if _get_edit_state(window):
+            # Đối tượng vừa chèn (ảnh/chữ) có thể đang hiện khung chọn để
+            # xoay/di chuyển (_run_object_action_session, app/actions/edit.py)
+            # - hàm đó đang chờ trong 1 QEventLoop lồng nhau, VẪN xử lý được
+            # click này chen ngang. Nếu cứ chạy save/reset ngay bây giờ, file
+            # tạm của session đang treo dở đó bị xoá ngay dưới chân nó, lúc nó
+            # xử lý tiếp sẽ báo lỗi "No such file or directory" (lỗi thật).
+            # An toàn hơn là từ chối, để người dùng bấm Enter/Esc hoàn tất
+            # thao tác đang dở trước.
+            if getattr(window, "_object_action_session_active", False):
+                show_warning(
+                    window,
+                    "Đang có thao tác dở dang",
+                    "Đối tượng vừa chèn đang chờ xác nhận (xoay/di chuyển/xoá).\n"
+                    "Vui lòng nhấn Enter hoặc Esc để hoàn tất thao tác đó trước, "
+                    "rồi thử lại.",
+                )
+                return False
             return save_edits_quiet(window)
     except Exception:
         pass

@@ -1324,7 +1324,23 @@ def _run_object_action_session(window, state, target_op, web_view=None, retry_co
         )
         web_view.page().runJavaScript(js, _js_ran)
         QTimer.singleShot(10_000, lambda: _finish("dismiss"))
-        loop.exec()
+        # loop.exec() dưới đây là QEventLoop LỒNG NHAU - Qt vẫn bơm sự kiện
+        # khác trong lúc chờ (tối đa 10s), nên 1 click "Xóa trang"/"Xoay
+        # trang" khác của người dùng CÓ THỂ chạy chen ngang ngay tại đây,
+        # gọi save_edits_quiet() -> _reset_edit_state() xoá thẳng
+        # base_snapshot/working_file trên đĩa của đúng session đang treo dở
+        # này - khi loop.exec() trả về, các bước xử lý tiếp theo (xoay/di
+        # chuyển/xoá đối tượng) đọc lại đường dẫn đã bị xoá đó, báo
+        # "[Errno 2] No such file or directory: ...work_xxxx.pdf" (lỗi thật:
+        # "xóa trang rồi thao tác gì một lát xóa lại thì báo lỗi"). Cờ dưới
+        # đây báo cho _auto_commit_edit_state() (app/actions/pages.py) biết
+        # đang có 1 session đối tượng treo dở để KHÔNG chạy save/reset chen
+        # ngang trong đúng khung thời gian này.
+        window._object_action_session_active = True
+        try:
+            loop.exec()
+        finally:
+            window._object_action_session_active = False
     finally:
         web_view.page().runJavaScript(_CLEAR_OBJECT_HANDLES_JS)
         _teardown_webchannel(web_view)
