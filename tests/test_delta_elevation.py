@@ -35,62 +35,59 @@ def test_relaunch_after_apply_is_deelevated_not_inherited(monkeypatch, tmp_path)
     token elevated của chính helper --apply-delta), khiến UI Automation/
     input mô phỏng từ tiến trình quyền thường không tương tác được (Windows
     UIPI) - vi phạm nguyên tắc least-privilege cho 1 app đọc PDF không cần
-    quyền admin liên tục. _launch_deelevated() phải đi qua
-    Shell.Application COM (chạy ở integrity level của Explorer, không phải
-    subprocess.Popen thẳng kế thừa token elevated hiện tại)."""
+    quyền admin liên tục. _launch_deelevated() phải relaunch qua
+    ``explorer.exe <path>`` (Explorer đã chạy sẵn ở integrity level thường
+    của user, nhận yêu cầu và tự CreateProcess) - không phải
+    subprocess.Popen thẳng kế thừa token elevated hiện tại.
+
+    Fix lần 1 (dùng win32com Shell.Application COM) tưởng đã xong nhưng khi
+    verify lại lần 2 trên bản cài thật (15/08/2026) app vẫn quay lại chạy
+    Admin - win32com/pythoncom là dependency dễ vỡ trong bản đóng gói
+    PyInstaller và lỗi bị nuốt im lặng không để lại dấu vết. Đổi sang
+    explorer.exe: chỉ dùng subprocess (stdlib), không phụ thuộc COM/pywin32
+    cho đường chính nữa."""
     from packages.updater import delta_runtime
-
-    shell_execute_calls = []
-
-    class _FakeShell:
-        def ShellExecute(self, *args):
-            shell_execute_calls.append(args)
-
-    class _FakeWin32Com:
-        class client:
-            @staticmethod
-            def Dispatch(name):
-                assert name == "Shell.Application"
-                return _FakeShell()
-
-    monkeypatch.setitem(__import__("sys").modules, "win32com", _FakeWin32Com())
-    monkeypatch.setitem(__import__("sys").modules, "win32com.client", _FakeWin32Com.client)
 
     popen_calls = []
     monkeypatch.setattr(delta_runtime.subprocess, "Popen", lambda *a, **kw: popen_calls.append((a, kw)))
-
-    delta_runtime._launch_deelevated(r"C:\Program Files\3T Reader\3T_Reader.exe", r"C:\Program Files\3T Reader")
-
-    assert len(shell_execute_calls) == 1, "phải relaunch qua Shell.Application COM (de-elevated), không subprocess.Popen thẳng"
-    assert popen_calls == [], "không được rơi xuống subprocess.Popen (kế thừa quyền elevated) khi COM de-elevation khả dụng"
-    assert shell_execute_calls[0][0] == r"C:\Program Files\3T Reader\3T_Reader.exe"
-    assert shell_execute_calls[0][3] == "open"
-
-
-def test_relaunch_falls_back_to_popen_if_com_unavailable(monkeypatch, tmp_path):
-    """Nếu win32com lỗi vì lý do gì đó, vẫn phải mở lại được app (thà chạy
-    quyền cao hơn cần thiết còn hơn app không tự mở lại được sau khi vá)."""
-    from packages.updater import delta_runtime
-
-    def _raise_import(name, *a, **k):
-        if name == "win32com.client":
-            raise ImportError("no win32com")
-        return __import__(name, *a, **k)
-
-    monkeypatch.delitem(__import__("sys").modules, "win32com", raising=False)
-    monkeypatch.delitem(__import__("sys").modules, "win32com.client", raising=False)
-
-    popen_calls = []
-    monkeypatch.setattr(delta_runtime.subprocess, "Popen", lambda *a, **kw: popen_calls.append((a, kw)))
-
-    import builtins
-    real_import = builtins.__import__
-    def _fake_import(name, *a, **k):
-        if name == "win32com.client":
-            raise ImportError("no win32com")
-        return real_import(name, *a, **k)
-    monkeypatch.setattr(builtins, "__import__", _fake_import)
 
     delta_runtime._launch_deelevated(r"C:\Program Files\3T Reader\3T_Reader.exe", r"C:\Program Files\3T Reader")
 
     assert len(popen_calls) == 1
+    args, kwargs = popen_calls[0]
+    assert args[0] == ["explorer.exe", r"C:\Program Files\3T Reader\3T_Reader.exe"], (
+        "phải relaunch qua explorer.exe (de-elevated), không gọi thẳng executable "
+        "(kế thừa token elevated của helper hiện tại)"
+    )
+    assert kwargs.get("cwd") == r"C:\Program Files\3T Reader"
+
+
+def test_relaunch_falls_back_to_elevated_popen_if_explorer_launch_fails(monkeypatch, tmp_path):
+    """Nếu subprocess.Popen(["explorer.exe", ...]) lỗi vì lý do gì đó, vẫn
+    phải mở lại được app (thà chạy quyền cao hơn cần thiết còn hơn app
+    không tự mở lại được sau khi vá) - và phải ghi lại lý do thất bại để
+    còn chẩn đoán được nếu tái diễn (khác lần trước, lỗi bị nuốt im lặng
+    hoàn toàn không để lại dấu vết)."""
+    from packages.updater import delta_runtime
+
+    popen_calls = []
+
+    def _fake_popen(*a, **kw):
+        if a[0][0] == "explorer.exe":
+            raise OSError("explorer.exe not found")
+        popen_calls.append((a, kw))
+
+    monkeypatch.setattr(delta_runtime.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(
+        __import__("packages.platform", fromlist=["get_app_data_dir"]),
+        "get_app_data_dir",
+        lambda: str(tmp_path),
+    )
+
+    delta_runtime._launch_deelevated(r"C:\Program Files\3T Reader\3T_Reader.exe", r"C:\Program Files\3T Reader")
+
+    assert len(popen_calls) == 1
+    assert popen_calls[0][0][0] == [r"C:\Program Files\3T Reader\3T_Reader.exe"]
+    log_file = tmp_path / "deelevation_fallback.log"
+    assert log_file.exists()
+    assert "explorer.exe" in log_file.read_text(encoding="utf-8")

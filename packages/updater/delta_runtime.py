@@ -247,20 +247,37 @@ def _launch_deelevated(executable: str, cwd: str) -> None:
     UI Automation, and simulated input all fail against a higher-integrity
     window), and more fundamentally it violates least-privilege - a PDF
     reader has no ongoing need for admin rights once the one-time protected
-    file swap is done. Routing the launch through Explorer's
-    Shell.Application COM object hands the actual CreateProcess call to
-    Explorer's own (non-elevated) process - a standard, documented
-    de-elevation technique, not a security bypass (Explorer already runs
-    at the user's normal integrity level regardless of who's asking).
+    file swap is done.
+
+    First fix used Explorer's Shell.Application COM object (win32com) to
+    hand the CreateProcess call to Explorer's own non-elevated process.
+    Re-verified live on the shipped installer (15/08/2026): the app STILL
+    came back elevated on a second delta cycle. win32com/pythoncom in a
+    frozen PyInstaller build is a known-fragile dependency (its DLLs live in
+    a side-loaded ``pywin32_system32`` directory and the failure was
+    swallowed silently here with zero diagnostics), so it is no longer
+    trusted as the primary path. ``explorer.exe <path>`` achieves the exact
+    same de-elevation - already-running Explorer (always non-elevated on an
+    interactive desktop) receives the request and does the actual launch -
+    using only subprocess, no COM/pywin32 dependency to break in a frozen
+    build.
     """
     try:
-        import win32com.client
-
-        shell = win32com.client.Dispatch("Shell.Application")
-        shell.ShellExecute(executable, "", cwd, "open", 1)
-    except Exception:
+        subprocess.Popen(["explorer.exe", executable], cwd=cwd)
+    except Exception as exc:
         # Vẫn còn hơn không mở lại được app cho người dùng - chỉ là quyền
         # cao hơn cần thiết, không phải lỗi nghiêm trọng bằng việc treo app.
+        # Ghi lại lý do thất bại (khác lần trước - COM lỗi im lặng không để
+        # lại dấu vết gì, không chẩn đoán được) để còn biết nguyên nhân nếu
+        # tái diễn.
+        try:
+            from packages.platform import get_app_data_dir
+
+            log_path = Path(get_app_data_dir()) / "deelevation_fallback.log"
+            with log_path.open("a", encoding="utf-8") as fh:
+                fh.write(f"{time.time()}: explorer.exe launch failed ({exc!r}), fell back to elevated Popen\n")
+        except Exception:
+            pass
         subprocess.Popen([executable], close_fds=True, cwd=cwd)
 
 
