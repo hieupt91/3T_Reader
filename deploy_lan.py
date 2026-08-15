@@ -20,8 +20,8 @@ from vps_secret import vps_password
 
 VERSION = APP_VERSION
 BASE_URL = "https://reader.3tcomputer.com/downloads"
-PUBLIC_INSTALLER_NAME = f"3TReader-{VERSION}-win-r8.exe"
-PUBLIC_PORTABLE_NAME = f"3TReader-{VERSION}-win-portable-r8.zip"
+PUBLIC_INSTALLER_NAME = f"3TReader-{VERSION}-win.exe"
+PUBLIC_PORTABLE_NAME = f"3TReader-{VERSION}-win-portable.zip"
 RELEASE_NOTES = (
     "Phiên bản 1.0.31 (bản build đầy đủ): dùng Microsoft Office/WPS Office "
     "đã cài sẵn (nếu có) để chuyển Word/Excel sang PDF - nhanh và ổn định "
@@ -39,19 +39,19 @@ RELEASE_NOTES = (
     "sửa icon file PDF hiển thị sai trong Windows Explorer chế độ xem chi "
     "tiết."
 )
-# Bản 1.0.34: bản "nền" (base) mới cho cơ chế cập nhật nhẹ B53 - từ bản này
-# trở đi, các bản vá lỗi thường chỉ cần tải delta nhỏ (vài MB), không cần cài
-# lại đầy đủ - chỉ khi nào đụng chính cơ chế cập nhật (như bản này) mới cần
-# cài đầy đủ 1 lần.
+# Bản 1.0.34.2: bản "nền" (base) mới cho cơ chế cập nhật nhẹ B53 - từ bản
+# này trở đi, các bản vá lỗi thường chỉ cần tải delta nhỏ (vài MB), không
+# cần cài lại đầy đủ - chỉ khi nào đụng chính cơ chế cập nhật (như bản này)
+# mới cần cài đầy đủ 1 lần.
 RELEASE_NOTES = (
-    "Phien ban 1.0.34: sua loi thumbnail trang ben canh trang dang xem "
-    "khong hien noi dung (luon trang trong khi thuc ra da co du lieu); "
-    "sua loi app chay du quyen Administrator sau khi tu khoi dong lai tu "
-    "ban va nhe; co lap tinh nang tu dong OCR sang tien trinh rieng de loi "
-    "OCR khong lam sap ca ung dung dang xem tai lieu; giao dien bo cai dat "
-    "chuyen nghiep hon (hinh anh thuong hieu, gioi thieu tinh nang trong "
-    "luc cai); tu ban nay tro di cac ban va loi thuong chi can tai ban va "
-    "nho vai MB thay vi tai lai toan bo."
+    "Phien ban 1.0.34.2: sua loi thumbnail trang ben canh trang dang xem "
+    "khong hien noi dung; sua loi app van chay quyen Administrator sau khi "
+    "tu khoi dong lai tu ban va nhe (doi sang co che de-elevate on dinh hon, "
+    "khong con phu thuoc COM/win32com de vo trong ban dong goi); sua thong "
+    "bao loi ky so PFX/USB ro rang hon khi bat Ky so dai han (LTV) voi "
+    "chung thu tu ky; co lap tinh nang tu dong OCR sang tien trinh rieng; "
+    "giao dien bo cai dat chuyen nghiep hon; tu ban nay tro di cac ban va "
+    "loi thuong chi can tai ban va nho vai MB thay vi tai lai toan bo."
 )
 
 REMOTE_CONFIG_PATH = "/home/hieupt/projects/3T_Reader/phase1-backend/data/admin-config.json"
@@ -116,13 +116,18 @@ def deploy() -> None:
         update_cfg["win_url"] = f"{BASE_URL}/{PUBLIC_INSTALLER_NAME}"
         update_cfg["win_sha256"] = installer_sha
         update_cfg["release_notes"] = RELEASE_NOTES
-        # B53: bản 1.0.34 đổi chính file bootstrap bất biến
-        # (packages/updater/delta_runtime.py, vá lỗi elevation) - đổi
-        # base_version để không có gói delta cũ nào (nếu còn sót) bị coi
-        # nhầm là tương thích với bản nền mới này. win_code_url/sha256/
+        # B53: bản 1.0.34.2 lại đổi chính file bootstrap bất biến
+        # (packages/updater/delta_runtime.py, vá lỗi elevation LẦN 2 - fix
+        # win32com COM ở base-1.1 không đáng tin cậy trong bản đóng gói,
+        # đổi sang explorer.exe) - đổi base_version để không có gói delta cũ
+        # (target base-1.1) bị coi nhầm là tương thích với bản nền mới này.
+        # win_legacy_base_floor đổi thành đúng version bắt đầu base-1.2 (chỉ
+        # bản NÀY trở đi mới thật sự có file base-1.2 - 1.0.34/1.0.34.1 vẫn
+        # là base-1.1, không được bắc cầu nhầm). win_code_url/sha256/
         # delta_enabled GIỮ NGUYÊN như hiện có trên server (không đụng) -
         # đợt release delta tiếp theo sẽ set lại đúng cho base_version mới.
-        update_cfg["win_base_version"] = "base-1.1"
+        update_cfg["win_base_version"] = "base-1.2"
+        update_cfg["win_legacy_base_floor"] = "1.0.34.2"
     if os.path.exists(portable_path):
         update_cfg["portable_url"] = f"{BASE_URL}/{PUBLIC_PORTABLE_NAME}"
         update_cfg["portable_sha256"] = sha256_file(portable_path)
