@@ -191,21 +191,45 @@ def set_installed_base_version(value: str) -> None:
     ...
 ```
 
-### 2.2. Thêm vào `update_client.py` (KHÔNG sửa `check_for_update`/`download_update` hiện có)
+### 2.2. Đã làm (15/08/2026) trong `update_client.py` (KHÔNG sửa `check_for_update`/`download_update` v1 hiện có)
 
 - `check_for_update_v2(base_url, current_version, current_base_version, platform="windows") -> UpdateInfoV2`
-  — gọi `/api/v2/update/check`, cùng pattern `_get()` đã có.
-- `_verify_code_signature(code_signature, payload_bytes) -> bool` — sao y
-  `_verify_signature()` hiện có (dùng chung `_EMBEDDED_PUBLIC_KEYS_B64`), chỉ
-  đổi payload thành `{base_version, code_package_url, code_package_sha256}`.
-- `download_code_package(update_info) -> UpdateResult` — tải
-  `code_package_url`, verify SHA-256 + `code_signature`, giải nén vào thư mục
-  tạm (KHÔNG ghi đè trực tiếp) trước, chỉ atomic-move đè lên `_internal/app`,
-  `_internal/packages`, `_internal/styles` sau khi giải nén + verify checksum
-  từng file trong gói THÀNH CÔNG hết. Nếu bất kỳ bước nào lỗi → xoá thư mục
-  tạm, trả `UpdateResult(success=False, ...)`, **caller phải tự động fallback
-  gọi `download_update()` (full installer) hiện có** — không bao giờ để app
-  ở trạng thái nửa vá.
+  — gọi `/api/v2/update/check`, cùng pattern `_get()` đã có. **Xong, đã test, đã commit.**
+- Tái dùng thẳng `_verify_signature()` hiện có (không viết hàm
+  `_verify_code_signature` riêng — cùng logic, chỉ đổi payload JSON thành
+  `{base_version, code_package_url, code_package_sha256}`).
+- `stage_code_package(update_info) -> UpdateResult` — tải `code_package_url`,
+  verify SHA-256 + `code_signature`, giải nén vào 1 thư mục **TẠM RIÊNG**
+  (`UpdateResult.path`). **Xong, đã test, đã commit.**
+
+**QUAN TRỌNG — CHƯA LÀM, phát hiện 1 vấn đề kỹ thuật thật cần thiết kế riêng
+trước khi làm tiếp:** hàm `stage_code_package()` ở trên CHỈ tải + verify +
+giải nén ra thư mục tạm — **KHÔNG ghi đè** vào bản cài hiện tại. Bước "apply"
+(ghi đè thật) cố tình CHƯA viết, vì:
+
+`app/window.py`, `app/actions/pages.py`, `app/actions/annotate.py`,
+`packages/license_client/vps_client.py` được Nuitka compile thành `.pyd`
+(xem `build_secure.py`) — đây là DLL Windows thật, bị hệ điều hành **khoá
+trong lúc app đang chạy** (khác hẳn file `.py` thường, đọc xong là nhả khoá
+ngay). Không thể ghi đè trực tiếp các file này khi app vẫn đang mở, giống
+hệt lý do mọi installer (kể cả Inno Setup đang dùng) đều bắt app phải THOÁT
+HẲN trước khi ghi file.
+
+**Hướng giải quyết (chưa làm, việc cần làm tiếp theo của B53):**
+- Cách A (đơn giản hơn): thêm 1 bước kiểm tra ở RẤT ĐẦU `main.py` — TRƯỚC
+  dòng `from app.window import PDFReaderApp` (dòng import này chính là lúc
+  Windows load `.pyd`, tức là lúc file bị khoá) — nếu có "code package đang
+  chờ áp dụng" (đánh dấu bằng 1 file marker trong thư mục tạm từ
+  `stage_code_package()`), thực hiện copy đè file NGAY LÚC ĐÓ (trước khi
+  import), rồi mới tiếp tục import bình thường. Vì đây là 1 process Python
+  MỚI vừa khởi động, chưa có `.pyd` nào được load, nên ghi đè được.
+- Cách B (an toàn hơn, phức tạp hơn): 1 tiến trình "updater helper" nhỏ tách
+  biệt (giống installer .exe) — app chính tự thoát, updater helper (không
+  phụ thuộc các `.pyd` bị khoá) làm việc ghi đè, xong tự khởi động lại app
+  chính.
+- Cả 2 cách đều cần: nếu ghi đè giữa chừng bị ngắt (mất điện, tắt máy đột
+  ngột) → app lần khởi động sau phải tự phát hiện trạng thái "nửa vá" và tự
+  tải lại full installer thay vì khởi động với code hỏng dở.
 
 ### 2.3. Nơi gọi (trong `app/window.py`, chỗ hiện đang gọi `check_for_update`)
 

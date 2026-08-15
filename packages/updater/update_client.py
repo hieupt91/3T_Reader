@@ -40,6 +40,28 @@ class UpdateInfo:
 
 
 @dataclass
+class UpdateInfoV2:
+    """B53: kết quả check_for_update_v2() - xem
+    docs/PLAN_B53_DELTA_UPDATE_2026-08-15.md. update_type "delta" chỉ khi
+    server xác nhận base_version khớp VÀ đã bật delta_enabled; mọi trường
+    hợp khác (kể cả lỗi mạng) coi như "full"/"none", KHÔNG bao giờ suy đoán
+    delta khi thiếu thông tin."""
+
+    available: bool
+    update_type: str = "none"  # "full" | "delta" | "none"
+    current_version: str = ""
+    latest_version: str = ""
+    base_version: str = ""
+    download_url: str = ""
+    sha256: str = ""
+    signature: str = ""
+    code_package_url: str = ""
+    code_package_sha256: str = ""
+    code_signature: str = ""
+    release_notes: str = ""
+
+
+@dataclass
 class UpdateResult:
     success: bool
     path: str = ""
@@ -214,4 +236,135 @@ def download_update(
             progress_cb(100)
         return UpdateResult(success=True, path=str(dest))
     except Exception as exc:
+        return UpdateResult(success=False, error=str(exc))
+
+
+def check_for_update_v2(
+    base_url: str,
+    current_version: str,
+    current_base_version: str,
+    platform: str = "windows",
+) -> UpdateInfoV2:
+    """B53: gọi /api/v2/update/check (route riêng, song song v1) - xem
+    docs/PLAN_B53_DELTA_UPDATE_2026-08-15.md. Bất kỳ lỗi nào (mạng, JSON
+    hỏng, thiếu field) đều rơi về available=False/update_type="none" - CHƯA
+    có hàm apply code package trong lần này (chỉ mới check_for_update_v2 +
+    stage_code_package: tải + verify + giải nén ra thư mục tạm). Bước "áp
+    dụng" (ghi đè file đang chạy) cần thiết kế riêng vì các module đã
+    Nuitka-compile (app/window.py, app/actions/pages.py,
+    app/actions/annotate.py, packages/license_client/vps_client.py - xem
+    build_secure.py) là .pyd thật, bị Windows khoá trong lúc app đang chạy,
+    không thể ghi đè trực tiếp như file .py thường - PHẢI có 1 bước app tự
+    thoát hẳn rồi 1 tiến trình riêng (hoặc chính main.py ở giai đoạn RẤT sớm,
+    trước khi import app.window) mới thực hiện ghi đè. Việc này CHƯA làm ở
+    đây, cố tình để lại rõ ràng thay vì che giấu bằng code "trông như hoàn
+    chỉnh" nhưng thật ra không dùng được."""
+    try:
+        url = f"{base_url.rstrip('/')}/api/v2/update/check"
+        params = {
+            "platform": platform,
+            "current_version": current_version,
+            "current_base_version": current_base_version,
+        }
+        data = _get(url, params=params)
+
+        latest = data.get("latest_version") or ""
+        update_type = data.get("update_type") or "none"
+        if not latest or update_type == "none":
+            return UpdateInfoV2(available=False, update_type="none", current_version=current_version, latest_version=latest)
+
+        return UpdateInfoV2(
+            available=True,
+            update_type=update_type if update_type in ("delta", "full") else "full",
+            current_version=current_version,
+            latest_version=latest,
+            base_version=data.get("base_version", ""),
+            download_url=data.get("download_url", ""),
+            sha256=data.get("sha256", ""),
+            signature=data.get("signature", ""),
+            code_package_url=data.get("code_package_url", ""),
+            code_package_sha256=data.get("code_package_sha256", ""),
+            code_signature=data.get("code_signature", ""),
+            release_notes=data.get("release_notes", ""),
+        )
+    except Exception:
+        return UpdateInfoV2(available=False, update_type="none", current_version=current_version)
+
+
+def stage_code_package(
+    update_info: UpdateInfoV2,
+    progress_cb: Callable[[int], None] | None = None,
+) -> UpdateResult:
+    """B53: tải + verify SHA-256 + verify code_signature + giải nén code
+    package vào 1 thư mục TẠM riêng - KHÔNG ghi đè bất cứ gì vào bản cài
+    hiện tại. `UpdateResult.path` trỏ tới thư mục đã giải nén sẵn sàng để 1
+    bước "apply" (chưa viết - xem check_for_update_v2 docstring) dùng sau.
+    Bất kỳ bước verify nào lỗi đều xoá sạch thư mục tạm và trả lỗi - caller
+    PHẢI tự fallback sang download_update() (full installer) khi
+    success=False, không có cách nào khác để hoàn tất update từ kết quả lỗi
+    này."""
+    if update_info.update_type != "delta" or not update_info.code_package_url:
+        return UpdateResult(success=False, error="Khong co code package de tai.")
+    if not update_info.code_package_sha256:
+        return UpdateResult(success=False, error="Manifest thieu SHA-256 code package - tu choi cap nhat.")
+    if not update_info.code_signature:
+        return UpdateResult(success=False, error="Manifest thieu chu ky code package - tu choi cap nhat.")
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="3t_reader_codepkg_"))
+    try:
+        import json
+        import requests
+        import zipfile
+
+        url_path = update_info.code_package_url.split("?")[0]
+        filename = url_path.split("/")[-1] or "code_package.zip"
+        archive_path = tmp_dir / filename
+
+        resp = requests.get(
+            update_info.code_package_url,
+            headers={"User-Agent": "3T-Reader-Updater/1.0"},
+            timeout=120,
+            stream=True,
+        )
+        resp.raise_for_status()
+        total = int(resp.headers.get("content-length", 0) or 0)
+        done = 0
+
+        with archive_path.open("wb") as fh:
+            for chunk in resp.iter_content(chunk_size=65536):
+                if not chunk:
+                    continue
+                fh.write(chunk)
+                done += len(chunk)
+                if progress_cb and total > 0:
+                    progress_cb(min(90, int(done * 90 / total)))
+
+        actual_sha256 = _sha256_file(archive_path)
+        if actual_sha256.lower() != update_info.code_package_sha256.lower():
+            raise ValueError(f"SHA-256 code package khong khop: expected={update_info.code_package_sha256}, got={actual_sha256}")
+
+        code_payload_bytes = json.dumps(
+            {
+                "base_version": update_info.base_version,
+                "code_package_sha256": update_info.code_package_sha256,
+                "code_package_url": update_info.code_package_url,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        if not _verify_signature(update_info.code_signature, code_payload_bytes):
+            raise ValueError("Chu ky code package khong hop le.")
+
+        extract_dir = tmp_dir / "extracted"
+        extract_dir.mkdir()
+        with zipfile.ZipFile(archive_path) as zf:
+            zf.extractall(extract_dir)
+
+        if progress_cb:
+            progress_cb(100)
+        return UpdateResult(success=True, path=str(extract_dir))
+    except Exception as exc:
+        import shutil
+
+        shutil.rmtree(tmp_dir, ignore_errors=True)
         return UpdateResult(success=False, error=str(exc))
