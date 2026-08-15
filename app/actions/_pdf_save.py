@@ -11,6 +11,24 @@ from app.local_server import LocalPDFJSServer
 
 
 _UNSET = object()
+
+
+def _same_path(a: str | None, b: str | None) -> bool:
+    """So sánh 2 đường dẫn có trỏ tới CÙNG 1 file thật hay không, bỏ qua khác
+    biệt vô hại (hoa/thường, dấu / và \\, tương đối/tuyệt đối). So sánh chuỗi
+    thô (==) trước đây khiến eligibility check của soft-reload
+    (replace_document_with_staged) trượt oan cho các file có 2 cách viết
+    đường dẫn khác nhau nhưng CÙNG 1 file - rơi xuống hard reload (nhấp
+    nháy + nhảy trang) dù đáng lẽ soft-reload được (lỗi thật: "đánh số
+    trang / xóa số trang trình xem vẫn bị reload")."""
+    if not a or not b:
+        return a == b
+    try:
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+    except Exception:
+        return a == b
+
+
 STALE_TEMP_MAX_AGE_SECONDS = 24 * 60 * 60
 _EDIT_TEMP_DIR_NAME = "reader_pdf_edit"
 _SIGN_TEMP_DIR_NAME = "reader_pdf_sig"
@@ -510,7 +528,7 @@ def replace_document_with_staged(
         soft_reload
         and hasattr(window, "viewer")
         and hasattr(window.viewer, "reload_soft")
-        and window.viewer._path == resolved_target
+        and _same_path(getattr(window.viewer, "_path", None), resolved_target)
     ):
         use_soft_reload = True
 

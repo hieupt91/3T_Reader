@@ -71,6 +71,18 @@ class _FakeWindow:
         return self._state.get("display_path")
 
 
+def test_same_path_ignores_slash_style_and_case(tmp_path):
+    target = tmp_path / "Doc.pdf"
+    forward = str(target).replace(os.sep, "/")
+    upper = str(target).upper()
+
+    assert _pdf_save._same_path(str(target), forward) is True
+    assert _pdf_save._same_path(str(target), upper) is True
+    assert _pdf_save._same_path(str(target), str(tmp_path / "Other.pdf")) is False
+    assert _pdf_save._same_path(None, None) is True
+    assert _pdf_save._same_path(str(target), None) is False
+
+
 def test_make_staged_pdf_path_uses_target_directory(tmp_path):
     target = tmp_path / "doc.pdf"
     staged = _pdf_save.make_staged_pdf_path(str(target))
@@ -130,6 +142,48 @@ def test_replace_document_with_staged_prefers_soft_reload_and_keeps_zoom(tmp_pat
     assert target.read_bytes() == b"new"
     assert window.viewer.soft_loaded == [(str(target), 4, "175")]
     assert window.viewer.loaded == []
+
+
+def test_replace_document_with_staged_soft_reload_tolerates_path_format_differences(tmp_path, monkeypatch):
+    """Lỗi ghi chú cũ: "đánh số trang / xóa số trang trình xem vẫn bị
+    reload" (nhấp nháy + nhảy trang, đáng lẽ phải soft-reload mượt). Nguyên
+    nhân: eligibility check dùng == so sánh CHUỖI THÔ (window.viewer._path
+    == resolved_target) - 2 chuỗi viết khác nhau (vd. hoa/thường) nhưng trỏ
+    tới CÙNG 1 file thật vẫn bị coi là "khác nhau", rơi xuống nhánh
+    "not use_soft_reload" - nhánh đó gọi release_viewer_file_lock() TRƯỚC,
+    hàm này điều hướng webview sang about:blank rồi mới quay lại = chính
+    cái nhấp nháy/"vẫn bị reload" người dùng thấy được, dù cuối cùng
+    reload_document() vẫn gọi reload_soft() (nên bản thân việc load lại
+    không phân biệt được qua viewer.loaded/soft_loaded - phải theo dõi
+    trực tiếp release_viewer_file_lock() mới thấy đúng khác biệt)."""
+    lock_release_calls = []
+    monkeypatch.setattr(_pdf_save, "release_viewer_file_lock", lambda w: lock_release_calls.append(w))
+
+    target = tmp_path / "doc.pdf"
+    target.write_bytes(b"old")
+    staged = _pdf_save.make_staged_pdf_path(str(target))
+    with open(staged, "wb") as fh:
+        fh.write(b"new")
+
+    window = _FakeWindow(str(target), temp_path=None, page=4)
+    window.viewer = _FakeSoftReloadViewer(page=4, zoom="175")
+    # Cùng 1 file thật, viết khác cách (hoa/thường - Windows filesystem
+    # không phân biệt nhưng so sánh chuỗi == thì có).
+    window.viewer._path = str(target).upper()
+
+    _pdf_save.replace_document_with_staged(
+        window,
+        staged,
+        target_path=str(target),
+        display_path=str(target),
+        temp_path=None,
+    )
+
+    assert target.read_bytes() == b"new"
+    assert lock_release_calls == [], (
+        "không được gọi release_viewer_file_lock() (điều hướng webview sang about:blank, "
+        "gây nhấp nháy) khi 2 chuỗi đường dẫn viết khác nhau nhưng CÙNG 1 file thật"
+    )
 
 
 def test_replace_document_with_staged_soft_reload_shows_loading_status(tmp_path, monkeypatch):
