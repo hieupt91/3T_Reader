@@ -4,7 +4,7 @@ name = "3t-reader"
 # directly via exec() at build time; nothing in this codebase reads the
 # version field below). Update this manually alongside app/version.py when
 # bumping releases - nothing enforces the two staying in sync automatically.
-version = "1.0.34"
+version = "1.0.34.1"
 description = "3T Reader desktop foundation for Windows and macOS"
 requires-python = ">=3.11"
 readme = "README.md"
