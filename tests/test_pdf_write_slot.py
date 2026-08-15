@@ -12,6 +12,8 @@ import inspect
 import threading
 import time
 
+import pytest
+
 from app.actions import annotate, document_ops, edit, pages, sign
 from app.actions._pdf_save import _active_pdf_writes, _normalise_path, pdf_write_slot
 
@@ -85,6 +87,26 @@ def test_second_writer_on_a_different_thread_waits_then_proceeds_after_first_rel
     thread_a.join(timeout=5.0)
 
     assert events == ["a_acquired", "a_released", "b_acquired"]
+
+
+def test_second_thread_never_proceeds_when_write_slot_times_out(tmp_path):
+    path = str(tmp_path / "a.pdf")
+    entered = threading.Event()
+    release = threading.Event()
+
+    def writer_a():
+        with pdf_write_slot(path):
+            entered.set()
+            release.wait(timeout=3.0)
+
+    first = threading.Thread(target=writer_a)
+    first.start()
+    assert entered.wait(timeout=2.0)
+    with pytest.raises(TimeoutError):
+        with pdf_write_slot(path, timeout_s=0.05):
+            pytest.fail("a concurrent writer must not enter")
+    release.set()
+    first.join(timeout=3.0)
 
 
 def test_old_non_reentrant_lock_fully_retired_from_every_writer_module():

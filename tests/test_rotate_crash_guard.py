@@ -11,6 +11,7 @@ worker-side error branch already did.
 from __future__ import annotations
 
 import os
+import inspect
 
 import pytest
 
@@ -73,3 +74,13 @@ def test_rotate_relay_reports_error_instead_of_crashing_on_replace_failure(qapp,
     assert "khóa tạm thời" in warnings[0][1]
     assert not tmp_file.exists()  # cleaned up on failure, not left behind
     assert window.status.messages == []  # success message must NOT fire on failure
+
+
+def test_rotate_uses_python_thread_not_qthread_lifetime():
+    """Closing/reloading a document must not destroy a live QThread worker."""
+    from app.actions import annotate
+
+    source = inspect.getsource(annotate._rotate_page)
+    assert "threading.Thread(" in source
+    assert "thread.started.connect" not in source
+    assert "thread.finished.connect" not in source

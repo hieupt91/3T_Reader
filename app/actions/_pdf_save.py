@@ -4,6 +4,7 @@ import contextlib
 import os
 import shutil
 import tempfile
+import threading
 import time
 
 from app.local_server import LocalPDFJSServer
@@ -355,6 +356,8 @@ def wait_for_thumbnail_idle(window, target_path: str | None, *, timeout_s: float
 
 
 _active_pdf_writes: set[str] = set()
+_pdf_write_owners: dict[str, int] = {}
+_pdf_write_depths: dict[str, int] = {}
 
 
 def _acquire_pdf_write_slot(target_path: str | None, *, timeout_s: float = 20.0) -> str:
@@ -367,16 +370,33 @@ def _acquire_pdf_write_slot(target_path: str | None, *, timeout_s: float = 20.0)
     norm = _normalise_path(target_path) or target_path or ""
     if not norm:
         return ""
+    owner = threading.get_ident()
+    if norm in _active_pdf_writes and _pdf_write_owners.get(norm) == owner:
+        _pdf_write_depths[norm] = _pdf_write_depths.get(norm, 1) + 1
+        return norm
     deadline = time.monotonic() + max(0.0, timeout_s)
     while norm in _active_pdf_writes and time.monotonic() < deadline:
+        # Qt event pumping can re-enter a writer on the GUI thread.  Preserve
+        # the historical bounded, non-deadlocking behaviour for that one
+        # thread; a different OS thread must never race through the lock.
         _pump_qt_events()
         time.sleep(0.05)
+    if norm in _active_pdf_writes:
+        raise TimeoutError("PDF dang duoc mot tac vu khac ghi; vui long thu lai sau.")
     _active_pdf_writes.add(norm)
+    _pdf_write_owners[norm] = owner
+    _pdf_write_depths[norm] = 1
     return norm
 
 
 def _release_pdf_write_slot(norm: str) -> None:
     if norm:
+        depth = _pdf_write_depths.get(norm, 1) - 1
+        if depth > 0:
+            _pdf_write_depths[norm] = depth
+            return
+        _pdf_write_depths.pop(norm, None)
+        _pdf_write_owners.pop(norm, None)
         _active_pdf_writes.discard(norm)
 
 
