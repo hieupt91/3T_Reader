@@ -18,6 +18,7 @@ env/
 /build_secure_tmp/
 /build_modules/
 /dist_obf/
+/3t_reader_secure_build_*/
 /tmp_portable_check/
 /tmp_portable_check_new/
 docs/api/_build/
