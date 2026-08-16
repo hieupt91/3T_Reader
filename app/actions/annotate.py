@@ -257,7 +257,7 @@ class _AnnotationOpQueue(QObject):
                     f"Lỗi gần nhất: {exc}",
                 )
                 return False
-            if hasattr(self._window, "status"):
+            if hasattr(self._window, "status") and self._fail_count >= _MAX_FLUSH_RETRIES - 1:
                 self._window.status.showMessage(f"Chưa lưu được chú thích, sẽ thử lại: {exc}", 3500)
             self._timer.start(1200)
             return False

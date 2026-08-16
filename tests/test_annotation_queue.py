@@ -113,6 +113,43 @@ class TestAnnotationOpQueueLogic:
         assert queue.flush(str(tmp_path / "doc.pdf")) is False
         assert "Đang lưu chú thích" in window.status.messages[-1][0]
 
+    def test_flush_retry_hides_raw_exception_until_near_final_attempt(self, monkeypatch, tmp_path):
+        """Lỗi ghi chú cũ: mở file PDF nặng vừa xong (còn đang được viewer/AV
+        đọc dở) khiến lần flush chú thích tự động ĐẦU TIÊN luôn dính
+        PermissionError thoáng qua, tự phục hồi sau vài lần retry (đã có sẵn
+        cơ chế 5 lần x 1.2s). Trước fix: status bar hiện thẳng raw
+        PermissionError ("[WinError 5] Access is denied: ...") ngay từ lần
+        thử đầu tiên dù đây là chuyện bình thường sắp tự khỏi, gây hoang
+        mang không cần thiết (QA 2026-08-16, mở file 700MB+ tái hiện 2/2
+        lần). Fix: chỉ hiện raw exception ở lần thử áp chót trước khi thật
+        sự báo lỗi vĩnh viễn."""
+        import pikepdf
+        from app.actions import annotate
+
+        target = tmp_path / "doc.pdf"
+        with pikepdf.new() as pdf:
+            pdf.save(str(target))
+
+        window = _make_qt_window()
+        queue = annotate._AnnotationOpQueue(window)
+        queue.enqueue(str(target), _FakeOp(), delay_ms=0)
+        queue._timer.stop()
+
+        def always_denied(*_args, **_kwargs):
+            raise PermissionError(13, "Access is denied")
+
+        monkeypatch.setattr(annotate, "replace_file_with_retry", always_denied)
+
+        # Các lần thử sớm: không được lộ raw exception ra status bar.
+        for _ in range(annotate._MAX_FLUSH_RETRIES - 2):
+            assert queue.flush() is False
+            assert "WinError" not in window.status.messages[-1][0]
+            assert "Access is denied" not in window.status.messages[-1][0]
+
+        # Lần thử áp chót (fail_count == MAX-1): mới hiện raw exception.
+        assert queue.flush() is False
+        assert "Access is denied" in window.status.messages[-1][0]
+
     def test_heavy_op_warning_explains_active_flush(self, monkeypatch, tmp_path):
         from app.actions import annotate
 
