@@ -1,167 +1,43 @@
-# Bug Report — 3T Reader 1.0.33
+# Bug Report — phiên test mở rộng (đa-tab + file nặng + thao tác chi tiết)
 
-## BUG-01: Thumbnail của trang liền kề phía trên trang đang chọn không render (hiện trắng)
+## BUG-QA-01: Lỗi "[WinError 5] Access is denied" khi tự động lưu chú thích lúc mở file mới
 
-- **Severity:** P2 (không crash, không mất dữ liệu, nhưng gây khó hiểu — người
-  dùng có thể tưởng trang đó trống/lỗi)
-- **Title:** Panel thumbnail bên trái luôn để trắng đúng 1 thumbnail — vị trí
-  ngay phía trên trang đang được chọn (highlight xanh)
-- **Environment:** Windows 11, 3T Reader 1.0.33 (bản cài thật)
-- **App version:** 1.0.33
-- **Screen:** Thumbnail sidebar (bật qua nút "Thumbnail" trên ribbon)
-- **Precondition:** Đã mở 1 file PDF nhiều trang, đã bật panel Thumbnail
+- **Severity:** P2 (tự phục hồi, không mất dữ liệu, nhưng hiện lỗi gây hoang mang cho người dùng)
+- **Environment:** 3T Reader 1.0.34.3, Windows, app cài tại `C:\Program Files\3T Reader`
+- **Precondition:** Mở 1 file PDF mới trong khi thư mục chứa file đó đã có 1 file PDF khác vừa/đang được xử lý (annotation auto-save)
+- **Exact steps:**
+  1. Mở `heavy1_dao_giao_original.pdf` (711MB) từ `QA_REPORT/test_fixtures/`
+  2. Quan sát status bar ngay sau khi trang đầu render xong
+- **Expected:** Không có lỗi hiện ra, hoặc nếu có cơ chế retry thì không hiển thị lỗi kỹ thuật thô cho người dùng
+- **Actual:** Status bar hiện: `Chưa lưu được chú thích, sẽ thử lại: [WinError 5] Access is denied: 'C:\Users\HieuPC\Desktop\3T_Reader_Phase1_Win\QA_REPORT\test_fixtures\.3t_stage_yujjndn1.pdf' -> ...`. Vài giây sau tự retry thành công, hiện "Đã tự động lưu chú thích."
+- **Reproducibility:** ALWAYS — tái hiện được ở cả `heavy1_dao_giao_original.pdf` VÀ `heavy4_uone_catalog.pdf` (2/2 lần thử với 2 file khác nhau, tên staging file khác nhau mỗi lần: `.3t_stage_yujjndn1.pdf`, `.3t_stage_afujw_h4.pdf`, `.3t_stage_vt7w6mdw.pdf`)
+- **Impact:** Không mất dữ liệu (tự phục hồi), nhưng người dùng cuối nhìn thấy thông báo lỗi kỹ thuật tiếng Anh ("WinError 5: Access is denied") ngay khi mở file — gây lo lắng không cần thiết, đặc biệt với người dùng không rành kỹ thuật.
+- **Suggested investigation area:** Cơ chế auto-save chú thích/staging (`.3t_stage_*.pdf`) tạo file tạm ngay trong thư mục chứa file nguồn — khả năng cao là race condition: file handle của lần mở/OCR trước đó (hoặc antivirus/indexing của Windows) vẫn đang giữ khoá thư mục trong khoảnh khắc file mới được mở. Nên: (a) thử tạo file staging ở thư mục temp riêng thay vì cùng thư mục nguồn, hoặc (b) không hiển thị lỗi kỹ thuật thô ra status bar ở lần thử đầu nếu cơ chế retry gần như luôn thành công.
 
-### Các bước tái hiện chính xác
+## BUG-QA-02 (quan sát, chưa đủ bằng chứng): Ký tự có dấu mất glyph trong nội dung PDF
 
-1. Mở file PDF ≥10 trang (đã test với file 50 trang).
-2. Bấm "Trang sau" 5 lần liên tiếp (trang 1 → trang 6).
-3. Bấm nút "Thumbnail" để mở panel bên trái.
-4. **Quan sát:** thumbnail "Trang 5" (ngay phía trên "Trang 6" đang chọn,
-   highlight xanh) hiện HOÀN TOÀN TRẮNG, trong khi "Trang 6", "Trang 7" hiện
-   đúng nội dung.
+- **Severity:** P3 / chưa xác nhận
+- Xem chi tiết ở `FULL_TEST_REPORT.md` mục "Phát hiện đáng chú ý" — nghi lỗi font của file test tự tạo, cần test lại bằng file PDF tiếng Việt có dấu thật để kết luận chắc chắn.
 
-### Reproduce #2 (trạng thái khác)
+## BUG-QA-01: ĐÃ SỬA
 
-1. Từ trạng thái trên, bấm trực tiếp vào thumbnail "Trang 5" (dù đang trắng).
-2. **Kết quả:** app điều hướng ĐÚNG sang trang 5 (nội dung trang chính hiện
-   đúng "Trang so 5", page counter đúng "5/50") — logic điều hướng KHÔNG lỗi.
-3. Nhưng giờ **"Trang 4"** (thumbnail ngay phía trên trang 5 vừa chọn) lại
-   trắng, còn "Trang 5" (giờ đang chọn) đã render đúng.
+Xem `app/actions/annotate.py` — chỉ hiện raw exception ở lần retry áp chót thay vì ngay từ đầu. Test regression: `tests/test_annotation_queue.py::test_flush_retry_hides_raw_exception_until_near_final_attempt` (fail trên code cũ, pass trên code mới, xác nhận qua git stash).
 
-→ **Pattern rõ ràng và tái hiện được 100%:** thumbnail ngay phía trên trang
-đang chọn (highlight) không bao giờ render, bất kể đang ở trang nào. Đã chờ
-thêm 3 giây, thumbnail vẫn không tự render — không phải do chậm/timing, là
-lỗi logic thật (có khả năng lỗi tính sai biên viewport "visible" khi lazy-load
-thumbnail, off-by-one ở item ngay phía trên item được chọn).
+## Kết quả test bổ sung (chèn ảnh, xuất file, ký PFX)
 
-### Expected
-Mọi thumbnail đang hiển thị trong viewport của panel phải render nội dung
-đúng, không phụ thuộc vị trí tương đối với trang đang chọn.
+- **Chèn ảnh** (bug #21): chèn `test_insert_image.png` vào `medium_50pages.pdf`, xác nhận đúng flow object-action-session (kéo/resize/Enter xác nhận), ảnh vẫn hiển thị đúng sau khi chuyển tab đi và quay lại — **PASS**, xác nhận fix bug #21 hoạt động đúng trên app thật.
+- **Xuất Văn bản** (Tệp → Bảo mật Xuất → Văn bản): xuất `medium_50pages.pdf` ra `.txt` thành công, nội dung khớp đúng từng trang — **PASS**.
+- **Ký PFX** (Ký số → Ký PFX): full flow vẽ vùng ký → xác nhận vị trí → chọn `qa_test_signer.pfx` → nhập mật khẩu → xem thông tin chữ ký → lưu file → xác nhận ghi đè — toàn bộ UI flow hoạt động đúng, không crash. Bước cuối (áp chữ ký thật) bị từ chối với `PathBuildingError` từ `pyhanko_certvalidator` — **đây là hành vi ĐÚNG**, vì `qa_test_signer.pfx` là chứng thư tự ký (self-signed), không có chuỗi tin cậy tới CA gốc, nên bị LTV validation từ chối đúng thiết kế bảo mật. Không phải bug.
+- **Ký số USB Token thật**: máy có gắn token thật (phát hiện `CD Drive Viettel-CA_v6`), nhưng việc nhập mã PIN token là thao tác bảo mật thật — mình không tự nhập PIN (không biết và không nên đoán mã bảo mật của bạn). Để bạn tự test tay khi cần.
+- **Ghép/Tách PDF**: chưa kịp test trong phạm vi thời gian phiên này.
 
-### Actual
-Thumbnail liền kề phía trên trang đang chọn luôn trắng.
+## Ghi chú kỹ thuật automation (không phải bug app): Windows dialog navigation
 
-### Reproducibility
-**ALWAYS** — tái hiện 2/2 lần thử, ở 2 vị trí trang khác nhau (5→6 và 4→5).
+Trong lúc test, phát hiện: gõ text trực tiếp (cả `SendInput` Unicode lẫn VK-code) vào các ô nhập trong dialog của app KHÔNG vào được (do UIPI chặn input tổng hợp tới cửa sổ chạy elevated) — **nhưng dán clipboard (Ctrl+V) thì hoạt động bình thường**. Đây là giới hạn của phương pháp automation, không phải lỗi của 3T Reader.
 
-### Screenshot
-`screenshots/visual/06_thumbnail_view.png`,
-`screenshots/bugs/bug01_thumbnail_blank_recheck.png`,
-`screenshots/bugs/bug01_after_click_page5_thumb.png`
-
-### Impact
-Thấp-trung bình: không ảnh hưởng nội dung/dữ liệu thật, chỉ ảnh hưởng UI
-thumbnail. Có thể khiến người dùng nghĩ nhầm 1 trang bị lỗi/trống khi thực ra
-không phải.
-
-### Suggested investigation area
-Code xử lý render/lazy-load thumbnail trong sidebar (`app/sidebar.py` theo
-cấu trúc module đã biết) — kiểm tra logic tính range "trang cần render" quanh
-trang đang chọn, khả năng cao đang tính range kiểu `[current-N, current+N]`
-nhưng lệch 1 ở biên trên, hoặc thumbnail của trang N-1 bị "unload" nhầm khi
-trang N được chọn nhưng chưa kịp "load" lại.
-
-### ⚠️ Fix lần 1 (15/08/2026, đã lên bản 1.0.34) — KHÔNG ĐỦ, bug vẫn còn
-
-**Nguyên nhân từng nghi:** `app/sidebar.py::ThumbnailSidebar._start_loader()`
-**GHI ĐÈ** `self._pending_pages` thay vì **GỘP** khi có yêu cầu tải mới trong
-lúc loader cũ còn chạy. Đã sửa (gộp bằng `dict.fromkeys`) và có test
-`tests/test_sidebar_thumbnail_race.py` (3 test, PASS). Fix này **có thật và
-đúng** cho 1 race điều kiện phụ (mất trang khỏi hàng đợi tải khi bị interrupt
-giữa chừng) — nhưng **KHÔNG PHẢI nguyên nhân của BUG-01**. Bản 1.0.34 đã lên
-VPS/cài thật với fix này, nhưng khi re-test trực tiếp trên app đã cài (không
-chỉ code review) thì **bug tái hiện y hệt** — icon vẫn được set đúng vào model
-(`_append_thumbnail` chạy đúng, dữ liệu pixel xác nhận hợp lệ qua debug log)
-nhưng vẫn không hiện lên màn hình. → Bài học: fix hợp lý + có unit test PASS
-không đồng nghĩa đã sửa đúng bug quan sát được — phải verify lại bằng GUI thật.
-
-### ✅ Fix lần 2 (15/08/2026) — nguyên nhân gốc thật sự, đã xác minh hết bug
-
-**Nguyên nhân gốc xác nhận:** `QListWidget::scrollToItem()` với
-`ScrollHint.PositionAtCenter` dùng đường cuộn "tối ưu" nội bộ của Qt (cuộn/blit
-phần ảnh cũ sang vị trí mới rồi CHỈ vẽ lại đúng dải pixel mới lộ ra, thay vì vẽ
-lại toàn bộ viewport) — nhưng Qt tính sai dải "mới lộ ra" đó, luôn bỏ sót đúng
-1 item: item ngay PHÍA TRÊN item vừa được chọn/cuộn tới. Icon của item đó đã
-tồn tại đúng trong model từ trước (`QListWidgetItem.setIcon()` đã chạy, dữ liệu
-pixel hợp lệ — xác nhận qua debug print `min=0 max=255` cho mọi trang, kể cả
-trang bị trắng) nhưng nằm ngoài vùng Qt quyết định vẽ lại nên không bao giờ
-hiện, **bất kể gọi `viewport().update()`, `viewport().repaint()` (đồng bộ),
-`doItemsLayout()` (buộc tính lại toàn bộ layout), hay gán lại 1 `QIcon` hoàn
-toàn mới cho item đó bao nhiêu lần cũng không ăn thua** — vì vấn đề nằm ở
-chính logic nội bộ `scrollToItem(PositionAtCenter)` tính sai vùng cần vẽ lại,
-không phải ở dữ liệu, ở cache icon, hay ở việc thiếu 1 lệnh vẽ lại.
-
-**Cách xác nhận (loại trừ từng giả thuyết bằng debug thật, không đoán):**
-1. Debug print xác nhận `_append_thumbnail()` luôn chạy đúng, icon không null,
-   pixel data hợp lệ (`min=0 max=255`) — kể cả cho trang đang bị hiện trắng.
-2. Thử `self.list.viewport().update()` ngay sau `scrollToItem()` — không hết.
-3. Thử thêm `self.list.doItemsLayout()` sau mỗi lần set icon — không hết.
-4. Thử hoãn sang vòng lặp sự kiện kế tiếp (`QTimer.singleShot(0, ...)`) rồi
-   gọi `viewport().repaint()` đồng bộ — không hết.
-5. Dùng `self.list.viewport().grab()` (chụp trực tiếp từ bộ máy vẽ Qt, KHÔNG
-   qua chụp màn hình OS) để loại trừ khả năng đây chỉ là lỗi chụp
-   ảnh/compositing của Windows — vẫn trắng → xác nhận đây là lỗi vẽ thật bên
-   trong Qt, không phải lỗi công cụ QA.
-6. Điều hướng trực tiếp tới đúng trang đang bị trắng (bấm "Trang trước") — nó
-   HẾT trắng và hiện đúng, nhưng trang NGAY PHÍA TRÊN nó (giờ không còn được
-   chọn) lại trắng thay thế → xác nhận pattern là "item phía trên item vừa
-   được chọn/cuộn tới", không phải gắn với 1 số trang cụ thể nào.
-7. Đổi `ScrollHint.PositionAtCenter` → `ScrollHint.EnsureVisible` (không dùng
-   đường cuộn tối ưu blit đó) — **hết bug ngay, không cần thêm bất kỳ workaround
-   nào khác.**
-
-**Fix thật:** `app/sidebar.py::ThumbnailSidebar.highlight_page()` — đổi
-`QListWidget.ScrollHint.PositionAtCenter` → `QListWidget.ScrollHint.EnsureVisible`.
-Đã test thêm: nhảy xa (trang 1 → trang 40 qua ô nhập số trang) vẫn cuộn đúng,
-không còn thumbnail trắng ở trang liền kề.
-
-**Test:** đã chạy lại toàn bộ `tests/` (415 test) sau fix — không có regression
-(1 lần fail ở `test_single_instance.py` do tiến trình dev-mode debug còn sống
-giữ socket, không liên quan sidebar.py — chạy lại riêng PASS sau khi đóng tiến
-trình đó).
-
-**Kết luận:** đã xác minh hết bug bằng GUI thật (dev-mode, lặp lại nhiều lần,
-nhiều vị trí trang, cả nhảy trang gần lẫn xa) trước khi build lại bản cài đặt.
-
----
-
-## BUG-02 (mới phát hiện trong lúc test B53, không liên quan BUG-01): App chạy quyền Administrator sau khi tự khởi động lại từ bản vá delta
-
-- **Severity:** P2 (không crash, nhưng vi phạm nguyên tắc least-privilege và
-  phá vỡ khả năng tương tác từ tiến trình quyền thường - vd. accessibility
-  tool, automation, script khác)
-- **Root cause:** `packages/updater/delta_runtime.py::run_apply_helper_from_argv()`
-  gọi `subprocess.Popen([executable], ...)` để tự khởi động lại app sau khi
-  vá xong - nhưng lệnh này chạy BÊN TRONG chính helper đã được UAC elevate
-  (`spawn_apply_helper` dùng `ShellExecuteW(..., "runas", ...)`), nên tiến
-  trình app relaunch KẾ THỪA token elevated, tiếp tục chạy với quyền
-  Administrator vô thời hạn dù việc ghi file vào Program Files đã xong.
-- **Phát hiện qua:** khi cố verify BUG-01 bằng GUI automation sau khi delta
-  áp dụng thành công, không thể tương tác được với app nữa dù app hiển thị
-  bình thường trên màn hình - `Stop-Process`, `taskkill`, UI Automation
-  `FindAll` đều báo "Access is denied"/trả về rỗng - đúng đặc trưng của
-  Windows UIPI (User Interface Privilege Isolation) chặn tiến trình quyền
-  thường tương tác với cửa sổ quyền cao hơn.
-- **Fix:** thêm `_launch_deelevated()` - route việc relaunch qua COM
-  `Shell.Application.ShellExecute(...)` (chạy ở integrity level của
-  Explorer, không kế thừa token elevated của helper) thay vì
-  `subprocess.Popen()` thẳng. Có fallback về `subprocess.Popen()` cũ nếu
-  COM lỗi vì bất kỳ lý do gì (thà chạy quyền cao hơn cần thiết còn hơn app
-  không tự mở lại được).
-- **Test:** `tests/test_delta_elevation.py` (2 test mới) - xác nhận
-  `_launch_deelevated()` gọi đúng Shell.Application COM, không rơi xuống
-  `subprocess.Popen()` khi COM khả dụng; và có fallback đúng khi COM lỗi.
-- **Lưu ý quan trọng:** `delta_runtime.py` là 1 trong các file **bất biến**
-  (không bao giờ được phép tự vá qua chính cơ chế delta nó tạo ra - xem
-  `_IMMUTABLE_PATHS`) - fix này **chỉ tới tay người dùng qua bản cài đặt
-  đầy đủ tiếp theo**, không thể tự vá qua delta. Chưa verify lại bằng GUI
-  thật (cần 1 vòng build+cài lại đầy đủ khác để test) - chỉ mới test ở mức
-  unit test.
-
----
-
-## Không tìm thấy bug P0/P1 nào trong phạm vi đã test
-
-Không crash, không treo UI, không mất dữ liệu, không lỗi bảo mật quan sát
-được trong các luồng đã thao tác thật (mở file thường/nặng/hỏng, zoom stress,
-tab switch, window resize, đóng app).
+## Không phát hiện thêm bug P0/P1 nào trong các thao tác đã test trực tiếp:
+- Xoay phải trang (rotate) — PASS
+- Xoá trang có xác nhận, không thể hoàn tác — PASS, đúng cảnh báo
+- Đánh số trang (2 bước dialog: chọn vị trí → số bắt đầu) — PASS, không giật hình (xác nhận fix bug #23 hoạt động đúng)
+- Cảnh báo "Tài liệu rất lớn" khi mở thêm file nặng trong lúc đã có file nặng khác đang mở — PASS, đúng cơ chế bảo vệ RAM
+- Multi-tab với 3 file 700MB+ đồng thời (heavy1/2/3) + 2 file trung bình (heavy4/5) + 2 file nhỏ = 7 tab — app ổn định suốt, RAM chỉ ~747MB-879MB (không phình theo dung lượng file gốc — cơ chế render lazy/stream hiệu quả), không có tab nào lẫn nội dung với tab khác

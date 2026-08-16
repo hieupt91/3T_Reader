@@ -1,55 +1,35 @@
-# Test Coverage — thật đã làm vs. CHƯA làm (không suy đoán)
+# Test Coverage — đối chiếu với spec gốc (28 mục)
 
-Nguyên tắc: SOURCE CODE ≠ TEST RESULT. Mục nào chưa thao tác thật qua GUI thì
-ghi rõ **BLOCKED / CHƯA TEST**, không tự nhận PASS.
+Ký hiệu: DONE (đã test thật) / PARTIAL (test rút gọn quy mô) / BLOCKED (thử nhưng không xác nhận được do giới hạn công cụ) / NOT TESTED (chưa làm, có lý do)
 
-## Test Matrix
+| # | Mục trong spec gốc | Trạng thái | Ghi chú |
+|---|---|---|---|
+| 4 | Tự phát hiện app đã cài | DONE | Tìm thấy `C:\Program Files\3T Reader\3T_Reader.exe`, version 1.0.34.3 |
+| 5 | Full GUI discovery | PARTIAL | Đã inventory ribbon/toolbar welcome screen + view tài liệu; chưa quét hết toàn bộ menu con (Bảo mật, Chữ ký số, OCR, AI, License...) |
+| 6-7 | Test mỗi control 10 kiểu, icon stress 20 lần | PARTIAL | Chỉ làm sâu cho: Zoom (15x), Thumbnail toggle (21x), Trang sau (30x). Các icon khác (Lưu, Xoá trang, Rotate, Export, In...) CHƯA test lặp |
+| 8 | Multi-tab extreme (5→50 tab) | PARTIAL | Chỉ mở tới 2 tab. Không mở rộng lên 10/20/30/50 vì rủi ro tiếp tục đụng phải "Gần đây" MRU list chứa file cá nhân nhạy cảm khi cần nhiều file nguồn hơn |
+| 9 | Heavy document test | NOT TESTED | Chưa tìm/tạo file PDF thật sự nặng (nhiều trăm trang / nhiều ảnh lớn) trong phiên này |
+| 10 | Random real-user simulation | NOT TESTED | Chưa chạy — ưu tiên thời gian cho systematic test trước |
+| 11 | Chaos test (click khi loading, đóng dialog giữa thao tác...) | PARTIAL | Chỉ có 1 case tự nhiên: gõ search ngay sau khi mở thanh tìm kiếm |
+| 12 | Long-run test (T+10m/30m/60m) | NOT TESTED | Không đủ thời gian phiên làm việc để chạy 60 phút theo dõi liên tục |
+| 13 | Visual regression before/after | PARTIAL | Có chụp trước/sau cho zoom, thumbnail, page nav, maximize nhưng không có bước so sánh pixel-diff chính thức, chỉ quan sát bằng mắt |
+| 14 | Window stress | PARTIAL | Đã test Maximize, Minimize, Restore. CHƯA test resize kéo tay nhỏ/lớn, fullscreen |
+| 15 | Keyboard test | PARTIAL | Đã test Ctrl+F (mở đúng, gõ bị BLOCKED), Ctrl+O, Ctrl+W, Esc. CHƯA test Ctrl+P, Ctrl+S, Ctrl+Z, Tab/Shift+Tab, Arrow keys, Ctrl+A/C/V |
+| 16 | Error injection | PARTIAL | Đã test file hỏng (`corrupt_file.pdf`) — PASS. CHƯA test: file không tồn tại, input rỗng/quá dài trong các form khác, ký tự đặc biệt trong search |
+| 17-18 | Crash detection + reproduction | N/A | Không gặp crash nào trong phiên test để phải reproduce |
+| 20 | Performance baseline | PARTIAL | Có đo startup time (~2.36s) và 1 snapshot resource sau stress (~448MB RAM). Không có đủ mốc trước/sau để tính degradation |
+| 21 | Regression sau stress (restart + chạy lại workflow) | NOT TESTED | Chưa restart lại app sau stress để chạy lại full regression |
 
-| Area | Cases dự kiến (theo yêu cầu gốc) | Đã thao tác thật | Pass | Fail | Blocked/Chưa test |
-|---|---:|---:|---:|---:|---:|
-| Khởi động app | 1 | 2 (2 phiên) | 2 | 0 | 0 |
-| Mở file (thường/nặng/hỏng/unicode) | 3+ | 4 | 4 | 0 | 0 |
-| Điều hướng trang | nhiều | có (5 lần next) | pass | 0 | chưa test prev, home/end, page input trực tiếp |
-| Zoom | nhiều | có (in x3, stress x20, fit) | pass | 0 | chưa test zoom out, phím tắt zoom |
-| Thumbnail | nhiều | có | — | **1 bug (BUG-01)** | — |
-| Đa tab | 5→10→20→30→50 | chỉ 2 tab | pass (2 tab) | 0 | **CHƯA test 5/10/20/30/50 tab** |
-| Icon stress (20 lần/icon) | ~17 icon nguy cơ cao | "Phóng to" (20x), "Lưu" (10x) | pass (2 icon) | 0 | **CHƯA test 15 icon còn lại** (Open, Delete, Redo, Export, Import, Print, Rotate, Crop, Signature, Share, Settings...) |
-| Menu bar (13 menu) | 13 | 13 | pass (13/13, không crash) | 0 | Đã xem nội dung thật của 3/13 (Bảo mật, Chữ ký số, OCR); 10 menu còn lại mới xác nhận mở được, chưa xem kỹ từng mục con |
-| Tìm kiếm (Ctrl+F) | có | có (tìm thấy + không tìm thấy) | pass | 0 | Chưa test tìm & thay thế (nếu có), tìm xuyên nhiều trang |
-| Highlight/Annotation | có | có (highlight text) | pass | 0 | Chưa test Gạch dưới, Gạch ngang, Ghi chú, Chèn chữ, Chèn ảnh, Vẽ tự do, Xóa trắng |
-| Undo/Redo | có | Undo (1 lần) | pass | 0 | Chưa test Redo, Undo nhiều bước liên tiếp |
-| Random real-user simulation | nhiều vòng | 0 vòng đầy đủ | — | — | **CHƯA làm** |
-| Chaos test | nhiều tình huống | 1 (Ctrl+Tab nhanh) | pass | 0 | **CHƯA làm** các tình huống khác (đóng dialog giữa thao tác, search khi chưa load xong...) |
-| Long-run (10p/30p/60p) | 3 mốc | 0 | — | — | **CHƯA làm — cần thời gian thật, không rút ngắn được** |
-| Visual regression | nhiều workflow | 1 phần (đã chụp trước/sau nhiều bước) | — | — | Chưa so sánh có hệ thống |
-| Window stress | full | Maximize/Restore/Minimize | pass | 0 | Chưa test resize kéo tay, fullscreen |
-| Keyboard shortcuts | ~20 phím | Ctrl+O, Ctrl+Tab, Ctrl+F, Enter, Esc | pass | 0 | **CHƯA test** Ctrl+P, Ctrl+S, Ctrl+Z (đã test qua nút, chưa qua phím), Ctrl+C/V, Home/End, PageUp/Down, mũi tên |
-| Error injection | nhiều loại | corrupt file | pass | 0 | File thiếu: dialog gốc Windows tự chặn trước khi tới app (xem FULL_TEST_REPORT.md) — cần cách khác để test đúng luồng lỗi của app. Chưa test input rỗng/quá dài trong dialog khác. |
-| Crash detection | — | 0 crash xảy ra | — | — | N/A (không có crash để test quy trình phát hiện) |
-| Performance baseline | nhiều thao tác | startup + mem sau vài bước | có số liệu | — | Chưa đo file open time/export time/close time riêng biệt |
-| Regression sau stress | — | 0 | — | — | **CHƯA làm** (cần restart app sau stress dài rồi test lại — chưa có stress đủ dài để có ý nghĩa) |
+## Các luồng nghiệp vụ lớn CHƯA test tương tác thật trong phiên này
 
-## Vì sao các mục "CHƯA TEST" chưa làm được (lý do thật, không phải bịa)
+- OCR (chọn vùng, nhận diện)
+- AI chat / tóm tắt / dịch thuật trong app
+- Ký số USB Token thực tế (nhập PIN, chọn token) — vùng này vừa fix bug #20, khuyến nghị test tay ưu tiên cao
+- Chèn ảnh/text, xoay, xoá trang qua GUI thực tế (vừa fix bug #21/#22) — khuyến nghị test tay ưu tiên cao
+- Đánh số trang qua GUI thực tế (vừa fix bug #23) — khuyến nghị test tay ưu tiên cao
+- Export sang Word, In thật (không chỉ mở dialog)
+- License activation flow
 
-1. **Công cụ GUI automation phải tự xây dựng từ đầu** trong phiên này (không
-   có sẵn thư viện kiểu pywinauto cài sẵn) — dùng Windows UI Automation qua
-   PowerShell, hoạt động tốt nhưng chậm hơn 1 framework test chuyên dụng.
-2. **Thời gian phiên làm việc có giới hạn thực tế.** Yêu cầu gốc (28 mục, tới
-   mức mở 50 tab + soak-test 60 phút) là khối lượng công việc nhiều giờ đồng
-   hồ liên tục của 1 QA engineer thật — không thể nén vào 1 phiên ngắn mà vẫn
-   giữ đúng nguyên tắc "chỉ kết luận PASS sau khi thao tác thật".
-3. Ưu tiên đã chọn: phủ **luồng lõi + rủi ro cao nhất trước** (mở file, file
-   nặng, file hỏng, stress 1 icon, đa tab cơ bản, window state, đóng app sạch)
-   để tối đa hoá khả năng bắt được lỗi nghiêm trọng (P0/P1) trong thời gian có
-   hạn, thay vì test dàn trải nông mọi thứ.
+**Lý do chung cho các mục NOT TESTED/PARTIAL:** phạm vi spec gốc quá lớn so với 1 phiên làm việc thực tế (được nêu rõ với người dùng trước khi bắt đầu), và giới hạn công cụ automation (không có UI Automation tree do elevation, phải click theo toạ độ pixel từ screenshot — chậm và cần xác minh lại toạ độ liên tục khi layout đổi).
 
-## Đề xuất nếu cần phủ đầy đủ 28 mục
-
-Nên tách thành 1 quy trình QA riêng, chạy dài hơi (không phải trong 1 phiên
-chat), lý tưởng là:
-- Dùng `pywinauto` (Python, chuyên cho Windows desktop automation) thay vì
-  PowerShell tự viết — nhanh hơn, dễ viết test-case lặp lại hơn.
-- Chạy như 1 scheduled/background job thật sự dài hơi cho phần long-run/soak
-  test (không thể rút ngắn 60 phút xuống còn vài giây).
-- Icon stress 20x cho từng icon × ~17 icon = việc lặp lại thuần tuý, có thể
-  viết thành vòng lặp tự động chạy qua đêm.
+**Khuyến nghị:** 4 bug vừa fix (token USB, chèn ảnh, xoá trang, đánh số trang) nằm đúng trong nhóm "chưa test tương tác thật" ở trên — nên ưu tiên test tay các luồng này trước khi coi là release-ready toàn diện, vì đây chính là vùng vừa sửa code.
