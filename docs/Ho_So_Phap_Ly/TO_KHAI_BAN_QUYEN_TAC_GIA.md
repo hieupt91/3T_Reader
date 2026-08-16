@@ -14,14 +14,14 @@ Kính gửi: **Cục Bản quyền tác giả**
 - Họ và tên: PHẠM TRUNG HIẾU
 - Ngày sinh: 21/08/1991       Quốc tịch: Việt Nam
 - CCCD/CMND số: 044091002401  Ngày cấp: 18/01/2022 Nơi cấp: Cục Cảnh sát QLHC về TTXH
-- Địa chỉ: Tổ Dân Phố 2, phường Quảng Phong, thị xã Ba Đồn, tỉnh Quảng Bình
+- Địa chỉ: Tổ dân phố 2, phường Ba Đồn, tỉnh Quảng Trị
 - Địa chỉ liên hệ: Tổ dân phố 2, phường Ba Đồn, tỉnh Quảng Trị
 - Bút danh (nếu có): Không
 
 **3. Chủ sở hữu quyền tác giả:**
 - Tên cá nhân: PHẠM TRUNG HIẾU
 - Số CCCD: 044091002401       Ngày cấp: 18/01/2022 Nơi cấp: Cục Cảnh sát QLHC về TTXH
-- Địa chỉ: Tổ Dân Phố 2, phường Quảng Phong, thị xã Ba Đồn, tỉnh Quảng Bình
+- Địa chỉ: Tổ dân phố 2, phường Ba Đồn, tỉnh Quảng Trị
 - Số điện thoại: 0967136099 Email: hieupt.qb@gmail.com
 
 **4. Căn cứ phát sinh quyền sở hữu:**
@@ -37,7 +37,7 @@ Kính gửi: **Cục Bản quyền tác giả**
 [ ] Chưa công bố
 [x] Đã công bố
 - Ngày công bố: [Ngày công bố chính thức]
-- Nơi công bố: [Website/Cửa hàng ứng dụng, VD: reader.3tcomputer.com]
+- Nơi công bố: reader.3tcomputer.com
 - Hình thức: Phát hành phần mềm trực tuyến
 
 **7. Đặc điểm chính của tác phẩm:**
@@ -55,4 +55,4 @@ Kính gửi: **Cục Bản quyền tác giả**
 Tôi/Chúng tôi xin cam đoan những lời khai trên là đúng sự thật, tác phẩm do chúng tôi tự sáng tạo, không sao chép vi phạm bản quyền của người khác. Chúng tôi xin chịu hoàn toàn trách nhiệm trước pháp luật về những lời khai này.
 
 *Hà Nội, ngày......tháng......năm......*
-**(Ký, ghi rõ họ tên và đóng dấu Công ty)**
+**(Ký, ghi rõ họ tên)**

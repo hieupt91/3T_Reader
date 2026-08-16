@@ -15,7 +15,7 @@ Kính gửi: **Cục Sở hữu trí tuệ**
 
 **2. NGƯỜI NỘP ĐƠN (CHỦ ĐƠN)**
 - Tên Cá nhân: PHẠM TRUNG HIẾU
-- Địa chỉ thường trú: Tổ Dân Phố 2, phường Quảng Phong, thị xã Ba Đồn, tỉnh Quảng Bình
+- Địa chỉ thường trú: Tổ dân phố 2, phường Ba Đồn, tỉnh Quảng Trị
 - Địa chỉ liên hệ: Tổ dân phố 2, phường Ba Đồn, tỉnh Quảng Trị
 - Điện thoại: 0967136099      Email: hieupt.qb@gmail.com
 - Số CCCD: 044091002401  Cấp ngày: 18/01/2022 Nơi cấp: Cục Cảnh sát QLHC về TTXH
@@ -52,5 +52,5 @@ Dịch vụ cung cấp phần mềm như một dịch vụ (SaaS) hỗ trợ đ�
 Tôi xin cam đoan các thông tin khai trong đơn là trung thực và hoàn toàn chịu trách nhiệm trước pháp luật.
 
 *Hà Nội, ngày......tháng......năm......*
-**CHỦ ĐƠN / NGƯỜI ĐẠI DIỆN CỦA CHỦ ĐƠN**
-*(Ký, ghi rõ họ tên, chức vụ và đóng dấu Công ty)*
+**CHỦ ĐƠN**
+*(Ký, ghi rõ họ tên)*

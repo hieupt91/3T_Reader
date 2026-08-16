@@ -35,7 +35,6 @@ Bên A vẫn giữ lại 100% quyền sở hữu trí tuệ, quyền tác giả 
 
 **Điều 3: Phí ủy quyền và Phân chia doanh thu**
 Việc ủy quyền này là **Ủy quyền không thu phí (0 VNĐ)**. Toàn bộ doanh thu từ việc bán phần mềm sẽ được tính vào doanh thu hợp pháp của Bên B (Công ty 3T) để duy trì hoạt động và chi trả chi phí vận hành máy chủ, lương nhân sự. Bên A không nhận tiền thù lao từ hợp đồng này.
-*(Lưu ý: Viết như vậy để cá nhân anh Hiếu không bị cơ quan Thuế thu Thuế thu nhập cá nhân 5% từ tiền bản quyền).*
 
 **Điều 4: Thời hạn ủy quyền**
 Hợp đồng này có hiệu lực kể từ ngày ký và kéo dài trong thời gian 05 năm. Hợp đồng tự động gia hạn nếu các bên không có ý kiến khác.
